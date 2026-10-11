@@ -2,7 +2,7 @@
 
 Clash Pseudo 是 **MonadBox Lab** 计划基于 mihomo 开发的跨平台网络接管应用，注重轻量、启动速度、后台可靠性和界面体验。
 
-当前应用仅显示 Hello World，尚未接入 mihomo，不能用于网络接管。
+当前处于 Android 原生接入阶段：可通过 debug 验证页运行受控网络测试；Flutter 入口仍为 Hello World，配置导入和正式接管界面尚未实现。
 
 ## 产品与设计
 
@@ -12,7 +12,7 @@ Clash Pseudo 是 **MonadBox Lab** 计划基于 mihomo 开发的跨平台网络�
 
 ## 源码与发布
 
-源码与反馈：[MonadBoxLab/ClashPseudo](https://github.com/MonadBoxLab/ClashPseudo)。计划通过 GitHub Releases 分发，Android 可通过 [Obtainium](https://github.com/ImranR98/Obtainium) 跟踪更新。开源许可与依赖许可仍需核对。
+源码与反馈：[MonadBoxLab/ClashPseudo](https://github.com/MonadBoxLab/ClashPseudo)。计划通过 GitHub Releases 分发，Android 可通过 [Obtainium](https://github.com/ImranR98/Obtainium) 跟踪更新。许可事项见 [NOTICE](NOTICE.md)。
 
 ## 开发
 
@@ -20,6 +20,8 @@ Clash Pseudo 是 **MonadBox Lab** 计划基于 mihomo 开发的跨平台网络�
 - Android 模拟器在局域网另一台机器运行，通过现有 ADB 服务连接；以 `adb devices -l` 核对实际设备，不依赖固定序列号。
 - Windows 使用独立 Windows 虚拟机，macOS 在 Mac 上构建。各系统使用独立 Git 工作区，不共享构建目录或生成产物。
 - 工具链要求以现有 Flutter SDK、[pubspec.yaml](pubspec.yaml) 和 [Android 工程配置](android/settings.gradle.kts) 为准；不单独升级工具或平台插件。
+- Android 原生构建使用 Linux x86_64 宿主、Bash、Go 1.27.1 和 NDK 28.2.13676358。Gradle 管理任务与输入输出，Bash 编排两种 ABI 的原生编译。
+- 受控网络测试端使用 Python 3 标准库，仅设备验证时需要，不参与应用构建。原生职责、专属测试命令和设备操作见 [Android 原生接入](docs/android-native-integration.md)。
 
 在仓库根目录执行：
 
@@ -30,6 +32,7 @@ dart format --output=none --set-exit-if-changed lib test
 flutter analyze
 flutter test
 flutter build apk --debug --target-platform android-arm64,android-x64
+flutter build apk --release --target-platform android-arm64,android-x64
 ```
 
 Android debug APK 位于 `build/app/outputs/flutter-apk/app-debug.apk`。Windows/macOS 在对应系统运行 `flutter build windows` / `flutter build macos`；保留工程不表示这些平台已经通过构建或运行验收。

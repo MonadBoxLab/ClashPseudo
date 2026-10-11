@@ -1,0 +1,18 @@
+mode: rule
+log-level: info
+ipv6: false
+allow-lan: false
+find-process-mode: off
+profile:
+  store-selected: false
+  store-fake-ip: false
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: redir-host
+  use-hosts: false
+  use-system-hosts: false
+  nameserver: ["udp://@HOST@:@DNS@"]
+  default-nameserver: ["@HOST@:@DNS@"]
+  fallback-filter:
+    geoip: false
