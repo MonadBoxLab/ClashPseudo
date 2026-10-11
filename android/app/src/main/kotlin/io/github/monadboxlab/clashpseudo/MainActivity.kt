@@ -1,4 +1,4 @@
-package com.example.hello_flutter
+package io.github.monadboxlab.clashpseudo
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -5,10 +5,10 @@
 // 'flutter create' template.
 
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = hello_flutter
+PRODUCT_NAME = Clash Pseudo
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.example.helloFlutter
+PRODUCT_BUNDLE_IDENTIFIER = io.github.monadboxlab.clashpseudo
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 com.example. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 MonadBox Lab. All rights reserved.
