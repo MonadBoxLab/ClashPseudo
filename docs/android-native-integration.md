@@ -1,6 +1,17 @@
 # Android 原生接入
 
-产品规则见 [产品需求](product-requirements.md)。本模块负责 Android VPN 与 mihomo 的资源交接；应用业务和 Flutter 界面在其上接入。
+产品规则见 [产品需求](product-requirements.md)。Flutter 展示、Dart 协调配置业务、Kotlin 持有平台生命周期，mihomo 负责网络处理。
+
+## 应用宿主与配置存储
+
+- [MainActivity](../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/MainActivity.kt) 持有 UI Engine，实际销毁时释放；普通暂停及授权弹窗不销毁 Engine。
+- [AppWorkService](../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/app/AppWorkService.kt) 是按需 `dataSync` 前台服务，与 UI 共用 Application 的 `FlutterEngineGroup`，持有一个无 UI 业务 Engine。入口为保留 AOT 标记的 `appBackgroundMain`；没有 `runApp`，不注册平台插件。业务完成后释放 Engine、通知与服务；VPN 单独运行不保留业务 Engine。Flutter VM 的进程级资源不等同于 Engine，不承诺释放 Engine 后内存回到首次加载前。
+- [AppBridge](../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/app/AppBridge.kt) 串行受理命令，以操作 ID 区分受理与最终结果，分别为两个 Engine 接线。UI 重开只查询，不重发任务；权限结果按请求标识匹配，迟到结果不能结束后续操作。工作服务及 VPN 均为 `START_NOT_STICKY`，进程结束不自动续跑。
+- [Dart 配置业务](../lib/features/configs/config_actions.dart) 下载、保存并协调启停。下载上限为 16 MiB、总时限 30 秒、最多 5 次重定向；手动检查每跳 HTTP 风险，不跨来源转发 Basic 凭据，不绕过 TLS 验证。实际配置语义只在内核启动时判定。
+- [配置存储](../lib/features/configs/config_store.dart) 是单写入者的版本化 JSON，以同目录临时文件 flush 后 rename 提交。保存于 `filesDir/configurations/configurations.json`；更新前先持久化旧正文失效状态；最初写入失败则不下载，停止当前项的接管并明确报告旧记录未修改。损坏存储报错，不覆盖为空列表。
+- [AppFiles](../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/app/AppFiles.kt) 把内核资源放在 `noBackupFilesDir/mihomo`，运行输入放在 `noBackupFilesDir/work/run-input.yaml`。正文不放入 Intent；运行输入用完删除，不作为历史副本。
+
+系统备份规则只允许已提交的 `configurations.json`，不包含其 `.tmp`、缓存或运行输入。版本保护规则见 [产品需求](product-requirements.md#系统备份与恢复)。恢复数据的读取与正常存储走同一代码，实际状态仍查询平台。规则检查不等于真实云备份／跨设备恢复验收。
 
 ## 职责与调用顺序
 
@@ -19,7 +30,7 @@
 | TUN FD | `detachFd()` 前由 Kotlin 持有；交给 JNI 后，成功和失败均由 native 处置，Kotlin 不重复关闭 |
 | socket hook | 进程内安装一次，通过原子引用切换当前会话；回调直接调用 `VpnService.protect()` |
 | JNI 回调对象 | 会话持有 global reference；每次调用另持 local reference，避免停止时对象失效 |
-| provider | 停止时调用 `Close()` 取消任务；上游取消不是同步等待，需用在途请求和周期请求测试核对 |
+| provider | 停止时调用 `Close()` 取消任务，并显式关闭其当前节点；节点与主配置共享时由上游 once-only 包装防止重复关闭。上游取消不是同步等待，在途解析／更新仍有迟到替换节点的边界，不承诺所有后台任务已同步退出 |
 
 停止释放会话资源，保留 Go runtime 和 mihomo 的进程级统计任务。
 
@@ -36,6 +47,7 @@ GOTOOLCHAIN=local go -C native/mihomo test ./...
 GOTOOLCHAIN=local go -C native/mihomo vet ./...
 ./android/gradlew -p android :app:testDebugUnitTest
 python3 -I tool/native_fixture.py --self-test
+python3 -I -m unittest discover -s tool/tests -v
 ```
 
 另行运行竞态检测：
@@ -67,7 +79,26 @@ adb -s "$SERIAL" shell am instrument -w -r \
 adb -s "$SERIAL" logcat -d -s NativeCoreFailureTest:I '*:S'
 ```
 
-核对 runner 的测试结果，不只看 shell 返回码。每条路径在同一进程重复三轮；日志记录 PID、停止后的 FD 数和测试线程数，用于检查增长趋势。
+核对 runner 的测试结果，不只看 shell 返回码。每条路径在同一进程重复三轮；日志记录 PID、停止后的 FD 数和测试线程数，用于检查增长趋势。[AppBridgeResultTest](../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/app/AppBridgeResultTest.kt) 另覆盖迟到授权回调、旧操作结果及过期成功反馈；去掉上述 `-e class ...` 可运行所有设备测试。
+
+[AuthorizationRecreationTest](../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/app/AuthorizationRecreationTest.kt) 实际启动并重建 Activity，再取消系统授权，核对原请求只结束一次。需先在系统 VPN 设置中撤销本应用授权；已有授权时该用例会跳过，不能把跳过报告为通过。当前按钮查找使用英文设备的 `CANCEL`，其他语言需相应适配。测试不自动更改系统授权。
+
+### 正式界面闭环
+
+测试端实现按职责位于 [tool/native_fixture/](../tool/native_fixture/)，命令入口与 `--self-test` 保持稳定。正式 MainActivity 的导入框可输入 `http://<HOST>:18880/config`，确认 HTTP 风险后保存。端点只使用受控测试数据：
+
+| 路径 | 场景 |
+| --- | --- |
+| `/config`、`/direct` | 完整配置，分别按规则代理 HTTP 或直连 |
+| `/slow-config` | 延迟 8 秒，用于离开 UI 后继续执行及重开查询 |
+| `/redirect` | 相对重定向到完整配置 |
+| `/update` | 每次请求返回不同修订注释，用于同 URL 覆盖 |
+| `/update-fails` | 第一次成功，后续 HTTP 503；重启 fixture 重置计数 |
+| `/invalid`、`/empty`、不存在的路径 | 分别为不可解析正文、空正文、HTTP 404 |
+
+首次导入应选中但不启动，重复来源先确认覆盖。运行中切换到 `/invalid` 后应停旧、报错并保持停止；候选更新失败不能打断当前运行。当前项更新失败后禁止再用旧正文启动。离开并重开延迟下载时，以测试端请求数和 `PseudoWork` 的 operation ID 核对没有重发；结束后 `dumpsys activity services` 不应残留 `AppWorkService`。
+
+授权需分别验证取消、同意及 Activity 重建；等待超时后旧授权结果不能完成新的请求。普通返回不等于 force-stop，异常进程结束应单列。release/AOT 也要实际导入、启动、离开重开与停止，不能用 debug 或编译结果替代。正式入口启动的 debug VPN 可用下述验证页仅发起流量检查，不再点击该页的启动按钮。
 
 ### 实际 VPN 接管
 
@@ -105,8 +136,12 @@ adb -s "$SERIAL" shell am start \
 
 ## 当前边界
 
-当前使用 `system` 栈、IPv4 全路由与 DNS 接管，IPv6 由 Android VPN 策略阻断。入口只接受随包受控配置，provider 加载失败是否继续遵循 mihomo 行为。
+当前使用 `system` 栈、IPv4 全路由与 DNS 接管，IPv6 由 Android VPN 策略阻断。正式入口支持远程完整配置；provider 加载失败是否继续遵循 mihomo 行为，不另建完整预校验。
 
-已知的配置失败限制：[WireGuard 构造函数](https://github.com/MetaCubeX/mihomo/blob/88dcbf7f1614a67c3b36b848ee3592dfa92ada36/adapter/outbound/wireguard.go#L467-L507) 可先创建协程，再因远程 DNS 参数解析失败返回，缺少相应关闭。当前测试配置未启用 WireGuard；开放该配置路径前需解决资源回收。
+[平台字段管理](../native/mihomo/internal/engine/platform.go) 只修改解码后的运行副本：应用关闭配置指定的端口、controller、额外 listener/server、DNS 外部监听、UI 下载及系统级操作，保留节点、组和规则。HTTP provider 的自定义缓存路径被移除，file provider 路径限制在内核资源目录并检查符号链接。Android 原生 logrus 输出被关闭，正式错误出口只给安全的阶段消息，不将原始来源／凭据写入 logcat；当前不提供完整内核日志诊断。
+
+**信任模型**：信任用户选择的完整配置来源、provider 及后续更新，只使用可信来源。上述平台字段、provider 路径和隐私保护继续适用，但不把恶意完整配置当作不可信程序进行严格文件沙箱隔离。`cmfa` 会跳过上游 `IsSafePath` 检查，SSH 私钥、TLS 证书等节点内部文件引用不受 provider 路径限制完整覆盖，动态 provider 也存在这些入口；这不意味着突破 Android 应用沙箱。完整文件隔离不属于当前产品承诺，不为此增加预校验、协议扫描器、独立进程或内核 fork。
+
+已知的配置失败限制：[WireGuard 构造函数](https://github.com/MetaCubeX/mihomo/blob/88dcbf7f1614a67c3b36b848ee3592dfa92ada36/adapter/outbound/wireguard.go#L467-L507) 可先创建协程，再因远程 DNS 参数解析失败返回，缺少相应关闭。此资源问题尚未解决，也未用协议白名单或启动前验证掩盖。另有 [provider 节点清理回归](../native/mihomo/internal/engine/provider_cleanup_test.go) 验证成功构造的 inline WireGuard 节点在反复停止后退出 worker；它不覆盖上述构造中途失败或全部协议。
 
 arm64 真机、最低 API、16 KB 设备和长期后台行为需要对应设备验收；具体测试结果记录在验收汇报中。许可与来源见 [NOTICE](../NOTICE.md)。

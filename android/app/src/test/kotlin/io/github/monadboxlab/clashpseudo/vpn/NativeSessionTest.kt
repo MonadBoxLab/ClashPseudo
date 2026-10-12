@@ -56,6 +56,33 @@ class NativeSessionTest {
         assertNotNull(session.begin())
     }
 
+    @Test fun identityTracksActualSessionAndClearsOnlyAfterConfirmedStop() {
+        val session = NativeSession()
+        val observed = mutableListOf<NativeSession.Snapshot>()
+        session.changed = { observed.add(session.snapshot()) }
+        val first = session.begin("first", 3)!!
+        session.attached(first)
+        assertEquals("first", session.snapshot().configId)
+        assertEquals(3, session.snapshot().revision)
+        session.stopping(first)
+        assertEquals("first", session.snapshot().configId)
+        session.finished(first, null)
+        assertNull(session.snapshot().configId)
+        assertNull(session.snapshot().revision)
+        val next = session.begin("second", 5)!!
+        session.finished(first, "late failure")
+        assertFalse(session.attached(first))
+        assertEquals("second", session.snapshot().configId)
+        session.stopping(next)
+        session.finished(next, "cleanup failed")
+        assertEquals("second", session.snapshot().configId)
+        assertEquals(5, session.snapshot().revision)
+        assertEquals(listOf(NativeSession.Phase.STARTING, NativeSession.Phase.RUNNING,
+            NativeSession.Phase.STOPPING, NativeSession.Phase.STOPPED,
+            NativeSession.Phase.STARTING, NativeSession.Phase.STOPPING,
+            NativeSession.Phase.UNKNOWN), observed.map { it.phase })
+    }
+
     @Test fun queryDoesNotStartAnything() {
         val session = NativeSession()
         repeat(3) {

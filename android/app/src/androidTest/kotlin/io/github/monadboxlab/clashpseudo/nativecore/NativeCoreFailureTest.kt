@@ -124,7 +124,10 @@ class NativeCoreFailureTest {
                     accepted.assertCalled()
                     assertTrue(snapshot().getLong("protected") > 0)
                     assertEquals(0L, snapshot().getLong("refused"))
-                    assertEquals(server.body, File(home, "provider.yaml").readText())
+                    assertFalse("Remote cache path must be ignored", File(home, "provider.yaml").exists())
+                    val expected = server.body.toByteArray(Charsets.UTF_8)
+                    assertEquals(1, home.walkTopDown().filter { it.isFile }
+                        .count { it.readBytes().contentEquals(expected) })
                 } finally {
                     stop()
                 }

@@ -1,20 +1,9 @@
 import 'package:flutter/material.dart';
 
-void main() {
-  runApp(const MyApp());
-}
+import 'app/app.dart';
+import 'app/background_entry.dart';
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+void main() => runApp(const ClashPseudoApp());
 
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Clash Pseudo',
-      home: Scaffold(
-        appBar: AppBar(title: const Text('Clash Pseudo')),
-        body: const Center(child: Text('Hello World')),
-      ),
-    );
-  }
-}
+@pragma('vm:entry-point')
+void appBackgroundMain() => runBackground();

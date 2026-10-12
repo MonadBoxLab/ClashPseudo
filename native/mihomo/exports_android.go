@@ -7,10 +7,18 @@ int native_protect(int fd);
 import "C"
 
 import (
+	"io"
 	"unsafe"
 
 	"clashpseudo/native/internal/engine"
+	"github.com/sirupsen/logrus"
 )
+
+func init() {
+	// Upstream messages can include provider URLs and credentials. Android UI
+	// reports operation stages; raw core output must not enter device logcat.
+	logrus.SetOutput(io.Discard)
+}
 
 var core engine.Engine
 

@@ -78,7 +78,7 @@ func TestProtectAndCancellation(t *testing.T) {
 func TestInvalidConfigDoesNotPreventNextStart(t *testing.T) {
 	var e Engine
 	home := t.TempDir()
-	for _, text := range []string{"[invalid yaml", "rules:\n  - UNKNOWN,invalid\n", "port: 7890\n", "tun:\n  enable: true\n"} {
+	for _, text := range []string{"[invalid yaml", "rules:\n  - UNKNOWN,invalid\n"} {
 		if err := e.Prepare(home, []byte(text), func(int) bool { return true }); err == nil {
 			t.Fatalf("accepted %q", text)
 		}

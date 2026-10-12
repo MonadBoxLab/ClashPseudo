@@ -77,7 +77,7 @@ func (e *Engine) Prepare(home string, body []byte, protect func(int) bool) error
 	if err != nil {
 		return err
 	}
-	if err = checkBoundary(raw); err != nil {
+	if err = configurePlatform(raw, home); err != nil {
 		return err
 	}
 	owner := &socketOwner{protect: protect}
@@ -140,6 +140,14 @@ func (e *Engine) stopLocked() error {
 			}
 			return true
 		})
+		// Provider Close stops refresh/health checks, not the nodes it owns.
+		// Parsed nodes use upstream's once-only Close wrapper, including nodes
+		// shared with the main proxy map. Provider cancellation is not a join.
+		for _, provider := range e.cfg.Providers {
+			for _, p := range provider.Proxies() {
+				errs = append(errs, p.Close())
+			}
+		}
 		for _, p := range e.cfg.Proxies {
 			errs = append(errs, p.Close())
 		}
@@ -195,16 +203,4 @@ func (e *Engine) Snapshot() string {
 		Traffic       *statistic.Snapshot `json:"traffic"`
 	}{Version, e.cfg != nil, e.tun != nil, e.failed, protected, refused, statistic.DefaultManager.Snapshot()})
 	return string(data)
-}
-
-// This first integration accepts only controlled fixtures, not arbitrary user configs.
-// These are platform ownership constraints, not a parallel mihomo semantic validator.
-func checkBoundary(r *config.RawConfig) error {
-	if r.Port != 0 || r.SocksPort != 0 || r.MixedPort != 0 || r.RedirPort != 0 || r.TProxyPort != 0 ||
-		r.ExternalController != "" || r.ExternalControllerTLS != "" || r.ExternalControllerUnix != "" || r.ExternalControllerPipe != "" ||
-		r.Tun.Enable || r.NTP.Enable || r.GeoAutoUpdate || r.IPTables.Enable || r.DNS.Listen != "" ||
-		len(r.Listeners) != 0 || len(r.Tunnels) != 0 {
-		return fmt.Errorf("native integration fixture must not create listeners, controllers, TUN or scheduled system services")
-	}
-	return nil
 }
