@@ -1,6 +1,6 @@
 # Android 原生接入
 
-产品规则见 [产品需求](product-requirements.md)。Flutter 展示、Dart 协调配置业务、Kotlin 持有平台生命周期，mihomo 负责网络处理。
+产品规则见 [产品需求](product-requirements.md)。本文记录当前 Android 实现及其维护边界，不指定其他平台必须采用相同的宿主或进程部署。
 
 ## 应用宿主与配置存储
 
@@ -15,9 +15,16 @@
 
 ## 职责与调用顺序
 
-- [PseudoVpnService](../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/vpn/PseudoVpnService.kt)：系统授权检查、前台通知、TUN 建立和服务生命周期。TUN 地址、前缀与 MTU 在这里定义，同时传给 Android Builder 和 native。
-- [NativeCore](../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/nativecore/NativeCore.kt) 与 [JNI 桥接](../native/mihomo/bridge_android.c)：参数、UTF-8 数据及 socket 保护回调的跨语言传递。
-- [Go engine](../native/mihomo/internal/engine/engine.go)：配置应用、TUN 附着与会话资源清理。mihomo 使用进程级全局状态，因此只运行一个会话。
+| 部分 | 当前职责与边界 |
+| --- | --- |
+| UI Engine | 页面、交互、展示所需读取与状态判断。[AppController](../lib/app/app_controller.dart) 可读取配置存储并查询平台快照，提交操作请求；不承担配置写入或直接修改内核。UI 并非只能绘制，也不要求每次读取都启动业务 Engine |
+| 短时 Dart 业务 Engine | [AppRuntime](../lib/app/app_runtime.dart) 执行下载、持久化及业务协调；[StrategyActions](../lib/features/strategies/strategy_actions.dart) 保存偏好、请求应用并读回确认。任务完成后释放，不为周期查询常驻 |
+| Android 平台宿主 | 管理 Engine、权限、服务、操作身份与期限，以及系统资源和原生上下文所有权；不是单纯转发参数。[AppBridge](../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/app/AppBridge.kt) 的 UI 通道受理读取和提交请求，执行变更的调用由业务 Engine 通道受理 |
+| Go／mihomo | [Go engine](../native/mihomo/internal/engine/engine.go) 解析和应用配置、处理模式与策略、协调网络和原生资源清理。mihomo 使用进程级全局状态，当前只运行一个上下文 |
+
+[信息读取与按钮判断](../lib/features/strategies/strategy_controller.dart) 不代替业务及原生执行前的身份检查；异步期间配置或上下文可能已变化。保持持久修改、平台资源与展示状态的职责边界，不为调用链形式统一而把所有读取绕经业务 Engine。
+
+[NativeCore](../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/nativecore/NativeCore.kt) 与 [JNI 桥接](../native/mihomo/bridge_android.c) 负责参数、UTF-8 数据及 socket 保护回调的跨语言传递。[PseudoVpnService](../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/vpn/PseudoVpnService.kt) 定义 TUN 地址、前缀与 MTU，同时传给 Android Builder 和 native。
 
 启动流程：`VpnService.prepare()` 授权 → 启动前台服务 → 工作线程解析并应用配置 → Builder 建立 TUN → `detachFd()` 交给 native → 附着成功后进入 `RUNNING`。重复启动不会创建第二个会话。
 
@@ -188,6 +195,8 @@ adb -s "$SERIAL" shell am start \
 ## 当前边界
 
 当前使用 `system` 栈、IPv4 全路由与 DNS 接管，IPv6 由 Android VPN 策略阻断。正式入口支持远程完整配置；provider 加载失败是否继续遵循 mihomo 行为，不另建完整预校验。
+
+职责分割不等于平台适配已经完成。[运行配置管理](../native/mihomo/internal/engine/platform.go) 按 Android 托管入口调整配置，[TUN 附着](../native/mihomo/internal/engine/tun.go) 接收宿主传入的文件描述符，[原生导出](../native/mihomo/exports_android.go) 面向 Android；这些不能直接视为 Windows 的通用接管实现。当前 [Windows 宿主](../windows/runner/flutter_window.cpp) 仍主要承载 Flutter 窗口，尚未接入对应业务宿主与接管能力。共享 Dart 业务和界面可作为复用基础，但其他平台的权限、后台承载、接管及进程部署须在对应阶段决定并验证，不要求照搬 Android 服务，也不提前建设通用平台框架。
 
 [平台字段管理](../native/mihomo/internal/engine/platform.go) 只修改解码后的运行副本：应用关闭配置指定的端口、controller、额外 listener/server、DNS 外部监听、UI 下载及系统级操作，保留节点、组和规则。HTTP provider 的自定义缓存路径被移除，file provider 路径限制在内核资源目录并检查符号链接。Android 原生 logrus 输出被关闭，正式错误出口只给安全的阶段消息，不将原始来源／凭据写入 logcat；当前不提供完整内核日志诊断。
 

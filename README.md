@@ -10,8 +10,8 @@ Android 已接入总览、策略与二级配置管理：支持完整配置 URL �
 
 - 目标平台：Android 手机 → Android 平板 → Windows → macOS。
 - [产品需求](docs/product-requirements.md)：功能目标、操作规则和待决定事项。
-- [首页设计依据](docs/home-design.md)：已认可的首页结构、深浅主题、真实状态与动效约束。
-- [离线体验原型](docs/prototypes/product-preview.html)：可直接用浏览器打开；使用模拟数据，是未完成的阶段性参考，不是正式应用。
+- [应用页面设计依据](docs/home-design.md)：现有总览、模式入口与策略页的布局、状态表达和动效约束；全应用设计原则见产品需求。
+- [离线体验原型](docs/prototypes/product-preview.html)：可直接用浏览器打开，使用模拟数据，仅作总览、策略组、连接及相关子页面的阶段性参考；不是完整流程或正式应用。
 
 ## 源码与发布
 
