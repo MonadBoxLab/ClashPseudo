@@ -14,9 +14,10 @@ import android.util.Log
 import io.github.monadboxlab.clashpseudo.MainActivity
 import io.github.monadboxlab.clashpseudo.R
 import io.github.monadboxlab.clashpseudo.app.AppFiles
+import io.github.monadboxlab.clashpseudo.app.AppBridge
 import io.github.monadboxlab.clashpseudo.nativecore.NativeCore
-import java.io.File
-import java.util.concurrent.Executors
+import io.github.monadboxlab.clashpseudo.nativecore.CoreHost
+import io.github.monadboxlab.clashpseudo.nativecore.CoreInput
 
 class PseudoVpnService : VpnService() {
     private val main = Handler(Looper.getMainLooper())
@@ -26,6 +27,11 @@ class PseudoVpnService : VpnService() {
         when (intent?.action) {
             ACTION_START -> {
                 val body = intent.getStringExtra(EXTRA_CONFIG)
+                val inputOwner = intent.getStringExtra(EXTRA_INPUT_OWNER)
+                if (body == null && (inputOwner == null || inputOwner != AppBridge.operationId)) {
+                    if (session.snapshot().phase == NativeSession.Phase.STOPPED) stopSelf(startId)
+                    return START_NOT_STICKY
+                }
                 val configId = intent.getStringExtra(EXTRA_CONFIG_ID)
                 val revision = if (intent.hasExtra(EXTRA_REVISION)) intent.getIntExtra(EXTRA_REVISION, 0) else null
                 val id = session.begin(configId, revision) ?: return START_NOT_STICKY
@@ -44,7 +50,8 @@ class PseudoVpnService : VpnService() {
                     stopSelf(startId)
                     return START_NOT_STICKY
                 }
-                worker.execute { startNative(id, body) }
+                val mode = intent.getStringExtra(EXTRA_MODE).orEmpty()
+                worker.execute { startNative(id, body, mode, inputOwner) }
             }
             ACTION_STOP -> {
                 val snapshot = session.snapshot()
@@ -56,14 +63,17 @@ class PseudoVpnService : VpnService() {
         return START_NOT_STICKY
     }
 
-    private fun startNative(id: Long, body: String?) {
+    private fun startNative(id: Long, body: String?, mode: String, inputOwner: String?) {
         var stage = "加载配置"
         try {
             if (!session.canStart(id)) return
             val home = AppFiles.core(this)
             check(home.isDirectory || home.mkdirs()) { "Cannot create private core directory" }
-            val bytes = body?.toByteArray(Charsets.UTF_8) ?: AppFiles.runInput(this).readBytes()
-            checkResult(NativeCore.prepare(home.absolutePath, bytes, this))
+            val state = session.snapshot()
+            core.prepareVpn(id, state.configId, state.revision, home.absolutePath, {
+                if (body != null) CoreInput(state.configId, state.revision, mode, body.toByteArray(Charsets.UTF_8), "{}".toByteArray())
+                else CoreInput.read(AppFiles.runInput(this, inputOwner!!), state.configId!!, state.revision!!, mode)
+            }, this)
             if (!session.canStart(id)) return
             stage = "建立 VPN"
             val descriptor = Builder()
@@ -96,7 +106,7 @@ class PseudoVpnService : VpnService() {
         } finally {
             // A stop queued during preparation runs on the same worker after this returns.
             if (session.snapshot().let { it.generation == id && it.phase == NativeSession.Phase.STOPPING }) {
-                try { NativeCore.cancel() } catch (_: LinkageError) { }
+                core.cancelVpn(id)
             }
         }
     }
@@ -111,11 +121,9 @@ class PseudoVpnService : VpnService() {
     private fun requestStop(id: Long, reason: String? = null) {
         if (!session.stopping(id, reason)) return
         // Invalidate immediately; cleanup waits behind any preparation on the worker.
-        try { NativeCore.cancel() } catch (_: LinkageError) { }
+        core.cancelVpn(id)
         worker.execute {
-            val cleanupError = try { NativeCore.stop().takeIf { it.isNotEmpty() }?.let { "原生资源释放未确认。" } }
-                catch (_: Exception) { "原生资源释放未确认。" }
-                catch (_: LinkageError) { "原生资源释放未确认。" }
+            val cleanupError = core.stopVpn(id)
             session.finished(id, cleanupError)
             Log.i(TAG, "stop pid=${android.os.Process.myPid()} session=$id result=${session.snapshot()}")
             main.post {
@@ -159,6 +167,8 @@ class PseudoVpnService : VpnService() {
         const val EXTRA_CONFIG = "config"
         const val EXTRA_CONFIG_ID = "configId"
         const val EXTRA_REVISION = "revision"
+        const val EXTRA_MODE = "mode"
+        const val EXTRA_INPUT_OWNER = "inputOwner"
         private const val CHANNEL = "vpn"
         private const val TAG = "PseudoVpn"
         // Builder and native stack receive the same interface parameters.
@@ -167,7 +177,8 @@ class PseudoVpnService : VpnService() {
         private const val TUN_PREFIX_LENGTH = 30
         private const val TUN_DNS = "172.19.0.2"
         val session = NativeSession()
-        // Serialization outlives a Service instance; its replacement must not race old cleanup.
-        private val worker = Executors.newSingleThreadExecutor { task -> Thread(task, "pseudo-native") }
+        // Ownership and serialization outlive a Service instance.
+        val core = CoreHost(session, { AppBridge.notifyUi() })
+        internal val worker get() = core.worker
     }
 }

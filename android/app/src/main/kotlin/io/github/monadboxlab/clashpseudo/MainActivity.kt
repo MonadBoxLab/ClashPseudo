@@ -7,6 +7,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.github.monadboxlab.clashpseudo.app.AppBridge
 import io.github.monadboxlab.clashpseudo.app.PseudoApplication
+import io.github.monadboxlab.clashpseudo.vpn.PseudoVpnService
 
 class MainActivity : FlutterActivity() {
     override fun provideFlutterEngine(context: Context): FlutterEngine =
@@ -35,6 +36,16 @@ class MainActivity : FlutterActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         AppBridge.authorizationResult(requestCode, resultCode == RESULT_OK)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        PseudoVpnService.core.setVisible(true)
+    }
+
+    override fun onStop() {
+        PseudoVpnService.core.setVisible(false)
+        super.onStop()
     }
 
     override fun onResume() {

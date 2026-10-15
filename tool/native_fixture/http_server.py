@@ -4,7 +4,7 @@ import http.server
 from urllib.parse import urlsplit
 
 from .network_servers import event
-from .scenarios import configuration, provider
+from .scenarios import configuration, mode_configuration, provider, strategy_configuration
 
 
 class HTTP(http.server.BaseHTTPRequestHandler):
@@ -32,6 +32,14 @@ class HTTP(http.server.BaseHTTPRequestHandler):
                 self.send_error(503)
                 return
             body = configuration(owner.host, owner.port, direct=path == "/direct", revision=count)
+        elif path in ("/strategies", "/strategies-other", "/strategies-changing"):
+            body = strategy_configuration(owner.host, owner.port, changing=path == "/strategies-changing")
+        elif path == "/strategy-provider-update":
+            body = provider(owner.host, owner.port)
+            if count > 5:
+                body = body.replace(b"name: fixture", b"name: replacement")
+        elif path == "/modes":
+            body = mode_configuration(owner.host, owner.port)
         elif path == "/invalid":
             body = b"[invalid yaml"
         elif path == "/empty":

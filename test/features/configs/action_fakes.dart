@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:clash_pseudo/features/configs/config_downloader.dart';
 import 'package:clash_pseudo/features/configs/config_entry.dart';
+import 'package:clash_pseudo/features/mode/tunnel_mode.dart';
 import 'package:clash_pseudo/platform/app_bridge.dart';
 import 'package:flutter/services.dart';
 
@@ -30,8 +31,14 @@ class PlatformFake extends AppBridge {
 
   @override
   Future<AppSnapshot> snapshot() async => state;
+  bool failModeStage = false;
   @override
-  Future<void> stage(String message) async {}
+  Future<void> stage(String message) async {
+    if (failModeStage && message == '正在切换运行模式') {
+      throw PlatformException(code: 'stage');
+    }
+  }
+
   @override
   Future<bool> authorize() async {
     events.add('authorize');
@@ -49,9 +56,35 @@ class PlatformFake extends AppBridge {
   }
 
   @override
-  Future<void> start({required String id, required int revision}) async {
+  Future<void> start({
+    required String id,
+    required int revision,
+    required TunnelMode mode,
+  }) async {
     events.add('start:$id');
     if (failStart) throw PlatformException(code: 'start', message: '配置无法启动');
-    state = AppSnapshot(phase: 'RUNNING', configId: id, revision: revision);
+    state = AppSnapshot(
+      phase: 'RUNNING',
+      configId: id,
+      revision: revision,
+      mode: mode,
+    );
+  }
+
+  bool failMode = false;
+  @override
+  Future<TunnelMode> setMode(TunnelMode mode, int generation) async {
+    events.add('mode:${mode.name}:$generation');
+    if (failMode || generation != state.generation || !state.running) {
+      throw PlatformException(code: 'mode');
+    }
+    state = AppSnapshot(
+      phase: state.phase,
+      generation: generation,
+      configId: state.configId,
+      revision: state.revision,
+      mode: mode,
+    );
+    return mode;
   }
 }

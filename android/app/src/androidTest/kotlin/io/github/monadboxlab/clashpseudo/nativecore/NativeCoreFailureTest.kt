@@ -71,6 +71,69 @@ class NativeCoreFailureTest {
         checkProtectFailure(throws = true)
     }
 
+    @Test
+    fun modeRoundTripRejectsInvalidInputAndClearsOnStop() {
+        prepare(DIRECT, Protector())
+        assertEquals("rule", NativeCore.mode())
+        for (mode in listOf("global", "direct", "rule")) {
+            assertEquals("", NativeCore.setMode(mode))
+            assertEquals(mode, NativeCore.mode())
+        }
+        assertTrue(NativeCore.setMode("follow").isNotEmpty())
+        assertEquals("rule", NativeCore.mode())
+        stop()
+        assertEquals("", NativeCore.mode())
+        assertTrue(NativeCore.setMode("direct").isNotEmpty())
+    }
+
+    @Test
+    fun previewUsesRealJniUtf8AndRestoresWithoutTun() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val session = io.github.monadboxlab.clashpseudo.vpn.NativeSession()
+        lateinit var host: CoreHost
+        instrumentation.runOnMainSync {
+            host = CoreHost(session, {})
+            host.setVisible(true)
+        }
+        val home = File(instrumentation.targetContext.cacheDir, "native-strategy-${UUID.randomUUID()}")
+        assertTrue(home.mkdir())
+        homes.add(home)
+        val body = DIRECT + """
+            proxies:
+              - {name: 节点🌐, type: direct}
+            proxy-groups:
+              - {name: 出口🌐, type: select, proxies: [DIRECT, 节点🌐, REJECT]}
+        """.trimIndent() + "\n"
+        val choice = JSONObject().put("type", "select").put("member", "节点🌐")
+        val choices = JSONObject().put("出口🌐", choice).toString().toByteArray(Charsets.UTF_8)
+        fun selected(): String {
+            val groups = JSONObject(NativeCore.strategies()).getJSONArray("groups")
+            return (0 until groups.length()).map { groups.getJSONObject(it) }
+                .single { it.getString("name") == "出口🌐" }.getString("now")
+        }
+        try {
+            val loaded = host.preparePreview("first", "one", 1, home.path, { true }) {
+                CoreInput("one", 1, "rule", body.toByteArray(Charsets.UTF_8), choices)
+            }
+            assertTrue(host.current(loaded.generation))
+            assertEquals("节点🌐", selected())
+            assertFalse(snapshot().getBoolean("attached"))
+            assertEquals(io.github.monadboxlab.clashpseudo.vpn.NativeSession.Phase.STOPPED,
+                session.snapshot().phase)
+            val request = JSONObject().put("name", "出口🌐")
+                .put("choice", JSONObject().put("type", "select").put("member", "REJECT"))
+            assertEquals("", NativeCore.setStrategy(request.toString().toByteArray(Charsets.UTF_8)))
+            assertEquals("REJECT", selected())
+            request.put("choice", choice)
+            assertEquals("", NativeCore.setStrategy(request.toString().toByteArray(Charsets.UTF_8)))
+            assertEquals("节点🌐", selected())
+            assertNull(host.releasePreview())
+            assertStopped()
+        } finally {
+            assertNull(host.releasePreview())
+        }
+    }
+
     private fun checkAttachFailure(prefix: Int, expected: String) {
         prepare(DIRECT, Protector())
         val fd = ParcelFileDescriptor.open(File("/dev/null"), ParcelFileDescriptor.MODE_READ_WRITE)
@@ -141,7 +204,7 @@ class NativeCoreFailureTest {
         val home = File(cache, "native-failure-${UUID.randomUUID()}")
         assertTrue(home.mkdir())
         homes.add(home)
-        assertEquals("", NativeCore.prepare(home.path, body.toByteArray(Charsets.UTF_8), protector))
+        assertEquals("", NativeCore.prepare(home.path, body.toByteArray(Charsets.UTF_8), "rule", protector))
         assertTrue(snapshot().getBoolean("prepared"))
         return home
     }

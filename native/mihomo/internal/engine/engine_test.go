@@ -33,10 +33,10 @@ func TestPrepareStopRestart(t *testing.T) {
 	var e Engine
 	home := t.TempDir()
 	for i := 0; i < 3; i++ {
-		if err := e.Prepare(home, []byte(validConfig), func(int) bool { return true }); err != nil {
+		if err := e.Prepare(home, []byte(validConfig), "rule", nil, func(int) bool { return true }); err != nil {
 			t.Fatal(err)
 		}
-		if err := e.Prepare(home, []byte(validConfig), func(int) bool { return true }); err == nil {
+		if err := e.Prepare(home, []byte(validConfig), "rule", nil, func(int) bool { return true }); err == nil {
 			t.Fatal("duplicate prepare accepted")
 		}
 		var snapshot map[string]any
@@ -58,7 +58,7 @@ func TestProtectAndCancellation(t *testing.T) {
 	var e Engine
 	var accepted atomic.Bool
 	accepted.Store(true)
-	if err := e.Prepare(t.TempDir(), []byte(validConfig), func(int) bool { return accepted.Load() }); err != nil {
+	if err := e.Prepare(t.TempDir(), []byte(validConfig), "rule", nil, func(int) bool { return accepted.Load() }); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { requireStop(t, &e) })
@@ -79,7 +79,7 @@ func TestInvalidConfigDoesNotPreventNextStart(t *testing.T) {
 	var e Engine
 	home := t.TempDir()
 	for _, text := range []string{"[invalid yaml", "rules:\n  - UNKNOWN,invalid\n"} {
-		if err := e.Prepare(home, []byte(text), func(int) bool { return true }); err == nil {
+		if err := e.Prepare(home, []byte(text), "rule", nil, func(int) bool { return true }); err == nil {
 			t.Fatalf("accepted %q", text)
 		}
 		if current.Load() != nil || e.owner != nil {
@@ -87,7 +87,7 @@ func TestInvalidConfigDoesNotPreventNextStart(t *testing.T) {
 		}
 		requireStop(t, &e)
 	}
-	if err := e.Prepare(home, []byte(validConfig), func(int) bool { return true }); err != nil {
+	if err := e.Prepare(home, []byte(validConfig), "rule", nil, func(int) bool { return true }); err != nil {
 		t.Fatal(err)
 	}
 	requireStop(t, &e)
@@ -105,7 +105,7 @@ func (failedCloser) Close() error { return errors.New("injected cleanup failure"
 
 func TestCleanupFailureCannotBecomeSuccess(t *testing.T) {
 	var e Engine
-	if err := e.Prepare(t.TempDir(), []byte(validConfig), func(int) bool { return true }); err != nil {
+	if err := e.Prepare(t.TempDir(), []byte(validConfig), "rule", nil, func(int) bool { return true }); err != nil {
 		t.Fatal(err)
 	}
 	e.tun = failedCloser{}
@@ -117,7 +117,7 @@ func TestCleanupFailureCannotBecomeSuccess(t *testing.T) {
 	if !strings.Contains(e.Snapshot(), `"cleanupFailed":true`) {
 		t.Fatal(e.Snapshot())
 	}
-	if err := e.Prepare(t.TempDir(), []byte(validConfig), func(int) bool { return true }); err == nil {
+	if err := e.Prepare(t.TempDir(), []byte(validConfig), "rule", nil, func(int) bool { return true }); err == nil {
 		t.Fatal("restart accepted after cleanup failure")
 	}
 }
@@ -131,7 +131,7 @@ func TestProviderStopsUpdating(t *testing.T) {
 	defer server.Close()
 	body := validConfig + fmt.Sprintf("proxy-providers:\n  fixture:\n    type: http\n    url: %s\n    path: ./provider.yaml\n    interval: 1\n    health-check: {enable: false}\n", server.URL)
 	var e Engine
-	if err := e.Prepare(t.TempDir(), []byte(body), func(int) bool { return true }); err != nil {
+	if err := e.Prepare(t.TempDir(), []byte(body), "rule", nil, func(int) bool { return true }); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { requireStop(t, &e) })
@@ -171,7 +171,7 @@ func TestStopCancelsInflightProviderUpdate(t *testing.T) {
 	defer close(release)
 	body := validConfig + fmt.Sprintf("proxy-providers:\n  fixture:\n    type: http\n    url: %s\n    path: ./provider.yaml\n    interval: 1\n    health-check: {enable: false}\n", server.URL)
 	var e Engine
-	if err := e.Prepare(t.TempDir(), []byte(body), func(int) bool { return true }); err != nil {
+	if err := e.Prepare(t.TempDir(), []byte(body), "rule", nil, func(int) bool { return true }); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { requireStop(t, &e) })
@@ -188,12 +188,76 @@ func TestStopCancelsInflightProviderUpdate(t *testing.T) {
 	}
 }
 
+func TestLateProviderResponseCannotReplaceNewContext(t *testing.T) {
+	var requests atomic.Int64
+	started := make(chan struct{})
+	release := make(chan struct{})
+	served := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := "fresh"
+		switch requests.Add(1) {
+		case 1:
+			name = "initial"
+		case 2:
+			close(started)
+			<-release
+			name = "stale"
+			defer close(served)
+		}
+		fmt.Fprintf(w, "proxies:\n  - {name: %s, type: direct}\n", name)
+	}))
+	defer server.Close()
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	body := validConfig + fmt.Sprintf("proxy-providers:\n  fixture:\n    type: http\n    url: %s\n    interval: 1\n    health-check: {enable: false}\n", server.URL)
+	var e Engine
+	t.Cleanup(func() { requireStop(t, &e) })
+	home := t.TempDir()
+	prepare := func() {
+		t.Helper()
+		if err := e.Prepare(home, []byte(body), "rule", nil, func(int) bool { return true }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prepare()
+	select {
+	case <-started:
+	case <-time.After(4 * time.Second):
+		t.Fatal("old refresh never started")
+	}
+	requireStop(t, &e)
+	prepare()
+	deadline := time.Now().Add(4 * time.Second)
+	for e.cfg.Providers["fixture"].Proxies()[0].Name() != "fresh" && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if e.cfg.Providers["fixture"].Proxies()[0].Name() != "fresh" {
+		t.Fatal("replacement context did not load fresh provider")
+	}
+	close(release)
+	select {
+	case <-served:
+	case <-time.After(2 * time.Second):
+		t.Fatal("old response did not finish")
+	}
+	time.Sleep(200 * time.Millisecond)
+	if got := e.cfg.Providers["fixture"].Proxies()[0].Name(); got != "fresh" {
+		t.Fatalf("late old response changed new context to %q", got)
+	}
+	requireStop(t, &e)
+}
+
 func TestMissingProviderKeepsKernelSemantics(t *testing.T) {
 	server := httptest.NewServer(http.NotFoundHandler())
 	defer server.Close()
 	body := validConfig + fmt.Sprintf("proxy-providers:\n  missing:\n    type: http\n    url: %s\n    path: ./missing.yaml\n    interval: 0\n", server.URL)
 	var e Engine
-	if err := e.Prepare(t.TempDir(), []byte(body), func(int) bool { return true }); err != nil {
+	if err := e.Prepare(t.TempDir(), []byte(body), "rule", nil, func(int) bool { return true }); err != nil {
 		t.Fatalf("client rejected kernel-tolerated provider failure: %v", err)
 	}
 	if !strings.Contains(e.Snapshot(), `"prepared":true`) {

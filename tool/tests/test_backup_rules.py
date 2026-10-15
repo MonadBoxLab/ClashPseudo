@@ -41,7 +41,7 @@ class BackupRulesTest(unittest.TestCase):
         self.assertEqual(app.attrib[namespace + "dataExtractionRules"], "@xml/data_extraction_rules")
         paths = (MAIN / "kotlin/io/github/monadboxlab/clashpseudo/app/AppFiles.kt").read_text()
         self.assertIn('File(context.filesDir, "configurations")', paths)
-        self.assertIn('File(context.noBackupFilesDir, "work/run-input.yaml")', paths)
+        self.assertIn('File(context.noBackupFilesDir, "work/run-input-$owner.json")', paths)
         self.assertIn('File(context.noBackupFilesDir, "mihomo")', paths)
         store = (ROOT / "lib/features/configs/config_store.dart").read_text()
         self.assertIn('${directory.path}/configurations.json', store)

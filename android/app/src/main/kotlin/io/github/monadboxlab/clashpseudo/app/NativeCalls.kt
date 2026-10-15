@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import io.flutter.plugin.common.MethodChannel
+import io.github.monadboxlab.clashpseudo.nativecore.CoreHost
 import io.github.monadboxlab.clashpseudo.vpn.NativeSession
 import io.github.monadboxlab.clashpseudo.vpn.PseudoVpnService
 
@@ -21,10 +22,18 @@ class NativeCalls(private val context: Context) {
         complete("接管操作等待超时，请核实实际状态。")
     }
 
-    fun start(id: String, revision: Int, reply: MethodChannel.Result) {
+    fun start(id: String, revision: Int, mode: String, owner: String, reply: MethodChannel.Result) {
+        if (mode !in ModeCalls.VALUES) {
+            reply.error("mode", "无法识别运行模式。", null)
+            return
+        }
         val state = PseudoVpnService.session.snapshot()
         if (state.phase != NativeSession.Phase.STOPPED || result != null) {
             reply.error("busy", "当前接管未停止，不能启动新配置。", null)
+            return
+        }
+        if (PseudoVpnService.core.snapshot().phase in setOf(CoreHost.Phase.LOADING, CoreHost.Phase.RELEASING, CoreHost.Phase.FAILED)) {
+            reply.error("core", "内核资源未就绪，不能启动新配置。", null)
             return
         }
         if (VpnService.prepare(context) != null) {
@@ -40,6 +49,8 @@ class NativeCalls(private val context: Context) {
                 .setAction(PseudoVpnService.ACTION_START)
                 .putExtra(PseudoVpnService.EXTRA_CONFIG_ID, id)
                 .putExtra(PseudoVpnService.EXTRA_REVISION, revision)
+                .putExtra(PseudoVpnService.EXTRA_MODE, mode)
+                .putExtra(PseudoVpnService.EXTRA_INPUT_OWNER, owner)
             if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
             else context.startService(intent)
         } catch (_: Exception) {

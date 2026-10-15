@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../mode/tunnel_mode.dart';
 import 'config_entry.dart';
 
 class ConfigStore {
@@ -24,7 +25,13 @@ class ConfigStore {
           (selected != null && !entries.any((e) => e.id == selected))) {
         throw const FormatException('Inconsistent configuration collection');
       }
-      return ConfigCollection(entries: entries, selectedId: selected);
+      return ConfigCollection(
+        entries: entries,
+        selectedId: selected,
+        mode: data.containsKey('mode')
+            ? TunnelMode.parse(data['mode'])
+            : TunnelMode.rule,
+      );
     } catch (_) {
       // Never turn a damaged store into an empty list and overwrite user data.
       throw const ConfigFailure('无法读取已保存配置，原文件未被修改。');
@@ -39,6 +46,7 @@ class ConfigStore {
         jsonEncode({
           'version': 1,
           'selectedId': collection.selectedId,
+          'mode': collection.mode.name,
           'entries': collection.entries.map((entry) => entry.toJson()).toList(),
         }),
         flush: true,

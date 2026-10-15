@@ -86,7 +86,7 @@ JNIEXPORT jstring JNICALL METHOD(version)(JNIEnv *env, jclass cls) {
     return take_result(env, CoreVersion());
 }
 
-JNIEXPORT jstring JNICALL METHOD(prepare)(JNIEnv *env, jclass cls, jstring home, jbyteArray body, jobject callback) {
+JNIEXPORT jstring JNICALL METHOD(prepare)(JNIEnv *env, jclass cls, jstring home, jbyteArray body, jstring mode, jobject callback, jbyteArray choices) {
     (void)cls;
     jclass callback_class = (*env)->GetObjectClass(env, callback);
     if (!callback_class) return NULL;
@@ -95,15 +95,31 @@ JNIEXPORT jstring JNICALL METHOD(prepare)(JNIEnv *env, jclass cls, jstring home,
     if (!method) return NULL;
     const char *home_chars = (*env)->GetStringUTFChars(env, home, NULL);
     if (!home_chars) return NULL;
+    const char *mode_chars = (*env)->GetStringUTFChars(env, mode, NULL);
+    if (!mode_chars) {
+        (*env)->ReleaseStringUTFChars(env, home, home_chars);
+        return NULL;
+    }
     jsize body_length = (*env)->GetArrayLength(env, body);
     jbyte *body_chars = (*env)->GetByteArrayElements(env, body, NULL);
     if (!body_chars) {
+        (*env)->ReleaseStringUTFChars(env, mode, mode_chars);
         (*env)->ReleaseStringUTFChars(env, home, home_chars);
+        return NULL;
+    }
+    jsize choices_length = (*env)->GetArrayLength(env, choices);
+    jbyte *choices_chars = (*env)->GetByteArrayElements(env, choices, NULL);
+    if (!choices_chars) {
+        (*env)->ReleaseStringUTFChars(env, mode, mode_chars);
+        (*env)->ReleaseStringUTFChars(env, home, home_chars);
+        (*env)->ReleaseByteArrayElements(env, body, body_chars, JNI_ABORT);
         return NULL;
     }
     pthread_mutex_lock(&callback_lock);
     if (protector) {
         pthread_mutex_unlock(&callback_lock);
+        (*env)->ReleaseByteArrayElements(env, choices, choices_chars, JNI_ABORT);
+        (*env)->ReleaseStringUTFChars(env, mode, mode_chars);
         (*env)->ReleaseStringUTFChars(env, home, home_chars);
         (*env)->ReleaseByteArrayElements(env, body, body_chars, JNI_ABORT);
         return (*env)->NewStringUTF(env, "native protector is already in use");
@@ -112,11 +128,43 @@ JNIEXPORT jstring JNICALL METHOD(prepare)(JNIEnv *env, jclass cls, jstring home,
     protect_method = method;
     int ready = protector != NULL;
     pthread_mutex_unlock(&callback_lock);
-    char *error = ready ? CorePrepare((char *)home_chars, (char *)body_chars, body_length) : NULL;
+    char *error = ready ? CorePrepare((char *)home_chars, (char *)body_chars, body_length,
+                                      (char *)mode_chars, (char *)choices_chars, choices_length) : NULL;
+    (*env)->ReleaseByteArrayElements(env, choices, choices_chars, JNI_ABORT);
+    (*env)->ReleaseStringUTFChars(env, mode, mode_chars);
     (*env)->ReleaseStringUTFChars(env, home, home_chars);
     (*env)->ReleaseByteArrayElements(env, body, body_chars, JNI_ABORT);
     if (!ready) return NULL;
     if (error && error[0]) clear_protector(env);
+    return take_result(env, error);
+}
+
+JNIEXPORT jstring JNICALL METHOD(strategies)(JNIEnv *env, jclass cls) {
+    (void)cls;
+    return take_result(env, CoreStrategies());
+}
+
+JNIEXPORT jstring JNICALL METHOD(setStrategy)(JNIEnv *env, jclass cls, jbyteArray request) {
+    (void)cls;
+    jsize length = (*env)->GetArrayLength(env, request);
+    jbyte *bytes = (*env)->GetByteArrayElements(env, request, NULL);
+    if (!bytes) return NULL;
+    char *error = CoreSetStrategy((char *)bytes, length);
+    (*env)->ReleaseByteArrayElements(env, request, bytes, JNI_ABORT);
+    return take_result(env, error);
+}
+
+JNIEXPORT jstring JNICALL METHOD(mode)(JNIEnv *env, jclass cls) {
+    (void)cls;
+    return take_result(env, CoreMode());
+}
+
+JNIEXPORT jstring JNICALL METHOD(setMode)(JNIEnv *env, jclass cls, jstring mode) {
+    (void)cls;
+    const char *chars = (*env)->GetStringUTFChars(env, mode, NULL);
+    if (!chars) return NULL;
+    char *error = CoreSetMode((char *)chars);
+    (*env)->ReleaseStringUTFChars(env, mode, chars);
     return take_result(env, error);
 }
 

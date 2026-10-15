@@ -42,7 +42,7 @@ geo-auto-update: true
 		t.Fatal("routing policy was changed")
 	}
 	var e Engine
-	if err := e.Prepare(t.TempDir(), []byte(body), func(int) bool { return true }); err != nil {
+	if err := e.Prepare(t.TempDir(), []byte(body), "rule", nil, func(int) bool { return true }); err != nil {
 		t.Fatal(err)
 	}
 	requireStop(t, &e)

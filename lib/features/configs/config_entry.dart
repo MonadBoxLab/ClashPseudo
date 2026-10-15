@@ -1,3 +1,6 @@
+import '../mode/tunnel_mode.dart';
+import '../strategies/strategy_choice.dart';
+
 class ConfigEntry {
   const ConfigEntry({
     required this.id,
@@ -6,6 +9,7 @@ class ConfigEntry {
     required this.revision,
     required this.body,
     this.error,
+    this.choices = const {},
   });
 
   final String id;
@@ -14,6 +18,7 @@ class ConfigEntry {
   final int revision;
   final String? body;
   final String? error;
+  final Map<String, StrategyChoice> choices;
 
   String get displaySource {
     final uri = Uri.parse(source);
@@ -27,6 +32,17 @@ class ConfigEntry {
     revision: revision + 1,
     body: content,
     error: error,
+    choices: choices,
+  );
+
+  ConfigEntry withChoice(String group, StrategyChoice choice) => ConfigEntry(
+    id: id,
+    name: name,
+    source: source,
+    revision: revision,
+    body: body,
+    error: error,
+    choices: Map.unmodifiable({...choices, group: choice}),
   );
 
   Map<String, Object?> toJson() => {
@@ -36,6 +52,7 @@ class ConfigEntry {
     'revision': revision,
     'body': body,
     'error': error,
+    'choices': choices.map((name, choice) => MapEntry(name, choice.toJson())),
   };
 
   factory ConfigEntry.fromJson(Map<String, dynamic> value) {
@@ -46,6 +63,9 @@ class ConfigEntry {
       revision: value['revision'] as int,
       body: value['body'] as String?,
       error: value['error'] as String?,
+      choices: value.containsKey('choices')
+          ? StrategyChoice.decode(value['choices'])
+          : const {},
     );
     final uri = Uri.parse(entry.source);
     if (entry.id.isEmpty ||
@@ -60,11 +80,15 @@ class ConfigEntry {
 }
 
 class ConfigCollection {
-  ConfigCollection({required List<ConfigEntry> entries, this.selectedId})
-    : entries = List.unmodifiable(entries);
+  ConfigCollection({
+    required List<ConfigEntry> entries,
+    this.selectedId,
+    this.mode = TunnelMode.rule,
+  }) : entries = List.unmodifiable(entries);
 
   final List<ConfigEntry> entries;
   final String? selectedId;
+  final TunnelMode mode;
 
   ConfigEntry? get selected => find(selectedId);
 
@@ -78,6 +102,7 @@ class ConfigCollection {
   ConfigCollection replace(ConfigEntry entry) => ConfigCollection(
     entries: entries.map((old) => old.id == entry.id ? entry : old).toList(),
     selectedId: selectedId,
+    mode: mode,
   );
 }
 

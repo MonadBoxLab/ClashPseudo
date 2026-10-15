@@ -35,7 +35,19 @@ class ConfigsPage extends StatelessWidget {
               padding: const EdgeInsets.all(20),
               children: [
                 OperationFeedback(controller: controller),
-                if (controller.collection.entries.isEmpty)
+                if (!controller.configsCurrent)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    child: Text(
+                      controller.configError == null
+                          ? '正在读取已保存配置'
+                          : controller.configsLoaded
+                          ? '以下为上次已读取的配置记录，当前内容未确认。'
+                          : '配置读取失败，不能据此判断是否保存过配置。',
+                    ),
+                  ),
+                if (controller.configsCurrent &&
+                    controller.collection.entries.isEmpty)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 48),
                     child: Column(
@@ -78,7 +90,9 @@ class ConfigsPage extends StatelessWidget {
   Widget _tile(BuildContext context, ConfigEntry entry) {
     final selected = entry.id == controller.collection.selectedId;
     final running =
-        controller.state.running && entry.id == controller.state.configId;
+        controller.configsCurrent &&
+        controller.state.running &&
+        entry.id == controller.state.configId;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),

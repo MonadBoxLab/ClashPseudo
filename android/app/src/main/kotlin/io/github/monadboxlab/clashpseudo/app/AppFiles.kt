@@ -5,6 +5,6 @@ import java.io.File
 
 object AppFiles {
     fun configs(context: Context) = File(context.filesDir, "configurations")
-    fun runInput(context: Context) = File(context.noBackupFilesDir, "work/run-input.yaml")
+    fun runInput(context: Context, owner: String) = File(context.noBackupFilesDir, "work/run-input-$owner.json")
     fun core(context: Context) = File(context.noBackupFilesDir, "mihomo")
 }

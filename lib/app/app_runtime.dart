@@ -6,6 +6,7 @@ import '../features/configs/config_actions.dart';
 import '../features/configs/config_downloader.dart';
 import '../features/configs/config_entry.dart';
 import '../features/configs/config_store.dart';
+import '../features/strategies/strategy_actions.dart';
 import '../platform/app_bridge.dart';
 
 class AppRuntime {
@@ -20,13 +21,19 @@ class AppRuntime {
       _platform,
       File(paths['runInput'] as String),
     );
+    final strategies = StrategyActions(actions.store, _platform);
     AppBridge.channel.setMethodCallHandler((call) async {
       if (call.method != 'execute') throw MissingPluginException();
       if (_executing) return {'success': false, 'message': '已有操作正在处理。'};
       _executing = true;
       try {
         final command = Map<String, dynamic>.from(call.arguments as Map);
-        return {'success': true, 'message': await actions.execute(command)};
+        return {
+          'success': true,
+          'message': command['action'] == 'setStrategy'
+              ? await strategies.execute(command)
+              : await actions.execute(command),
+        };
       } on ConfigFailure catch (error) {
         return {
           'success': false,

@@ -73,6 +73,7 @@ class NativeCheckActivity : Activity() {
             }
         }
         button("流量检查") { worker.execute { runProbe(false) } }
+        button("仅检查 TCP") { worker.execute { runProbe(false, tcpOnly = true) } }
         button("保持长连接") { worker.execute { runProbe(true) } }
         button("刷新状态") { refresh() }
         button("关闭验证页") { finish() }
@@ -126,6 +127,7 @@ class NativeCheckActivity : Activity() {
         pending = null
         val request = Intent(this, PseudoVpnService::class.java)
             .setAction(PseudoVpnService.ACTION_START).putExtra(PseudoVpnService.EXTRA_CONFIG, body)
+            .putExtra(PseudoVpnService.EXTRA_MODE, "rule")
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(request) else startService(request)
         report("已请求启动，状态以服务确认结果为准。")
     }
@@ -141,12 +143,12 @@ class NativeCheckActivity : Activity() {
 
     private fun refresh() {
         if (closed) return
-        status.text = "$message\npid=${android.os.Process.myPid()}\n${PseudoVpnService.session.snapshot()}"
+        status.text = "$message\npid=${android.os.Process.myPid()}\n${PseudoVpnService.session.snapshot()}\ncore=${PseudoVpnService.core.snapshot()}"
         if (!refreshing.compareAndSet(false, true)) return
         worker.execute {
             val native = try { NativeCore.snapshot() } catch (error: LinkageError) { error.toString() }
             main.post {
-                if (!closed) status.text = "$message\npid=${android.os.Process.myPid()}\n${PseudoVpnService.session.snapshot()}\n$native"
+                if (!closed) status.text = "$message\npid=${android.os.Process.myPid()}\n${PseudoVpnService.session.snapshot()}\ncore=${PseudoVpnService.core.snapshot()}\n$native"
                 refreshing.set(false)
             }
         }
@@ -157,7 +159,7 @@ class NativeCheckActivity : Activity() {
         main.post { if (!closed) { message = text; refresh() } }
     }
 
-    private fun runProbe(hold: Boolean) {
+    private fun runProbe(hold: Boolean, tcpOnly: Boolean = false) {
         val id = UUID.randomUUID().toString()
         try {
             val ip = fixtureAddress()
@@ -167,13 +169,17 @@ class NativeCheckActivity : Activity() {
                 socket.getOutputStream().write("GET /${if (hold) "hold" else "ok"}/$id HTTP/1.0\r\nHost: fixture\r\n\r\n".toByteArray())
                 if (hold) {
                     val buffer = ByteArray(512)
-                    while (socket.getInputStream().read(buffer) >= 0) { }
+                    var reads = 0
+                    while (socket.getInputStream().read(buffer) >= 0) {
+                        if (reads++ % 25 == 0) Log.i("NativeCheck", "HOLD_ALIVE id=$id reads=$reads")
+                    }
                 } else {
                     val reply = socket.getInputStream().readBytes().toString(Charsets.UTF_8)
                     check(reply.contains(id)) { "HTTP 未返回本次标识" }
                 }
             }
             if (hold) { report("HOLD_ENDED id=$id"); return }
+            if (tcpOnly) { report("TCP_OK id=$id"); return }
             DatagramSocket().use { socket ->
                 socket.soTimeout = 3000
                 val bytes = id.toByteArray()

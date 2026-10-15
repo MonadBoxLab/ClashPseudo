@@ -2,6 +2,8 @@ import 'dart:io';
 import 'dart:math';
 
 import '../../platform/app_bridge.dart';
+import '../../platform/core_input.dart';
+import '../mode/tunnel_mode.dart';
 import 'config_downloader.dart';
 import 'config_entry.dart';
 import 'config_store.dart';
@@ -25,6 +27,36 @@ class ConfigActions {
     if (!state.confirmed) throw const ConfigFailure('接管状态尚未确认，请先核实状态。');
     final collection = await store.read();
     switch (action) {
+      case 'prepareStrategies':
+        final selected = collection.selected;
+        if (selected == null) throw const ConfigFailure('请先导入并选择配置。');
+        if (command['id'] != selected.id ||
+            command['revision'] != selected.revision) {
+          throw const ConfigFailure('当前配置已变化，请等待策略重新加载。');
+        }
+        if (state.core.blocked) throw const ConfigFailure('内核资源尚未确认，暂时无法加载策略。');
+        if (state.running) {
+          if (state.configId != selected.id ||
+              state.revision != selected.revision) {
+            throw const ConfigFailure('当前运行配置与预览请求不一致。');
+          }
+          return '';
+        }
+        await platform.stage('正在加载策略配置');
+        final input = CoreInput(runInput);
+        try {
+          await input.write(selected, collection.mode);
+          await platform.prepareStrategies(
+            id: selected.id,
+            revision: selected.revision,
+            mode: collection.mode,
+          );
+        } finally {
+          await input.clear();
+        }
+        return '';
+      case 'setMode':
+        return _setMode(collection, state, TunnelMode.parse(command['mode']));
       case 'import':
         return _import(collection, state, command);
       case 'select':
@@ -35,7 +67,7 @@ class ConfigActions {
         if (state.running) throw const ConfigFailure('接管已经运行，无需重复启动。');
         final selected = collection.selected;
         if (selected == null) throw const ConfigFailure('请先导入并选择配置。');
-        await _start(selected);
+        await _start(selected, collection.mode);
         return '接管已启动。';
       default:
         throw const ConfigFailure('无法识别此操作。');
@@ -67,6 +99,11 @@ class ConfigActions {
         );
         await store.save(collection);
         invalidated = true;
+        if (replacesCurrent &&
+            !state.running &&
+            state.core.purpose == 'PREVIEW') {
+          await platform.releasePreview();
+        }
       }
       await platform.stage(existing == null ? '正在下载配置' : '正在更新配置');
       final body = await downloader.download(
@@ -84,6 +121,7 @@ class ConfigActions {
         collection = ConfigCollection(
           entries: [...collection.entries, entry],
           selectedId: collection.selectedId ?? entry.id,
+          mode: collection.mode,
         );
       } else {
         collection = collection.replace(
@@ -103,7 +141,7 @@ class ConfigActions {
     if (replacesCurrent && state.running) {
       await platform.stage('正在停止旧接管');
       await platform.stop();
-      await _start(collection.selected!);
+      await _start(collection.selected!, collection.mode);
       return '配置已更新并重新启动。';
     }
     return existing == null ? '配置已保存，启动时由内核解析。' : '配置已更新。';
@@ -121,12 +159,17 @@ class ConfigActions {
       await platform.stop();
     }
     await store.save(
-      ConfigCollection(entries: collection.entries, selectedId: id),
+      ConfigCollection(
+        entries: collection.entries,
+        selectedId: id,
+        mode: collection.mode,
+      ),
     );
     if (state.running) {
-      await _start(entry);
+      await _start(entry, collection.mode);
       return '已切换接管配置。';
     }
+    if (state.core.purpose == 'PREVIEW') await platform.releasePreview();
     return '已选择配置，尚未启动接管。';
   }
 
@@ -146,25 +189,57 @@ class ConfigActions {
     await store.save(
       ConfigCollection(
         entries: remaining,
+        mode: collection.mode,
         selectedId: collection.selectedId == id
             ? remaining.firstOrNull?.id
             : collection.selectedId,
       ),
     );
+    if (!state.running &&
+        state.core.purpose == 'PREVIEW' &&
+        state.core.configId == id) {
+      await platform.releasePreview();
+    }
     return '配置已删除，未启动接管。';
   }
 
-  Future<void> _start(ConfigEntry entry) async {
+  Future<String> _setMode(
+    ConfigCollection collection,
+    AppSnapshot state,
+    TunnelMode mode,
+  ) async {
+    if (collection.mode != mode) {
+      await store.save(
+        ConfigCollection(
+          entries: collection.entries,
+          selectedId: collection.selectedId,
+          mode: mode,
+        ),
+      );
+    }
+    if (!state.running) return '模式已保存，下次启动生效。';
+    if (state.mode == mode) return '运行模式已确认。';
+    try {
+      await platform.stage('正在切换运行模式');
+      final actual = await platform.setMode(mode, state.generation);
+      if (actual != mode) throw const FormatException('Mode not confirmed');
+    } catch (_) {
+      throw const ConfigFailure('模式已保存供下次启动使用；本次切换未确认。');
+    }
+    return '运行模式已切换。';
+  }
+
+  Future<void> _start(ConfigEntry entry, TunnelMode mode) async {
     if (entry.body == null) throw const ConfigFailure('该配置没有可用正文，请重新导入更新。');
     await platform.stage('正在等待 VPN 授权');
     if (!await platform.authorize()) throw const ConfigFailure('授权已取消，接管保持停止。');
     await platform.stage('正在启动接管');
-    await runInput.parent.create(recursive: true);
+    final input = CoreInput(runInput);
     try {
-      await runInput.writeAsString(entry.body!, flush: true);
-      await platform.start(id: entry.id, revision: entry.revision);
+      await input.write(entry, mode);
+      await platform.start(id: entry.id, revision: entry.revision, mode: mode);
     } finally {
-      if (await runInput.exists()) await runInput.delete();
+      await input.clear();
     }
   }
 

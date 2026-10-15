@@ -7,6 +7,7 @@ int native_protect(int fd);
 import "C"
 
 import (
+	"encoding/json"
 	"io"
 	"unsafe"
 
@@ -33,8 +34,12 @@ func result(err error) *C.char {
 func CoreVersion() *C.char { return C.CString(engine.Version) }
 
 //export CorePrepare
-func CorePrepare(home, body *C.char, size C.int) *C.char {
-	return result(core.Prepare(C.GoString(home), C.GoBytes(unsafe.Pointer(body), size), func(fd int) bool {
+func CorePrepare(home, body *C.char, size C.int, mode, selections *C.char, selectionsSize C.int) *C.char {
+	choices, err := engine.DecodeChoices(C.GoBytes(unsafe.Pointer(selections), selectionsSize))
+	if err != nil {
+		return result(err)
+	}
+	return result(core.Prepare(C.GoString(home), C.GoBytes(unsafe.Pointer(body), size), C.GoString(mode), choices, func(fd int) bool {
 		return C.native_protect(C.int(fd)) != 0
 	}))
 }
@@ -49,6 +54,37 @@ func CoreCancel() { core.Cancel() }
 
 //export CoreStop
 func CoreStop() *C.char { return result(core.Stop()) }
+
+//export CoreMode
+func CoreMode() *C.char { return C.CString(core.Mode()) }
+
+//export CoreSetMode
+func CoreSetMode(mode *C.char) *C.char { return result(core.SetMode(C.GoString(mode))) }
+
+//export CoreStrategies
+func CoreStrategies() *C.char {
+	value, err := core.Strategies()
+	if err != nil {
+		return C.CString(`{"error":"strategy query failed"}`)
+	}
+	return C.CString(value)
+}
+
+//export CoreSetStrategy
+func CoreSetStrategy(value *C.char, size C.int) *C.char {
+	var request struct {
+		Name   string          `json:"name"`
+		Choice json.RawMessage `json:"choice"`
+	}
+	if json.Unmarshal(C.GoBytes(unsafe.Pointer(value), size), &request) != nil || request.Name == "" {
+		return C.CString("invalid strategy request")
+	}
+	choice, err := engine.DecodeChoice(request.Choice)
+	if err != nil {
+		return result(err)
+	}
+	return result(core.SetStrategy(request.Name, choice))
+}
 
 //export CoreSnapshot
 func CoreSnapshot() *C.char { return C.CString(core.Snapshot()) }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -8,22 +9,50 @@ import '../features/configs/config_store.dart';
 import '../platform/app_bridge.dart';
 
 class AppController extends ChangeNotifier {
-  AppController(this.platform);
+  AppController(this.platform, {this.store});
 
   final AppBridge platform;
   ConfigCollection collection = ConfigCollection(entries: []);
   AppSnapshot state = const AppSnapshot();
-  String? error;
   bool loading = true;
+  bool configsLoaded = false;
+  String? platformError;
+  String? configError;
+  String? commandError;
   bool dispatching = false;
   Map<String, Object?>? lastCommand;
   bool _refreshing = false;
   bool _refreshAgain = false;
   bool _disposed = false;
-  ConfigStore? _store;
+  bool _foreground = true;
+  int _readRevision = 0;
+  int _runner = 0;
+  int _retryStep = 0;
+  Timer? _retry;
+  final ConfigStore? store;
 
+  static const _readTimeout = Duration(seconds: 5);
+  static const _retrySeconds = [1, 2, 5, 10, 30];
+
+  bool get foreground => _foreground;
+  String? get error =>
+      platformError ??
+      configError ??
+      commandError ??
+      (state.core.blocked ? state.core.error : null);
+  bool get configsCurrent => configsLoaded && configError == null;
   bool get busy => loading || dispatching || state.busy;
-  bool get canEdit => !busy && state.confirmed && error == null;
+  bool get canEdit =>
+      !busy && state.confirmed && platformError == null && configsCurrent;
+  bool get canChangeMode => canEdit && (!state.running || state.mode != null);
+  bool get canToggle =>
+      !busy &&
+      state.confirmed &&
+      platformError == null &&
+      (state.running ||
+          (!state.core.blocked &&
+              configsCurrent &&
+              collection.selected?.body != null));
 
   Future<void> initialize() async {
     AppBridge.channel.setMethodCallHandler((call) async {
@@ -32,56 +61,127 @@ class AppController extends ChangeNotifier {
     await refresh();
   }
 
+  void setForeground(bool foreground) {
+    if (_disposed || _foreground == foreground) return;
+    _foreground = foreground;
+    _retry?.cancel();
+    if (foreground) {
+      _retryStep = 0;
+      unawaited(refresh());
+    } else {
+      // A pending platform/file future cannot be cancelled, only invalidated.
+      _runner++;
+      _readRevision++;
+      _refreshing = false;
+      _refreshAgain = false;
+    }
+    notifyListeners();
+  }
+
   Future<void> refresh() async {
+    if (_disposed || !_foreground) return;
+    _retry?.cancel();
     if (_refreshing) {
       _refreshAgain = true;
+      _readRevision++;
       return;
     }
     _refreshing = true;
+    final runner = ++_runner;
     do {
       _refreshAgain = false;
+      final revision = _readRevision;
+      bool current() =>
+          !_disposed &&
+          _foreground &&
+          runner == _runner &&
+          revision == _readRevision;
       try {
-        state = await platform.snapshot();
-        if (_store == null) {
-          final paths = await platform.paths();
-          _store = ConfigStore(Directory(paths['configs'] as String));
+        final snapshot = await platform.snapshot().timeout(_readTimeout);
+        if (current()) {
+          state = snapshot;
+          platformError = null;
+          loading = false;
+          notifyListeners();
         }
-        collection = await _store!.read();
-        error = null;
-      } on ConfigFailure catch (failure) {
-        error = failure.message;
       } catch (_) {
-        state = const AppSnapshot();
-        error = '无法核实应用状态，请刷新重试。';
+        if (current()) {
+          state = const AppSnapshot();
+          platformError = '暂时无法获取接管状态，前台将自动重试，不会自动启动。';
+          loading = false;
+          notifyListeners();
+        }
       }
-      loading = false;
-      if (!_disposed) notifyListeners();
-    } while (_refreshAgain && !_disposed);
+      if (runner != _runner || _disposed) return;
+      if (current()) {
+        try {
+          final configs = await _readConfigs().timeout(_readTimeout);
+          if (current()) {
+            collection = configs;
+            configsLoaded = true;
+            configError = null;
+          }
+        } catch (failure) {
+          if (current()) {
+            configError = failure is ConfigFailure
+                ? failure.message
+                : '暂时无法读取已保存配置，原文件未被修改。';
+          }
+        }
+        if (current()) notifyListeners();
+      }
+    } while (_refreshAgain && !_disposed && runner == _runner && _foreground);
+    if (_disposed || runner != _runner) return;
     _refreshing = false;
+    if (platformError != null ||
+        configError != null ||
+        state.modeError != null) {
+      final seconds = _retrySeconds[_retryStep];
+      if (_retryStep < _retrySeconds.length - 1) _retryStep++;
+      if (_foreground) {
+        _retry = Timer(Duration(seconds: seconds), () => unawaited(refresh()));
+      }
+    } else {
+      _retryStep = 0;
+    }
+  }
+
+  Future<ConfigCollection> _readConfigs() async {
+    final source = store;
+    if (source != null) return source.read();
+    final paths = await platform.paths();
+    // Keep this read local: a timed-out invocation must not publish late data.
+    return ConfigStore(Directory(paths['configs'] as String)).read();
   }
 
   Future<void> submit(Map<String, Object?> command) async {
-    if (busy) return;
+    if (_disposed || busy) return;
     lastCommand = Map.of(command);
     dispatching = true;
-    error = null;
+    commandError = null;
+    _readRevision++;
     notifyListeners();
     try {
       await platform.submit(command);
     } on PlatformException catch (failure) {
-      error = failure.message ?? '请求未被受理，请重试。';
+      if (!_disposed) commandError = failure.message ?? '请求未被受理，请重试。';
     } catch (_) {
-      error = '请求未被受理，请重试。';
+      if (!_disposed) commandError = '请求未被受理，请重试。';
     } finally {
-      dispatching = false;
-      if (!_disposed) notifyListeners();
+      if (!_disposed) {
+        dispatching = false;
+        notifyListeners();
+      }
     }
-    if (!_disposed && error == null) await refresh();
+    // Even an ambiguous submission failure must re-read, never re-submit.
+    if (!_disposed) await refresh();
   }
 
   @override
   void dispose() {
     _disposed = true;
+    _runner++;
+    _retry?.cancel();
     AppBridge.channel.setMethodCallHandler(null);
     super.dispose();
   }

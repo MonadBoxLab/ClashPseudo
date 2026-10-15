@@ -18,6 +18,18 @@ def check_http(fixture):
 
     assert get("/ok/self-test") == b"self-test"
     assert b"proxy-providers:" in get("/config")
+    modes = get("/modes")
+    assert b"mode: direct" in modes and b"name: GLOBAL" in modes and b"proxies: [REJECT]" in modes
+    strategies = get("/strategies")
+    assert b"proxies: [DIRECT, REJECT]" in strategies
+    assert "{name: 父策略, type: select, proxies: [测试🌐, 自动🌐]}".encode() in strategies
+    for kind in (b"select", b"url-test", b"fallback", b"load-balance"):
+        assert b"type: " + kind in strategies
+    assert get("/strategies-other") == strategies
+    assert b"/strategy-provider-update" in get("/strategies-changing")
+    for _ in range(5):
+        assert b"name: fixture" in get("/strategy-provider-update")
+    assert b"name: replacement" in get("/strategy-provider-update")
     assert "测试🌐".encode() in get("/redirect")
     assert get("/invalid") == b"[invalid yaml"
     assert get("/empty") == b""

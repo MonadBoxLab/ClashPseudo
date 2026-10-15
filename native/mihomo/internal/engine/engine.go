@@ -57,14 +57,15 @@ func init() {
 }
 
 type Engine struct {
-	mu     sync.Mutex
-	cfg    *config.Config
-	tun    io.Closer
-	owner  *socketOwner
-	failed bool
+	mu         sync.Mutex
+	cfg        *config.Config
+	tun        io.Closer
+	owner      *socketOwner
+	failed     bool
+	unrestored []UnrestoredChoice
 }
 
-func (e *Engine) Prepare(home string, body []byte, protect func(int) bool) error {
+func (e *Engine) Prepare(home string, body []byte, mode string, choices map[string]Choice, protect func(int) bool) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.owner != nil || e.failed {
@@ -73,10 +74,20 @@ func (e *Engine) Prepare(home string, body []byte, protect func(int) bool) error
 	if protect == nil {
 		return errors.New("socket protector is required")
 	}
+	for name, choice := range choices {
+		if name == "" || !choice.valid() {
+			return errors.New("invalid strategy choices")
+		}
+	}
+	selectedMode, err := parseMode(mode)
+	if err != nil {
+		return err
+	}
 	raw, err := config.UnmarshalRawConfig(body)
 	if err != nil {
 		return err
 	}
+	raw.Mode = selectedMode
 	if err = configurePlatform(raw, home); err != nil {
 		return err
 	}
@@ -100,6 +111,7 @@ func (e *Engine) Prepare(home string, body []byte, protect func(int) bool) error
 	if !owner.active.Load() {
 		return errors.Join(ErrStopped, e.stopLocked())
 	}
+	e.restoreChoices(choices)
 	return nil
 }
 
@@ -119,6 +131,7 @@ func (e *Engine) Stop() error {
 }
 
 func (e *Engine) stopLocked() error {
+	e.unrestored = nil
 	tunnel.OnSuspend()
 	var errs []error
 	if e.tun != nil {

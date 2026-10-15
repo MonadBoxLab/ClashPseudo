@@ -5,6 +5,43 @@ def provider(host, port):
     return f"proxies:\n  - {{name: fixture, type: socks5, server: {host}, port: {port + 3}}}\n".encode()
 
 
+def mode_configuration(host, port):
+    return configuration(host, port).replace(b"mode: rule", b"mode: direct").replace(
+        b"proxy-groups:\n", b"proxy-groups:\n  - {name: GLOBAL, type: select, proxies: [REJECT]}\n")
+
+
+def strategy_configuration(host, port, *, changing=False):
+    body = configuration(host, port).replace(
+        b"proxy-groups:\n",
+        "proxy-groups:\n  - {name: 父策略, type: select, proxies: [测试🌐, 自动🌐]}\n".encode())
+    body = body.replace(b"    use: [local]\n", f"""    proxies: [DIRECT, REJECT]
+    use: [local]
+  - name: 自动🌐
+    type: url-test
+    proxies: [DIRECT, REJECT]
+    url: http://{host}:{port}/ok/health
+    interval: 3600
+    lazy: true
+  - name: 故障转移
+    type: fallback
+    proxies: [DIRECT, REJECT]
+    url: http://{host}:{port}/ok/health
+    interval: 3600
+    lazy: true
+  - name: 均衡
+    type: load-balance
+    proxies: [DIRECT, REJECT]
+    url: http://{host}:{port}/ok/health
+    interval: 3600
+    lazy: true
+  - {{name: 隐藏, type: select, hidden: true, proxies: [DIRECT]}}
+""".encode())
+    if changing:
+        body = body.replace(b"/provider\n", b"/strategy-provider-update\n")
+        body = body.replace(b"interval: 3600", b"interval: 2", 1)
+    return body
+
+
 def configuration(host, port, *, direct=False, revision=1):
     # 故意带常见平台字段：应用必须托管它们，但不能修改保存的原文。
     route = "DIRECT" if direct else "测试🌐"

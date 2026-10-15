@@ -10,7 +10,7 @@ import (
 
 func TestInvalidTunParametersConsumeDescriptor(t *testing.T) {
 	var e Engine
-	if err := e.Prepare(t.TempDir(), []byte(validConfig), func(int) bool { return true }); err != nil {
+	if err := e.Prepare(t.TempDir(), []byte(validConfig), "rule", nil, func(int) bool { return true }); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { requireStop(t, &e) })
