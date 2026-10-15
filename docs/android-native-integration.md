@@ -59,6 +59,16 @@ Prepare 初始化 provider 后使用 `ForceSet` 恢复有效偏好；手动固�
 
 [CoreHostTest](../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/nativecore/CoreHostTest.kt) 覆盖可控时间／队列下的闲置、返回、业务及换代竞争；[StrategyCallsTest](../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/app/StrategyCallsTest.kt) 覆盖超时、取消和迟到结果。NativeCoreFailureTest 的真实 JNI 预览用例另检查中文／emoji 恢复、切换及未附着 TUN。这些测试不替代实际系统授权或全部协议资源验证。
 
+## 活动连接读取
+
+UI 通道的 `connections` 经 [ConnectionsCalls](../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/app/ConnectionsCalls.kt) 在 `CoreHost.worker` 读取已有 `NativeCore.snapshot()` 中的 `traffic.connections`，不开放 HTTP controller、不增加原生导出或启动业务 Engine。请求受理、执行前及交付前检查 CoreHost generation、配置 ID、revision、VPN 用途和真实 RUNNING；两套 generation 不混用。仅投影目标、网络、源端点、链、规则、开始时间与累计流量，排除 `Inner`，不把 socket 保护计数解释为规则结果。
+
+平台等待期限 3 秒，Dart 外围 5 秒。原生读取超时后保留工作占位，直到排队任务退出或已执行读取完成，避免重试持续堆积；迟到结果丢弃，读取失败不停止 VPN。快照遍历不是全体连接同一时刻的一致性视图，可能漏短连接与拒绝，不提供结束事件或最终计数。其读取不会修复上游并发限制。
+
+[ConnectionController](../lib/features/connections/connection_controller.dart) 只在连接流程前台可见且接管运行时调度，不为观察加载预览。只保留当前、暂停展示及当前详情所需快照，没有历史数据库或后台记录。[ConnectionsCallsTest](../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/app/ConnectionsCallsTest.kt) 覆盖身份变化、超时、迟到、队列占位和字段投影，可沿用下文 instrumentation 命令选择该测试类。
+
+设备验证复用 `/strategies` 或 `/modes` 与 `/hold/`：先从正式界面启动，再用已有 debug 探针或受控客户端发起长连接；核对目标端点、时间窗口、源端点、服务端日志与实际链。HTTP 请求标识不是 tracker ID，连接 metadata 也不含 HTTP 路径。保持旧连接后改变策略并发起新连接，旧链不能被新选择覆盖。检查规则筛选、暂停展示、详情返回、断开测试连接后的最后快照，以及离页/后台和正常停止；debug、release 的结果分别记录，不以编译或 debug 探针代替 release 正式入口验收。
+
 ## 构建与自动化验证
 
 环境要求和 Flutter 构建命令见 [README](../README.md#开发)。Gradle 调用 [Bash 构建脚本](../tool/build_android_core.sh)，生成并打包 `arm64-v8a`、`x86_64` 各自的 `libmihomo_bridge.so`。内核版本从 [go.mod](../native/mihomo/go.mod) 读取并注入。

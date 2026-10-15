@@ -61,10 +61,25 @@ void main() {
     expect(find.text('尚未导入配置'), findsOneWidget);
     expect(tester.widget<FilledButton>(power).onPressed, isNull);
     expect(find.text('导入配置'), findsOneWidget);
-    expect(find.text('网络观察尚未接入'), findsOneWidget);
+    expect(find.text('查看连接'), findsOneWidget);
     expect(find.byTooltip('核实状态'), findsNothing);
     expect(controller.commands, isEmpty);
   });
+
+  testWidgets(
+    'connection entry opens a read-only secondary page while stopped',
+    (tester) async {
+      await show(tester);
+      await tester.ensureVisible(find.text('查看连接'));
+      await tester.tap(find.text('查看连接'));
+      await tester.pumpAndSettle();
+      expect(find.text('接管运行后可查看活动连接'), findsOneWidget);
+      expect(controller.commands, isEmpty);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.text('网络活动'), findsOneWidget);
+    },
+  );
 
   testWidgets('unknown is not stopped and cannot start', (tester) async {
     controller.state = const AppSnapshot();
@@ -513,7 +528,7 @@ void main() {
         expect(find.textContaining('token=private'), findsNothing);
         await tester.drag(find.byType(CustomScrollView), const Offset(0, -600));
         await tester.pumpAndSettle();
-        expect(find.text('网络观察尚未接入').hitTestable(), findsOneWidget);
+        expect(find.text('查看连接').hitTestable(), findsOneWidget);
         expect(tester.takeException(), isNull);
       });
     }

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart';
 
+import '../features/connections/connection_snapshot.dart';
 import '../features/mode/tunnel_mode.dart';
 import '../features/strategies/strategy_choice.dart';
 import '../features/strategies/strategy_snapshot.dart';
@@ -36,6 +37,17 @@ class AppBridge {
       'generation': generation,
     });
     return StrategySnapshot.fromMap(jsonDecode(value!) as Map<String, dynamic>);
+  }
+
+  Future<ConnectionSnapshot> connections(CoreSnapshot core) async {
+    final value = await channel.invokeMethod<String>('connections', {
+      'generation': core.generation,
+      'configId': core.configId,
+      'revision': core.revision,
+    });
+    return ConnectionSnapshot.fromMap(
+      jsonDecode(value!) as Map<String, dynamic>,
+    );
   }
 
   Future<void> prepareStrategies({

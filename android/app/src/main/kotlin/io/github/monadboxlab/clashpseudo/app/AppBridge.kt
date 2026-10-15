@@ -21,6 +21,7 @@ object AppBridge {
     private lateinit var native: NativeCalls
     private lateinit var modes: ModeCalls
     private lateinit var strategies: StrategyCalls
+    private lateinit var connections: ConnectionsCalls
     private val main = Handler(Looper.getMainLooper())
     private var activity = WeakReference<MainActivity>(null)
     private var ui: MethodChannel? = null
@@ -41,6 +42,7 @@ object AppBridge {
         native = NativeCalls(context)
         modes = ModeCalls(PseudoVpnService.session, PseudoVpnService.worker, { notifyUi() })
         strategies = StrategyCalls(PseudoVpnService.core, { notifyUi() })
+        connections = ConnectionsCalls(PseudoVpnService.core)
     }
 
     fun attachUi(owner: MainActivity, engine: FlutterEngine) {
@@ -52,6 +54,11 @@ object AppBridge {
                     "snapshot" -> snapshot(null, result)
                     "strategies" -> strategies.read(call.argument<Number>("generation")?.toLong() ?: -1L,
                         null, strategyReply(result))
+                    "connections" -> connections.read(call.argument<Number>("generation")?.toLong() ?: -1L,
+                        call.argument<String>("configId").orEmpty(), call.argument<Int>("revision") ?: -1) { value, error ->
+                        if (error != null) result.error("connections", error, null)
+                        else result.success(value)
+                    }
                     "submit" -> submit(call, result)
                     else -> result.notImplemented()
                 }

@@ -5,6 +5,7 @@ import '../../app/app_controller.dart';
 import '../../app/app_theme.dart';
 import '../configs/configs_page.dart';
 import '../configs/widgets/import_dialog.dart';
+import '../connections/connections_page.dart';
 import '../mode/mode_sheet.dart';
 import 'widgets/status_hero.dart';
 
@@ -131,25 +132,23 @@ class _OverviewPageState extends State<OverviewPage> {
                                 style: Theme.of(context).textTheme.titleSmall,
                               ),
                               const SizedBox(height: 14),
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Icon(
-                                    Icons.insights_outlined,
-                                    size: 20,
-                                    color: palette.muted,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Text(
-                                      '网络观察尚未接入',
-                                      style: TextStyle(
-                                        color: palette.muted,
-                                        fontSize: 13,
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: TextButton.icon(
+                                  onPressed: () => _open(
+                                    () => Navigator.of(context).push<void>(
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                            ConnectionsPage(app: controller),
                                       ),
                                     ),
                                   ),
-                                ],
+                                  icon: const Icon(
+                                    Icons.list_alt_outlined,
+                                    size: 20,
+                                  ),
+                                  label: const Text('查看连接'),
+                                ),
                               ),
                             ],
                           ),
