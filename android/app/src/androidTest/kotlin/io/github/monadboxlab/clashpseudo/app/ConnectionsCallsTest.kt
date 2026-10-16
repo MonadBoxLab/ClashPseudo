@@ -19,7 +19,7 @@ class ConnectionsCallsTest {
     private fun main(action: () -> Unit) = instrumentation.runOnMainSync(action)
     private val input = CoreInput("one", 1, "rule", byteArrayOf(), "{}".toByteArray())
     private val id = "00000001-0000-4000-8000-000000000000"
-    private val json = """{"complete":true,"limited":false,"presence":{"$id":true},"connections":[
+    private val json = """{"uploadTotal":9000000,"downloadTotal":0,"activeCount":2000,"complete":true,"limited":false,"presence":{"$id":true},"connections":[
         {"id":"$id","start":"2026-10-15T00:00:00Z","chains":["节点🌐","出口"],"upload":2,"download":3,"metadata":{"host":"fixture.test","type":"Tun"}}
     ]}"""
 
@@ -87,6 +87,9 @@ class ConnectionsCallsTest {
         assertEquals(1, result.getInt("revision"))
         assertTrue(result.getLong("elapsedMs") >= 0)
         assertTrue(result.getLong("observedAt") > 0)
+        assertEquals(9000000L, result.getLong("uploadTotal"))
+        assertEquals(0L, result.getLong("downloadTotal"))
+        assertEquals(2000, result.getInt("activeCount"))
         assertEquals("节点🌐", result.getJSONArray("connections")
             .getJSONObject(0).getJSONArray("chains").getString(0))
         assertEquals(1, reply.count.get())

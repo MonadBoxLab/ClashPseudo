@@ -80,6 +80,14 @@ Range／Get 不是原子快照，可能漏短连接或拒绝，也不提供精�
 
 设备验证复用 `/strategies` 或 `/modes` 与 `/hold/`：正式入口启动后建立两条长连接，只关闭详情指定的一条，核对另一条与 VPN 保持；后台产生／结束连接，再返回查看近期记录。核对暂停、组合筛选、详情返回、停止后留存与 15 分钟过期释放，以及新接管清空窗口。HTTP 请求标识不是 tracker ID，需关联目标／源端点、时间与服务端日志。资源测量以持续接管、固定连接量和时长为主；debug 与 release 分别记录，不以编译或 debug 探针代替 release 正式入口验收。
 
+## 总览流量摘要
+
+既有Go连接采样回复同时携带 `DefaultManager.Total()` 的 `uploadTotal`／`downloadTotal` 和扫描中的 `activeCount`，不增加Range或JNI调用。累计值为进程级全局转发统计，不由有界行求和；活跃数排除Inner，不受返回行数上限影响。Kotlin仅转发标量并附加身份和单调时间。
+
+[TrafficWindow](../lib/features/overview/traffic_window.dart) 由同一个ConnectionObserver持有，计算差分并保留最近30秒、最多31点；不改变近期连接的15分钟留存，不为速度摘要增加停止后的Engine保留理由。UI通过 `traffic` 查询小型业务快照，不搬运完整连接列表，不影响连接详情固定。LogicEngineHost复用查询在途/期限保护，停止且没有Engine时直接返回空状态，不启动预览。
+
+[TrafficController](../lib/features/overview/traffic_controller.dart) 仅在总览网络区可见且前台时读取，使用本地单调计时使等待/退避期间的旧读数失效并裁剪过期历史。缺失的上传、下载和计数字段分别失效，不影响其他摘要字段或既有连接观察；整包错误仍遵守原有身份与完整性规则。产品语义见[总览网络活动](product-requirements.md#总览网络活动)。
+
 ## 构建与自动化验证
 
 环境要求和 Flutter 构建命令见 [README](../README.md#开发)。Gradle 调用 [Bash 构建脚本](../tool/build_android_core.sh)，生成并打包 `arm64-v8a`、`x86_64` 各自的 `libmihomo_bridge.so`。内核版本从 [go.mod](../native/mihomo/go.mod) 读取并注入。

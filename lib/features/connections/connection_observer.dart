@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../../platform/app_bridge.dart';
+import '../overview/traffic_window.dart';
 import '../strategies/strategy_snapshot.dart';
 import 'connection_window.dart';
 
@@ -8,6 +9,7 @@ class ConnectionObserver {
   ConnectionObserver(this.platform);
   final AppBridge platform;
   final window = ConnectionWindow();
+  final traffic = TrafficWindow();
   CoreSnapshot _core = const CoreSnapshot();
   String _phase = 'STOPPED';
   int _session = 0;
@@ -53,6 +55,7 @@ class ConnectionObserver {
     _running = running;
     if (running) _core = state.core;
     if (changed) {
+      traffic.clear();
       _token++;
       _sampledAt = null;
       _failures = 0;
@@ -95,6 +98,19 @@ class ConnectionObserver {
     };
   }
 
+  Map<String, Object?> trafficSnapshot(Map<String, dynamic> state) {
+    updateState(state);
+    return {
+      'generation': _core.generation,
+      'configId': _core.configId ?? '',
+      'revision': _core.revision ?? 0,
+      'sessionGeneration': _session,
+      'phase': _phase,
+      'failed': _failures > 0,
+      ...traffic.snapshot(_now, fresh: _running && _failures == 0),
+    };
+  }
+
   void closed(CoreSnapshot core, String id) {
     if (_core.generation != core.generation ||
         _core.configId != core.configId ||
@@ -124,6 +140,7 @@ class ConnectionObserver {
           .timeout(const Duration(seconds: 5));
       if (_disposed || token != _token || !_running) return;
       window.accept(sample, core, parameters);
+      traffic.accept(sample);
       _now = sample['elapsedMs'] as int;
       _sampledAt = _now;
       _failures = 0;
@@ -132,6 +149,7 @@ class ConnectionObserver {
         _failures++;
         _sampledAt = null;
         window.invalidate();
+        traffic.invalidate();
       }
     } finally {
       _flight = false;

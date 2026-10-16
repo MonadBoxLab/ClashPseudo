@@ -33,6 +33,11 @@ class AppRuntime {
             Map<String, dynamic>.from(args['state'] as Map),
             args['detail'] as Map?,
           );
+        case 'traffic':
+          final args = Map<String, dynamic>.from(call.arguments as Map);
+          return _observer.trafficSnapshot(
+            Map<String, dynamic>.from(args['state'] as Map),
+          );
         case 'releaseDetail':
           _observer.window.pinDetail(null);
           return null;

@@ -63,6 +63,7 @@ func (q ConnectionQuery) validate() error {
 }
 
 type connectionSource interface {
+	Total() (int64, int64)
 	Range(func(statistic.Tracker) bool)
 	Get(string) statistic.Tracker
 }
@@ -91,11 +92,14 @@ func (h *connectionHeap) Pop() any {
 }
 
 type connectionReply struct {
-	Connections []json.RawMessage `json:"connections"`
-	Detail      json.RawMessage   `json:"detail,omitempty"`
-	Presence    map[string]bool   `json:"presence"`
-	Limited     bool              `json:"limited"`
-	Complete    bool              `json:"complete"`
+	UploadTotal   int64             `json:"uploadTotal"`
+	DownloadTotal int64             `json:"downloadTotal"`
+	ActiveCount   int               `json:"activeCount"`
+	Connections   []json.RawMessage `json:"connections"`
+	Detail        json.RawMessage   `json:"detail,omitempty"`
+	Presence      map[string]bool   `json:"presence"`
+	Limited       bool              `json:"limited"`
+	Complete      bool              `json:"complete"`
 }
 
 func (e *Engine) Connections(q ConnectionQuery) (string, error) {
@@ -204,6 +208,8 @@ func queryConnections(source connectionSource, q ConnectionQuery) (string, error
 	if scanError != nil {
 		return "", scanError
 	}
+	response.UploadTotal, response.DownloadTotal = source.Total()
+	response.ActiveCount = count
 	body, err := json.Marshal(response)
 	if err != nil || len(body) > maxConnectionResponse {
 		return "", errConnections

@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 
 import '../features/connections/connection_snapshot.dart';
+import '../features/overview/traffic_window.dart';
 import '../features/mode/tunnel_mode.dart';
 import '../features/strategies/strategy_choice.dart';
 import '../features/strategies/strategy_snapshot.dart';
@@ -64,6 +65,11 @@ class AppBridge {
   Future<StrategySnapshot> strategies(int generation) async {
     final value = await _call<String>('strategies', {'generation': generation});
     return StrategySnapshot.fromMap(jsonDecode(value!) as Map<String, dynamic>);
+  }
+
+  Future<TrafficSnapshot> traffic() async {
+    final value = await _call<Map>('traffic');
+    return TrafficSnapshot.fromMap(Map<String, dynamic>.from(value!));
   }
 
   Future<void> releaseConnectionDetail() => _call<void>('releaseDetail');

@@ -60,6 +60,7 @@ object AppBridge {
                     "strategies" -> strategies.read(call.argument<Number>("generation")?.toLong() ?: -1L,
                         null, strategyReply(result))
                     "connections" -> logic.connections(call.argument<Map<*, *>>("detail"), result)
+                    "traffic" -> logic.traffic(result)
                     "releaseDetail" -> { logic.releaseDetail(); result.success(null) }
                     "submit" -> submit(call, result)
                     else -> result.notImplemented()

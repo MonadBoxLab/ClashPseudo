@@ -8,6 +8,7 @@ import '../configs/widgets/import_dialog.dart';
 import '../connections/connections_page.dart';
 import '../mode/mode_sheet.dart';
 import 'widgets/status_hero.dart';
+import 'widgets/traffic_panel.dart';
 
 class OverviewPage extends StatefulWidget {
   const OverviewPage({super.key, required this.controller, this.active = true});
@@ -20,6 +21,9 @@ class OverviewPage extends StatefulWidget {
 
 class _OverviewPageState extends State<OverviewPage> {
   final _hero = GlobalKey();
+  final _network = GlobalKey();
+  final _viewport = GlobalKey();
+  bool _networkVisible = false;
   final _scroll = ScrollController();
   bool _heroVisible = true;
   bool _covered = false;
@@ -37,10 +41,28 @@ class _OverviewPageState extends State<OverviewPage> {
     final bounds = box.localToGlobal(Offset.zero) & box.size;
     final screen = Offset.zero & MediaQuery.sizeOf(context);
     final visible = bounds.overlaps(screen);
-    if (visible != _heroVisible) setState(() => _heroVisible = visible);
+    final network = _network.currentContext?.findRenderObject() as RenderBox?;
+    final viewport = _viewport.currentContext?.findRenderObject() as RenderBox?;
+    final networkVisible =
+        network != null &&
+        network.hasSize &&
+        viewport != null &&
+        viewport.hasSize &&
+        (network.localToGlobal(Offset.zero) & network.size).overlaps(
+          (viewport.localToGlobal(Offset.zero) & viewport.size).intersect(
+            screen,
+          ),
+        );
+    if (visible != _heroVisible || networkVisible != _networkVisible) {
+      setState(() {
+        _heroVisible = visible;
+        _networkVisible = networkVisible;
+      });
+    }
   }
 
   Future<void> _open(Future<void> Function() action) async {
+    if (_covered) return;
     setState(() => _covered = true);
     try {
       await action();
@@ -70,94 +92,87 @@ class _OverviewPageState extends State<OverviewPage> {
               : SystemUiOverlayStyle.dark,
           child: Scaffold(
             backgroundColor: Colors.transparent,
-            body: CustomScrollView(
-              controller: _scroll,
-              slivers: [
-                SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: Column(
-                    children: [
-                      Expanded(
-                        child: ConstrainedBox(
-                          key: _hero,
-                          constraints: const BoxConstraints(minHeight: 460),
-                          child: StatusHero(
-                            controller: controller,
-                            visible:
-                                widget.active &&
-                                _heroVisible &&
-                                !_covered &&
-                                (ModalRoute.of(context)?.isCurrent ?? true),
-                            onManage: () => _open(
-                              () => Navigator.of(context).push<void>(
-                                MaterialPageRoute(
+            body: LayoutBuilder(
+              builder: (context, constraints) => CustomScrollView(
+                key: _viewport,
+                controller: _scroll,
+                slivers: [
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: Column(
+                      children: [
+                        Expanded(
+                          child: ConstrainedBox(
+                            key: _hero,
+                            constraints: const BoxConstraints(minHeight: 460),
+                            child: StatusHero(
+                              controller: controller,
+                              visible:
+                                  widget.active &&
+                                  _heroVisible &&
+                                  !_covered &&
+                                  (ModalRoute.of(context)?.isCurrent ?? true),
+                              onManage: () => _open(
+                                () => Navigator.of(context).push<void>(
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        ConfigsPage(controller: controller),
+                                  ),
+                                ),
+                              ),
+                              onMode: () => _open(
+                                () => showModalBottomSheet<void>(
+                                  context: context,
+                                  backgroundColor: palette.surface,
+                                  isScrollControlled: true,
+                                  useSafeArea: true,
+                                  showDragHandle: true,
                                   builder: (_) =>
-                                      ConfigsPage(controller: controller),
+                                      ModeSheet(controller: controller),
+                                ),
+                              ),
+                              onImport: () =>
+                                  _open(() => openImport(context, controller)),
+                            ),
+                          ),
+                        ),
+                        Container(
+                          key: const ValueKey('network-surface'),
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: palette.surface,
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(24),
+                            ),
+                          ),
+                          padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+                          child: SafeArea(
+                            top: false,
+                            child: TrafficPanel(
+                              key: _network,
+                              app: controller,
+                              width: constraints.maxWidth - 48,
+                              visible:
+                                  widget.active &&
+                                  _networkVisible &&
+                                  !_covered &&
+                                  (ModalRoute.of(context)?.isCurrent ?? true),
+                              onOpen: () => _open(
+                                () => Navigator.of(context).push<void>(
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        ConnectionsPage(app: controller),
+                                  ),
                                 ),
                               ),
                             ),
-                            onMode: () => _open(
-                              () => showModalBottomSheet<void>(
-                                context: context,
-                                backgroundColor: palette.surface,
-                                isScrollControlled: true,
-                                useSafeArea: true,
-                                showDragHandle: true,
-                                builder: (_) =>
-                                    ModeSheet(controller: controller),
-                              ),
-                            ),
-                            onImport: () =>
-                                _open(() => openImport(context, controller)),
                           ),
                         ),
-                      ),
-                      Container(
-                        key: const ValueKey('network-surface'),
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          color: palette.surface,
-                          borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(24),
-                          ),
-                        ),
-                        padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-                        child: SafeArea(
-                          top: false,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '网络活动',
-                                style: Theme.of(context).textTheme.titleSmall,
-                              ),
-                              const SizedBox(height: 14),
-                              Align(
-                                alignment: Alignment.centerLeft,
-                                child: TextButton.icon(
-                                  onPressed: () => _open(
-                                    () => Navigator.of(context).push<void>(
-                                      MaterialPageRoute(
-                                        builder: (_) =>
-                                            ConnectionsPage(app: controller),
-                                      ),
-                                    ),
-                                  ),
-                                  icon: const Icon(
-                                    Icons.list_alt_outlined,
-                                    size: 20,
-                                  ),
-                                  label: const Text('查看连接'),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

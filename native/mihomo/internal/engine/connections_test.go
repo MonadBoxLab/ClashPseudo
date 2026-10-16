@@ -39,11 +39,16 @@ func fixtureConnection(index int) *connectionFixture {
 }
 
 type connectionFixtures struct {
-	rows    []*connectionFixture
-	missing map[string]bool
+	rows             []*connectionFixture
+	missing          map[string]bool
+	upload, download int64
+	ranges           int
 }
 
+func (s *connectionFixtures) Total() (int64, int64) { return s.upload, s.download }
+
 func (s *connectionFixtures) Range(f func(statistic.Tracker) bool) {
+	s.ranges++
 	for _, row := range s.rows {
 		if !f(row) {
 			return
@@ -74,7 +79,7 @@ func decodeConnections(t *testing.T, body string, err error) connectionReply {
 }
 
 func TestConnectionsBoundedSelectionAndPresence(t *testing.T) {
-	source := &connectionFixtures{missing: map[string]bool{}}
+	source := &connectionFixtures{missing: map[string]bool{}, upload: 9000000, download: 17000000}
 	for i := 0; i < 2000; i++ {
 		source.rows = append(source.rows, fixtureConnection(i))
 	}
@@ -86,6 +91,9 @@ func TestConnectionsBoundedSelectionAndPresence(t *testing.T) {
 	body, err := queryConnections(source, ConnectionQuery{Limit: 1000,
 		PreviousActiveIDs: []string{oldID, missingID}, DetailID: source.rows[1].ID()})
 	reply := decodeConnections(t, body, err)
+	if reply.ActiveCount != 2000 || reply.UploadTotal != 9000000 || reply.DownloadTotal != 17000000 {
+		t.Fatal("global summary was truncated or derived from selected rows")
+	}
 	if !reply.Complete || !reply.Limited || len(reply.Connections) != 1000 || reply.Detail == nil {
 		t.Fatal("selection was not bounded")
 	}
@@ -100,6 +108,24 @@ func TestConnectionsBoundedSelectionAndPresence(t *testing.T) {
 	}
 	if len(body) > maxConnectionResponse {
 		t.Fatal("response exceeds limit")
+	}
+}
+
+func TestConnectionsEmptyGlobalSummary(t *testing.T) {
+	source := &connectionFixtures{upload: 12345}
+	body, err := queryConnections(source, ConnectionQuery{Limit: 1})
+	reply := decodeConnections(t, body, err)
+	if reply.ActiveCount != 0 || reply.UploadTotal != 12345 || reply.DownloadTotal != 0 || source.ranges != 1 {
+		t.Fatal("empty connection table lost global counters or scanned twice")
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(body), &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"activeCount", "uploadTotal", "downloadTotal"} {
+		if _, ok := fields[name]; !ok {
+			t.Fatalf("missing %s", name)
+		}
 	}
 }
 

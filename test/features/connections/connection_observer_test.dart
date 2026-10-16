@@ -49,18 +49,59 @@ class ObservationBridge extends AppBridge {
     requests.add(query);
     if (fail) throw StateError('unavailable');
     return pending?.future ??
-        fixtures.sample(
-          [fixtures.row('a', upload: now, download: now * 2)],
-          now,
-          presence: {
-            for (final id in query['previousActiveIds'] as List<String>)
-              id: true,
-          },
-        );
+        {
+          ...fixtures.sample(
+            [fixtures.row('a', upload: now, download: now * 2)],
+            now,
+            presence: {
+              for (final id in query['previousActiveIds'] as List<String>)
+                id: true,
+            },
+          ),
+          'uploadTotal': now * 10,
+          'downloadTotal': now * 20,
+          'activeCount': 2000,
+        };
   }
 }
 
 void main() {
+  testWidgets(
+    'traffic shares sampling, preserves detail and resets at new session',
+    (tester) async {
+      final bridge = ObservationBridge();
+      final observer = ConnectionObserver(bridge);
+      observer.updateState(bridge.state);
+      await tester.pump(Duration.zero);
+      observer.window.pinDetail('a');
+      for (var i = 1; i <= 35; i++) {
+        bridge.now = i * 1000;
+        await tester.pump(const Duration(seconds: 1));
+      }
+      final value = observer.trafficSnapshot(bridge.state);
+      expect(value['upload'], 10000);
+      expect(value['download'], 20000);
+      expect(value['activeCount'], 2000);
+      expect((value['points'] as List).length, 31);
+      expect(value.containsKey('connections'), isFalse);
+      expect(observer.window.parameters['detailId'], 'a');
+      expect(bridge.reads, 36);
+      observer.trafficSnapshot(bridge.state);
+      expect(bridge.reads, 36);
+      bridge.running = false;
+      observer.updateState(bridge.state);
+      expect(observer.trafficSnapshot(bridge.state)['points'], isEmpty);
+      expect(observer.retained, isTrue);
+      bridge.running = true;
+      bridge.session++;
+      bridge.now += 1000;
+      observer.updateState(bridge.state);
+      await tester.pump();
+      expect(observer.trafficSnapshot(bridge.state)['upload'], isNull);
+      observer.dispose();
+    },
+  );
+
   testWidgets(
     'observation continues without a UI and stops native reads at stop',
     (tester) async {

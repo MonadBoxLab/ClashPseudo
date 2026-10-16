@@ -141,14 +141,21 @@ class LogicEngineHost(private val application: PseudoApplication) {
         })
     }
 
-    fun connections(detail: Map<*, *>?, reply: MethodChannel.Result) {
+    fun connections(detail: Map<*, *>?, reply: MethodChannel.Result) =
+        observation("connections", mapOf("detail" to detail), "connections", reply)
+
+    fun traffic(reply: MethodChannel.Result) =
+        observation("traffic", emptyMap(), "points", reply)
+
+    private fun observation(method: String, arguments: Map<String, Any?>,
+                            rows: String, reply: MethodChannel.Result) {
         if (engine == null) {
             reconcile()
             if (engine == null) {
                 reply.success(mapOf("generation" to 0, "configId" to "", "revision" to 0,
                     "sessionGeneration" to PseudoVpnService.session.snapshot().generation,
                     "phase" to PseudoVpnService.session.snapshot().phase.name,
-                    "fresh" to false, "connections" to emptyList<Any>()))
+                    "fresh" to false, rows to emptyList<Any>()))
                 return
             }
         }
@@ -160,7 +167,7 @@ class LogicEngineHost(private val application: PseudoApplication) {
             if (!replied) { replied = true; reply.error("timeout", "更新失败", null) }
         }
         main.postDelayed(timeout, 3000)
-        channel!!.invokeMethod("connections", mapOf("state" to AppBridge.runtimeState(), "detail" to detail),
+        channel!!.invokeMethod(method, arguments + mapOf("state" to AppBridge.runtimeState()),
             object : MethodChannel.Result {
                 override fun success(result: Any?) = complete(result, null)
                 override fun error(code: String, message: String?, details: Any?) = complete(null, "更新失败")
@@ -171,7 +178,7 @@ class LogicEngineHost(private val application: PseudoApplication) {
                     main.removeCallbacks(timeout)
                     if (!replied) {
                         replied = true
-                        if (error != null) reply.error("connections", error, null) else reply.success(value)
+                        if (error != null) reply.error(method, error, null) else reply.success(value)
                     }
                     releaseIfIdle()
                 }
