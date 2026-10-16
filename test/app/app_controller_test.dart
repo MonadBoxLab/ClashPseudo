@@ -53,6 +53,35 @@ void main() {
   });
   tearDown(() => controller.dispose());
 
+  testWidgets('submission and platform work reject repeated commands', (
+    tester,
+  ) async {
+    await controller.refresh();
+    final accepted = Completer<void>();
+    bridge.submitResult = () => accepted.future;
+    const command = {'action': 'select', 'id': 'second'};
+    final first = controller.submit(command);
+    expect(controller.dispatching, isTrue);
+    expect(controller.canEdit, isFalse);
+    expect(await controller.submit(command), isNull);
+    expect(bridge.commands, [command]);
+
+    bridge.read = () async =>
+        const AppSnapshot(phase: 'RUNNING', operation: '正在停止旧接管');
+    accepted.complete();
+    expect(await first, 'operation-1');
+    expect(controller.dispatching, isFalse);
+    expect(controller.busy, isTrue);
+    expect(await controller.submit(command), isNull);
+    expect(bridge.commands, [command]);
+
+    bridge.read = () async => const AppSnapshot(phase: 'STOPPED');
+    await controller.refresh();
+    expect(controller.canEdit, isTrue);
+    expect(await controller.submit(command), 'operation-2');
+    expect(bridge.commands, [command, command]);
+  });
+
   testWidgets(
     'mode read failure retries without losing running or issuing commands',
     (tester) async {

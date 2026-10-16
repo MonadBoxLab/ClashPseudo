@@ -149,7 +149,10 @@ class ConfigsPage extends StatelessWidget {
                 TextButton(
                   onPressed:
                       controller.canEdit && !selected && entry.body != null
-                      ? () => _select(context, entry)
+                      ? () => controller.submit({
+                          'action': 'select',
+                          'id': entry.id,
+                        })
                       : null,
                   child: Text(
                     selected
@@ -174,19 +177,6 @@ class ConfigsPage extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  Future<void> _select(BuildContext context, ConfigEntry entry) async {
-    if (controller.state.running) {
-      final accepted = await confirmAction(
-        context,
-        title: '切换到“${entry.name}”？',
-        message: '将先停止当前接管，再尝试启动此配置，现有连接会中断。启动失败时保持停止，不自动恢复旧配置。',
-        confirmLabel: '停止并切换',
-      );
-      if (!accepted || !context.mounted) return;
-    }
-    await controller.submit({'action': 'select', 'id': entry.id});
   }
 
   Future<void> _delete(BuildContext context, ConfigEntry entry) async {

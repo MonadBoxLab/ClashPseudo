@@ -181,6 +181,52 @@ void main() {
     expect(platform.events, isEmpty);
   });
 
+  test('stopped selection saves without starting', () async {
+    await seed();
+    await actions.execute({'action': 'select', 'id': second.id});
+    expect((await store.read()).selectedId, second.id);
+    expect(platform.state.phase, 'STOPPED');
+    expect(platform.events, isEmpty);
+  });
+
+  test('running selection stops before starting the saved target', () async {
+    await seed(running: true);
+    await actions.execute({'action': 'select', 'id': second.id});
+    expect(platform.events, ['stop', 'authorize', 'start:second']);
+    expect((await store.read()).selectedId, second.id);
+    expect(platform.state.phase, 'RUNNING');
+    expect(platform.state.configId, second.id);
+    expect(await File('${directory.path}/work/input.yaml').exists(), isFalse);
+  });
+
+  test(
+    'failed switch permits explicit startup of a selected valid config',
+    () async {
+      await seed(running: true);
+      platform.failStart = true;
+      await expectLater(
+        actions.execute({'action': 'select', 'id': second.id}),
+        throwsA(isA<PlatformException>()),
+      );
+      expect(platform.state.phase, 'STOPPED');
+      await actions.execute({'action': 'select', 'id': first.id});
+      expect(platform.events, ['stop', 'authorize', 'start:second']);
+      platform.failStart = false;
+      await actions.execute({'action': 'start'});
+      expect(platform.events, [
+        'stop',
+        'authorize',
+        'start:second',
+        'authorize',
+        'start:first',
+      ]);
+      expect((await store.read()).selectedId, first.id);
+      expect(platform.state.phase, 'RUNNING');
+      expect(platform.state.configId, first.id);
+      expect(await File('${directory.path}/work/input.yaml').exists(), isFalse);
+    },
+  );
+
   test(
     'failed target startup stays stopped without restoring old selection',
     () async {
