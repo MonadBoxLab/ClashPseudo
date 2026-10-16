@@ -104,7 +104,8 @@ class StrategyCallsTest {
         }
         h.tasks.take().run()
         instrumentation.waitForIdleSync()
-        assertEquals(0, h.replies.get())
+        assertEquals(1, h.replies.get())
+        assertNotNull(h.error.get())
         assertEquals(0, h.changes.get())
         assertTrue(h.core.current(generation))
     }

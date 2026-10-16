@@ -86,5 +86,34 @@ func CoreSetStrategy(value *C.char, size C.int) *C.char {
 	return result(core.SetStrategy(request.Name, choice))
 }
 
+//export CoreConnections
+func CoreConnections(value *C.char, size C.int) *C.char {
+	if size < 0 || size > engine.MaxConnectionRequest {
+		return C.CString(`{"error":"invalid connection query"}`)
+	}
+	request, err := engine.DecodeConnectionQuery(C.GoBytes(unsafe.Pointer(value), size))
+	if err != nil {
+		return C.CString(`{"error":"invalid connection query"}`)
+	}
+	body, err := core.Connections(request)
+	if err != nil {
+		return C.CString(`{"error":"connection query failed"}`)
+	}
+	return C.CString(body)
+}
+
+//export CoreCloseConnection
+func CoreCloseConnection(value *C.char, size C.int) *C.char {
+	if size != 36 {
+		return C.CString(`{"status":"failed"}`)
+	}
+	status, err := core.CloseConnection(string(C.GoBytes(unsafe.Pointer(value), size)))
+	if err != nil {
+		return C.CString(`{"status":"failed"}`)
+	}
+	body, _ := json.Marshal(map[string]string{"status": status})
+	return C.CString(string(body))
+}
+
 //export CoreSnapshot
 func CoreSnapshot() *C.char { return C.CString(core.Snapshot()) }

@@ -3,67 +3,103 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../app/app_controller.dart';
+import '../strategies/strategy_snapshot.dart';
 import 'connection_snapshot.dart';
+
+enum ConnectionViewStatus {
+  active,
+  paused,
+  updating,
+  failed,
+  inactive,
+  stopped,
+  unknown,
+  replaced,
+  closed,
+}
 
 class ConnectionController extends ChangeNotifier {
   ConnectionController(this.app) {
     app.addListener(_changed);
   }
-
   final AppController app;
   ConnectionSnapshot? data;
   DateTime? observedAt;
   String? error;
   bool loading = false;
   bool paused = false;
+  bool closing = false;
+  String? closeMessage;
+  String? _closeId;
+  String? _closeStatus;
   bool _visible = false;
   bool _disposed = false;
   bool _flight = false;
   bool _fresh = false;
   int _request = 0;
   int _failures = 0;
+  int _detailEpoch = 0;
   Object? _observed;
   Timer? _timer;
   ConnectionSnapshot? _frozen;
-  DateTime? _frozenAt;
   ConnectionRecord? _detail;
   ConnectionRecord? _frozenDetail;
-  DateTime? _detailAt;
-  DateTime? _frozenDetailAt;
   (int, String, int)? _detailIdentity;
-  bool _missing = false;
 
   bool get available =>
       app.state.running &&
       app.state.core.ready &&
       app.state.core.purpose == 'VPN';
-  bool get active => !_disposed && _visible && app.foreground && available;
+  bool get active => !_disposed && _visible && app.foreground;
   bool get current =>
-      _fresh && available && data?.matches(app.state.core) == true;
+      _fresh &&
+      data?.fresh == true &&
+      available &&
+      data!.matches(app.state.core);
   ConnectionSnapshot? get displayed => paused ? _frozen : data;
-  DateTime? get displayedAt => paused ? _frozenAt : observedAt;
-  ConnectionRecord? get detail => paused ? _frozenDetail : _detail;
-  DateTime? get detailAt => paused ? _frozenDetailAt : _detailAt;
+  DateTime? get displayedAt => displayed?.observedAt ?? observedAt;
+  ConnectionRecord? get detail => paused ? _frozenDetail ?? _detail : _detail;
+  DateTime? get detailAt => detail?.observedAt;
+  ConnectionRecord? get _latestDetail =>
+      data?.find(_detail?.id ?? '') ??
+      (data?.detail?.id == _detail?.id ? data?.detail : null);
+  bool get detailActive =>
+      current &&
+      _latestDetail?.active == true &&
+      _detailIdentity == (data!.generation, data!.configId, data!.revision) &&
+      _closeStatus != 'closed' &&
+      _closeStatus != 'absent';
+  bool get canClose =>
+      detailActive && !closing && !app.busy && app.platformError == null;
 
-  String? get notice {
-    if (app.state.phase == 'STOPPED') return '未接管';
-    if (!available) return '接管状态未就绪，显示最近观察';
-    if (error != null) return error;
-    if (!current && data != null) return '最近观察已过期';
-    if (paused) return '已暂停刷新';
-    return null;
+  ConnectionViewStatus get status {
+    if (app.state.phase == 'STOPPED') return ConnectionViewStatus.stopped;
+    if (!available) return ConnectionViewStatus.unknown;
+    if (error != null || data?.failed == true) {
+      return ConnectionViewStatus.failed;
+    }
+    if (!current) return ConnectionViewStatus.updating;
+    if (paused) return ConnectionViewStatus.paused;
+    return ConnectionViewStatus.active;
   }
 
-  String get detailStatus {
+  ConnectionViewStatus get detailStatus {
     final core = app.state.core;
-    if (app.state.phase == 'STOPPED') return '接管已停止 · 最后观察';
-    if (!available) return '接管状态未确认 · 最近观察';
+    if (_closeStatus == 'closed') return ConnectionViewStatus.closed;
+    if (app.state.phase == 'STOPPED') return ConnectionViewStatus.stopped;
+    if (!available) return ConnectionViewStatus.unknown;
     if (_detailIdentity != (core.generation, core.configId, core.revision)) {
-      return '接管上下文已变化 · 最后观察';
+      return ConnectionViewStatus.replaced;
     }
-    if (!current) return '最近观察已过期';
-    if (paused) return '已暂停刷新';
-    return _missing ? '已不在当前活动快照中' : '活跃';
+    if (status != ConnectionViewStatus.active &&
+        status != ConnectionViewStatus.paused) {
+      return status;
+    }
+    if (_detail?.active == false || _closeStatus == 'absent') {
+      return ConnectionViewStatus.inactive;
+    }
+    if (_latestDetail == null) return ConnectionViewStatus.unknown;
+    return paused ? ConnectionViewStatus.paused : ConnectionViewStatus.active;
   }
 
   void setVisible(bool value) {
@@ -74,18 +110,23 @@ class ConnectionController extends ChangeNotifier {
 
   void _changed() {
     if (_disposed) return;
+    _updateCloseResult();
     final core = app.state.core;
     final key = (
       _visible,
       app.foreground,
       app.state.phase,
+      app.state.generation,
       core.generation,
       core.phase,
       core.purpose,
       core.configId,
       core.revision,
     );
-    if (_observed == key) return;
+    if (_observed == key) {
+      notifyListeners();
+      return;
+    }
     _observed = key;
     _request++;
     _timer?.cancel();
@@ -93,11 +134,12 @@ class ConnectionController extends ChangeNotifier {
     loading = false;
     error = null;
     _failures = 0;
-    if (!available || (data != null && !data!.matches(core))) {
+    if (data != null &&
+        app.state.generation != data!.sessionGeneration &&
+        (app.state.phase == 'STARTING' || app.state.running)) {
       data = null;
       _frozen = null;
       observedAt = null;
-      _frozenAt = null;
     }
     notifyListeners();
     if (active) unawaited(_read());
@@ -107,37 +149,51 @@ class ConnectionController extends ChangeNotifier {
     if (!active || _flight) return;
     _flight = true;
     final request = _request;
-    final core = app.state.core;
     bool valid() => active && request == _request;
-    loading = data == null;
-    notifyListeners();
+    if (data == null && !loading) {
+      loading = true;
+      notifyListeners();
+    }
     try {
+      final identity = _detailIdentity;
       final result = await app.platform
-          .connections(core)
+          .recentConnections(
+            detail: identity == null || _detail == null
+                ? null
+                : {
+                    'generation': identity.$1,
+                    'configId': identity.$2,
+                    'revision': identity.$3,
+                    'id': _detail!.id,
+                  },
+          )
           .timeout(const Duration(seconds: 5));
       if (!valid()) return;
-      if (!result.matches(app.state.core)) {
-        throw const FormatException('Connection context changed');
+      if (app.state.running &&
+          result.sessionGeneration != app.state.generation) {
+        throw const FormatException('Observation session changed');
       }
       data = result;
-      observedAt = DateTime.now();
+      observedAt = result.observedAt;
       _fresh = true;
       error = null;
       _failures = 0;
       if (_detailIdentity ==
               (result.generation, result.configId, result.revision) &&
           _detail != null) {
-        final found = result.find(_detail!.id);
-        _missing = found == null;
+        final found =
+            result.find(_detail!.id) ??
+            (result.detail?.id == _detail!.id ? result.detail : null);
         if (found != null) {
           _detail = found;
-          _detailAt = observedAt;
+        } else if (result.missingDetailId == _detail!.id) {
+          _detail = _detail!.observed(active: false);
         }
       }
     } catch (_) {
       if (!valid()) return;
       _fresh = false;
-      error = '连接数据暂不可用，前台将自动重试。';
+      error = '更新失败';
       _failures++;
     } finally {
       _flight = false;
@@ -150,7 +206,7 @@ class ConnectionController extends ChangeNotifier {
               ? 0
               : _failures == 0
               ? 1
-              : backoff[(_failures - 1).clamp(0, backoff.length - 1)];
+              : backoff[(_failures - 1).clamp(0, 4)];
           _timer = Timer(Duration(seconds: seconds), _read);
         }
       }
@@ -160,36 +216,82 @@ class ConnectionController extends ChangeNotifier {
   void togglePaused() {
     paused = !paused;
     _frozen = paused ? data : null;
-    _frozenAt = paused ? observedAt : null;
     _frozenDetail = paused ? _detail : null;
-    _frozenDetailAt = paused ? _detailAt : null;
     notifyListeners();
   }
 
   void openDetail(ConnectionRecord record) {
     final source = displayed!;
+    _detailEpoch++;
     _detailIdentity = (source.generation, source.configId, source.revision);
-    _detail = source.matches(app.state.core)
+    _detail =
+        data?.sameIdentity(
+              CoreSnapshot(
+                generation: source.generation,
+                configId: source.configId,
+                revision: source.revision,
+              ),
+            ) ==
+            true
         ? data?.find(record.id) ?? record
         : record;
-    _detailAt = source.matches(app.state.core) && data?.find(record.id) != null
-        ? observedAt
-        : displayedAt;
-    _missing =
-        source.matches(app.state.core) &&
-        current &&
-        data?.find(record.id) == null;
     _frozenDetail = paused ? record : null;
-    _frozenDetailAt = paused ? displayedAt : null;
+    _closeId = null;
+    _closeStatus = null;
+    closeMessage = null;
+    closing = false;
+  }
+
+  Future<void> disconnect() async {
+    if (!canClose || _detailIdentity == null || _detail == null) return;
+    final identity = _detailIdentity!;
+    final epoch = _detailEpoch;
+    closing = true;
+    closeMessage = null;
+    _closeStatus = null;
+    notifyListeners();
+    final id = await app.submit({
+      'action': 'closeConnection',
+      'generation': identity.$1,
+      'configId': identity.$2,
+      'revision': identity.$3,
+      'connectionId': _detail!.id,
+    });
+    if (_disposed || epoch != _detailEpoch) return;
+    _closeId = id;
+    if (id == null) {
+      closing = false;
+      closeMessage = app.commandError ?? '请求未被受理';
+    } else {
+      _updateCloseResult();
+    }
+    notifyListeners();
+  }
+
+  void _updateCloseResult() {
+    if (_closeId == null || !closing) return;
+    if (app.state.resultId == _closeId) {
+      _closeStatus = app.state.connectionStatus ?? 'unconfirmed';
+      closeMessage = switch (_closeStatus) {
+        'closed' => null,
+        'absent' => null,
+        'failed' => '断开失败',
+        _ => '断开结果未确认',
+      };
+      closing = false;
+    }
   }
 
   void closeDetail() {
+    _detailEpoch++;
     _detail = null;
     _frozenDetail = null;
-    _detailAt = null;
-    _frozenDetailAt = null;
     _detailIdentity = null;
-    _missing = false;
+    _closeId = null;
+    _closeStatus = null;
+    closeMessage = null;
+    closing = false;
+    unawaited(app.platform.releaseConnectionDetail().catchError((Object _) {}));
   }
 
   @override
@@ -197,6 +299,7 @@ class ConnectionController extends ChangeNotifier {
     _disposed = true;
     _request++;
     _timer?.cancel();
+    closeDetail();
     app.removeListener(_changed);
     super.dispose();
   }

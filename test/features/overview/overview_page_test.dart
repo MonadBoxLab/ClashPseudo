@@ -1,5 +1,6 @@
 import 'package:clash_pseudo/app/app_controller.dart';
 import 'package:clash_pseudo/app/app_theme.dart';
+import 'package:clash_pseudo/features/connections/connection_snapshot.dart';
 import 'package:clash_pseudo/features/configs/config_entry.dart';
 import 'package:clash_pseudo/features/overview/overview_page.dart';
 import 'package:clash_pseudo/features/overview/widgets/power_ripples.dart';
@@ -7,16 +8,33 @@ import 'package:clash_pseudo/platform/app_bridge.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+class ViewBridge extends AppBridge {
+  @override
+  Future<ConnectionSnapshot> recentConnections({
+    Map<String, Object?>? detail,
+  }) async => ConnectionSnapshot.fromMap({
+    'generation': 0,
+    'configId': '',
+    'revision': 0,
+    'phase': 'STOPPED',
+    'fresh': false,
+    'connections': [],
+  });
+  @override
+  Future<void> releaseConnectionDetail() async {}
+}
+
 class ViewController extends AppController {
-  ViewController() : super(AppBridge()) {
+  ViewController() : super(ViewBridge()) {
     loading = false;
     configsLoaded = true;
     state = const AppSnapshot(phase: 'STOPPED');
   }
   final commands = <Map<String, Object?>>[];
   @override
-  Future<void> submit(Map<String, Object?> command) async {
+  Future<String?> submit(Map<String, Object?> command) async {
     commands.add(command);
+    return 'operation-${commands.length}';
   }
 
   void changed() => notifyListeners();
@@ -73,7 +91,7 @@ void main() {
       await tester.ensureVisible(find.text('查看连接'));
       await tester.tap(find.text('查看连接'));
       await tester.pumpAndSettle();
-      expect(find.text('接管运行后可查看活动连接'), findsOneWidget);
+      expect(find.text('暂无近期连接'), findsOneWidget);
       expect(controller.commands, isEmpty);
       await tester.pageBack();
       await tester.pumpAndSettle();

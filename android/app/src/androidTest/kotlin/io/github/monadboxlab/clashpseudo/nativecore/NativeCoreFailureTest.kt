@@ -72,6 +72,22 @@ class NativeCoreFailureTest {
     }
 
     @Test
+    fun connectionJniRejectsUnavailableCoreAndSummaryHasNoFullSnapshot() {
+        val query = """{"limit":1000,"previousActiveIds":[]}""".toByteArray(Charsets.UTF_8)
+        assertTrue(JSONObject(NativeCore.connections(query)).has("error"))
+        assertTrue(JSONObject(NativeCore.connections(ByteArray(65537))).has("error"))
+        assertEquals("failed", JSONObject(NativeCore.closeConnection("invalid".toByteArray()))
+            .getString("status"))
+        prepare(DIRECT, Protector())
+        assertTrue(JSONObject(NativeCore.connections(query)).has("error"))
+        val summary = snapshot()
+        assertFalse(summary.has("traffic"))
+        assertFalse(summary.has("connections"))
+        assertTrue(summary.has("uploadTotal"))
+        assertTrue(summary.has("downloadTotal"))
+    }
+
+    @Test
     fun modeRoundTripRejectsInvalidInputAndClearsOnStop() {
         prepare(DIRECT, Protector())
         assertEquals("rule", NativeCore.mode())

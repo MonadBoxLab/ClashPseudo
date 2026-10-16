@@ -5,7 +5,8 @@
 ## 应用宿主与配置存储
 
 - [MainActivity](../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/MainActivity.kt) 持有 UI Engine，实际销毁时释放；普通暂停及授权弹窗不销毁 Engine。
-- [AppWorkService](../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/app/AppWorkService.kt) 是按需 `dataSync` 前台服务，与 UI 共用 Application 的 `FlutterEngineGroup`，持有一个无 UI 业务 Engine。入口为保留 AOT 标记的 `appBackgroundMain`；没有 `runApp`，不注册平台插件。业务完成后释放 Engine、通知与服务；VPN 单独运行不保留业务 Engine。Flutter VM 的进程级资源不等同于 Engine，不承诺释放 Engine 后内存回到首次加载前。
+- [LogicEngineHost](../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/app/LogicEngineHost.kt) 与 UI 共用 Application 的 `FlutterEngineGroup`，承载唯一无 UI Dart 逻辑 Engine。入口为保留 AOT 标记的 `appBackgroundMain`；没有 `runApp`，不注册平台插件。VPN 运行、命令／查询在途或 Dart 报告仍有近期记录时保留；停止后不再采样，记录全部过期且无任务时释放。平台只管理保留原因，不实现连接窗口、速度或历史恢复协议；进程结束即丢弃记录，系统冻结不保证准时回收。
+- [AppWorkService](../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/app/AppWorkService.kt) 仍为按需、有 120 秒期限的 `dataSync` 前台任务服务。命令完成后移除通知并结束服务，不再直接销毁逻辑 Engine；不为持续观察增设后台服务。Flutter VM 的进程级资源不等同于 Engine，不承诺释放 Engine 后内存回到首次加载前。
 - [AppBridge](../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/app/AppBridge.kt) 串行受理命令，以操作 ID 区分受理与最终结果，分别为两个 Engine 接线。UI 重开只查询，不重发任务；权限结果按请求标识匹配，迟到结果不能结束后续操作。工作服务及 VPN 均为 `START_NOT_STICKY`，进程结束不自动续跑。
 - [Dart 配置业务](../lib/features/configs/config_actions.dart) 下载、保存并协调启停。下载上限为 16 MiB、总时限 30 秒、最多 5 次重定向；手动检查每跳 HTTP 风险，不跨来源转发 Basic 凭据，不绕过 TLS 验证。实际配置语义在策略预览或 VPN 加载时判定。
 - [配置存储](../lib/features/configs/config_store.dart) 是单写入者的版本化 JSON，以同目录临时文件 flush 后 rename 提交。保存于 `filesDir/configurations/configurations.json`；更新前先持久化旧正文失效状态；最初写入失败则不下载，停止当前项的接管并明确报告旧记录未修改。损坏存储报错，不覆盖为空列表。
@@ -18,7 +19,7 @@
 | 部分 | 当前职责与边界 |
 | --- | --- |
 | UI Engine | 页面、交互、展示所需读取与状态判断。[AppController](../lib/app/app_controller.dart) 可读取配置存储并查询平台快照，提交操作请求；不承担配置写入或直接修改内核。UI 并非只能绘制，也不要求每次读取都启动业务 Engine |
-| 短时 Dart 业务 Engine | [AppRuntime](../lib/app/app_runtime.dart) 执行下载、持久化及业务协调；[StrategyActions](../lib/features/strategies/strategy_actions.dart) 保存偏好、请求应用并读回确认。任务完成后释放，不为周期查询常驻 |
+| Dart 逻辑 Engine | [AppRuntime](../lib/app/app_runtime.dart) 是唯一业务执行者，执行下载、持久化、策略偏好与操作协调，并持有[连接观察器](../lib/features/connections/connection_observer.dart)和有界窗口。UI 可独立销毁，不影响接管期间的观察 |
 | Android 平台宿主 | 管理 Engine、权限、服务、操作身份与期限，以及系统资源和原生上下文所有权；不是单纯转发参数。[AppBridge](../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/app/AppBridge.kt) 的 UI 通道受理读取和提交请求，执行变更的调用由业务 Engine 通道受理 |
 | Go／mihomo | [Go engine](../native/mihomo/internal/engine/engine.go) 解析和应用配置、处理模式与策略、协调网络和原生资源清理。mihomo 使用进程级全局状态，当前只运行一个上下文 |
 
@@ -59,15 +60,25 @@ Prepare 初始化 provider 后使用 `ForceSet` 恢复有效偏好；手动固�
 
 [CoreHostTest](../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/nativecore/CoreHostTest.kt) 覆盖可控时间／队列下的闲置、返回、业务及换代竞争；[StrategyCallsTest](../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/app/StrategyCallsTest.kt) 覆盖超时、取消和迟到结果。NativeCoreFailureTest 的真实 JNI 预览用例另检查中文／emoji 恢复、切换及未附着 TUN。这些测试不替代实际系统授权或全部协议资源验证。
 
-## 活动连接读取
+## 有界近期连接
 
-UI 通道的 `connections` 经 [ConnectionsCalls](../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/app/ConnectionsCalls.kt) 在 `CoreHost.worker` 读取已有 `NativeCore.snapshot()` 中的 `traffic.connections`，不开放 HTTP controller、不增加原生导出或启动业务 Engine。请求受理、执行前及交付前检查 CoreHost generation、配置 ID、revision、VPN 用途和真实 RUNNING；两套 generation 不混用。仅投影目标、网络、源端点、链、规则、开始时间与累计流量，排除 `Inner`，不把 socket 保护计数解释为规则结果。
+UI 通道的 `connections` 只查询 Dart 逻辑 Engine 已有的业务快照；[ConnectionObserver](../lib/features/connections/connection_observer.dart) 在接管期间约每秒一次、完成后再调度，失败采用 1／2／5／10／30 秒退避。[ConnectionWindow](../lib/features/connections/connection_window.dart) 负责容量、失活归并、15 分钟过期与速度；不在 Kotlin 实现业务 collector。UI 的可见性只影响业务快照读取，不停止后台观察。平台提供 `SystemClock.elapsedRealtime()`，速度按同一连接两次有效累计值与实际单调间隔计算，壁钟只用于展示。
 
-平台等待期限 3 秒，Dart 外围 5 秒。原生读取超时后保留工作占位，直到排队任务退出或已执行读取完成，避免重试持续堆积；迟到结果丢弃，读取失败不停止 VPN。快照遍历不是全体连接同一时刻的一致性视图，可能漏短连接与拒绝，不提供结束事件或最终计数。其读取不会修复上游并发限制。
+记录的状态／速度更新直接复用不可变字段，不经 Map 重新解析；Dart 逻辑 Engine 向 UI 传递 `startMicros` 微秒时间戳，避免每轮逐条格式化再解析 ISO 时间，Go 输入的 ISO 时间仍在接收时解析。列表仅在成员、顺序或行布局可能变化时重算阅读锚点，纯等宽数值更新复用顺序；详情覆盖列表期间不重排底层列表，返回时同步最新数据。
 
-[ConnectionController](../lib/features/connections/connection_controller.dart) 只在连接流程前台可见且接管运行时调度，不为观察加载预览。只保留当前、暂停展示及当前详情所需快照，没有历史数据库或后台记录。[ConnectionsCallsTest](../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/app/ConnectionsCallsTest.kt) 覆盖身份变化、超时、迟到、队列占位和字段投影，可沿用下文 instrumentation 命令选择该测试类。
+[ConnectionsCalls](../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/app/ConnectionsCalls.kt) 在 `CoreHost.worker` 调用专用 JNI 接口。受理、执行与交付分别核对 CoreHost generation、配置 ID、revision、VPN 用途和真实 RUNNING；不混用 NativeSession generation。查询与单条关闭各有一个在途槽，平台等待 3 秒、Dart 外围 5 秒；超时只结束等待，worker 未退出前不放开对应槽。读取失败不停止 VPN，不开放 HTTP controller。
 
-设备验证复用 `/strategies` 或 `/modes` 与 `/hold/`：先从正式界面启动，再用已有 debug 探针或受控客户端发起长连接；核对目标端点、时间窗口、源端点、服务端日志与实际链。HTTP 请求标识不是 tracker ID，连接 metadata 也不含 HTTP 路径。保持旧连接后改变策略并发起新连接，旧链不能被新选择覆盖。检查规则筛选、暂停展示、详情返回、断开测试连接后的最后快照，以及离页/后台和正常停止；debug、release 的结果分别记录，不以编译或 debug 探针代替 release 正式入口验收。
+[应用 Go 查询](../native/mihomo/internal/engine/connections.go) 使用上游 Range／Get，排除 `Inner`，以容量为 1000 的堆选择最近开始的连接，不先生成全部 tracker 的数组或 JSON。请求携带至多 1000 个上次活跃 ID 和 1 个详情 ID，返回至多 1000 行、1 条额外详情、明确 presence 和完成标记。仍存在但未入选属于容量淘汰，不转失活；确认不存在才由 Dart 归并。容量淘汰后不维护隐藏的无限 ID 集，重新入选重新建立速度基线。
+
+请求最多 64 KiB，单条投影最多 4 KiB，响应最多 8 MiB；先限制 UTF-8 文本与链条数再编码，截短展示字段带标记，ID、开始时间和计数不截断。候选／投影与业务窗口有界不等于整个进程内存恒定：JNI／Kotlin／Dart 会产生传输副本，上游遍历也有临时开销，扫描成本仍随真实连接数增加。`NativeCore.snapshot()` 已收窄为状态与累计标量，不再返回全量连接；debug 状态页沿用该摘要。
+
+单条断开由 UI submit → [ConnectionActions](../lib/features/connections/connection_actions.dart) → 平台受检变更 → JNI → 应用 Go 执行，不经过配置保存或全局 stop。只接受原会话的精确 tracker ID；Get 缺失为 `absent`，Close 无错误为 `closed`，底层 Close 错误为 `failed`，即使 tracker 已被上游移出集合也不改判成功。超时／身份变化为未确认，不自动重发；结构化结果以操作 ID 关联原详情。
+
+命令复用同一 Engine，每次重新取得 owner 与 runInput；超时先撤销修改权限，写配置前与原子 rename 前核验 owner。单写者门闩保持至 Dart 执行真正退出，不因服务结束并发创建另一 Engine。取消时原生等待回包以错误结束，避免常驻 Engine 遗留永不完成的 MethodChannel 回调。
+
+Range／Get 不是原子快照，可能漏短连接或拒绝，也不提供精确结束事件与最终计数；不通过重复扫描凑满容量。产品容量与保留语义见[连接观察边界](product-requirements.md#连接观察边界)。[ConnectionsCallsTest](../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/app/ConnectionsCallsTest.kt) 覆盖身份变化、超时、迟到与槽位；[Dart 窗口测试](../test/features/connections/connection_window_test.dart)及[观察测试](../test/features/connections/connection_observer_test.dart)覆盖容量、速度和停止后过期。
+
+设备验证复用 `/strategies` 或 `/modes` 与 `/hold/`：正式入口启动后建立两条长连接，只关闭详情指定的一条，核对另一条与 VPN 保持；后台产生／结束连接，再返回查看近期记录。核对暂停、组合筛选、详情返回、停止后留存与 15 分钟过期释放，以及新接管清空窗口。HTTP 请求标识不是 tracker ID，需关联目标／源端点、时间与服务端日志。资源测量以持续接管、固定连接量和时长为主；debug 与 release 分别记录，不以编译或 debug 探针代替 release 正式入口验收。
 
 ## 构建与自动化验证
 
@@ -104,6 +115,22 @@ GOTOOLCHAIN=local go -C native/mihomo test -race ./...
 release 包应保留 JNI 方法与回调，不包含验证 Activity 和测试配置；同时检查 ELF LOAD 段与 APK 的 16 KB 对齐。
 
 ## 设备验证
+
+### 连接资源测量
+
+[Dart 分段基准](../tool/connection_benchmark.dart) 覆盖普通／长字段、1000 活跃＋500 非活跃的合并、裁剪和业务快照往返；[Go 基准](../native/mihomo/internal/engine/connections_benchmark_test.go) 测量有界查询与字段投影，使用索引 Get，避免将测试夹具的线性查找计入生产成本。
+
+```bash
+BENCH_DIR=$(mktemp -d)
+dart compile exe tool/connection_benchmark.dart -o "$BENCH_DIR/connections"
+"$BENCH_DIR/connections"
+GOTOOLCHAIN=local go -C native/mihomo test ./internal/engine \
+  -run '^$' -bench '^BenchmarkConnection' -benchmem -count=3
+```
+
+[平台转换诊断](../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/app/ConnectionProjectionBenchmarkTest.kt) 可按下节仪器测试方法单独运行，`ConnectionBenchmark` 日志只输出数量、字节及耗时；不以设备相关毫秒值作为测试通过门槛。
+
+设备对照使用相同配置、构建模式、实际连接数、发送频率及稳定测量时长，分开记录建连阶段、列表、详情、总览与后台。负载程序的总期限须包含建连，记录实际成功数量，不把请求数量当作成功数量。隔离传输成本时，由测试端切换发送开关而不暂停进程，确认连接数保持不变，并用恢复发送的反向对照核验。CPU 使用固定窗口累计时间差，内存结合 PSS／RSS、可取得的各堆指标及重复周期趋势；单次高水位或 Engine 释放不等于内存泄漏或操作系统已回收所有页面。主机算法基准不能替代设备结果，也不能将全部进程资源归因于连接观察。
 
 ### JNI 错误路径
 
@@ -148,13 +175,13 @@ adb -s "$SERIAL" logcat -d -s NativeCoreFailureTest:I '*:S'
 
 ### 模式接口与验证
 
-模式业务复用现有短时业务 Engine、配置存储和 operation 互斥。保存值在 `configurations.json` 顶层；Prepare 接收明确模式并覆盖已解码运行副本，原文不变。运行中通过 JNI 调用轻量 Mode／SetMode，不开放 HTTP controller、不查询连接列表。
+模式业务复用唯一 Dart 逻辑 Engine、配置存储和 operation 互斥。保存值在 `configurations.json` 顶层；Prepare 接收明确模式并覆盖已解码运行副本，原文不变。运行中通过 JNI 调用轻量 Mode／SetMode，不开放 HTTP controller、不查询连接列表。
 
 `ModeCalls` 与启停等待分开，复用 `pseudo-native` worker，以 generation 和取消标记隔离旧会话。读取期限 3 秒、修改期限 5 秒；超时只结束等待，不停止 VPN。排队请求可取消，已进入 native 的调用完成后通知 UI 重读，不能把超时等同于撤销修改。模式查询失败保留真实 RUNNING，前台退避重读；业务规则见 [运行模式](product-requirements.md#运行模式)。
 
 [ModeCallsTest](../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/app/ModeCallsTest.kt) 在设备上覆盖排队取消、超时、迟到完成与代次隔离；[NativeCoreFailureTest](../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/nativecore/NativeCoreFailureTest.kt) 包含模式 JNI 往返与非法输入检查。执行前正常停止 VPN，沿用上述 instrumentation 命令选择测试类。
 
-测试端 `/modes` 正文为 `mode: direct`，规则将 HTTP 走受控 SOCKS，显式 `GLOBAL` 组仅含 REJECT。客户端选 rule 启动后，用唯一请求标识核对 SOCKS／HTTP 收包；热切 direct 后 HTTP 直达，切 global 后新连接拒绝。先用验证页打开 `/hold/`，切 global 后核对原连接仍持续收数，正常停止后才结束；热切过程中 PID／generation 不变，业务 Engine 完成后释放。这个场景验证 TCP，不代表所有 UDP 协议均已设备验收。
+测试端 `/modes` 正文为 `mode: direct`，规则将 HTTP 走受控 SOCKS，显式 `GLOBAL` 组仅含 REJECT。客户端选 rule 启动后，用唯一请求标识核对 SOCKS／HTTP 收包；热切 direct 后 HTTP 直达，切 global 后新连接拒绝。先用验证页打开 `/hold/`，切 global 后核对原连接仍持续收数，正常停止后才结束；热切过程中 PID／generation 不变，任务服务完成后释放，逻辑 Engine 在接管期间保留。这个场景验证 TCP，不代表所有 UDP 协议均已设备验收。
 
 同时检查停止预选、重开不自动启动、换配置／更新保持保存模式、保存与实际不一致提示，以及 release 正式界面闭环。存储失败、超时和迟到回调用自动化故障注入覆盖，不通过破坏设备设置制造故障。
 

@@ -206,14 +206,16 @@ func (e *Engine) Snapshot() string {
 		protected = e.owner.accepted.Load()
 		refused = e.owner.refused.Load()
 	}
+	upload, download := statistic.DefaultManager.Total()
 	data, _ := json.Marshal(struct {
-		Version       string              `json:"version"`
-		Prepared      bool                `json:"prepared"`
-		Attached      bool                `json:"attached"`
-		CleanupFailed bool                `json:"cleanupFailed"`
-		Protected     uint64              `json:"protected"`
-		Refused       uint64              `json:"refused"`
-		Traffic       *statistic.Snapshot `json:"traffic"`
-	}{Version, e.cfg != nil, e.tun != nil, e.failed, protected, refused, statistic.DefaultManager.Snapshot()})
+		Version       string `json:"version"`
+		Prepared      bool   `json:"prepared"`
+		Attached      bool   `json:"attached"`
+		CleanupFailed bool   `json:"cleanupFailed"`
+		Protected     uint64 `json:"protected"`
+		Refused       uint64 `json:"refused"`
+		UploadTotal   int64  `json:"uploadTotal"`
+		DownloadTotal int64  `json:"downloadTotal"`
+	}{Version, e.cfg != nil, e.tun != nil, e.failed, protected, refused, upload, download})
 	return string(data)
 }

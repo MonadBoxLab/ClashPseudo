@@ -56,7 +56,7 @@ class ModeCallsTest {
         assertEquals(NativeSession.Phase.RUNNING, h.session.snapshot().phase)
     }
 
-    @Test fun abandonedQueuedWorkCannotModifyOrReply() {
+    @Test fun abandonedQueuedWorkRepliesWithErrorWithoutMutation() {
         val h = harness()
         main {
             h.calls.change(h.generation, "one", "global", h::reply)
@@ -65,7 +65,8 @@ class ModeCallsTest {
         h.tasks.take().run()
         instrumentation.waitForIdleSync()
         assertEquals(0, h.changes.get())
-        assertEquals(0, h.replies.get())
+        assertEquals(1, h.replies.get())
+        assertNotNull(h.error.get())
         assertEquals(NativeSession.Phase.RUNNING, h.session.snapshot().phase)
     }
 
@@ -139,7 +140,7 @@ class ModeCallsTest {
         assertEquals("rule", h.mode.get())
     }
 
-    @Test fun abandonedExecutingWorkCannotReplyToReleasedOwner() {
+    @Test fun abandonedExecutingWorkRepliesOnceAndDropsLateSuccess() {
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
         val h = harness { entered.countDown(); check(release.await(3, TimeUnit.SECONDS)); "" }
@@ -154,7 +155,8 @@ class ModeCallsTest {
             thread.join(3000)
         }
         instrumentation.waitForIdleSync()
-        assertEquals(0, h.replies.get())
+        assertEquals(1, h.replies.get())
+        assertNotNull(h.error.get())
         assertEquals(1, h.notifications.get())
         assertEquals(NativeSession.Phase.RUNNING, h.session.snapshot().phase)
     }

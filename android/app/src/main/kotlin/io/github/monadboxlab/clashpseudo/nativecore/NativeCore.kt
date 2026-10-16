@@ -16,5 +16,7 @@ object NativeCore {
     @JvmStatic external fun attach(fd: Int, mtu: Int, address: String, prefixLength: Int): String
     @JvmStatic external fun cancel()
     @JvmStatic external fun stop(): String
+    @JvmStatic external fun connections(request: ByteArray): String
+    @JvmStatic external fun closeConnection(id: ByteArray): String
     @JvmStatic external fun snapshot(): String
 }

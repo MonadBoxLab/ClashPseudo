@@ -81,6 +81,14 @@ static jstring take_result(JNIEnv *env, char *text) {
 
 #define METHOD(name) Java_io_github_monadboxlab_clashpseudo_nativecore_NativeCore_##name
 
+// Rejections must still be valid JSON; a null return would crash Kotlin callers.
+static jstring reject(JNIEnv *env, const char *json) {
+    char *copy = malloc(strlen(json) + 1);
+    if (!copy) return take_result(env, NULL);
+    memcpy(copy, json, strlen(json) + 1);
+    return take_result(env, copy);
+}
+
 JNIEXPORT jstring JNICALL METHOD(version)(JNIEnv *env, jclass cls) {
     (void)cls;
     return take_result(env, CoreVersion());
@@ -191,6 +199,29 @@ JNIEXPORT jstring JNICALL METHOD(stop)(JNIEnv *env, jclass cls) {
     char *error = CoreStop();
     clear_protector(env);
     return take_result(env, error);
+}
+
+JNIEXPORT jstring JNICALL METHOD(connections)(JNIEnv *env, jclass cls, jbyteArray request) {
+    (void)cls;
+    if (!request) return reject(env, "{\"error\":\"invalid connection query\"}");
+    jsize length = (*env)->GetArrayLength(env, request);
+    if (length > 65536) return reject(env, "{\"error\":\"invalid connection query\"}");
+    jbyte *bytes = (*env)->GetByteArrayElements(env, request, NULL);
+    if (!bytes) return NULL;
+    char *value = CoreConnections((char *)bytes, length);
+    (*env)->ReleaseByteArrayElements(env, request, bytes, JNI_ABORT);
+    return take_result(env, value);
+}
+
+JNIEXPORT jstring JNICALL METHOD(closeConnection)(JNIEnv *env, jclass cls, jbyteArray request) {
+    (void)cls;
+    if (!request || (*env)->GetArrayLength(env, request) != 36)
+        return reject(env, "{\"status\":\"failed\"}");
+    jbyte *bytes = (*env)->GetByteArrayElements(env, request, NULL);
+    if (!bytes) return NULL;
+    char *value = CoreCloseConnection((char *)bytes, 36);
+    (*env)->ReleaseByteArrayElements(env, request, bytes, JNI_ABORT);
+    return take_result(env, value);
 }
 
 JNIEXPORT jstring JNICALL METHOD(snapshot)(JNIEnv *env, jclass cls) {

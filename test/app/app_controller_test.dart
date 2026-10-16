@@ -23,9 +23,10 @@ class SnapshotBridge extends AppBridge {
   }
 
   @override
-  Future<void> submit(Map<String, Object?> command) async {
+  Future<String?> submit(Map<String, Object?> command) async {
     commands.add(command);
     await submitResult?.call();
+    return 'operation-${commands.length}';
   }
 }
 

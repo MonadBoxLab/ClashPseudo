@@ -161,6 +161,41 @@ void main() {
     },
   );
 
+  test('expired operation cannot publish a late staging write', () async {
+    await store.save(ConfigCollection(entries: [entry], selectedId: entry.id));
+    var checks = 0;
+    final guarded = ConfigStore(
+      directory,
+      beforeWrite: () async {
+        if (++checks == 2) throw StateError('expired');
+      },
+    );
+    await expectLater(
+      guarded.save(ConfigCollection(entries: [])),
+      throwsStateError,
+    );
+    expect(checks, 2);
+    expect((await store.read()).selectedId, entry.id);
+    expect(
+      await File('${directory.path}/configurations.json.tmp').exists(),
+      isFalse,
+    );
+  });
+
+  test('expired operation is rejected before staging', () async {
+    final guarded = ConfigStore(
+      directory,
+      beforeWrite: () async {
+        throw StateError('expired');
+      },
+    );
+    await expectLater(
+      guarded.save(ConfigCollection(entries: [])),
+      throwsStateError,
+    );
+    expect(await directory.list().isEmpty, isTrue);
+  });
+
   test(
     'inconsistent restored selection is not accepted as a clean store',
     () async {

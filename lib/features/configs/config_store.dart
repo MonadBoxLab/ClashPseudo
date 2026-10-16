@@ -5,9 +5,10 @@ import '../mode/tunnel_mode.dart';
 import 'config_entry.dart';
 
 class ConfigStore {
-  ConfigStore(this.directory);
+  ConfigStore(this.directory, {this.beforeWrite});
 
   final Directory directory;
+  final Future<void> Function()? beforeWrite;
   File get _file => File('${directory.path}/configurations.json');
 
   Future<ConfigCollection> read() async {
@@ -39,6 +40,7 @@ class ConfigStore {
   }
 
   Future<void> save(ConfigCollection collection) async {
+    await beforeWrite?.call();
     await directory.create(recursive: true);
     final temporary = File('${_file.path}.tmp');
     try {
@@ -51,6 +53,8 @@ class ConfigStore {
         }),
         flush: true,
       );
+      // Recheck after I/O: an expired operation must not publish its late body.
+      await beforeWrite?.call();
       // One business writer; readers see either complete version after rename.
       await temporary.rename(_file.path);
     } on FileSystemException {

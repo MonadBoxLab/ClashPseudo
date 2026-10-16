@@ -90,7 +90,7 @@ class NativeCalls(private val context: Context) {
     fun abandon() {
         main.removeCallbacks(timeout)
         if (result != null) sendStop()
-        result = null
+        complete("操作已结束。")
     }
 
     private fun sendStop() {

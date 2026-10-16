@@ -111,8 +111,7 @@ class StrategyCalls(
     fun abandon(owner: String) {
         pending.filter { it.owner == owner }.forEach {
             it.expire()
-            it.reply = null
-            complete(it, null, null)
+            complete(it, null, "操作已结束。")
         }
     }
 

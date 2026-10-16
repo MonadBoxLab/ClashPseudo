@@ -74,8 +74,7 @@ class ModeCalls(
 
     fun abandon(owner: String) {
         pending.filter { it.owner == owner }.forEach { request ->
-            request.reply = null
-            complete(request, null, null)
+            complete(request, null, "操作已结束。")
         }
     }
 

@@ -154,15 +154,16 @@ class AppController extends ChangeNotifier {
     return ConfigStore(Directory(paths['configs'] as String)).read();
   }
 
-  Future<void> submit(Map<String, Object?> command) async {
-    if (_disposed || busy) return;
+  Future<String?> submit(Map<String, Object?> command) async {
+    if (_disposed || busy) return null;
+    String? operationId;
     lastCommand = Map.of(command);
     dispatching = true;
     commandError = null;
     _readRevision++;
     notifyListeners();
     try {
-      await platform.submit(command);
+      operationId = await platform.submit(command);
     } on PlatformException catch (failure) {
       if (!_disposed) commandError = failure.message ?? '请求未被受理，请重试。';
     } catch (_) {
@@ -175,6 +176,7 @@ class AppController extends ChangeNotifier {
     }
     // Even an ambiguous submission failure must re-read, never re-submit.
     if (!_disposed) await refresh();
+    return operationId;
   }
 
   @override

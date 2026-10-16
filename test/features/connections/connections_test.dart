@@ -44,10 +44,14 @@ Map<String, dynamic> row(
 ConnectionSnapshot snapshot(
   List<Map<String, dynamic>> rows, {
   int generation = 7,
+  int sessionGeneration = 0,
+  Map<String, dynamic>? detail,
 }) => ConnectionSnapshot.fromMap({
   'generation': generation,
   'configId': 'one',
   'revision': 1,
+  'sessionGeneration': sessionGeneration,
+  'detail': detail,
   'connections': rows,
 });
 
@@ -57,7 +61,10 @@ class ConnectionBridgeFake extends AppBridge {
   Completer<ConnectionSnapshot>? pending;
   ConnectionSnapshot data = snapshot([row('one')]);
   @override
-  Future<ConnectionSnapshot> connections(CoreSnapshot core) {
+  Future<void> releaseConnectionDetail() async {}
+
+  @override
+  Future<ConnectionSnapshot> recentConnections({Map<String, Object?>? detail}) {
     reads++;
     if (fail) return Future.error(StateError('unavailable'));
     return pending?.future ?? Future.value(data);
@@ -70,6 +77,13 @@ class ConnectionAppFake extends AppController {
     configsLoaded = true;
     state = const AppSnapshot(phase: 'RUNNING', core: core);
   }
+  final commands = <Map<String, Object?>>[];
+  @override
+  Future<String?> submit(Map<String, Object?> command) async {
+    commands.add(command);
+    return 'close-${commands.length}';
+  }
+
   @override
   Future<void> refresh() async {}
   void changed() => notifyListeners();
@@ -146,8 +160,11 @@ void main() {
     app.changed();
     controller.setVisible(true);
     await tester.pump();
-    expect(bridge.reads, 3);
-    expect(controller.data, isNull);
+    expect(bridge.reads, 4);
+    expect(controller.data, isNotNull);
+    expect(controller.status, ConnectionViewStatus.stopped);
+    controller.setVisible(false);
+    await tester.pump(const Duration(seconds: 30));
   });
 
   testWidgets(
@@ -178,14 +195,37 @@ void main() {
       controller.openDetail(controller.data!.records.single);
       bridge.fail = true;
       await tester.pump(const Duration(seconds: 1));
-      expect(controller.detailStatus, '最近观察已过期');
+      expect(controller.detailStatus, ConnectionViewStatus.failed);
       expect(controller.data!.records.length, 1);
       bridge.fail = false;
-      bridge.data = snapshot([]);
+      bridge.data = snapshot([], detail: {...row('one'), 'active': false});
       await tester.pump(const Duration(seconds: 1));
       expect(controller.data!.records, isEmpty);
       expect(controller.detail!.id, 'one');
-      expect(controller.detailStatus, '已不在当前活动快照中');
+      expect(controller.detailStatus, ConnectionViewStatus.inactive);
+      controller.setVisible(false);
+    },
+  );
+
+  testWidgets(
+    'steady reads notify once on completion, not before unchanged data',
+    (tester) async {
+      controller.setVisible(true);
+      await tester.pump();
+      var notifications = 0;
+      controller.addListener(() => notifications++);
+      bridge.pending = Completer<ConnectionSnapshot>();
+      await tester.pump(const Duration(seconds: 1));
+      expect(notifications, 0);
+      bridge.pending!.complete(snapshot([row('one', download: 30)]));
+      await tester.pump();
+      expect(notifications, 1);
+      expect(controller.data!.records.single.download, 30);
+      bridge.pending = null;
+      bridge.fail = true;
+      await tester.pump(const Duration(seconds: 1));
+      expect(notifications, 2);
+      expect(controller.status, ConnectionViewStatus.failed);
       controller.setVisible(false);
     },
   );
@@ -207,9 +247,11 @@ void main() {
     controller.togglePaused();
     app.state = const AppSnapshot(phase: 'STOPPED');
     app.changed();
-    expect(controller.displayed, isNull);
-    expect(controller.detailStatus, '接管已停止 · 最后观察');
+    expect(controller.displayed, isNotNull);
+    expect(controller.detailStatus, ConnectionViewStatus.stopped);
     expect(controller.detail!.download, 20);
+    controller.setVisible(false);
+    await tester.pump(const Duration(seconds: 30));
   });
 
   testWidgets('timeout and replacement cannot confirm old connection data', (
@@ -222,6 +264,7 @@ void main() {
     expect(app.state.running, isTrue);
     app.state = const AppSnapshot(
       phase: 'RUNNING',
+      generation: 1,
       core: CoreSnapshot(
         generation: 8,
         phase: 'READY',
@@ -239,6 +282,104 @@ void main() {
     expect(controller.current, isFalse);
     expect(controller.data, isNull);
     controller.setVisible(false);
+  });
+
+  for (final outcome in ['closed', 'absent', 'failed', 'unconfirmed']) {
+    testWidgets('single close correlates $outcome while display is paused', (
+      tester,
+    ) async {
+      controller.setVisible(true);
+      await tester.pump();
+      controller.openDetail(controller.data!.records.single);
+      controller.togglePaused();
+      expect(controller.canClose, isTrue);
+      await controller.disconnect();
+      await controller.disconnect();
+      expect(app.commands.length, 1);
+      expect(app.commands.single['connectionId'], 'one');
+      expect(app.commands.single['generation'], 7);
+      expect(controller.closing, isTrue);
+      app.state = AppSnapshot(
+        phase: 'RUNNING',
+        core: core,
+        resultId: 'another-operation',
+        connectionStatus: outcome,
+      );
+      app.changed();
+      expect(controller.closing, isTrue);
+      app.state = AppSnapshot(
+        phase: 'RUNNING',
+        core: core,
+        resultId: 'close-1',
+        connectionStatus: outcome,
+      );
+      app.changed();
+      expect(controller.closing, isFalse);
+      if (outcome == 'closed') {
+        expect(controller.detailStatus, ConnectionViewStatus.closed);
+        expect(controller.canClose, isFalse);
+      } else if (outcome == 'absent') {
+        expect(controller.detailStatus, ConnectionViewStatus.inactive);
+        expect(controller.canClose, isFalse);
+      } else {
+        expect(controller.closeMessage, isNotNull);
+        bridge.data = snapshot([], detail: {...row('one'), 'active': false});
+        await tester.pump(const Duration(seconds: 1));
+        expect(
+          controller.closeMessage,
+          outcome == 'failed' ? '断开失败' : '断开结果未确认',
+        );
+      }
+      controller.setVisible(false);
+      await tester.pump();
+    });
+  }
+
+  testWidgets('late close result cannot attach to another detail', (
+    tester,
+  ) async {
+    bridge.data = snapshot([row('one'), row('two')]);
+    controller.setVisible(true);
+    await tester.pump();
+    controller.openDetail(controller.data!.records.first);
+    await controller.disconnect();
+    controller.closeDetail();
+    controller.openDetail(controller.data!.records.last);
+    app.state = const AppSnapshot(
+      phase: 'RUNNING',
+      core: core,
+      resultId: 'close-1',
+      connectionStatus: 'closed',
+    );
+    app.changed();
+    expect(controller.detail!.id, 'two');
+    expect(controller.detailStatus, ConnectionViewStatus.active);
+    expect(controller.closeMessage, isNull);
+    controller.setVisible(false);
+    await tester.pump();
+  });
+
+  testWidgets('missing detail is unknown unless explicitly confirmed absent', (
+    tester,
+  ) async {
+    controller.setVisible(true);
+    await tester.pump();
+    controller.openDetail(controller.data!.records.single);
+    bridge.data = snapshot([]);
+    await tester.pump(const Duration(seconds: 1));
+    expect(controller.detailStatus, ConnectionViewStatus.unknown);
+    expect(controller.canClose, isFalse);
+    bridge.data = ConnectionSnapshot.fromMap({
+      'generation': 7,
+      'configId': 'one',
+      'revision': 1,
+      'connections': [],
+      'missingDetailId': 'one',
+    });
+    await tester.pump(const Duration(seconds: 1));
+    expect(controller.detailStatus, ConnectionViewStatus.inactive);
+    controller.setVisible(false);
+    await tester.pump();
   });
 
   Future<void> show(
@@ -268,14 +409,14 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('分流结果'), findsOneWidget);
       final count = bridge.reads;
-      bridge.data = snapshot([]);
+      bridge.data = snapshot([], detail: {...row('one'), 'active': false});
       await tester.pump(const Duration(seconds: 1));
       expect(bridge.reads, count + 1);
-      expect(find.text('已不在当前活动快照中'), findsOneWidget);
+      expect(find.text('已不活跃'), findsOneWidget);
       expect(find.text('one.fixture.test'), findsOneWidget);
       await tester.pageBack();
       await tester.pumpAndSettle();
-      expect(find.text('当前未观察到活动连接'), findsOneWidget);
+      expect(find.text('暂无连接'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
       final stopped = bridge.reads;
       await tester.pump(const Duration(seconds: 10));
@@ -299,12 +440,12 @@ void main() {
       await tester.pageBack();
       await tester.pumpAndSettle();
       expect(find.text('two.fixture.test'), findsNothing);
-      await tester.tap(find.text('暂停刷新'));
+      await tester.tap(find.byTooltip('暂停刷新'));
       bridge.data = snapshot([row('new')]);
       await tester.pump(const Duration(seconds: 1));
       expect(find.text('one.fixture.test'), findsOneWidget);
       expect(find.text('new.fixture.test'), findsNothing);
-      await tester.tap(find.text('继续刷新'));
+      await tester.tap(find.byTooltip('继续刷新'));
       await tester.pump();
       expect(find.text('new.fixture.test'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
@@ -318,10 +459,7 @@ void main() {
       List.generate(30, (i) => row(i.toString().padLeft(2, '0'))),
     );
     await show(tester);
-    await tester.drag(
-      find.byType(SingleChildScrollView),
-      const Offset(0, -900),
-    );
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -900));
     await tester.pumpAndSettle();
     final anchor = find.text('10.fixture.test');
     final before = tester.getTopLeft(anchor);
@@ -374,7 +512,129 @@ void main() {
     },
   );
 
+  testWidgets('status distinguishes updating, failure and replaced sessions', (
+    tester,
+  ) async {
+    controller.setVisible(true);
+    await tester.pump();
+    controller.openDetail(controller.data!.records.single);
+    expect(controller.detailStatus, ConnectionViewStatus.active);
+    controller.togglePaused();
+    expect(controller.detailStatus, ConnectionViewStatus.paused);
+    bridge.fail = true;
+    await tester.pump(const Duration(seconds: 1));
+    expect(controller.detailStatus, ConnectionViewStatus.failed);
+    app.setForeground(false);
+    expect(controller.detailStatus, ConnectionViewStatus.updating);
+    app.state = const AppSnapshot(
+      phase: 'RUNNING',
+      generation: 1,
+      core: CoreSnapshot(
+        generation: 8,
+        phase: 'READY',
+        purpose: 'VPN',
+        configId: 'one',
+        revision: 1,
+      ),
+    );
+    app.changed();
+    expect(controller.detailStatus, ConnectionViewStatus.replaced);
+    app.state = const AppSnapshot(phase: 'UNKNOWN');
+    app.changed();
+    expect(controller.detailStatus, ConnectionViewStatus.unknown);
+    expect(controller.displayed, isNull);
+    controller.setVisible(false);
+  });
+
+  testWidgets('empty failure has one message and no technical explanation', (
+    tester,
+  ) async {
+    bridge.fail = true;
+    await show(tester);
+    expect(find.text('更新失败，正在重试'), findsOneWidget);
+    expect(find.text('数据来源'), findsNothing);
+    expect(find.byType(ExpansionTile), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+    'missing fields omit optional rows and do not invent zero traffic',
+    (tester) async {
+      bridge.data = snapshot([
+        {
+          'id': 'empty',
+          'metadata': {
+            'destinationIP': '::1',
+            'destinationPort': '853',
+            'network': 'tcp',
+          },
+        },
+      ]);
+      await show(tester);
+      await tester.tap(find.text('[::1]:853'));
+      await tester.pumpAndSettle();
+      expect(find.text('端口 853'), findsNothing);
+      expect(find.text('源地址'), findsNothing);
+      expect(find.text('连接信息'), findsNothing);
+      expect(find.text('数据来源'), findsNothing);
+      expect(find.text('0 B'), findsNothing);
+      expect(find.text('—'), findsWidgets);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   for (final dark in [false, true]) {
+    testWidgets('semantic colors distinguish status and traffic, dark=$dark', (
+      tester,
+    ) async {
+      await show(tester, dark: dark);
+      final palette = ConnectionPalette(dark);
+      expect(
+        tester.widget<Text>(find.text('↓ 10 B')).style!.color,
+        palette.download,
+      );
+      expect(
+        tester.widget<Text>(find.text('↑ 2 B')).style!.color,
+        palette.upload,
+      );
+      await tester.tap(find.text('one.fixture.test'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<Text>(find.text('活跃')).style!.color, palette.active);
+      expect(find.byTooltip('暂停刷新'), findsNothing);
+      expect(find.byTooltip('断开连接'), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('暂停刷新'));
+      await tester.pump();
+      expect(find.text('刷新已暂停'), findsOneWidget);
+      expect(find.text('已暂停'), findsNothing);
+      await tester.tap(find.text('one.fixture.test'));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('继续刷新'), findsNothing);
+      expect(find.text('刷新已暂停'), findsOneWidget);
+      bridge.fail = true;
+      await tester.pump(const Duration(seconds: 1));
+      expect(
+        tester.widget<Text>(find.text('更新失败')).style!.color,
+        palette.warning,
+      );
+      expect(find.text('数据来源'), findsNothing);
+      final surface =
+          (dark ? AppTheme.dark : AppTheme.light).colorScheme.surface;
+      for (final color in [
+        palette.active,
+        palette.warning,
+        palette.upload,
+        palette.download,
+      ]) {
+        final a = color.computeLuminance();
+        final b = surface.computeLuminance();
+        final contrast = a > b ? (a + .05) / (b + .05) : (b + .05) / (a + .05);
+        expect(contrast, greaterThanOrEqualTo(4.5));
+      }
+      await tester.pumpWidget(const SizedBox());
+    });
+
     testWidgets(
       'long connection fields remain usable at large text, dark=$dark',
       (tester) async {
@@ -383,7 +643,13 @@ void main() {
         addTearDown(tester.view.resetPhysicalSize);
         addTearDown(tester.view.resetDevicePixelRatio);
         final host = 'very-long-目标🌐-${'segment-' * 12}.fixture.test';
-        bridge.data = snapshot([row('long', host: host)]);
+        bridge.data = snapshot([
+          {
+            ...row('long', host: host),
+            'chains': ['very-long-node-${'name-' * 12}', '出口🌐'],
+            'rulePayload': 'long-rule-${'segment-' * 12}.fixture.test',
+          },
+        ]);
         await show(tester, dark: dark, scale: 2);
         expect(tester.takeException(), isNull);
         await tester.tapAt(

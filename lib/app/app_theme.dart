@@ -67,6 +67,16 @@ class AppTheme {
   }
 }
 
+class ConnectionPalette {
+  const ConnectionPalette(this.dark);
+  final bool dark;
+
+  Color get active => Color(dark ? 0xff8bd5a5 : 0xff287847);
+  Color get warning => Color(dark ? 0xffefc078 : 0xff8b5915);
+  Color get upload => Color(dark ? 0xff9bc4ff : 0xff3265a8);
+  Color get download => Color(dark ? 0xff7ed4c7 : 0xff19796d);
+}
+
 class HomePalette {
   const HomePalette(this.dark);
   final bool dark;

@@ -129,9 +129,10 @@ class StrategyAppFake extends AppController {
   }
   final commands = <Map<String, Object?>>[];
   @override
-  Future<void> submit(Map<String, Object?> command) async {
+  Future<String?> submit(Map<String, Object?> command) async {
     commands.add(command);
     lastCommand = command;
+    return 'operation-${commands.length}';
   }
 
   @override

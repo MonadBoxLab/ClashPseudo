@@ -6,6 +6,7 @@ import android.net.VpnService
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -22,6 +23,8 @@ object AppBridge {
     private lateinit var modes: ModeCalls
     private lateinit var strategies: StrategyCalls
     private lateinit var connections: ConnectionsCalls
+    lateinit var logic: LogicEngineHost
+        private set
     private val main = Handler(Looper.getMainLooper())
     private var activity = WeakReference<MainActivity>(null)
     private var ui: MethodChannel? = null
@@ -31,6 +34,7 @@ object AppBridge {
     private var resultMessage: String? = null
     private var resultId: String? = null
     private var resultSuccess = false
+    private var connectionStatus: String? = null
     private var needsHttp = false
     var command: Map<String, Any?>? = null
         private set
@@ -43,6 +47,7 @@ object AppBridge {
         modes = ModeCalls(PseudoVpnService.session, PseudoVpnService.worker, { notifyUi() })
         strategies = StrategyCalls(PseudoVpnService.core, { notifyUi() })
         connections = ConnectionsCalls(PseudoVpnService.core)
+        logic = LogicEngineHost(appContext.applicationContext as PseudoApplication)
     }
 
     fun attachUi(owner: MainActivity, engine: FlutterEngine) {
@@ -54,11 +59,8 @@ object AppBridge {
                     "snapshot" -> snapshot(null, result)
                     "strategies" -> strategies.read(call.argument<Number>("generation")?.toLong() ?: -1L,
                         null, strategyReply(result))
-                    "connections" -> connections.read(call.argument<Number>("generation")?.toLong() ?: -1L,
-                        call.argument<String>("configId").orEmpty(), call.argument<Int>("revision") ?: -1) { value, error ->
-                        if (error != null) result.error("connections", error, null)
-                        else result.success(value)
-                    }
+                    "connections" -> logic.connections(call.argument<Map<*, *>>("detail"), result)
+                    "releaseDetail" -> { logic.releaseDetail(); result.success(null) }
                     "submit" -> submit(call, result)
                     else -> result.notImplemented()
                 }
@@ -74,19 +76,47 @@ object AppBridge {
         if (!owner.isChangingConfigurations) authorizationResult(false)
     }
 
-    fun attachWork(engine: FlutterEngine, service: AppWorkService): MethodChannel {
-        val owner = operationId
+    fun attachWork(engine: FlutterEngine, runtime: Long): MethodChannel {
         return MethodChannel(engine.dartExecutor.binaryMessenger, CHANNEL).also { channel ->
             channel.setMethodCallHandler { call, result ->
+                if (!logic.current(runtime)) {
+                    result.error("expired", "逻辑引擎已结束。", null)
+                    return@setMethodCallHandler
+                }
+                when (call.method) {
+                    "ready" -> {
+                        result.success(null)
+                        main.post { logic.ready(runtime) }
+                        return@setMethodCallHandler
+                    }
+                    "runtimeState" -> {
+                        result.success(runtimeState())
+                        return@setMethodCallHandler
+                    }
+                    "sampleConnections" -> {
+                        connections.read(call.argument<Number>("generation")?.toLong() ?: -1L,
+                            call.argument<String>("configId").orEmpty(), call.argument<Int>("revision") ?: -1,
+                            call.argument<Map<String, Any?>>("query") ?: emptyMap()) { value, error ->
+                            if (error != null) result.error("connections", error, null) else result.success(value)
+                        }
+                        return@setMethodCallHandler
+                    }
+                    "retain" -> {
+                        logic.retain(runtime, call.argument<Boolean>("value") == true)
+                        result.success(null)
+                        return@setMethodCallHandler
+                    }
+                }
+                val owner = call.argument<String>("owner")
                 if (owner == null || owner != operationId) {
                     result.error("expired", "操作已结束。", null)
                     return@setMethodCallHandler
                 }
                 when (call.method) {
+                    "checkOperation" -> result.success(null)
                     "paths" -> result.success(paths())
                     "snapshot" -> snapshot(owner, result)
-                    "ready" -> { result.success(null); main.post { service.ready(channel) } }
-                    "stage" -> { operation = call.arguments as String; notifyUi(); result.success(null) }
+                    "stage" -> { operation = call.argument<String>("message"); notifyUi(); result.success(null) }
                     "authorize" -> authorize(result)
                     "start" -> native.start(call.argument<String>("id")!!,
                         call.argument<Int>("revision")!!, call.argument<String>("mode").orEmpty(), owner, result)
@@ -99,6 +129,14 @@ object AppBridge {
                         owner, call.argument<String>("name").orEmpty(),
                         call.argument<Map<String, Any?>>("choice") ?: emptyMap<String, Any?>(), strategyReply(result))
                     "stop" -> native.stop(result)
+                    "closeConnection" -> {
+                        connections.disconnect(call.argument<Number>("generation")?.toLong() ?: -1L,
+                            call.argument<String>("configId").orEmpty(), call.argument<Int>("revision") ?: -1,
+                            call.argument<String>("connectionId").orEmpty(), owner) { value, error ->
+                            if (error != null) result.error("closeConnection", error, null) else result.success(value)
+                        }
+                        return@setMethodCallHandler
+                    }
                     "setMode" -> {
                         val generation = call.argument<Number>("generation")?.toLong() ?: -1L
                         modes.change(generation, owner, call.argument<String>("mode").orEmpty()) { mode, error ->
@@ -113,13 +151,13 @@ object AppBridge {
     }
 
     private fun submit(call: MethodCall, result: MethodChannel.Result) {
-        if (operationId != null) {
+        if (operationId != null || logic.busy) {
             result.error("busy", "已有操作正在处理，请等待确认。", null)
             return
         }
         @Suppress("UNCHECKED_CAST")
         val request = call.arguments as? Map<String, Any?>
-        if (request?.get("action") !in setOf("import", "start", "stop", "select", "delete", "setMode", "prepareStrategies", "setStrategy")) {
+        if (request?.get("action") !in setOf("import", "start", "stop", "select", "delete", "setMode", "prepareStrategies", "setStrategy", "closeConnection")) {
             result.error("command", "无法识别此操作。", null)
             return
         }
@@ -129,11 +167,12 @@ object AppBridge {
         operation = "正在受理操作"
         resultMessage = null
         resultId = null
+        connectionStatus = null
         try {
             val intent = Intent(context, AppWorkService::class.java)
             if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
             else context.startService(intent)
-            result.success(null)
+            result.success(operationId)
             notifyUi()
         } catch (_: Exception) {
             finish(operationId!!, mapOf("message" to "系统未允许启动任务，请返回应用后重试。"))
@@ -173,6 +212,7 @@ object AppBridge {
             // A system revocation or service exit supersedes earlier UI results.
             resultMessage = null
             resultId = null
+            connectionStatus = null
             needsHttp = false
         }
         notifyUi()
@@ -184,19 +224,40 @@ object AppBridge {
         native.abandon()
         modes.abandon(id)
         strategies.abandon(id)
-        try { AppFiles.runInput(context, id).delete() } catch (_: Exception) { }
+        connections.abandon(id)
+        if (!logic.busy) clearInput(id)
         resultId = id
+        connectionStatus = (outcome["connectionStatus"] as? String)?.takeIf {
+            it in setOf("closed", "absent", "failed", "unconfirmed")
+        }
         resultSuccess = outcome["success"] == true
         resultMessage = outcome["message"] as? String ?: "操作已结束，请核实状态。"
         needsHttp = outcome["needsHttpConfirmation"] == true
         operationId = null
         command = null
         operation = null
-        PseudoVpnService.core.setOperationBusy(false)
+        PseudoVpnService.core.setOperationBusy(logic.busy)
         notifyUi()
     }
 
-    fun notifyUi() { ui?.invokeMethod("changed", null) }
+    fun executorDrained(id: String) {
+        clearInput(id)
+        PseudoVpnService.core.setOperationBusy(operationId != null || logic.busy)
+        notifyUi()
+    }
+
+    private fun clearInput(id: String) {
+        try { AppFiles.runInput(context, id).delete() } catch (_: Exception) { }
+    }
+
+    fun runtimeState(): Map<String, Any?> = snapshotMap(PseudoVpnService.session.snapshot()) + mapOf(
+        "elapsedMs" to SystemClock.elapsedRealtime(), "wallTimeMs" to System.currentTimeMillis(),
+    )
+
+    fun notifyUi() {
+        logic.reconcile()
+        ui?.invokeMethod("changed", null)
+    }
 
     private fun strategyReply(result: MethodChannel.Result): (String?, String?) -> Unit =
         { value, error ->
@@ -231,7 +292,7 @@ object AppBridge {
             "configId" to state.configId, "revision" to state.revision, "error" to state.error,
             "operation" to operation, "resultId" to resultId,
             "resultMessage" to resultMessage, "needsHttpConfirmation" to needsHttp,
-            "resultSuccess" to resultSuccess,
+            "resultSuccess" to resultSuccess, "connectionStatus" to connectionStatus,
             "core" to PseudoVpnService.core.snapshot().toMap(),
         )
     }
