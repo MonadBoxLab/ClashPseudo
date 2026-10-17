@@ -7,6 +7,7 @@ import '../mode/tunnel_mode.dart';
 import 'config_downloader.dart';
 import 'config_entry.dart';
 import 'config_store.dart';
+import 'config_text.dart';
 
 class ConfigActions {
   ConfigActions(this.store, this.downloader, this.platform, this.runInput);
@@ -15,9 +16,13 @@ class ConfigActions {
   final ConfigDownloader downloader;
   final AppBridge platform;
   final File runInput;
+  Map<String, Object?> result = const {};
 
   Future<String> execute(Map<String, dynamic> command) async {
     final action = command['action'];
+    result = action == 'saveLocal'
+        ? {'configStatus': 'notSaved', 'targetId': command['id']}
+        : const {};
     if (action == 'stop') {
       await platform.stage('正在停止接管');
       await platform.stop();
@@ -59,6 +64,21 @@ class ConfigActions {
         return _setMode(collection, state, TunnelMode.parse(command['mode']));
       case 'import':
         return _import(collection, state, command);
+      case 'updateConfig':
+        final entry = _entry(collection, command['id'] as String);
+        if (!entry.remote) throw const ConfigFailure('本地配置不能远程更新。');
+        return _import(collection, state, {
+          ...command,
+          'source': command['source'] ?? entry.source,
+          'replace': true,
+        });
+      case 'renameConfig':
+        final entry = _entry(collection, command['id'] as String);
+        final name = _localName(command['name'] as String);
+        await store.save(collection.replace(entry.renamed(name)));
+        return '配置已重命名。';
+      case 'saveLocal':
+        return _saveLocal(collection, state, command);
       case 'select':
         return _select(collection, state, command['id'] as String);
       case 'delete':
@@ -81,25 +101,42 @@ class ConfigActions {
   ) async {
     final source = ConfigDownloader.sourceUri(command['source'] as String)
         .toString();
-    final existing = collection.entries
-        .where((entry) => entry.source == source)
+    final duplicate = collection.entries
+        .where((entry) => entry.remote && entry.source == source)
         .firstOrNull;
+    final existing = command['id'] == null
+        ? duplicate
+        : _entry(collection, command['id'] as String);
+    if (existing != null && !existing.remote) {
+      throw const ConfigFailure('本地配置不能修改远程来源。');
+    }
+    if (duplicate != null && existing?.id != duplicate.id) {
+      throw ConfigFailure('该来源已由“${duplicate.name}”使用，请选择已有配置。');
+    }
     if (existing != null && command['replace'] != true) {
       throw const ConfigFailure('该来源已保存，请先确认是否覆盖更新。');
     }
-    final replacesCurrent =
-        existing != null && existing.id == collection.selectedId;
+    if (Uri.parse(source).scheme == 'http' && command['allowHttp'] != true) {
+      throw const ConfigFailure(
+        '此来源使用 HTTP 明文传输，请确认后再更新。',
+        needsHttpConfirmation: true,
+      );
+    }
+    final replacesRunning =
+        existing != null && state.running && existing.id == state.configId;
     var invalidated = false;
     try {
       if (existing != null) {
         // Retire the old body before I/O: process death must not revive it after
         // an accepted update. The running core owns its already-loaded resources.
         collection = collection.replace(
-          existing.withContent(null, error: '更新未完成，请重新导入此来源。'),
+          existing
+              .withSource(source)
+              .withContent(null, error: '更新未完成，请重新更新此来源。'),
         );
         await store.save(collection);
         invalidated = true;
-        if (replacesCurrent &&
+        if (state.core.configId == existing.id &&
             !state.running &&
             state.core.purpose == 'PREVIEW') {
           await platform.releasePreview();
@@ -110,6 +147,7 @@ class ConfigActions {
         source,
         allowHttp: command['allowHttp'] == true,
       );
+      checkConfigText(body);
       if (existing == null) {
         final entry = ConfigEntry(
           id: '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}-${Random.secure().nextInt(1 << 32).toRadixString(36)}',
@@ -117,6 +155,7 @@ class ConfigActions {
           source: source,
           revision: 1,
           body: body,
+          updatedAt: DateTime.now(),
         );
         collection = ConfigCollection(
           entries: [...collection.entries, entry],
@@ -130,7 +169,7 @@ class ConfigActions {
       }
       await store.save(collection);
     } catch (_) {
-      if (replacesCurrent && state.running) {
+      if (replacesRunning) {
         await platform.stop();
       }
       if (existing != null && !invalidated) {
@@ -138,13 +177,78 @@ class ConfigActions {
       }
       rethrow;
     }
-    if (replacesCurrent && state.running) {
+    if (replacesRunning) {
       await platform.stage('正在停止旧接管');
       await platform.stop();
-      await _start(collection.selected!, collection.mode);
+      await _start(collection.find(existing.id)!, collection.mode);
       return '配置已更新并重新启动。';
     }
     return existing == null ? '配置已保存，启动时由内核解析。' : '配置已更新。';
+  }
+
+  Future<String> _saveLocal(
+    ConfigCollection collection,
+    AppSnapshot state,
+    Map<String, dynamic> command,
+  ) async {
+    final id = command['id'] as String?;
+    final existing = id == null ? null : _entry(collection, id);
+    if (existing != null &&
+        (existing.remote || command['revision'] != existing.revision)) {
+      throw const ConfigFailure('配置已删除、正文已变化或不可编辑，请重新打开；当前输入未覆盖保存。');
+    }
+    final body = command['body'] as String;
+    checkConfigText(body);
+    final entry =
+        existing?.withContent(body) ??
+        ConfigEntry(
+          id: '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}-${Random.secure().nextInt(1 << 32).toRadixString(36)}',
+          name: _localName(command['name'] as String),
+          kind: ConfigKind.local,
+          revision: 1,
+          body: body,
+          updatedAt: DateTime.now(),
+        );
+    final next = existing == null
+        ? ConfigCollection(
+            entries: [...collection.entries, entry],
+            selectedId: collection.selectedId ?? entry.id,
+            mode: collection.mode,
+          )
+        : collection.replace(entry);
+    await platform.stage('正在保存配置');
+    await store.save(next);
+    result = {
+      'configStatus': 'saved',
+      'targetId': entry.id,
+      'savedRevision': entry.revision,
+    };
+    try {
+      if (state.running && state.configId == entry.id) {
+        await platform.stage('正在停止旧接管');
+        await platform.stop();
+        await _start(entry, next.mode);
+        result = {...result, 'configStatus': 'applied'};
+        return '配置已保存并应用。';
+      }
+      if (!state.running &&
+          state.core.purpose == 'PREVIEW' &&
+          state.core.configId == entry.id) {
+        await platform.releasePreview();
+      }
+    } catch (_) {
+      result = {...result, 'configStatus': 'applyFailed', 'success': false};
+      return '配置已保存，但应用或旧预览释放未完成。请核实接管状态；新正文已保留。';
+    }
+    return '配置已保存。';
+  }
+
+  String _localName(String value) {
+    final name = value.trim();
+    if (name.isEmpty || name.runes.length > 80) {
+      throw const ConfigFailure('请输入 1 至 80 个字符的配置名称。');
+    }
+    return name;
   }
 
   Future<String> _select(
@@ -179,8 +283,7 @@ class ConfigActions {
     String id,
   ) async {
     _entry(collection, id);
-    if (state.running &&
-        (state.configId == id || collection.selectedId == id)) {
+    if (state.running && state.configId == id) {
       throw const ConfigFailure('请先停止接管，再删除当前使用的配置。');
     }
     final remaining = collection.entries

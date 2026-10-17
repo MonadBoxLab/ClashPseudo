@@ -62,12 +62,13 @@ void main() {
   });
 
   test(
-    'legacy defaults only when mode is absent; invalid data is preserved',
+    'missing and invalid current mode are rejected without rewriting',
     () async {
       final file = File('${directory.path}/configurations.json');
-      final data = {'version': 1, 'entries': <Object>[], 'selectedId': null};
+      final data = {'version': 2, 'entries': <Object>[], 'selectedId': null};
       await file.writeAsString(jsonEncode(data));
-      expect((await store.read()).mode, TunnelMode.rule);
+      await expectLater(store.read(), throwsA(isA<ConfigFailure>()));
+      expect(await file.readAsString(), jsonEncode(data));
       for (final invalid in [null, 'follow', 0, true]) {
         final body = jsonEncode({...data, 'mode': invalid});
         await file.writeAsString(body);

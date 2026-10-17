@@ -9,8 +9,32 @@
 - [AppWorkService](../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/app/AppWorkService.kt) 仍为按需、有 120 秒期限的 `dataSync` 前台任务服务。命令完成后移除通知并结束服务，不再直接销毁逻辑 Engine；不为持续观察增设后台服务。Flutter VM 的进程级资源不等同于 Engine，不承诺释放 Engine 后内存回到首次加载前。
 - [AppBridge](../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/app/AppBridge.kt) 串行受理命令，以操作 ID 区分受理与最终结果，分别为两个 Engine 接线。UI 重开只查询，不重发任务；权限结果按请求标识匹配，迟到结果不能结束后续操作。工作服务及 VPN 均为 `START_NOT_STICKY`，进程结束不自动续跑。
 - [Dart 配置业务](../lib/features/configs/config_actions.dart) 下载、保存并协调启停。下载上限为 16 MiB、总时限 30 秒、最多 5 次重定向；手动检查每跳 HTTP 风险，不跨来源转发 Basic 凭据，不绕过 TLS 验证。实际配置语义在策略预览或 VPN 加载时判定。
-- [配置存储](../lib/features/configs/config_store.dart) 是单写入者的版本化 JSON，以同目录临时文件 flush 后 rename 提交。保存于 `filesDir/configurations/configurations.json`；更新前先持久化旧正文失效状态；最初写入失败则不下载，停止当前项的接管并明确报告旧记录未修改。损坏存储报错，不覆盖为空列表。
+- [配置存储](../lib/features/configs/config_store.dart) 是单写入者的 JSON，以同目录临时文件 flush 后 rename 提交。保存于 `filesDir/configurations/configurations.json`；顶层保存 `selectedId`、`mode`、`entries`，不设置格式版本号。记录用 `kind` 区分 remote／local，来源与成功正文时间可空；`revision` 校验正文并发身份，不是格式号，不迁移旧开发格式。远程更新前先持久化旧正文失效状态；最初写入失败则不下载，停止当前项的接管并明确报告旧记录未修改。本地保存相反：先写正文，写失败不停止旧接管；写成功后仅对实际运行 ID 正常停止并重新启动，旧预览按身份释放。损坏或旧格式存储报错，不覆盖为空列表。
 - [AppFiles](../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/app/AppFiles.kt) 把内核资源放在 `noBackupFilesDir/mihomo`，运行输入放在 `noBackupFilesDir/work/run-input-<operationId>.json`。单份 JSON 包含配置 ID、revision、模式、原样正文及选择映射，临时文件 flush／rename 后由 worker 核对身份读取；每操作独立文件，过期请求不能读到后续操作的输入。正文不放入 Intent，输入用完删除，不作为历史副本。
+
+### 本地正文与保存结果
+
+UI Engine 使用官方 `file_selector 1.1.0` 选择单文件；不按扩展名或提供者 MIME 过滤，选中后按实际字节校验，避免 YAML 被错误 MIME 隐藏。当前 Android 插件会合并类型组，混用具体过滤与空的“所有文件”组并不能解除过滤；设备回归应在系统 Downloads 中放置 YAML、TXT 和非 UTF-8 文件，确认合法文本可见／可导入、取消无记录、非 UTF-8 明确拒绝。默认 UI Engine 自动注册插件，逻辑 Engine 仍明确关闭插件注册。交付后的 `XFile` 先检查长度，再按流有界读取和严格 UTF-8 解码；取消或页面销毁后的迟到结果不创建记录。插件交付前的缓存／读取不受应用字节上限保证。正文页使用 `re_editor 0.10.0` 的公开 controller、查找与移动选区工具栏 API，SDK 自适应工具栏提供复制／剪切／粘贴；关闭补全、折叠、替换与高亮。大正文通过 SDK `compute` 显式准备 `CodeLines` 后才交付 controller，不把准备中显示成空正文。
+
+`saveLocal` 的 `body` 仅在平台通道中使用 UTF-8 `Uint8List`（Android 对应 `byte[]`）；UI 编码后交由 Android 原样转发，逻辑 Engine 使用 `decodeConfigText` 检查实际字节上限并恢复 BOM，再交给配置业务。不能直接传递以 BOM 开头的字符串：`StandardMessageCodec` 的 Dart 字符串解码会消耗起始 BOM。存储及业务正文仍为字符串，不增加旧通道格式兼容分支；解码失败返回 `notSaved`，不写入或停止旧接管。
+
+[配置查找适配](../lib/features/configs/config_find_controller.dart) 实现组件公开 `CodeFindController`：原组件逐输入排队，且每个匹配从首行重新计算位置，会使大正文高频匹配迟到；适配合并最新查询、复核正文／查询身份，在 `compute` 中按匹配顺序推进行偏移。仅做不区分大小写的字面查找，不折叠、不替换，不限制匹配数量。正文焦点及只读语义由 SDK `Semantics` 跟随实际 `FocusNode` 和编辑状态，不代表完整屏幕阅读器支持已验证。
+
+`re_editor 0.10.0` 的移动端键盘分支直接处理 Backspace／Enter，未检查 `readOnly`，且不经过桌面快捷键适配。正文页使用 SDK `FocusManager` 的早期按键回调，仅在移动端、正文持有焦点且不可编辑时拦截这两个键；查找输入、可编辑正文及其他按键不受影响，页面销毁时注销。该适配同时覆盖远程只读、保存中与结果未确认状态；升级组件时应复核此缺口及选区删除、换行、焦点转移回归，不修改第三方源码。
+
+`re_editor 0.10.0` 另有未解决的移动端光标生命周期缺口：`startBlink` 创建的 100 ms 延迟回调不随控制器销毁取消，正文聚焦／改变选区后立即销毁组件会访问已释放的 `_CodeCursorBlinkController`。[生命周期回归](../test/features/configs/config_text_lifecycle_test.dart) 保留该失败，同时区分通过正常路由动画返回的通过路径；不通过等待回调结束后才销毁、吞掉异常或修改第三方源码规避。当前证据为 widget 测试中的释放后访问与 debug 断言，不等同已复现 release 崩溃，也不能据正常返回通过宣称任意销毁路径安全。
+
+`saveLocal` 经既有 operation/resultId 通道返回 `configStatus`、`targetId`、`savedRevision`：
+
+| configStatus | 含义 |
+| --- | --- |
+| notSaved | 业务操作未完成正文写入，保留编辑输入 |
+| saved | 正文已写入，无需重新启动实际接管 |
+| applied | 正文已写入，实际运行项重新启动成功 |
+| applyFailed | 正文已写入，但停止／启动或旧预览释放失败；不是保存失败 |
+| unconfirmed／缺失 | 平台超时、中断或结果未确认；重读核实，不自动重发 |
+
+Android 只接受当前 operation 的最终结果；正文页经 AppController 等待匹配的 resultId，不解析提示文字、不把受理 ID 当作完成。125 秒 UI 等待上限略长于后台任务期限，超时只重读；离页不取消已受理业务。`saveLocal` 的反馈由提交页面承担，避免与全局反馈重复。保存先复核打开时 ID／revision；成功后仅按已确认提交版本更新脏标记，写后应用失败保留新正文。此协议不代表 16 MiB 真机传输／性能或完整设备生命周期已验收。
 
 系统备份规则只允许已提交的 `configurations.json`，不包含其 `.tmp`、缓存或运行输入。版本保护规则见 [产品需求](product-requirements.md#系统备份与恢复)。恢复数据的读取与正常存储走同一代码，实际状态仍查询平台。规则检查不等于真实云备份／跨设备恢复验收。
 
@@ -50,7 +74,7 @@
 
 Activity `onStart/onStop` 驱动真实可见性，不以 `onPause` 或切 tab 释放预览。不可见且没有已受理业务时保留 30 秒，延时及排队清理执行前核对可见性、业务、上下文代次和 VPN 状态；重新可见取消未执行清理。已开始释放则等待完成。系统冻结不保证准时回收，保留期间 provider 可继续工作；运行 VPN 不受闲置回收影响。偏好保存不依赖 timer 或退出回调。
 
-[策略业务](../lib/features/strategies/strategy_actions.dart) 在每个 ConfigEntry 的 `choices` 保存 `{组名: {type, member}}`；自动组显式 `member: null` 表示恢复自动，缺记录表示遵循配置默认。旧存储缺字段兼容，存在但非法则按损坏处理；改变选择不增加正文 revision。继续使用共享 core home，但选择隔离由客户端记录承担；关闭内核 `store-selected`，避免其只按组名索引的进程级缓存二次覆盖偏好，不靠切 home 伪造独立选择库。
+[策略业务](../lib/features/strategies/strategy_actions.dart) 在每个 ConfigEntry 的 `choices` 保存 `{组名: {type, member}}`；自动组显式 `member: null` 表示恢复自动，缺记录表示遵循配置默认。`choices` 必须是映射，无偏好时保存空映射；字段缺失或内容非法按损坏处理，不兼容旧开发格式。改变选择不增加正文 revision。继续使用共享 core home，但选择隔离由客户端记录承担；关闭内核 `store-selected`，避免其只按组名索引的进程级缓存二次覆盖偏好，不靠切 home 伪造独立选择库。
 
 [Go 策略接口](../native/mihomo/internal/engine/strategies.go) 返回真实组、有效 provider 成员、类型、hidden、now／fixed、GLOBAL 引用和未恢复原因。顺序沿用默认 provider 的原始组序；普通查询不主动测速或 Touch。自动组仅投影 adapter 自身 JSON 的 now／fixed，load-balance 不伪造 now。GLOBAL 按真实组对象、顶层规则及全部子规则目标判定，不把普通同名节点或子规则集名当作引用。
 

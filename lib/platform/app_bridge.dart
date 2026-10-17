@@ -51,7 +51,12 @@ class AppBridge {
   );
 
   Future<String?> submit(Map<String, Object?> command) =>
-      _call<String>('submit', command);
+      _call<String>('submit', {
+        ...command,
+        // StandardMessageCodec's string decoder consumes a leading UTF-8 BOM.
+        if (command['action'] == 'saveLocal')
+          'body': utf8.encode(command['body'] as String),
+      });
   Future<void> stage(String message) =>
       _call<void>('stage', {'message': message});
   Future<bool> authorize() async => await _call<bool>('authorize') ?? false;
@@ -150,6 +155,9 @@ class AppSnapshot {
     this.resultId,
     this.resultMessage,
     this.connectionStatus,
+    this.configStatus,
+    this.targetId,
+    this.savedRevision,
     this.needsHttpConfirmation = false,
     this.resultSuccess = false,
     this.mode,
@@ -166,6 +174,9 @@ class AppSnapshot {
   final String? resultId;
   final String? resultMessage;
   final String? connectionStatus;
+  final String? configStatus;
+  final String? targetId;
+  final int? savedRevision;
   final bool needsHttpConfirmation;
   final bool resultSuccess;
   final TunnelMode? mode;
@@ -200,6 +211,9 @@ class AppSnapshot {
       resultId: data['resultId'] as String?,
       resultMessage: data['resultMessage'] as String?,
       connectionStatus: data['connectionStatus'] as String?,
+      configStatus: data['configStatus'] as String?,
+      targetId: data['targetId'] as String?,
+      savedRevision: data['savedRevision'] as int?,
       needsHttpConfirmation: data['needsHttpConfirmation'] == true,
       resultSuccess: data['resultSuccess'] == true,
       mode: mode,

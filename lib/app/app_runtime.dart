@@ -9,6 +9,7 @@ import '../features/configs/config_actions.dart';
 import '../features/configs/config_downloader.dart';
 import '../features/configs/config_entry.dart';
 import '../features/configs/config_store.dart';
+import '../features/configs/config_text.dart';
 import '../features/strategies/strategy_actions.dart';
 import '../platform/app_bridge.dart';
 
@@ -56,7 +57,17 @@ class AppRuntime {
     }
     final platform = AppBridge(operationId: command['owner'] as String);
     _operation = platform;
+    ConfigActions? actions;
+    final unsaved = command['action'] == 'saveLocal'
+        ? <String, Object?>{
+            'configStatus': 'notSaved',
+            'targetId': command['id'],
+          }
+        : const <String, Object?>{};
     try {
+      if (command['action'] == 'saveLocal') {
+        command['body'] = decodeConfigText(command['body'] as Uint8List);
+      }
       if (command['action'] == 'closeConnection') {
         final outcome = await ConnectionActions(platform).execute(command);
         if (outcome['connectionStatus'] == 'closed' ||
@@ -79,7 +90,7 @@ class AppRuntime {
         Directory(paths['configs'] as String),
         beforeWrite: platform.checkOperation,
       );
-      final actions = ConfigActions(
+      actions = ConfigActions(
         store,
         ConfigDownloader(),
         platform,
@@ -90,17 +101,30 @@ class AppRuntime {
         'message': command['action'] == 'setStrategy'
             ? await StrategyActions(store, platform).execute(command)
             : await actions.execute(command),
+        ...actions.result,
       };
     } on ConfigFailure catch (error) {
       return {
         'success': false,
         'message': error.message,
         'needsHttpConfirmation': error.needsHttpConfirmation,
+        ...unsaved,
+        ...?actions?.result,
       };
     } on PlatformException catch (error) {
-      return {'success': false, 'message': error.message ?? '平台操作未完成，请核实接管状态。'};
+      return {
+        'success': false,
+        'message': error.message ?? '平台操作未完成，请核实接管状态。',
+        ...unsaved,
+        ...?actions?.result,
+      };
     } catch (_) {
-      return {'success': false, 'message': '操作未完成，请核实状态后重试。'};
+      return {
+        'success': false,
+        'message': '操作未完成，请核实状态后重试。',
+        ...unsaved,
+        ...?actions?.result,
+      };
     } finally {
       _operation = null;
     }

@@ -288,11 +288,11 @@ void main() {
     final old = Completer<AppSnapshot>();
     bridge.read = () => old.future;
     final first = controller.refresh();
-    await controller.refresh();
-    await controller.refresh();
+    final second = controller.refresh();
+    final third = controller.refresh();
     bridge.read = () async => const AppSnapshot(phase: 'STOPPED');
     old.complete(const AppSnapshot(phase: 'RUNNING'));
-    await first;
+    await Future.wait([first, second, third]);
     expect(bridge.reads, 2);
     expect(controller.state.phase, 'STOPPED');
     expect(store.reads, 1);
@@ -307,10 +307,12 @@ void main() {
       final read = controller.refresh();
       bridge.submitResult = () async =>
           throw PlatformException(code: 'unavailable', message: '未被受理');
-      await controller.submit({'action': 'start'});
+      final submitted = controller.submit({'action': 'start'});
+      await tester.pump();
       bridge.read = () async => const AppSnapshot(phase: 'STOPPED');
       old.complete(const AppSnapshot(phase: 'RUNNING'));
       await read;
+      await submitted;
       expect(controller.state.phase, 'STOPPED');
       expect(controller.commandError, '未被受理');
       expect(bridge.commands, hasLength(1));

@@ -20,13 +20,21 @@ Future<void> openImport(
       .where((e) => e.source == uri.toString())
       .firstOrNull;
   if (existing != null) {
-    final current = existing.id == controller.collection.selectedId;
+    final state = controller.state;
+    final consequence = !state.confirmed
+        ? '接管状态尚未确认，请先核实运行状态。'
+        : state.running && state.configId == existing.id
+        ? '将停止此配置的接管；更新成功后重新启动。'
+        : state.running
+        ? '不会切换或停止其他配置的接管。'
+        : '更新后不会自动启动接管。';
     final accepted = await confirmAction(
       context,
-      title: '覆盖更新“${existing.name}”？',
-      message: current
-          ? '该来源已经保存。确认后重新下载并替换正文；更新失败将使旧正文不可再次启动。当前正在接管时会停止，成功后使用新正文启动。'
-          : '该来源已经保存。确认后更新此条目，不新增配置，也不切换当前接管。',
+      title: '覆盖更新配置？',
+      subject: existing.name,
+      message:
+          '此来源已保存，将更新该条目，不新增配置。'
+          '\n\n旧正文将失效，下载失败后也不能再次启动。$consequence',
       confirmLabel: '覆盖更新',
     );
     if (!accepted || !context.mounted) return;
@@ -62,6 +70,7 @@ class _ImportDialogState extends State<ImportDialog> {
   final _name = TextEditingController();
   String? _error;
   bool _obscured = true;
+  int get _nameLength => _name.text.trim().runes.length;
 
   @override
   void dispose() {
@@ -71,6 +80,7 @@ class _ImportDialogState extends State<ImportDialog> {
   }
 
   void _submit() {
+    if (_nameLength > 80) return;
     try {
       final uri = ConfigDownloader.sourceUri(_source.text);
       Navigator.pop(context, {
@@ -101,8 +111,42 @@ class _ImportDialogState extends State<ImportDialog> {
               enableSuggestions: false,
               keyboardType: TextInputType.url,
               decoration: InputDecoration(
-                labelText: '完整配置 URL',
-                errorText: _error,
+                label: Semantics(
+                  liveRegion: true,
+                  label: _error == null ? '完整配置 URL' : '完整配置 URL，输入无效',
+                  child: ExcludeSemantics(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Flexible(
+                          child: Text(
+                            '完整配置 URL',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        SizedBox.square(
+                          dimension: 16,
+                          child: _error == null
+                              ? null
+                              : Icon(
+                                  Icons.error_outline,
+                                  size: 16,
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                helperText: _error ?? '请输入完整的 HTTP 或 HTTPS 配置 URL。',
+                helperMaxLines: 4,
+                helperStyle: TextStyle(
+                  color: _error == null
+                      ? null
+                      : Theme.of(context).colorScheme.error,
+                ),
                 suffixIcon: IconButton(
                   tooltip: _obscured ? '显示 URL' : '隐藏 URL',
                   onPressed: () => setState(() => _obscured = !_obscured),
@@ -118,10 +162,11 @@ class _ImportDialogState extends State<ImportDialog> {
             const SizedBox(height: 16),
             TextField(
               controller: _name,
-              maxLength: 80,
-              decoration: const InputDecoration(
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
                 labelText: '名称（可选）',
-                helperText: '不填写时使用来源主机名',
+                helperText: '留空使用来源主机名',
+                counterText: '$_nameLength/80',
               ),
             ),
             const SizedBox(height: 8),
@@ -138,7 +183,10 @@ class _ImportDialogState extends State<ImportDialog> {
         onPressed: () => Navigator.pop(context),
         child: const Text('取消'),
       ),
-      FilledButton(onPressed: _submit, child: const Text('下载并保存')),
+      FilledButton(
+        onPressed: _nameLength <= 80 ? _submit : null,
+        child: const Text('下载并保存'),
+      ),
     ],
   );
 }

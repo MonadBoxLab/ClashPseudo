@@ -23,6 +23,7 @@ class AppController extends ChangeNotifier {
   Map<String, Object?>? lastCommand;
   bool lastCommandAutomatic = false;
   bool _refreshing = false;
+  Completer<void>? _refreshDone;
   bool _refreshAgain = false;
   bool _disposed = false;
   bool _foreground = true;
@@ -30,6 +31,7 @@ class AppController extends ChangeNotifier {
   int _runner = 0;
   int _retryStep = 0;
   Timer? _retry;
+  Completer<AppSnapshot?>? _configSave;
   final ConfigStore? store;
 
   static const _readTimeout = Duration(seconds: 5);
@@ -85,65 +87,79 @@ class AppController extends ChangeNotifier {
     if (_refreshing) {
       _refreshAgain = true;
       _readRevision++;
+      await _refreshDone!.future;
       return;
     }
     _refreshing = true;
+    final done = Completer<void>();
+    _refreshDone = done;
     final runner = ++_runner;
-    do {
-      _refreshAgain = false;
-      final revision = _readRevision;
-      bool current() =>
-          !_disposed &&
-          _foreground &&
-          runner == _runner &&
-          revision == _readRevision;
-      try {
-        final snapshot = await platform.snapshot().timeout(_readTimeout);
-        if (current()) {
-          state = snapshot;
-          platformError = null;
-          loading = false;
-          notifyListeners();
-        }
-      } catch (_) {
-        if (current()) {
-          state = const AppSnapshot();
-          platformError = '暂时无法获取接管状态，前台将自动重试，不会自动启动。';
-          loading = false;
-          notifyListeners();
-        }
-      }
-      if (runner != _runner || _disposed) return;
-      if (current()) {
+    try {
+      do {
+        _refreshAgain = false;
+        final revision = _readRevision;
+        bool current() =>
+            !_disposed &&
+            _foreground &&
+            runner == _runner &&
+            revision == _readRevision;
         try {
-          final configs = await _readConfigs().timeout(_readTimeout);
+          final snapshot = await platform.snapshot().timeout(_readTimeout);
           if (current()) {
-            collection = configs;
-            configsLoaded = true;
-            configError = null;
+            state = snapshot;
+            platformError = null;
+            loading = false;
+            notifyListeners();
           }
-        } catch (failure) {
+        } catch (_) {
           if (current()) {
-            configError = failure is ConfigFailure
-                ? failure.message
-                : '暂时无法读取已保存配置，原文件未被修改。';
+            state = const AppSnapshot();
+            platformError = '暂时无法获取接管状态，前台将自动重试，不会自动启动。';
+            loading = false;
+            notifyListeners();
           }
         }
-        if (current()) notifyListeners();
+        if (runner != _runner || _disposed) return;
+        if (current()) {
+          try {
+            final configs = await _readConfigs().timeout(_readTimeout);
+            if (current()) {
+              collection = configs;
+              configsLoaded = true;
+              configError = null;
+            }
+          } catch (failure) {
+            if (current()) {
+              configError = failure is ConfigFailure
+                  ? failure.message
+                  : '暂时无法读取已保存配置，原文件未被修改。';
+            }
+          }
+          if (current()) notifyListeners();
+        }
+      } while (_refreshAgain && !_disposed && runner == _runner && _foreground);
+      if (_disposed || runner != _runner) return;
+      _refreshing = false;
+      if (platformError != null ||
+          configError != null ||
+          state.modeError != null) {
+        final seconds = _retrySeconds[_retryStep];
+        if (_retryStep < _retrySeconds.length - 1) _retryStep++;
+        if (_foreground) {
+          _retry = Timer(
+            Duration(seconds: seconds),
+            () => unawaited(refresh()),
+          );
+        }
+      } else {
+        _retryStep = 0;
       }
-    } while (_refreshAgain && !_disposed && runner == _runner && _foreground);
-    if (_disposed || runner != _runner) return;
-    _refreshing = false;
-    if (platformError != null ||
-        configError != null ||
-        state.modeError != null) {
-      final seconds = _retrySeconds[_retryStep];
-      if (_retryStep < _retrySeconds.length - 1) _retryStep++;
-      if (_foreground) {
-        _retry = Timer(Duration(seconds: seconds), () => unawaited(refresh()));
+    } finally {
+      if (runner == _runner) {
+        _refreshing = false;
+        _refreshDone = null;
       }
-    } else {
-      _retryStep = 0;
+      done.complete();
     }
   }
 
@@ -184,9 +200,39 @@ class AppController extends ChangeNotifier {
     return operationId;
   }
 
+  Future<AppSnapshot?> saveLocal(Map<String, Object?> command) async {
+    if (_disposed || busy || _configSave != null) return null;
+    final completed = Completer<AppSnapshot?>();
+    _configSave = completed;
+    String? id;
+    void observe() {
+      if (id != null && state.resultId == id && !completed.isCompleted) {
+        completed.complete(state);
+      }
+    }
+
+    addListener(observe);
+    try {
+      id = await submit({...command, 'action': 'saveLocal'});
+      if (id == null) return null;
+      observe();
+      final result = await completed.future.timeout(
+        const Duration(seconds: 125),
+        onTimeout: () => null,
+      );
+      // A missing reply is not permission to resend a potentially saved body.
+      await refresh();
+      return result;
+    } finally {
+      _configSave = null;
+      if (!_disposed) removeListener(observe);
+    }
+  }
+
   @override
   void dispose() {
     _disposed = true;
+    if (_configSave?.isCompleted == false) _configSave!.complete(null);
     _runner++;
     _retry?.cancel();
     AppBridge.channel.setMethodCallHandler(null);

@@ -1,11 +1,15 @@
 import '../mode/tunnel_mode.dart';
 import '../strategies/strategy_choice.dart';
 
+enum ConfigKind { remote, local }
+
 class ConfigEntry {
   const ConfigEntry({
     required this.id,
     required this.name,
-    required this.source,
+    this.kind = ConfigKind.remote,
+    this.source,
+    this.updatedAt,
     required this.revision,
     required this.body,
     this.error,
@@ -14,22 +18,29 @@ class ConfigEntry {
 
   final String id;
   final String name;
-  final String source;
+  final ConfigKind kind;
+  final String? source;
+  final DateTime? updatedAt;
   final int revision;
   final String? body;
   final String? error;
   final Map<String, StrategyChoice> choices;
 
+  bool get remote => kind == ConfigKind.remote;
+
   String get displaySource {
-    final uri = Uri.parse(source);
+    if (!remote) return '本地配置';
+    final uri = Uri.parse(source!);
     return '${uri.scheme}://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}/…';
   }
 
   ConfigEntry withContent(String? content, {String? error}) => ConfigEntry(
     id: id,
     name: name,
+    kind: kind,
     source: source,
-    revision: revision + 1,
+    updatedAt: content == null ? updatedAt : DateTime.now(),
+    revision: body == content ? revision : revision + 1,
     body: content,
     error: error,
     choices: choices,
@@ -38,17 +49,45 @@ class ConfigEntry {
   ConfigEntry withChoice(String group, StrategyChoice choice) => ConfigEntry(
     id: id,
     name: name,
+    kind: kind,
     source: source,
+    updatedAt: updatedAt,
     revision: revision,
     body: body,
     error: error,
     choices: Map.unmodifiable({...choices, group: choice}),
   );
 
+  ConfigEntry renamed(String name) => ConfigEntry(
+    id: id,
+    name: name,
+    kind: kind,
+    source: source,
+    updatedAt: updatedAt,
+    revision: revision,
+    body: body,
+    error: error,
+    choices: choices,
+  );
+
+  ConfigEntry withSource(String source) => ConfigEntry(
+    id: id,
+    name: name,
+    kind: kind,
+    source: source,
+    updatedAt: updatedAt,
+    revision: revision,
+    body: body,
+    error: error,
+    choices: choices,
+  );
+
   Map<String, Object?> toJson() => {
     'id': id,
     'name': name,
+    'kind': kind.name,
     'source': source,
+    'updatedAt': updatedAt?.millisecondsSinceEpoch,
     'revision': revision,
     'body': body,
     'error': error,
@@ -59,20 +98,25 @@ class ConfigEntry {
     final entry = ConfigEntry(
       id: value['id'] as String,
       name: value['name'] as String,
-      source: value['source'] as String,
+      kind: ConfigKind.values.byName(value['kind'] as String),
+      source: value['source'] as String?,
+      updatedAt: value['updatedAt'] == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(value['updatedAt'] as int),
       revision: value['revision'] as int,
       body: value['body'] as String?,
       error: value['error'] as String?,
-      choices: value.containsKey('choices')
-          ? StrategyChoice.decode(value['choices'])
-          : const {},
+      choices: StrategyChoice.decode(value['choices']),
     );
-    final uri = Uri.parse(entry.source);
+    final uri = entry.source == null ? null : Uri.parse(entry.source!);
     if (entry.id.isEmpty ||
-        entry.name.isEmpty ||
+        entry.name.trim().isEmpty ||
         entry.revision < 1 ||
-        !['http', 'https'].contains(uri.scheme) ||
-        uri.host.isEmpty) {
+        (entry.remote
+            ? uri == null ||
+                  !['http', 'https'].contains(uri.scheme) ||
+                  uri.host.isEmpty
+            : entry.source != null)) {
       throw const FormatException('Invalid configuration record');
     }
     return entry;

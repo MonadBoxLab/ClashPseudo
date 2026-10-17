@@ -181,6 +181,92 @@ void main() {
     expect(platform.events, isEmpty);
   });
 
+  test(
+    'source change rejects an existing source without writing or stopping',
+    () async {
+      await seed(running: true);
+      final before = await File('${directory.path}/configurations.json')
+          .readAsBytes();
+      await expectLater(
+        actions.execute({
+          'action': 'updateConfig',
+          'id': 'first',
+          'source': second.source,
+        }),
+        throwsA(
+          isA<ConfigFailure>().having(
+            (e) => e.message,
+            'existing name',
+            contains('Second'),
+          ),
+        ),
+      );
+      expect(
+        await File('${directory.path}/configurations.json').readAsBytes(),
+        before,
+      );
+      expect(download.calls, 0);
+      expect(platform.events, isEmpty);
+    },
+  );
+
+  test(
+    'source change retains identity and order while retiring old content',
+    () async {
+      await seed();
+      download.pending = Completer<String>();
+      const source = 'https://replacement.test/config';
+      final pending = actions.execute({
+        'action': 'updateConfig',
+        'id': 'first',
+        'source': source,
+      });
+      await download.started.future;
+      final waiting = await store.read();
+      expect(waiting.entries.map((entry) => entry.id), ['first', 'second']);
+      expect(waiting.selected!.source, source);
+      expect(waiting.selected!.name, 'First');
+      expect(waiting.selected!.body, isNull);
+      expect(waiting.selected!.revision, 2);
+      expect(waiting.selected!.updatedAt, isNull);
+      download.pending!.complete('');
+      await pending;
+      final saved = await store.read();
+      expect(saved.selected!.id, 'first');
+      expect(saved.selected!.source, source);
+      expect(saved.selected!.body, '');
+      expect(saved.selected!.revision, 3);
+      expect(saved.selected!.updatedAt, isNotNull);
+      expect(platform.events, isEmpty);
+    },
+  );
+
+  test(
+    'failed changed source stays saved and only actual running ID stops',
+    () async {
+      await seed(running: true);
+      await store.save(
+        ConfigCollection(entries: [first, second], selectedId: 'second'),
+      );
+      download.fail = true;
+      const source = 'https://replacement.test/config';
+      await expectLater(
+        actions.execute({
+          'action': 'updateConfig',
+          'id': 'first',
+          'source': source,
+        }),
+        throwsA(isA<ConfigFailure>()),
+      );
+      final saved = await store.read();
+      expect(saved.selectedId, 'second');
+      expect(saved.find('first')!.source, source);
+      expect(saved.find('first')!.body, isNull);
+      expect(saved.find('second')!.body, 'candidate');
+      expect(platform.events, ['stop']);
+    },
+  );
+
   test('stopped selection saves without starting', () async {
     await seed();
     await actions.execute({'action': 'select', 'id': second.id});

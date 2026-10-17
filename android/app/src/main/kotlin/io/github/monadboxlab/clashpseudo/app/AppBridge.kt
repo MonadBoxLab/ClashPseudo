@@ -35,6 +35,9 @@ object AppBridge {
     private var resultId: String? = null
     private var resultSuccess = false
     private var connectionStatus: String? = null
+    private var configStatus: String? = null
+    private var targetId: String? = null
+    private var savedRevision: Int? = null
     private var needsHttp = false
     var command: Map<String, Any?>? = null
         private set
@@ -158,7 +161,7 @@ object AppBridge {
         }
         @Suppress("UNCHECKED_CAST")
         val request = call.arguments as? Map<String, Any?>
-        if (request?.get("action") !in setOf("import", "start", "stop", "select", "delete", "setMode", "prepareStrategies", "setStrategy", "closeConnection")) {
+        if (request?.get("action") !in setOf("import", "updateConfig", "renameConfig", "saveLocal", "start", "stop", "select", "delete", "setMode", "prepareStrategies", "setStrategy", "closeConnection")) {
             result.error("command", "无法识别此操作。", null)
             return
         }
@@ -169,6 +172,10 @@ object AppBridge {
         resultMessage = null
         resultId = null
         connectionStatus = null
+        configStatus = null
+        targetId = null
+        savedRevision = null
+        needsHttp = false
         try {
             val intent = Intent(context, AppWorkService::class.java)
             if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
@@ -214,6 +221,9 @@ object AppBridge {
             resultMessage = null
             resultId = null
             connectionStatus = null
+            configStatus = null
+            targetId = null
+            savedRevision = null
             needsHttp = false
         }
         notifyUi()
@@ -231,6 +241,11 @@ object AppBridge {
         connectionStatus = (outcome["connectionStatus"] as? String)?.takeIf {
             it in setOf("closed", "absent", "failed", "unconfirmed")
         }
+        configStatus = (outcome["configStatus"] as? String)?.takeIf {
+            it in setOf("notSaved", "saved", "applied", "applyFailed", "unconfirmed")
+        } ?: if (command?.get("action") == "saveLocal") "unconfirmed" else null
+        targetId = outcome["targetId"] as? String ?: command?.get("id") as? String
+        savedRevision = (outcome["savedRevision"] as? Number)?.toInt()?.takeIf { it > 0 }
         resultSuccess = outcome["success"] == true
         resultMessage = outcome["message"] as? String ?: "操作已结束，请核实状态。"
         needsHttp = outcome["needsHttpConfirmation"] == true
@@ -294,6 +309,7 @@ object AppBridge {
             "operation" to operation, "resultId" to resultId,
             "resultMessage" to resultMessage, "needsHttpConfirmation" to needsHttp,
             "resultSuccess" to resultSuccess, "connectionStatus" to connectionStatus,
+            "configStatus" to configStatus, "targetId" to targetId, "savedRevision" to savedRevision,
             "core" to PseudoVpnService.core.snapshot().toMap(),
         )
     }

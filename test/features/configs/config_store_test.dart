@@ -38,10 +38,7 @@ void main() {
       final data = jsonDecode(
         await File('${directory.path}/configurations.json').readAsString(),
       ) as Map;
-      expect(
-        data.keys,
-        unorderedEquals(['version', 'selectedId', 'mode', 'entries']),
-      );
+      expect(data.keys, unorderedEquals(['selectedId', 'mode', 'entries']));
       expect(await directory.list().length, 1);
     },
   );
@@ -83,18 +80,18 @@ void main() {
     expect(entry.choices, isEmpty);
   });
 
-  test('legacy entries default only absent strategy fields', () async {
+  test('current entries require valid strategy fields', () async {
     final file = File('${directory.path}/configurations.json');
-    final legacy = entry.toJson()..remove('choices');
+    final incomplete = entry.toJson()..remove('choices');
     Future<void> write(Map<String, Object?> record) => file.writeAsString(
       jsonEncode({
-        'version': 1,
+        'mode': 'rule',
         'entries': [record],
         'selectedId': 'one',
       }),
     );
-    await write(legacy);
-    expect((await store.read()).selected!.choices, isEmpty);
+    await write(incomplete);
+    await expectLater(store.read(), throwsA(isA<ConfigFailure>()));
     for (final invalid in <Object?>[
       null,
       [],
@@ -117,12 +114,91 @@ void main() {
         'g': {'type': 'fallback', 'member': 1},
       },
     ]) {
-      await write({...legacy, 'choices': invalid});
+      await write({...incomplete, 'choices': invalid});
       final before = await file.readAsString();
       await expectLater(store.read(), throwsA(isA<ConfigFailure>()));
       expect(await file.readAsString(), before);
     }
   });
+
+  test('invalid current records are rejected without rewriting', () async {
+    final file = File('${directory.path}/configurations.json');
+    final missingKind = entry.toJson()..remove('kind');
+    for (final record in [
+      missingKind,
+      {...entry.toJson(), 'kind': 'unknown'},
+      {...entry.toJson(), 'kind': 'local'},
+      {...entry.toJson(), 'source': null},
+      {...entry.toJson(), 'revision': 0},
+    ]) {
+      final original = jsonEncode({
+        'mode': 'rule',
+        'entries': [record],
+        'selectedId': 'one',
+      });
+      await file.writeAsString(original);
+      await expectLater(store.read(), throwsA(isA<ConfigFailure>()));
+      expect(await file.readAsString(), original);
+    }
+  });
+
+  test(
+    'invalid modes and duplicate identities cannot become empty data',
+    () async {
+      final file = File('${directory.path}/configurations.json');
+      for (final data in [
+        {
+          'entries': [entry.toJson()],
+        },
+        {
+          'mode': 'invalid',
+          'entries': [entry.toJson()],
+        },
+        {
+          'mode': 'rule',
+          'entries': [entry.toJson(), entry.toJson()],
+        },
+        {
+          'mode': 'rule',
+          'entries': [
+            entry.toJson(),
+            {...entry.toJson(), 'id': 'two'},
+          ],
+        },
+      ]) {
+        final original = jsonEncode(data);
+        await file.writeAsString(original);
+        await expectLater(store.read(), throwsA(isA<ConfigFailure>()));
+        expect(await file.readAsString(), original);
+      }
+    },
+  );
+
+  test(
+    'local names and null sources may repeat, preserving order and time',
+    () async {
+      final time = DateTime.fromMillisecondsSinceEpoch(1700000000000);
+      final locals = [
+        for (final id in ['a', 'b'])
+          ConfigEntry(
+            id: id,
+            name: 'Local',
+            kind: ConfigKind.local,
+            revision: 1,
+            body: '',
+            updatedAt: time,
+          ),
+      ];
+      await store.save(
+        ConfigCollection(entries: [entry, ...locals], selectedId: 'b'),
+      );
+      final restored = await store.read();
+      expect(restored.entries.map((e) => e.id), ['one', 'a', 'b']);
+      expect(restored.selected!.updatedAt, time);
+      expect(restored.selected!.body, '');
+      expect(restored.selected!.displaySource, '本地配置');
+    },
+  );
 
   test('invalidated content stays unavailable after reopening', () async {
     await store.save(
@@ -201,7 +277,7 @@ void main() {
     () async {
       await File('${directory.path}/configurations.json').writeAsString(
         jsonEncode({
-          'version': 1,
+          'mode': 'rule',
           'entries': [entry.toJson()],
           'selectedId': 'missing',
         }),

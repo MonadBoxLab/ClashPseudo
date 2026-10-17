@@ -16,22 +16,20 @@ class ConfigStore {
     try {
       final data =
           jsonDecode(await _file.readAsString()) as Map<String, dynamic>;
-      if (data['version'] != 1) throw const FormatException('Unknown version');
       final entries = (data['entries'] as List)
           .map((value) => ConfigEntry.fromJson(value as Map<String, dynamic>))
           .toList();
       final selected = data['selectedId'] as String?;
+      final remote = entries.where((entry) => entry.remote).toList();
       if (entries.map((e) => e.id).toSet().length != entries.length ||
-          entries.map((e) => e.source).toSet().length != entries.length ||
+          remote.map((e) => e.source).toSet().length != remote.length ||
           (selected != null && !entries.any((e) => e.id == selected))) {
         throw const FormatException('Inconsistent configuration collection');
       }
       return ConfigCollection(
         entries: entries,
         selectedId: selected,
-        mode: data.containsKey('mode')
-            ? TunnelMode.parse(data['mode'])
-            : TunnelMode.rule,
+        mode: TunnelMode.parse(data['mode']),
       );
     } catch (_) {
       // Never turn a damaged store into an empty list and overwrite user data.
@@ -43,10 +41,10 @@ class ConfigStore {
     await beforeWrite?.call();
     await directory.create(recursive: true);
     final temporary = File('${_file.path}.tmp');
+    var published = false;
     try {
       await temporary.writeAsString(
         jsonEncode({
-          'version': 1,
           'selectedId': collection.selectedId,
           'mode': collection.mode.name,
           'entries': collection.entries.map((entry) => entry.toJson()).toList(),
@@ -57,10 +55,11 @@ class ConfigStore {
       await beforeWrite?.call();
       // One business writer; readers see either complete version after rename.
       await temporary.rename(_file.path);
+      published = true;
     } on FileSystemException {
       throw const ConfigFailure('保存配置失败，请检查可用存储空间后重试。');
     } finally {
-      if (await temporary.exists()) await temporary.delete();
+      if (!published && await temporary.exists()) await temporary.delete();
     }
   }
 }

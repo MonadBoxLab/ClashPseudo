@@ -4,10 +4,11 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'config_entry.dart';
+import 'config_text.dart';
 
 class ConfigDownloader {
   ConfigDownloader({
-    this.maxBytes = 16 * 1024 * 1024,
+    this.maxBytes = maxConfigBytes,
     this.timeout = const Duration(seconds: 30),
     HttpClient Function()? createClient,
   }) : _createClient = createClient ?? HttpClient.new;
@@ -96,9 +97,7 @@ class ConfigDownloader {
         }
         builder.add(bytes);
       }
-      final body = utf8.decode(builder.takeBytes());
-      if (body.trim().isEmpty) throw const ConfigFailure('配置来源返回了空内容。');
-      return body;
+      return decodeConfigText(builder.takeBytes());
     }
     throw const ConfigFailure('配置来源的重定向次数过多。');
   }

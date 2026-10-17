@@ -76,8 +76,15 @@ void main() {
     expect(requests.length, ConfigDownloader.maxRedirects + 1);
   });
 
-  test('rejects empty, HTTP failures and oversize responses', () async {
-    for (final path in ['empty', 'missing', 'large']) {
+  test('accepts empty content without YAML validation', () async {
+    expect(
+      await ConfigDownloader().download('$source/empty', allowHttp: true),
+      '',
+    );
+  });
+
+  test('rejects HTTP failures and oversize responses', () async {
+    for (final path in ['missing', 'large']) {
       await expectLater(
         ConfigDownloader(maxBytes: 32)
             .download('$source/$path', allowHttp: true),
