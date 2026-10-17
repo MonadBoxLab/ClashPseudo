@@ -146,6 +146,7 @@ class ConnectionSnapshot {
       revision = value['revision'] as int,
       phase = value['phase'] as String? ?? 'RUNNING',
       fresh = value['fresh'] != false,
+      sampleAgeMs = ConnectionRecord._count(value['sampleAgeMs']),
       failed = value['failed'] == true,
       limited = value['limited'] == true,
       missingDetailId = value['missingDetailId'] as String?,
@@ -178,6 +179,7 @@ class ConnectionSnapshot {
   final List<ConnectionRecord> records;
   final String phase;
   final bool fresh;
+  final int? sampleAgeMs;
   final bool failed;
   final bool limited;
   final int sessionGeneration;
@@ -191,11 +193,7 @@ class ConnectionSnapshot {
       revision == core.revision;
 
   bool matches(CoreSnapshot core) =>
-      core.ready &&
-      core.purpose == 'VPN' &&
-      generation == core.generation &&
-      configId == core.configId &&
-      revision == core.revision;
+      core.ready && core.purpose == 'VPN' && sameIdentity(core);
   ConnectionRecord? find(String id) =>
       records.where((record) => record.id == id).firstOrNull;
 }

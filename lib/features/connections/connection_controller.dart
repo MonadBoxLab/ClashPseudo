@@ -3,12 +3,11 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../app/app_controller.dart';
-import '../strategies/strategy_snapshot.dart';
 import 'connection_snapshot.dart';
+import 'connection_window.dart';
 
 enum ConnectionViewStatus {
   active,
-  paused,
   updating,
   failed,
   inactive,
@@ -19,15 +18,19 @@ enum ConnectionViewStatus {
 }
 
 class ConnectionController extends ChangeNotifier {
-  ConnectionController(this.app) {
+  ConnectionController(this.app, {Stopwatch? clock})
+    : _clock = clock ?? Stopwatch() {
+    _clock.start();
     app.addListener(_changed);
   }
   final AppController app;
+  final Stopwatch _clock;
+  Timer? _expiry;
+  int _sampleReadAt = 0;
   ConnectionSnapshot? data;
   DateTime? observedAt;
   String? error;
   bool loading = false;
-  bool paused = false;
   bool closing = false;
   String? closeMessage;
   String? _closeId;
@@ -41,9 +44,7 @@ class ConnectionController extends ChangeNotifier {
   int _detailEpoch = 0;
   Object? _observed;
   Timer? _timer;
-  ConnectionSnapshot? _frozen;
   ConnectionRecord? _detail;
-  ConnectionRecord? _frozenDetail;
   (int, String, int)? _detailIdentity;
 
   bool get available =>
@@ -51,14 +52,21 @@ class ConnectionController extends ChangeNotifier {
       app.state.core.ready &&
       app.state.core.purpose == 'VPN';
   bool get active => !_disposed && _visible && app.foreground;
+  int? get _remainingMs {
+    final age = data?.sampleAgeMs;
+    if (age == null) return null;
+    return ConnectionWindow.maxSpeedIntervalMs -
+        age -
+        (_clock.elapsedMilliseconds - _sampleReadAt);
+  }
+
   bool get current =>
       _fresh &&
       data?.fresh == true &&
+      (_remainingMs ?? -1) >= 0 &&
       available &&
       data!.matches(app.state.core);
-  ConnectionSnapshot? get displayed => paused ? _frozen : data;
-  DateTime? get displayedAt => displayed?.observedAt ?? observedAt;
-  ConnectionRecord? get detail => paused ? _frozenDetail ?? _detail : _detail;
+  ConnectionRecord? get detail => _detail;
   DateTime? get detailAt => detail?.observedAt;
   ConnectionRecord? get _latestDetail =>
       data?.find(_detail?.id ?? '') ??
@@ -79,7 +87,6 @@ class ConnectionController extends ChangeNotifier {
       return ConnectionViewStatus.failed;
     }
     if (!current) return ConnectionViewStatus.updating;
-    if (paused) return ConnectionViewStatus.paused;
     return ConnectionViewStatus.active;
   }
 
@@ -91,15 +98,12 @@ class ConnectionController extends ChangeNotifier {
     if (_detailIdentity != (core.generation, core.configId, core.revision)) {
       return ConnectionViewStatus.replaced;
     }
-    if (status != ConnectionViewStatus.active &&
-        status != ConnectionViewStatus.paused) {
-      return status;
-    }
+    if (status != ConnectionViewStatus.active) return status;
     if (_detail?.active == false || _closeStatus == 'absent') {
       return ConnectionViewStatus.inactive;
     }
     if (_latestDetail == null) return ConnectionViewStatus.unknown;
-    return paused ? ConnectionViewStatus.paused : ConnectionViewStatus.active;
+    return ConnectionViewStatus.active;
   }
 
   void setVisible(bool value) {
@@ -130,6 +134,7 @@ class ConnectionController extends ChangeNotifier {
     _observed = key;
     _request++;
     _timer?.cancel();
+    _expiry?.cancel();
     _fresh = false;
     loading = false;
     error = null;
@@ -138,7 +143,6 @@ class ConnectionController extends ChangeNotifier {
         app.state.generation != data!.sessionGeneration &&
         (app.state.phase == 'STARTING' || app.state.running)) {
       data = null;
-      _frozen = null;
       observedAt = null;
     }
     notifyListeners();
@@ -149,6 +153,7 @@ class ConnectionController extends ChangeNotifier {
     if (!active || _flight) return;
     _flight = true;
     final request = _request;
+    final began = _clock.elapsedMilliseconds;
     bool valid() => active && request == _request;
     if (data == null && !loading) {
       loading = true;
@@ -174,6 +179,8 @@ class ConnectionController extends ChangeNotifier {
         throw const FormatException('Observation session changed');
       }
       data = result;
+      // Include the round trip; receiving the same sample must not renew it.
+      _sampleReadAt = began;
       observedAt = result.observedAt;
       _fresh = true;
       error = null;
@@ -199,6 +206,7 @@ class ConnectionController extends ChangeNotifier {
       _flight = false;
       if (!_disposed) {
         loading = false;
+        _expire();
         notifyListeners();
         if (active) {
           const backoff = [1, 2, 5, 10, 30];
@@ -213,29 +221,21 @@ class ConnectionController extends ChangeNotifier {
     }
   }
 
-  void togglePaused() {
-    paused = !paused;
-    _frozen = paused ? data : null;
-    _frozenDetail = paused ? _detail : null;
-    notifyListeners();
+  void _expire() {
+    _expiry?.cancel();
+    if (!active || !current) return;
+    _expiry = Timer(Duration(milliseconds: _remainingMs! + 1), () {
+      if (!active) return;
+      _fresh = false;
+      notifyListeners();
+    });
   }
 
   void openDetail(ConnectionRecord record) {
-    final source = displayed!;
+    final source = data!;
     _detailEpoch++;
     _detailIdentity = (source.generation, source.configId, source.revision);
-    _detail =
-        data?.sameIdentity(
-              CoreSnapshot(
-                generation: source.generation,
-                configId: source.configId,
-                revision: source.revision,
-              ),
-            ) ==
-            true
-        ? data?.find(record.id) ?? record
-        : record;
-    _frozenDetail = paused ? record : null;
+    _detail = source.find(record.id) ?? record;
     _closeId = null;
     _closeStatus = null;
     closeMessage = null;
@@ -285,7 +285,6 @@ class ConnectionController extends ChangeNotifier {
   void closeDetail() {
     _detailEpoch++;
     _detail = null;
-    _frozenDetail = null;
     _detailIdentity = null;
     _closeId = null;
     _closeStatus = null;
@@ -299,6 +298,8 @@ class ConnectionController extends ChangeNotifier {
     _disposed = true;
     _request++;
     _timer?.cancel();
+    _expiry?.cancel();
+    _clock.stop();
     closeDetail();
     app.removeListener(_changed);
     super.dispose();

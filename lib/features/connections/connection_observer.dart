@@ -76,11 +76,14 @@ class ConnectionObserver {
         detail['configId'] == _core.configId &&
         detail['revision'] == _core.revision;
     window.pinDetail(same ? detail['id'] as String? : null);
+    final sampleAgeMs = _sampledAt == null
+        ? null
+        : (_now - _sampledAt!).clamp(0, _now);
     final fresh =
         _running &&
         _failures == 0 &&
-        _sampledAt != null &&
-        _now - _sampledAt! <= ConnectionWindow.maxSpeedIntervalMs;
+        sampleAgeMs != null &&
+        sampleAgeMs <= ConnectionWindow.maxSpeedIntervalMs;
     if (!fresh) window.invalidate();
     return {
       'generation': _core.generation,
@@ -89,6 +92,7 @@ class ConnectionObserver {
       'sessionGeneration': _session,
       'phase': _phase,
       'fresh': fresh,
+      'sampleAgeMs': sampleAgeMs,
       'failed': _failures > 0,
       'limited': window.limited,
       'observedAt': window.observedAt?.millisecondsSinceEpoch,

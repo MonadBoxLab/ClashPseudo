@@ -88,6 +88,8 @@ Prepare 初始化 provider 后使用 `ForceSet` 恢复有效偏好；手动固�
 
 UI 通道的 `connections` 只查询 Dart 逻辑 Engine 已有的业务快照；[ConnectionObserver](../lib/features/connections/connection_observer.dart) 在接管期间约每秒一次、完成后再调度，失败采用 1／2／5／10／30 秒退避。[ConnectionWindow](../lib/features/connections/connection_window.dart) 负责容量、失活归并、15 分钟过期与速度；不在 Kotlin 实现业务 collector。UI 的可见性只影响业务快照读取，不停止后台观察。平台提供 `SystemClock.elapsedRealtime()`，速度按同一连接两次有效累计值与实际单调间隔计算，壁钟只用于展示。
 
+业务快照携带按既有单调时间计算的 `sampleAgeMs`。UI 用本地 Stopwatch 计入查询往返与接收后的经过时间，并在剩余 5 秒有效期耗尽时主动通知失效；重复读取同一个样本不能重新获得完整有效期，年龄缺失或非法不能视为新鲜。不增加平台采样或轮询通道；列表、搜索与详情均随最新观察更新，不提供手动暂停或冻结展示，失败、过期与身份失效则禁止沿用有效速度或断开操作。
+
 记录的状态／速度更新直接复用不可变字段，不经 Map 重新解析；Dart 逻辑 Engine 向 UI 传递 `startMicros` 微秒时间戳，避免每轮逐条格式化再解析 ISO 时间，Go 输入的 ISO 时间仍在接收时解析。列表仅在成员、顺序或行布局可能变化时重算阅读锚点，纯等宽数值更新复用顺序；详情覆盖列表期间不重排底层列表，返回时同步最新数据。
 
 [ConnectionsCalls](../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/app/ConnectionsCalls.kt) 在 `CoreHost.worker` 调用专用 JNI 接口。受理、执行与交付分别核对 CoreHost generation、配置 ID、revision、VPN 用途和真实 RUNNING；不混用 NativeSession generation。查询与单条关闭各有一个在途槽，平台等待 3 秒、Dart 外围 5 秒；超时只结束等待，worker 未退出前不放开对应槽。读取失败不停止 VPN，不开放 HTTP controller。
@@ -106,7 +108,7 @@ UI 的共享 [StrategyIcon](../lib/features/strategies/strategy_icon.dart) 使�
 
 Range／Get 不是原子快照，可能漏短连接或拒绝，也不提供精确结束事件与最终计数；不通过重复扫描凑满容量。产品容量与保留语义见[连接观察边界](product-requirements.md#连接观察边界)。[ConnectionsCallsTest](../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/app/ConnectionsCallsTest.kt) 覆盖身份变化、超时、迟到与槽位；[Dart 窗口测试](../test/features/connections/connection_window_test.dart)及[观察测试](../test/features/connections/connection_observer_test.dart)覆盖容量、速度和停止后过期。
 
-设备验证复用 `/strategies` 或 `/modes` 与 `/hold/`：正式入口启动后建立两条长连接，只关闭详情指定的一条，核对另一条与 VPN 保持；后台产生／结束连接，再返回查看近期记录。核对暂停、组合筛选、详情返回、停止后留存与 15 分钟过期释放，以及新接管清空窗口。HTTP 请求标识不是 tracker ID，需关联目标／源端点、时间与服务端日志。资源测量以持续接管、固定连接量和时长为主；debug 与 release 分别记录，不以编译或 debug 探针代替 release 正式入口验收。
+设备验证复用 `/strategies` 或 `/modes` 与 `/hold/`：正式入口启动后建立两条长连接，只关闭详情指定的一条，核对另一条与 VPN 保持；后台产生／结束连接，再返回查看近期记录。核对实时更新、组合筛选、详情返回、停止后留存与 15 分钟过期释放，以及新接管清空窗口。HTTP 请求标识不是 tracker ID，需关联目标／源端点、时间与服务端日志。资源测量以持续接管、固定连接量和时长为主；debug 与 release 分别记录，不以编译或 debug 探针代替 release 正式入口验收。
 
 ## 总览流量摘要
 

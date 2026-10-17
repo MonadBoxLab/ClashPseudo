@@ -139,29 +139,14 @@ void main() {
     );
   }
 
-  testWidgets('paused and covered lists do not rebuild for new samples', (
+  testWidgets('live list updates while covered list waits for return', (
     tester,
   ) async {
     await show(tester);
-    await tester.tap(find.byTooltip('暂停刷新'));
-    await tester.pumpAndSettle();
-    final paused = tester
-        .widgetList<SliverList>(find.byType(SliverList))
-        .last
-        .delegate;
     bridge.data = fixtures.snapshot([fixtures.row('new')]);
     await tester.pump(const Duration(seconds: 1));
-    await tester.pump();
-    expect(
-      identical(
-        tester.widgetList<SliverList>(find.byType(SliverList)).last.delegate,
-        paused,
-      ),
-      isTrue,
-    );
-    expect(find.text('one.fixture.test'), findsOneWidget);
-    await tester.tap(find.byTooltip('继续刷新'));
     await tester.pumpAndSettle();
+    expect(find.text('one.fixture.test'), findsNothing);
     expect(find.text('new.fixture.test'), findsOneWidget);
     await tester.tap(find.text('new.fixture.test'));
     await tester.pumpAndSettle();
@@ -218,7 +203,12 @@ void main() {
     Navigator.of(tester.element(find.text('全部规则').last)).pop();
     await tester.pumpAndSettle();
     expect(tester.getTopLeft(find.text(target)).dy, position);
-    final button = tester.widget<TextButton>(find.byType(TextButton));
+    final button = tester.widget<TextButton>(
+      find.descendant(
+        of: find.byTooltip('筛选命中规则'),
+        matching: find.byType(TextButton),
+      ),
+    );
     expect(button.focusNode!.hasFocus, isTrue);
     await tester.pumpWidget(const SizedBox());
   });
@@ -232,7 +222,9 @@ void main() {
         {...fixtures.row('match', rule: 'Match'), 'active': false},
       ]);
       await show(tester, reduceMotion: true);
-      await tester.tap(find.widgetWithText(ChoiceChip, '不活跃'));
+      await tester.tap(find.text('全部连接'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('不活跃'));
       await tester.pumpAndSettle();
       expect(find.text('active.fixture.test'), findsNothing);
       expect(find.text('inactive.fixture.test'), findsOneWidget);

@@ -66,6 +66,29 @@ class ObservationBridge extends AppBridge {
 }
 
 void main() {
+  testWidgets('snapshot carries existing sample age without renewing it', (
+    tester,
+  ) async {
+    final bridge = ObservationBridge();
+    final observer = ConnectionObserver(bridge);
+    expect(observer.snapshot(bridge.state, null)['sampleAgeMs'], isNull);
+    await tester.pump(Duration.zero);
+    expect(observer.snapshot(bridge.state, null)['sampleAgeMs'], 0);
+    bridge.now = 3500;
+    final fresh = observer.snapshot(bridge.state, null);
+    expect(fresh['sampleAgeMs'], 3500);
+    expect(fresh['fresh'], isTrue);
+    bridge.now = 5001;
+    final stale = observer.snapshot(bridge.state, null);
+    expect(stale['sampleAgeMs'], 5001);
+    expect(stale['fresh'], isFalse);
+    expect(observer.snapshot(bridge.state, null)['sampleAgeMs'], 5001);
+    expect(bridge.reads, 1);
+    bridge.running = false;
+    expect(observer.snapshot(bridge.state, null)['sampleAgeMs'], isNull);
+    observer.dispose();
+  });
+
   testWidgets(
     'traffic shares sampling, preserves detail and resets at new session',
     (tester) async {

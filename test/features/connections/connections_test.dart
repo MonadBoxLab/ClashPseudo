@@ -45,12 +45,14 @@ ConnectionSnapshot snapshot(
   List<Map<String, dynamic>> rows, {
   int generation = 7,
   int sessionGeneration = 0,
+  Object? sampleAgeMs = 0,
   Map<String, dynamic>? detail,
 }) => ConnectionSnapshot.fromMap({
   'generation': generation,
   'configId': 'one',
   'revision': 1,
   'sessionGeneration': sessionGeneration,
+  'sampleAgeMs': sampleAgeMs,
   'detail': detail,
   'connections': rows,
 });
@@ -93,14 +95,27 @@ class ConnectionAppFake extends AppController {
   void changed() => notifyListeners();
 }
 
+class _TestClock implements Stopwatch {
+  @override
+  int elapsedMilliseconds = 0;
+  @override
+  void start() {}
+  @override
+  void stop() {}
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
   late ConnectionBridgeFake bridge;
   late ConnectionAppFake app;
   late ConnectionController controller;
+  late _TestClock clock;
   setUp(() {
     bridge = ConnectionBridgeFake();
     app = ConnectionAppFake(bridge);
-    controller = ConnectionController(app);
+    clock = _TestClock();
+    controller = ConnectionController(app, clock: clock);
   });
   tearDown(() {
     controller.dispose();
@@ -234,24 +249,86 @@ void main() {
     },
   );
 
-  testWidgets('pause freezes display, not observation or stop state', (
+  testWidgets('sample expires during pending query', (tester) async {
+    bridge.data = snapshot([row('one')], sampleAgeMs: 3500);
+    controller.setVisible(true);
+    await tester.pump();
+    controller.openDetail(controller.data!.records.single);
+    expect(controller.canClose, isTrue);
+    final beforeRead = controller.data;
+    bridge.pending = Completer<ConnectionSnapshot>();
+    clock.elapsedMilliseconds = 1000;
+    await tester.pump(const Duration(seconds: 1));
+    expect(bridge.reads, 2);
+    var notifications = 0;
+    controller.addListener(() => notifications++);
+    clock.elapsedMilliseconds = 1501;
+    await tester.pump(const Duration(milliseconds: 501));
+    expect(controller.current, isFalse);
+    expect(controller.detailActive, isFalse);
+    expect(controller.canClose, isFalse);
+    expect(controller.detailStatus, ConnectionViewStatus.updating);
+    expect(controller.error, isNull);
+    expect(controller.detail!.active, isTrue);
+    expect(controller.data, same(beforeRead));
+    expect(notifications, 1);
+    controller.setVisible(false);
+    bridge.pending!.complete(snapshot([row('late')]));
+    await tester.pump();
+    expect(controller.data!.find('late'), isNull);
+  });
+
+  testWidgets('repeated samples keep their age and include query latency', (
+    tester,
+  ) async {
+    bridge.data = snapshot([row('one')], sampleAgeMs: 3000);
+    controller.setVisible(true);
+    await tester.pump();
+    bridge.pending = Completer<ConnectionSnapshot>();
+    clock.elapsedMilliseconds = 1000;
+    await tester.pump(const Duration(seconds: 1));
+    clock.elapsedMilliseconds = 1500;
+    await tester.pump(const Duration(milliseconds: 500));
+    bridge.pending!.complete(snapshot([row('one')], sampleAgeMs: 4000));
+    await tester.pump();
+    expect(controller.current, isTrue);
+    bridge.pending = Completer<ConnectionSnapshot>();
+    clock.elapsedMilliseconds = 2001;
+    await tester.pump(const Duration(milliseconds: 501));
+    expect(controller.current, isFalse);
+    expect(controller.status, ConnectionViewStatus.updating);
+    controller.setVisible(false);
+  });
+
+  for (final age in <Object?>[null, -1, '0', 5001]) {
+    testWidgets('missing, invalid or expired sample age is not fresh ($age)', (
+      tester,
+    ) async {
+      bridge.data = snapshot([row('one')], sampleAgeMs: age);
+      controller.setVisible(true);
+      await tester.pump();
+      controller.openDetail(controller.data!.records.single);
+      expect(controller.current, isFalse);
+      expect(controller.canClose, isFalse);
+      expect(controller.status, ConnectionViewStatus.updating);
+      controller.setVisible(false);
+    });
+  }
+
+  testWidgets('list and detail follow observations and retain stop state', (
     tester,
   ) async {
     controller.setVisible(true);
     await tester.pump();
     controller.openDetail(controller.data!.records.single);
-    controller.togglePaused();
     bridge.data = snapshot([row('one', download: 20)]);
     await tester.pump(const Duration(seconds: 1));
-    expect(controller.displayed!.records.single.download, 10);
-    expect(controller.detail!.download, 10);
     expect(controller.data!.records.single.download, 20);
-    controller.togglePaused();
     expect(controller.detail!.download, 20);
-    controller.togglePaused();
+    expect(controller.data!.records.single.download, 20);
     app.state = const AppSnapshot(phase: 'STOPPED');
     app.changed();
-    expect(controller.displayed, isNotNull);
+    expect(controller.data, isNotNull);
     expect(controller.detailStatus, ConnectionViewStatus.stopped);
     expect(controller.detail!.download, 20);
     controller.setVisible(false);
@@ -289,13 +366,12 @@ void main() {
   });
 
   for (final outcome in ['closed', 'absent', 'failed', 'unconfirmed']) {
-    testWidgets('single close correlates $outcome while display is paused', (
+    testWidgets('single close correlates $outcome during live updates', (
       tester,
     ) async {
       controller.setVisible(true);
       await tester.pump();
       controller.openDetail(controller.data!.records.single);
-      controller.togglePaused();
       expect(controller.canClose, isTrue);
       await controller.disconnect();
       await controller.disconnect();
@@ -378,6 +454,7 @@ void main() {
       'configId': 'one',
       'revision': 1,
       'connections': [],
+      'sampleAgeMs': 0,
       'missingDetailId': 'one',
     });
     await tester.pump(const Duration(seconds: 1));
@@ -405,6 +482,37 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  for (final dark in [false, true]) {
+    testWidgets('stale row loses active color without reflow (dark=$dark)', (
+      tester,
+    ) async {
+      bridge.data = snapshot([
+        row('one'),
+        {...row('inactive'), 'active': false},
+      ]);
+      await show(tester, dark: dark);
+      final target = find.text('one.fixture.test');
+      final before = tester.getRect(target);
+      bridge.fail = true;
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(find.text('待确认'), findsOneWidget);
+      expect(find.text('已不活跃'), findsOneWidget);
+      expect(
+        tester.widget<Text>(find.text('待确认')).style!.color,
+        ConnectionPalette(dark).warning,
+      );
+      expect(tester.getRect(target), before);
+      bridge.fail = false;
+      bridge.data = snapshot([row('new')]);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(find.text('待确认'), findsNothing);
+      expect(find.text('new.fixture.test'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
   testWidgets(
     'detail reads continue, disappearing connection stays readable, pop releases polling',
     (tester) async {
@@ -428,33 +536,28 @@ void main() {
     },
   );
 
-  testWidgets(
-    'rule filter survives details and pause freezes new observations',
-    (tester) async {
-      bridge.data = snapshot([row('one'), row('two', rule: 'Match')]);
-      await show(tester);
-      await tester.tap(find.byTooltip('筛选命中规则'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Domain · fixture.test'));
-      await tester.pumpAndSettle();
-      expect(find.text('one.fixture.test'), findsOneWidget);
-      expect(find.text('two.fixture.test'), findsNothing);
-      await tester.tap(find.text('one.fixture.test'));
-      await tester.pumpAndSettle();
-      await tester.pageBack();
-      await tester.pumpAndSettle();
-      expect(find.text('two.fixture.test'), findsNothing);
-      await tester.tap(find.byTooltip('暂停刷新'));
-      bridge.data = snapshot([row('new')]);
-      await tester.pump(const Duration(seconds: 1));
-      expect(find.text('one.fixture.test'), findsOneWidget);
-      expect(find.text('new.fixture.test'), findsNothing);
-      await tester.tap(find.byTooltip('继续刷新'));
-      await tester.pump();
-      expect(find.text('new.fixture.test'), findsOneWidget);
-      await tester.pumpWidget(const SizedBox());
-    },
-  );
+  testWidgets('rule filter survives details and follows new observations', (
+    tester,
+  ) async {
+    bridge.data = snapshot([row('one'), row('two', rule: 'Match')]);
+    await show(tester);
+    await tester.tap(find.byTooltip('筛选命中规则'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Domain · fixture.test'));
+    await tester.pumpAndSettle();
+    expect(find.text('one.fixture.test'), findsOneWidget);
+    expect(find.text('two.fixture.test'), findsNothing);
+    await tester.tap(find.text('one.fixture.test'));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('two.fixture.test'), findsNothing);
+    bridge.data = snapshot([row('new')]);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('one.fixture.test'), findsNothing);
+    expect(find.text('new.fixture.test'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets('insertions and removals preserve a surviving reading anchor', (
     tester,
@@ -523,8 +626,6 @@ void main() {
     await tester.pump();
     controller.openDetail(controller.data!.records.single);
     expect(controller.detailStatus, ConnectionViewStatus.active);
-    controller.togglePaused();
-    expect(controller.detailStatus, ConnectionViewStatus.paused);
     bridge.fail = true;
     await tester.pump(const Duration(seconds: 1));
     expect(controller.detailStatus, ConnectionViewStatus.failed);
@@ -546,7 +647,7 @@ void main() {
     app.state = const AppSnapshot(phase: 'UNKNOWN');
     app.changed();
     expect(controller.detailStatus, ConnectionViewStatus.unknown);
-    expect(controller.displayed, isNull);
+    expect(controller.data, isNull);
     controller.setVisible(false);
   });
 
@@ -555,7 +656,7 @@ void main() {
   ) async {
     bridge.fail = true;
     await show(tester);
-    expect(find.text('更新失败，正在重试'), findsOneWidget);
+    expect(find.text('刷新失败，正在重试'), findsOneWidget);
     expect(find.text('数据来源'), findsNothing);
     expect(find.byType(ExpansionTile), findsNothing);
     await tester.pumpWidget(const SizedBox());
@@ -588,6 +689,53 @@ void main() {
   );
 
   for (final dark in [false, true]) {
+    testWidgets(
+      'disconnect color follows enabled, pending and closed state $dark',
+      (tester) async {
+        await show(tester, dark: dark);
+        await tester.tap(find.text('one.fixture.test'));
+        await tester.pumpAndSettle();
+        final button = find.byWidgetPredicate(
+          (widget) =>
+              widget is IconButton &&
+              (widget.tooltip == '断开连接' || widget.tooltip == '正在断开'),
+        );
+        final before = tester.getRect(button);
+        final error = Theme.of(tester.element(button)).colorScheme.error;
+        final icon = find.descendant(
+          of: button,
+          matching: find.byIcon(Icons.link_off_rounded),
+        );
+        expect(IconTheme.of(tester.element(icon)).color, error);
+        await tester.tap(button);
+        await tester.pump();
+        expect(tester.widget<IconButton>(button).onPressed, isNull);
+        expect(
+          tester
+              .widget<CircularProgressIndicator>(
+                find.byType(CircularProgressIndicator),
+              )
+              .color,
+          error,
+        );
+        expect(tester.getRect(button), before);
+        app.state = const AppSnapshot(
+          phase: 'RUNNING',
+          core: core,
+          resultId: 'close-1',
+          connectionStatus: 'closed',
+        );
+        app.changed();
+        await tester.pumpAndSettle();
+        expect(tester.widget<IconButton>(button).onPressed, isNull);
+        expect(IconTheme.of(tester.element(icon)).color, isNot(error));
+        expect(tester.getRect(button), before);
+        expect(find.text('已断开'), findsOneWidget);
+        expect(app.commands, hasLength(1));
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+
     testWidgets('semantic colors distinguish status and traffic, dark=$dark', (
       tester,
     ) async {
@@ -608,18 +756,17 @@ void main() {
       expect(find.byTooltip('断开连接'), findsOneWidget);
       await tester.pageBack();
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('暂停刷新'));
-      await tester.pump();
-      expect(find.text('刷新已暂停'), findsOneWidget);
-      expect(find.text('已暂停'), findsNothing);
+      expect(find.byTooltip('暂停刷新'), findsNothing);
+      expect(find.byTooltip('继续刷新'), findsNothing);
+      expect(find.byIcon(Icons.play_arrow_rounded), findsNothing);
+      expect(find.text('已暂停刷新'), findsNothing);
       await tester.tap(find.text('one.fixture.test'));
       await tester.pumpAndSettle();
-      expect(find.byTooltip('继续刷新'), findsNothing);
-      expect(find.text('刷新已暂停'), findsOneWidget);
+      expect(find.text('已暂停刷新'), findsNothing);
       bridge.fail = true;
       await tester.pump(const Duration(seconds: 1));
       expect(
-        tester.widget<Text>(find.text('更新失败')).style!.color,
+        tester.widget<Text>(find.text('刷新失败')).style!.color,
         palette.warning,
       );
       expect(find.text('数据来源'), findsNothing);
@@ -662,7 +809,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('连接详情'), findsOneWidget);
         await tester.drag(
-          find.byType(SingleChildScrollView).last,
+          find.byKey(const ValueKey('connection-detail-scroll')),
           const Offset(0, -1500),
         );
         await tester.pumpAndSettle();
