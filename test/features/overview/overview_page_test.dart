@@ -105,7 +105,7 @@ void main() {
     expect(find.text('状态未确认'), findsWidgets);
     expect(find.text('接管已关闭'), findsNothing);
     expect(tester.widget<FilledButton>(power).onPressed, isNull);
-    await tester.tap(find.text('管理'));
+    await tester.tap(find.text('配置管理'));
     await tester.pumpAndSettle();
     expect(find.text('配置'), findsOneWidget);
     expect(controller.commands, isEmpty);
@@ -120,7 +120,7 @@ void main() {
     await show(tester);
     expect(find.text('正在获取状态'), findsWidgets);
     expect(find.text('尚未导入配置'), findsNothing);
-    await tester.tap(find.text('管理'));
+    await tester.tap(find.text('配置管理'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('正在读取已保存配置'), findsOneWidget);
@@ -284,9 +284,14 @@ void main() {
           phase: 'RUNNING',
           configId: 'one',
           revision: 1,
+          resultSuccess: true,
           resultMessage: '接管已启动。',
         ),
-        AppSnapshot(phase: 'STOPPED', resultMessage: '接管已停止。'),
+        AppSnapshot(
+          phase: 'STOPPED',
+          resultSuccess: true,
+          resultMessage: '接管已停止。',
+        ),
       ]) {
         controller.state = snapshot;
         controller.changed();
@@ -309,6 +314,7 @@ void main() {
       }
       controller.state = const AppSnapshot(
         phase: 'STOPPED',
+        resultSuccess: true,
         resultMessage: '接管已停止。',
         error: '平台状态异常',
       );
@@ -370,7 +376,7 @@ void main() {
     );
     controller.changed();
     await tester.pump();
-    await tester.tap(find.text('管理'));
+    await tester.tap(find.text('配置管理'));
     await tester.pumpAndSettle();
     expect(find.text('运行模式已切换。'), findsOneWidget);
   });
@@ -380,11 +386,12 @@ void main() {
   ) async {
     controller.state = const AppSnapshot(
       phase: 'STOPPED',
+      resultSuccess: true,
       resultMessage: '接管已停止。',
     );
     await show(tester);
     expect(find.text('接管已停止。'), findsNothing);
-    await tester.tap(find.text('管理'));
+    await tester.tap(find.text('配置管理'));
     await tester.pumpAndSettle();
     expect(find.text('接管已停止。'), findsOneWidget);
   });
@@ -435,7 +442,7 @@ void main() {
       controller.configsLoaded = false;
       controller.configError = '无法读取已保存配置，原文件未被修改。';
       await show(tester);
-      await tester.tap(find.text('管理'));
+      await tester.tap(find.text('配置管理'));
       await tester.pumpAndSettle();
       expect(find.text('尚未保存配置'), findsNothing);
       expect(find.text('配置读取失败，不能据此判断是否保存过配置。'), findsOneWidget);
@@ -456,7 +463,7 @@ void main() {
       );
       await show(tester);
       await tester.pump(const Duration(seconds: 3));
-      await tester.tap(find.text('管理'));
+      await tester.tap(find.text('配置管理'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
       final paint = tester
@@ -496,10 +503,15 @@ void main() {
             phase: 'RUNNING',
             configId: 'one',
             revision: 1,
+            resultSuccess: true,
             resultMessage: '接管已启动。',
           ),
           AppSnapshot(phase: 'STOPPING', operation: '正在停止接管'),
-          AppSnapshot(phase: 'STOPPED', resultMessage: '接管已停止。'),
+          AppSnapshot(
+            phase: 'STOPPED',
+            resultSuccess: true,
+            resultMessage: '接管已停止。',
+          ),
         ]) {
           controller.state = snapshot;
           controller.changed();

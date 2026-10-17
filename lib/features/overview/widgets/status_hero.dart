@@ -159,7 +159,7 @@ class StatusHero extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 12),
-                    const Text('管理', style: TextStyle(fontSize: 12)),
+                    const Text('配置管理', style: TextStyle(fontSize: 12)),
                     const SizedBox(width: 4),
                     const Icon(Icons.chevron_right, size: 16),
                   ],

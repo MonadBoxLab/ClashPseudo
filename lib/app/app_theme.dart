@@ -67,6 +67,15 @@ class AppTheme {
   }
 }
 
+class ModePalette {
+  const ModePalette(this.dark);
+  final bool dark;
+
+  Color get rule => Color(dark ? 0xff9bc4ff : 0xff3265a8);
+  Color get global => Color(dark ? 0xffd2b8f5 : 0xff7952a3);
+  Color get direct => Color(dark ? 0xff7ed4c7 : 0xff19796d);
+}
+
 class ConnectionPalette {
   const ConnectionPalette(this.dark);
   final bool dark;

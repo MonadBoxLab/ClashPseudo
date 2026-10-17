@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../app/widgets/operation_feedback.dart';
-import '../configs/configs_page.dart';
 import 'strategy_controller.dart';
 import 'strategy_icon.dart';
 import 'strategy_popup.dart';
@@ -20,11 +19,11 @@ class StrategiesPage extends StatefulWidget {
 }
 
 class _StrategiesPageState extends State<StrategiesPage> {
-  bool _covered = false;
   bool _memberOpen = false;
   String? _openName;
   int? _openGeneration;
   bool _visibilityScheduled = false;
+  bool _visibilityReady = false;
 
   void _syncVisibility() {
     if (_visibilityScheduled) return;
@@ -32,26 +31,12 @@ class _StrategiesPageState extends State<StrategiesPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _visibilityScheduled = false;
       if (!mounted) return;
+      if (!_visibilityReady) setState(() => _visibilityReady = true);
       widget.controller.setVisible(
         widget.active &&
-            !_covered &&
             (_memberOpen || (ModalRoute.of(context)?.isCurrent ?? true)),
       );
     });
-  }
-
-  Future<void> _manage() async {
-    setState(() => _covered = true);
-    widget.controller.setVisible(false);
-    try {
-      await Navigator.of(context).push<void>(
-        MaterialPageRoute(
-          builder: (_) => ConfigsPage(controller: widget.controller.app),
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _covered = false);
-    }
   }
 
   Future<void> _openGroup(BuildContext anchor, String name) async {
@@ -93,10 +78,15 @@ class _StrategiesPageState extends State<StrategiesPage> {
         final config = app.collection.find(id);
         final colors = Theme.of(context).colorScheme;
         final error =
-            app.error ??
-            controller.operationError ??
-            controller.readError ??
-            ((core.blocked || core.configId == id) ? core.error : null);
+            [
+                  app.error,
+                  controller.operationError,
+                  controller.readError,
+                  if (core.blocked || core.configId == id) core.error,
+                ]
+                .whereType<String>()
+                .where((message) => message.trim().isNotEmpty)
+                .firstOrNull;
         final groups = controller.groups;
         final data = controller.data;
         return Scaffold(
@@ -109,13 +99,6 @@ class _StrategiesPageState extends State<StrategiesPage> {
                 letterSpacing: -.6,
               ),
             ),
-            actions: [
-              IconButton(
-                onPressed: _manage,
-                tooltip: '管理配置',
-                icon: const Icon(Icons.folder_open_outlined),
-              ),
-            ],
           ),
           body: SafeArea(
             top: false,
@@ -188,14 +171,18 @@ class _StrategiesPageState extends State<StrategiesPage> {
                                   ? '导入并选择完整配置后即可查看策略。'
                                   : '当前配置没有可用正文，请在配置管理中更新。',
                             )
+                          else if (!_visibilityReady)
+                            const Text('正在准备策略…')
                           else if (!core.blocked &&
                               !controller.loading &&
-                              !state.needsHttpConfirmation)
+                              !state.needsHttpConfirmation) ...[
+                            if (error == null) const Text('策略尚未加载。'),
                             TextButton.icon(
                               onPressed: controller.retry,
                               icon: const Icon(Icons.refresh),
-                              label: const Text('重试加载策略'),
+                              label: Text(error == null ? '加载策略' : '重试加载策略'),
                             ),
+                          ],
                         ],
                         if (data != null && groups.isEmpty)
                           const Padding(

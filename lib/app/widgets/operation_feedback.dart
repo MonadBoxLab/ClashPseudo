@@ -24,6 +24,7 @@ class OperationFeedback extends StatelessWidget {
     final redundantSuccess =
         !state.needsHttpConfirmation &&
         ((hideToggleSuccess &&
+                state.resultSuccess &&
                 const ['接管已启动。', '接管已停止。'].contains(state.resultMessage)) ||
             (hideModeSuccess &&
                 state.resultSuccess &&

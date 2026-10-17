@@ -59,6 +59,105 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  for (final dark in [false, true]) {
+    testWidgets(
+      'navigation uses neutral tonal layers on both pages dark=$dark',
+      (tester) async {
+        await show(tester, dark: dark);
+        final palette = HomePalette(dark);
+        void check() {
+          final context = tester.element(find.byType(NavigationBar));
+          final theme = NavigationBarTheme.of(context);
+          expect(theme.backgroundColor, palette.surface);
+          expect(theme.backgroundColor, isNot(palette.background));
+          expect(theme.indicatorColor, palette.soft);
+          expect(theme.elevation, 0);
+          expect(theme.surfaceTintColor, Colors.transparent);
+          expect(
+            tester
+                .widget<Scaffold>(find.byType(Scaffold).first)
+                .bottomNavigationBar,
+            isA<NavigationBar>(),
+          );
+        }
+
+        check();
+        await strategies(tester);
+        check();
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
+
+  testWidgets('unloaded strategy explains state without inventing failure', (
+    tester,
+  ) async {
+    app.state = const AppSnapshot(phase: 'STOPPED');
+    await show(tester);
+    await tester.tap(find.byType(NavigationDestination).at(1));
+    await tester.pump();
+    expect(find.text('重试加载策略'), findsNothing);
+    await tester.pumpAndSettle();
+    expect(find.text('策略尚未加载。'), findsOneWidget);
+    expect(find.text('加载策略'), findsOneWidget);
+    expect(app.commands.single['action'], 'prepareStrategies');
+    await tester.tap(find.text('加载策略'));
+    await tester.pumpAndSettle();
+    expect(app.commands.length, 2);
+    app.dispatching = true;
+    app.changed();
+    await tester.pump();
+    expect(find.text('加载策略'), findsNothing);
+    expect(find.text('重试加载策略'), findsNothing);
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+    expect(find.byIcon(Icons.hourglass_top), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+    'known failure displays reason and explicit retry without looping',
+    (tester) async {
+      app.state = const AppSnapshot(
+        phase: 'STOPPED',
+        core: CoreSnapshot(
+          phase: 'EMPTY',
+          configId: 'one',
+          revision: 1,
+          error: '规则引用不存在',
+        ),
+      );
+      app.commandError = ' ';
+      await show(tester);
+      await strategies(tester);
+      expect(find.text('规则引用不存在'), findsOneWidget);
+      expect(find.text('策略尚未加载。'), findsNothing);
+      expect(find.text('重试加载策略'), findsOneWidget);
+      expect(app.commands, isEmpty);
+      await tester.pump(const Duration(seconds: 30));
+      expect(app.commands, isEmpty);
+      await tester.tap(find.text('重试加载策略'));
+      await tester.pumpAndSettle();
+      expect(app.commands.single['action'], 'prepareStrategies');
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('first query failure retains automatic retry explanation', (
+    tester,
+  ) async {
+    bridge.failRead = true;
+    await show(tester);
+    await strategies(tester);
+    expect(find.textContaining('前台将自动重试'), findsOneWidget);
+    expect(find.text('策略尚未加载。'), findsNothing);
+    bridge.failRead = false;
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('前台将自动重试'), findsNothing);
+    expect(find.byKey(const ValueKey('strategy-group-出口')), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets(
     'two destinations, lazy strategy reading and secondary configuration route',
     (tester) async {
@@ -70,7 +169,11 @@ void main() {
       expect(bridge.reads, 1);
       expect(find.byKey(const ValueKey('strategy-group-隐藏')), findsNothing);
       expect(find.byKey(const ValueKey('strategy-group-GLOBAL')), findsNothing);
-      await tester.tap(find.byTooltip('管理配置'));
+      expect(find.byTooltip('管理配置'), findsNothing);
+      expect(find.byIcon(Icons.folder_open_outlined), findsNothing);
+      await tester.tap(find.byType(NavigationDestination).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('配置管理'));
       await tester.pumpAndSettle();
       expect(find.byType(NavigationBar), findsNothing);
       await tester.pump(const Duration(seconds: 10));
@@ -78,6 +181,8 @@ void main() {
       await tester.pageBack();
       await tester.pumpAndSettle();
       expect(find.byType(NavigationBar), findsOneWidget);
+      expect(bridge.reads, 1);
+      await strategies(tester);
       expect(bridge.reads, 2);
       await tester.tap(find.byType(NavigationDestination).first);
       await tester.pumpAndSettle();

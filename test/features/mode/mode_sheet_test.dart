@@ -66,7 +66,13 @@ void main() {
       of: find.byType(ModeSheet),
       matching: find.byType(OperationFeedback),
     );
-    for (final message in const ['运行模式已切换。', '运行模式已确认。', '模式已保存，下次启动生效。']) {
+    for (final message in const [
+      '运行模式已切换。',
+      '运行模式已确认。',
+      '模式已保存，下次启动生效。',
+      '接管已启动。',
+      '接管已停止。',
+    ]) {
       controller.state = AppSnapshot(
         phase: 'STOPPED',
         resultSuccess: true,
@@ -82,6 +88,16 @@ void main() {
       AppSnapshot(phase: 'STOPPED', operation: '正在保存模式'),
       AppSnapshot(phase: 'STOPPED', resultMessage: '模式已保存供下次启动使用；本次切换未确认。'),
       AppSnapshot(phase: 'STOPPED', error: '平台状态异常'),
+      AppSnapshot(
+        phase: 'STOPPED',
+        resultMessage: '接管已停止。',
+        resultSuccess: false,
+      ),
+      AppSnapshot(
+        phase: 'STOPPED',
+        resultMessage: '接管已启动。',
+        resultSuccess: false,
+      ),
       AppSnapshot(
         phase: 'STOPPED',
         resultMessage: '运行模式已切换。',
@@ -259,16 +275,37 @@ void main() {
           tester.widget<BottomSheet>(find.byType(BottomSheet)).backgroundColor,
           colors.surface,
         );
-        for (final (mode, icon) in [
-          (TunnelMode.rule, Icons.alt_route_rounded),
-          (TunnelMode.global, Icons.public_outlined),
-          (TunnelMode.direct, Icons.arrow_forward_rounded),
+        final palette = ModePalette(dark);
+        for (final (mode, icon, category) in [
+          (TunnelMode.rule, Icons.alt_route_rounded, palette.rule),
+          (TunnelMode.global, Icons.public_outlined, palette.global),
+          (TunnelMode.direct, Icons.arrow_forward_rounded, palette.direct),
         ]) {
           final finder = find.byKey(ValueKey('mode-${mode.name}'));
           final button = tester.widget<OutlinedButton>(finder);
           expect(
             find.descendant(of: finder, matching: find.byIcon(icon)),
             findsOneWidget,
+          );
+          expect(
+            tester
+                .widget<Icon>(
+                  find.descendant(of: finder, matching: find.byIcon(icon)),
+                )
+                .color,
+            category,
+          );
+          final background = Color.alphaBlend(
+            category.withValues(alpha: .10),
+            colors.surface,
+          );
+          final luminances = [
+            category.computeLuminance(),
+            background.computeLuminance(),
+          ]..sort();
+          expect(
+            (luminances.last + .05) / (luminances.first + .05),
+            greaterThanOrEqualTo(3),
           );
           expect(button.style!.side!.resolve({})!.color, colors.outlineVariant);
           expect(

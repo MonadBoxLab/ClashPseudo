@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app/app_controller.dart';
+import '../../app/app_theme.dart';
 import '../../app/widgets/operation_feedback.dart';
 import 'tunnel_mode.dart';
 
@@ -74,6 +75,13 @@ class _ModeSheetState extends State<ModeSheet> {
         : null;
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
+    final palette = ModePalette(theme.brightness == Brightness.dark);
+    final enabled = controller.canChangeMode && _target == null;
+    Color categoryColor(TunnelMode mode) => switch (mode) {
+      TunnelMode.rule => palette.rule,
+      TunnelMode.global => palette.global,
+      TunnelMode.direct => palette.direct,
+    };
     final descriptionStyle = theme.textTheme.bodySmall?.copyWith(
       color: colors.onSurfaceVariant,
       height: 1.45,
@@ -116,9 +124,7 @@ class _ModeSheetState extends State<ModeSheet> {
                   selected: current == mode,
                   child: OutlinedButton(
                     key: ValueKey('mode-${mode.name}'),
-                    onPressed: controller.canChangeMode && _target == null
-                        ? () => _choose(mode)
-                        : null,
+                    onPressed: enabled ? () => _choose(mode) : null,
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.all(16),
                       shape: RoundedRectangleBorder(
@@ -142,9 +148,8 @@ class _ModeSheetState extends State<ModeSheet> {
                           width: 40,
                           height: 40,
                           decoration: BoxDecoration(
-                            color: current == mode
-                                ? colors.primaryContainer
-                                : colors.onSurface.withValues(alpha: .045),
+                            color: categoryColor(mode)
+                                .withValues(alpha: enabled ? .10 : .04),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Icon(
@@ -154,9 +159,8 @@ class _ModeSheetState extends State<ModeSheet> {
                               TunnelMode.direct => Icons.arrow_forward_rounded,
                             },
                             size: 22,
-                            color: current == mode
-                                ? colors.primary
-                                : colors.onSurfaceVariant,
+                            color: categoryColor(mode)
+                                .withValues(alpha: enabled ? 1 : .38),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -191,7 +195,11 @@ class _ModeSheetState extends State<ModeSheet> {
               ),
             if (state.modeError != null) Text(state.modeError!),
             if (_target == null)
-              OperationFeedback(controller: controller, hideModeSuccess: true),
+              OperationFeedback(
+                controller: controller,
+                hideModeSuccess: true,
+                hideToggleSuccess: true,
+              ),
           ],
         ),
       ),
