@@ -55,6 +55,7 @@ type Strategy struct {
 	Name    string           `json:"name"`
 	Type    string           `json:"type"`
 	Hidden  bool             `json:"hidden"`
+	Icon    string           `json:"icon"`
 	Now     string           `json:"now"`
 	Fixed   string           `json:"fixed"`
 	Members []StrategyMember `json:"members"`
@@ -88,7 +89,7 @@ func strategyType(value C.AdapterType) string {
 
 func strategyState(group G.ProxyGroup) (Strategy, error) {
 	state := Strategy{
-		Name: group.Name(), Type: strategyType(group.Type()), Hidden: group.Hidden(),
+		Name: group.Name(), Type: strategyType(group.Type()), Hidden: group.Hidden(), Icon: group.Icon(),
 		Members: make([]StrategyMember, 0),
 	}
 	for _, member := range group.Proxies() {

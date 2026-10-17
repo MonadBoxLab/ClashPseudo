@@ -96,6 +96,10 @@ UI 通道的 `connections` 只查询 Dart 逻辑 Engine 已有的业务快照；
 
 请求最多 64 KiB，单条投影最多 4 KiB，响应最多 8 MiB；先限制 UTF-8 文本与链条数再编码，截短展示字段带标记，ID、开始时间和计数不截断。候选／投影与业务窗口有界不等于整个进程内存恒定：JNI／Kotlin／Dart 会产生传输副本，上游遍历也有临时开销，扫描成本仍随真实连接数增加。`NativeCore.snapshot()` 已收窄为状态与累计标量，不再返回全量连接；debug 状态页沿用该摘要。
 
+图标描述在显示字段截短前取得：应用 Go 从完整原始链末尾向前查找首个真实 `ProxyGroup`，投影最小 `strategy: {type, icon}`；类型与 `Icon()` 来自上游公开 API，hidden／GLOBAL 不按展示过滤丢弃。没有真实组时，仅精确 DIRECT／REJECT／REJECT-DROP 使用相应内置类型，不按名称包含关系猜测。连接图标 URL 原始 UTF-8 或 JSON 编码超过 1024 字节时整项省略并标记 `fieldsTruncated`，类型仍保留，不请求被截断的 URL。描述随 Dart 序列化、状态复制、历史与额外详情保留，沿用既有配置／revision／generation／会话隔离，不增加策略轮询。
+
+UI 的共享 [StrategyIcon](../lib/features/strategies/strategy_icon.dart) 使用 SDK 内置图标与配置图片；[StrategyImage](../lib/features/strategies/strategy_image.dart) 限制下载后交给 Flutter 位图解码或 SVG 渲染。锁定版 `flutter_svg 2.3.0` 的失败 pending 缓存不能由 `evict`／`clear` 移除，见[回归复现](../test/features/strategies/svg_cache_test.dart)；最小适配通过 `vector_graphics_compiler 1.3.2` 公开 API 编译成功字节，再由公开 `BytesLoader` 交给原渲染器，不修改第三方源码、不引入磁盘缓存。组件销毁／来源变化关闭自身请求，迟到结果不覆盖新来源；图片访问按实际平台网络路由，不承诺必直连或必代理。
+
 单条断开由 UI submit → [ConnectionActions](../lib/features/connections/connection_actions.dart) → 平台受检变更 → JNI → 应用 Go 执行，不经过配置保存或全局 stop。只接受原会话的精确 tracker ID；Get 缺失为 `absent`，Close 无错误为 `closed`，底层 Close 错误为 `failed`，即使 tracker 已被上游移出集合也不改判成功。超时／身份变化为未确认，不自动重发；结构化结果以操作 ID 关联原详情。
 
 命令复用同一 Engine，每次重新取得 owner 与 runInput；超时先撤销修改权限，写配置前与原子 rename 前核验 owner。单写者门闩保持至 Dart 执行真正退出，不因服务结束并发创建另一 Engine。取消时原生等待回包以错误结束，避免常驻 Engine 遗留永不完成的 MethodChannel 回调。

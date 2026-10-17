@@ -26,6 +26,19 @@ def check_http(fixture):
     for kind in (b"select", b"url-test", b"fallback", b"load-balance"):
         assert b"type: " + kind in strategies
     assert get("/strategies-other") == strategies
+    icons = get("/icons-config")
+    for extension, signature in (("svg", b"<svg"), ("png", b"\x89PNG"),
+                                 ("jpg", b"\xff\xd8\xff"), ("webp", b"RIFF")):
+        path = f"/icons/color.{extension}"
+        assert path.encode() in icons
+        assert get(path).startswith(signature)
+    assert get("/icons/invalid.svg") == b"<svg"
+    try:
+        get("/icons/missing.png")
+        raise AssertionError("missing icon must fail")
+    except urllib.error.HTTPError as error:
+        assert error.code == 404
+        error.close()
     assert b"/strategy-provider-update" in get("/strategies-changing")
     for _ in range(5):
         assert b"name: fixture" in get("/strategy-provider-update")

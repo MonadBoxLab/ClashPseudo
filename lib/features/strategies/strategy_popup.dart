@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import 'strategy_controller.dart';
+import 'strategy_snapshot.dart';
+import '../../app/widgets/operation_feedback.dart';
 import 'strategy_icon.dart';
 
 Future<void> showStrategyPopup({
@@ -42,8 +44,12 @@ class _StrategyPopupRoute extends PopupRoute<void> {
     required this.generation,
     required this.reducedMotion,
     required this.barrierLabel,
-  });
+  }) : sourceCore = strategies.app.state.core;
 
+  final CoreSnapshot sourceCore;
+  bool _canReturnToSource = true;
+  double? _height;
+  (Size, double)? _geometry;
   final RenderBox anchorBox;
   final Rect anchor;
   final StrategyController strategies;
@@ -75,6 +81,11 @@ class _StrategyPopupRoute extends PopupRoute<void> {
         final media = MediaQuery.of(context);
         return LayoutBuilder(
           builder: (context, constraints) {
+            final geometry = (constraints.biggest, media.textScaler.scale(14));
+            if (_geometry != geometry) {
+              _geometry = geometry;
+              _height = null;
+            }
             Rect? source;
             if (anchorBox.attached) {
               final box = anchorBox;
@@ -88,20 +99,35 @@ class _StrategyPopupRoute extends PopupRoute<void> {
                 }
               }
             }
-            final valid =
-                source != null &&
-                strategies.app.state.core.generation == generation &&
+            final core = strategies.app.state.core;
+            _canReturnToSource =
+                _canReturnToSource &&
+                source == anchor &&
+                core.generation == sourceCore.generation &&
+                core.configId == sourceCore.configId &&
+                core.revision == sourceCore.revision &&
                 strategies.groups.any((group) => group.name == name);
+            // Never collapse toward an old position or a replacement card.
             final animate =
-                valid && strategies.app.foreground && !media.disableAnimations;
+                _canReturnToSource &&
+                strategies.app.foreground &&
+                !media.disableAnimations;
             final progress = animate
                 ? Curves.easeOutCubic.transform(animation.value)
                 : 1.0;
             final colors = Theme.of(context).colorScheme;
             return CustomSingleChildLayout(
               delegate: _PopupPosition(
-                anchor: source ?? anchor,
+                anchor: anchor,
                 progress: progress,
+                height: _height,
+                onMeasured: (value) {
+                  if (_height != null) return;
+                  _height = value;
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (isActive) changedExternalState();
+                  });
+                },
                 padding: EdgeInsets.fromLTRB(
                   media.padding.left + 12,
                   media.padding.top + 12,
@@ -123,6 +149,7 @@ class _StrategyPopupRoute extends PopupRoute<void> {
                     controller: strategies,
                     name: name,
                     generation: generation,
+                    anchored: _height != null,
                     progress: progress,
                     sourceWidth: (source ?? anchor).width,
                   ),
@@ -141,7 +168,11 @@ class _PopupPosition extends SingleChildLayoutDelegate {
     required this.anchor,
     required this.padding,
     required this.progress,
+    required this.height,
+    required this.onMeasured,
   });
+  final double? height;
+  final ValueChanged<double> onMeasured;
   final Rect anchor;
   final EdgeInsets padding;
   final double progress;
@@ -152,18 +183,21 @@ class _PopupPosition extends SingleChildLayoutDelegate {
       420.0,
       math.max(0.0, constraints.maxWidth - padding.horizontal),
     );
+    final maximum = math.min(
+      600.0,
+      math.max(0.0, constraints.maxHeight - padding.vertical),
+    );
     return BoxConstraints(
       minWidth: width,
       maxWidth: width,
-      maxHeight: math.min(
-        600.0,
-        math.max(0.0, constraints.maxHeight - padding.vertical),
-      ),
+      minHeight: height == null ? 0 : math.min(height!, maximum),
+      maxHeight: height == null ? maximum : math.min(height!, maximum),
     );
   }
 
   @override
   Offset getPositionForChild(Size size, Size childSize) {
+    onMeasured(childSize.height);
     final target = Offset(
       anchor.left.clamp(
         padding.left,
@@ -179,6 +213,7 @@ class _PopupPosition extends SingleChildLayoutDelegate {
 
   @override
   bool shouldRelayout(_PopupPosition oldDelegate) =>
+      height != oldDelegate.height ||
       anchor != oldDelegate.anchor ||
       padding != oldDelegate.padding ||
       progress != oldDelegate.progress;
@@ -231,7 +266,7 @@ class _PopupSurface extends CustomPainter {
       outline != oldDelegate.outline;
 }
 
-class StrategyPopup extends StatelessWidget {
+class StrategyPopup extends StatefulWidget {
   const StrategyPopup({
     super.key,
     required this.controller,
@@ -239,16 +274,91 @@ class StrategyPopup extends StatelessWidget {
     required this.generation,
     this.progress = 1,
     this.sourceWidth = 180,
+    this.anchored = false,
   });
   final StrategyController controller;
   final String name;
   final int generation;
   final double progress;
   final double sourceWidth;
+  final bool anchored;
+
+  @override
+  State<StrategyPopup> createState() => _StrategyPopupState();
+}
+
+class _StrategyPopupState extends State<StrategyPopup> {
+  StrategyController get controller => widget.controller;
+  String get name => widget.name;
+  int get generation => widget.generation;
+  double get progress => widget.progress;
+  double get sourceWidth => widget.sourceWidth;
+  StrategySnapshot? _lastData;
+  StrategyGroup? _lastGroup;
+  bool _expired = false;
+
+  final _scroll = ScrollController();
+  final _viewport = GlobalKey();
+  final _center = GlobalKey();
+  final _rowKeys = <Object, GlobalKey>{};
+  final _indices = <Key, int>{};
+  List<Object> _ids = [];
+  int _centerIndex = 0;
+
+  void _anchorRows(List<Object> ids) {
+    if (ids.length == _ids.length &&
+        ids.indexed.every((e) => e.$2 == _ids[e.$1])) {
+      return;
+    }
+    Object? anchor;
+    double offset = 0;
+    final viewport = _viewport.currentContext?.findRenderObject() as RenderBox?;
+    final top = viewport?.localToGlobal(Offset.zero).dy;
+    final remaining = ids.toSet();
+    if (widget.anchored && _scroll.hasClients && top != null) {
+      for (final id in _ids) {
+        final box =
+            _rowKeys[id]?.currentContext?.findRenderObject() as RenderBox?;
+        if (remaining.contains(id) &&
+            box != null &&
+            box.hasSize &&
+            box.localToGlobal(Offset.zero).dy + box.size.height > top) {
+          anchor = id;
+          offset = top - box.localToGlobal(Offset.zero).dy;
+          break;
+        }
+      }
+    }
+    _ids = ids;
+    _centerIndex = anchor == null ? 0 : ids.indexOf(anchor);
+    _rowKeys.removeWhere((id, _) => !remaining.contains(id));
+    _indices.clear();
+    for (var i = 0; i < ids.length; i++) {
+      final key = _rowKeys[ids[i]];
+      if (key != null) _indices[key] = i;
+    }
+    if (_scroll.hasClients) _scroll.position.correctBy(offset - _scroll.offset);
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _choose(String? member) {
+    if (_expired ||
+        _lastData?.matches(controller.app.state.core) != true ||
+        controller.data?.generation != generation) {
+      return;
+    }
+    controller.choose(name, member);
+  }
 
   Widget _heading(
     BuildContext context,
     String type,
+    String icon,
     String label,
     double details,
   ) => LayoutBuilder(
@@ -285,7 +395,11 @@ class StrategyPopup extends StatelessWidget {
         child: Stack(
           clipBehavior: Clip.none,
           children: [
-            Positioned(left: 0, top: 0, child: StrategyIcon(type: type)),
+            Positioned(
+              left: 0,
+              top: 0,
+              child: StrategyIcon(type: type, source: icon),
+            ),
             Positioned(
               left: 42 * progress,
               top: initialTop * (1 - progress),
@@ -323,13 +437,30 @@ class StrategyPopup extends StatelessWidget {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: controller,
     builder: (context, _) {
-      final data = controller.data;
-      final sameContext =
-          data?.generation == generation &&
-          controller.app.state.core.generation == generation;
-      final group = sameContext
-          ? controller.groups.where((group) => group.name == name).firstOrNull
-          : null;
+      final incoming = controller.data;
+      final core = controller.app.state.core;
+      final candidate = controller.groups
+          .where((group) => group.name == name)
+          .firstOrNull;
+      final previous = _lastData;
+      final identityChanged =
+          core.generation != generation ||
+          core.phase == 'EMPTY' ||
+          (core.ready && previous != null && !previous.matches(core));
+      if ((controller.app.platformError == null && identityChanged) ||
+          (incoming?.matches(core) == true && candidate == null)) {
+        _expired = true;
+      }
+      if (!_expired &&
+          incoming?.generation == generation &&
+          candidate != null) {
+        _lastData = incoming;
+        _lastGroup = candidate;
+      }
+      final data = _lastData;
+      final group = _lastGroup;
+      final sameContext = !_expired && data?.matches(core) == true;
+      final canChoose = sameContext && controller.canChoose;
       final colors = Theme.of(context).colorScheme;
       final saved = sameContext && data != null
           ? controller.app.collection.find(data.configId)?.choices[name]
@@ -352,6 +483,238 @@ class StrategyPopup extends StatelessWidget {
         height: 1.4,
         color: colors.onSurfaceVariant,
       );
+      final seen = <String, int>{};
+      final ids = <Object>[
+        'heading',
+        for (final member in group?.members ?? <StrategyMember>[])
+          (
+            member.name,
+            seen.update(member.name, (n) => n + 1, ifAbsent: () => 0),
+          ),
+      ];
+      _anchorRows(ids);
+      final header = Padding(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            InkWell(
+              onTap: () => showOperationMessage(
+                context,
+                [
+                  if (_expired) '策略已失效，请关闭后重新打开。当前内容仅供查看。',
+                  ?error,
+                  if (savedDiffers) '已保存：${saved.member ?? '自动'}；实际选择仍以当前标记为准。',
+                  if (data?.unrestored[name] != null)
+                    '原选择未恢复：${data!.unrestored[name]}',
+                  if (!_expired &&
+                      error == null &&
+                      !savedDiffers &&
+                      data?.unrestored[name] == null)
+                    '当前选择以实际读取结果为准。',
+                ].join('\n\n'),
+                title: name,
+                error: error != null || savedDiffers,
+              ),
+              child: _heading(
+                context,
+                group?.rawType ?? '',
+                group?.icon ?? '',
+                _expired
+                    ? '已失效 · 请重新打开'
+                    : waiting
+                    ? '正在切换…'
+                    : error != null
+                    ? '更新失败 · 查看原因'
+                    : savedDiffers
+                    ? '保存与实际不一致 · 查看详情'
+                    : data?.unrestored.containsKey(name) == true
+                    ? '原选择未恢复 · 查看详情'
+                    : !controller.current
+                    ? '状态未更新'
+                    : group == null
+                    ? '正在读取策略'
+                    : '${group.typeLabel} · ${group.members.length}',
+                details,
+              ),
+            ),
+            if (group?.automatic == true)
+              Opacity(
+                opacity: details,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Text(
+                          group!.fixed.isEmpty ? '自动' : '固定：${group.fixed}',
+                          softWrap: false,
+                          style: muted,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      key: const ValueKey('strategy-automatic'),
+                      onPressed: canChoose ? () => _choose(null) : null,
+                      child: const Text('恢复自动', style: TextStyle(fontSize: 12)),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      );
+      Widget memberRow(int index) {
+        final member = group!.members[index];
+        final first =
+            group.members.indexWhere((value) => value.name == member.name) ==
+            index;
+        final selected =
+            showSelection &&
+            first &&
+            group.selectable &&
+            group.now == member.name;
+        final fixed =
+            showSelection &&
+            first &&
+            group.automatic &&
+            group.fixed == member.name;
+        final isGroup = const [
+          'select',
+          'url-test',
+          'fallback',
+          'load-balance',
+        ].contains(member.type);
+        final child = isGroup ? data?.find(member.name) : null;
+        final subtitle = !first
+            ? '同名成员'
+            : child != null
+            ? (child.now.isEmpty ? child.typeLabel : child.now)
+            : member.type;
+        return Opacity(
+          opacity: details,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Semantics(
+              selected: selected,
+              child: Material(
+                color: selected
+                    ? colors.surfaceContainerHighest
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  key: ValueKey('strategy-member-$index'),
+                  onTap: canChoose && group.selectable && first
+                      ? () => _choose(member.name)
+                      : null,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                member.name,
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  height: 1.3,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Text(
+                                  subtitle,
+                                  softWrap: false,
+                                  style: muted,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          width: 40,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              if (fixed)
+                                Tooltip(
+                                  message: '已固定',
+                                  child: Icon(
+                                    Icons.push_pin_rounded,
+                                    size: 14,
+                                    color: colors.primary,
+                                  ),
+                                ),
+                              if (selected)
+                                Icon(
+                                  Icons.check_rounded,
+                                  size: 21,
+                                  color: colors.primary,
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      SliverChildBuilderDelegate rows({required bool before}) {
+        final count = before ? _centerIndex : ids.length - _centerIndex;
+        return SliverChildBuilderDelegate(
+          (context, local) {
+            final index = before
+                ? _centerIndex - local - 1
+                : _centerIndex + local;
+            final key = _rowKeys.putIfAbsent(ids[index], GlobalKey.new);
+            _indices[key] = index;
+            return KeyedSubtree(
+              key: key,
+              child: index == 0
+                  ? header
+                  : Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        8,
+                        0,
+                        8,
+                        index == ids.length - 1 ? 10 : 0,
+                      ),
+                      child: memberRow(index - 1),
+                    ),
+            );
+          },
+          childCount: count,
+          semanticIndexCallback: (_, local) {
+            final index = before
+                ? _centerIndex - local - 1
+                : _centerIndex + local;
+            return index == 0 ? null : index - 1;
+          },
+          findChildIndexCallback: (key) {
+            final index = _indices[key];
+            if (index == null) return null;
+            final local = before
+                ? _centerIndex - index - 1
+                : index - _centerIndex;
+            return local < 0 || local >= count ? null : local;
+          },
+        );
+      }
+
       return Semantics(
         scopesRoute: true,
         explicitChildNodes: true,
@@ -363,216 +726,14 @@ class StrategyPopup extends StatelessWidget {
           child: Stack(
             children: [
               CustomScrollView(
-                shrinkWrap: true,
+                key: _viewport,
+                controller: _scroll,
+                shrinkWrap: !widget.anchored,
+                center: widget.anchored ? _center : null,
+                semanticChildCount: ids.length - 1,
                 slivers: [
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
-                    sliver: SliverToBoxAdapter(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _heading(
-                            context,
-                            group?.rawType ?? '',
-                            group == null
-                                ? ''
-                                : '${group.typeLabel} · ${group.members.length}',
-                            details,
-                          ),
-                          Opacity(
-                            opacity: details,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (group == null)
-                                  const Padding(
-                                    padding: EdgeInsets.only(top: 8),
-                                    child: Text('策略已更新，请重新打开。'),
-                                  )
-                                else ...[
-                                  if (!controller.current)
-                                    Text('状态未更新', style: muted),
-                                  if (group.automatic)
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            group.fixed.isEmpty
-                                                ? '自动'
-                                                : '固定：${group.fixed}',
-                                            style: muted,
-                                          ),
-                                        ),
-                                        TextButton(
-                                          key: const ValueKey(
-                                            'strategy-automatic',
-                                          ),
-                                          onPressed: controller.canChoose
-                                              ? () => controller.choose(
-                                                  name,
-                                                  null,
-                                                )
-                                              : null,
-                                          child: const Text(
-                                            '恢复自动',
-                                            style: TextStyle(fontSize: 12),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  if (savedDiffers)
-                                    Text(
-                                      '已保存：${saved.member ?? '自动'}',
-                                      style: muted,
-                                    ),
-                                  if (data?.unrestored.containsKey(name) ==
-                                      true)
-                                    Text('原选择未恢复', style: muted),
-                                  if (waiting)
-                                    Semantics(
-                                      liveRegion: true,
-                                      child: const Text('正在切换…'),
-                                    ),
-                                  if (error != null)
-                                    Semantics(
-                                      liveRegion: true,
-                                      child: Text(
-                                        error,
-                                        style: TextStyle(color: colors.error),
-                                      ),
-                                    ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  if (group != null)
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(8, 2, 8, 10),
-                      sliver: SliverList.builder(
-                        itemCount: group.members.length,
-                        itemBuilder: (context, index) {
-                          final member = group.members[index];
-                          final first =
-                              group.members.indexWhere(
-                                (value) => value.name == member.name,
-                              ) ==
-                              index;
-                          final selected =
-                              showSelection &&
-                              first &&
-                              group.selectable &&
-                              group.now == member.name;
-                          final fixed =
-                              showSelection &&
-                              first &&
-                              group.automatic &&
-                              group.fixed == member.name;
-                          final isGroup = const [
-                            'select',
-                            'url-test',
-                            'fallback',
-                            'load-balance',
-                          ].contains(member.type);
-                          final child = isGroup
-                              ? data?.find(member.name)
-                              : null;
-                          final subtitle = !first
-                              ? '同名成员'
-                              : child != null
-                              ? (child.now.isEmpty
-                                    ? child.typeLabel
-                                    : child.now)
-                              : member.type;
-                          return Opacity(
-                            opacity: details,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 2),
-                              child: Semantics(
-                                selected: selected,
-                                child: Material(
-                                  color: selected
-                                      ? colors.surfaceContainerHighest
-                                      : Colors.transparent,
-                                  borderRadius: BorderRadius.circular(8),
-                                  clipBehavior: Clip.antiAlias,
-                                  child: InkWell(
-                                    key: ValueKey('strategy-member-$index'),
-                                    onTap:
-                                        controller.canChoose &&
-                                            group.selectable &&
-                                            first
-                                        ? () => controller.choose(
-                                            name,
-                                            member.name,
-                                          )
-                                        : null,
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 10,
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  member.name,
-                                                  style: TextStyle(
-                                                    fontSize: 15,
-                                                    height: 1.3,
-                                                    fontWeight: selected
-                                                        ? FontWeight.w600
-                                                        : FontWeight.w500,
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 3),
-                                                Text(subtitle, style: muted),
-                                              ],
-                                            ),
-                                          ),
-                                          const SizedBox(width: 12),
-                                          SizedBox(
-                                            width: 40,
-                                            child: Row(
-                                              mainAxisAlignment:
-                                                  MainAxisAlignment.end,
-                                              children: [
-                                                if (fixed)
-                                                  Tooltip(
-                                                    message: '已固定',
-                                                    child: Icon(
-                                                      Icons.push_pin_rounded,
-                                                      size: 14,
-                                                      color: colors.primary,
-                                                    ),
-                                                  ),
-                                                if (selected)
-                                                  Icon(
-                                                    Icons.check_rounded,
-                                                    size: 21,
-                                                    color: colors.primary,
-                                                  ),
-                                              ],
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
+                  if (widget.anchored) SliverList(delegate: rows(before: true)),
+                  SliverList(key: _center, delegate: rows(before: false)),
                 ],
               ),
               Positioned(

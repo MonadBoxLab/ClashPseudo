@@ -127,6 +127,45 @@ void main() {
     },
   );
 
+  testWidgets('stopped icon history is cleared when session identity changes', (
+    tester,
+  ) async {
+    final bridge = ObservationBridge()
+      ..pending = Completer<Map<String, dynamic>>();
+    final observer = ConnectionObserver(bridge);
+    observer.updateState(bridge.state);
+    await tester.pump(Duration.zero);
+    bridge.pending!.complete(
+      fixtures.sample([
+        {
+          ...fixtures.row('a'),
+          'strategy': {
+            'type': 'fallback',
+            'icon': 'https://fixture.test/old.svg',
+          },
+        },
+      ], 0),
+    );
+    bridge.pending = null;
+    await tester.pump();
+    observer.window.pinDetail('a');
+    bridge.running = false;
+    observer.updateState(bridge.state);
+    expect(
+      observer.window.records.single.strategyIcon,
+      'https://fixture.test/old.svg',
+    );
+    expect(observer.window.detail!.strategyType, 'fallback');
+    bridge.running = true;
+    bridge.session++;
+    observer.updateState(bridge.state);
+    await tester.pump(Duration.zero);
+    expect(observer.window.records.single.id, 'a');
+    expect(observer.window.records.single.strategyIcon, isEmpty);
+    expect(observer.window.detail, isNull);
+    observer.dispose();
+  });
+
   testWidgets('one sample in flight and no catch-up queue', (tester) async {
     final bridge = ObservationBridge()
       ..pending = Completer<Map<String, dynamic>>();

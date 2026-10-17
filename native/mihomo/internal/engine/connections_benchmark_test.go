@@ -33,7 +33,7 @@ func BenchmarkConnectionQuery(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {
-				if _, err := queryConnections(source, q); err != nil {
+				if _, err := queryConnections(source, nil, q); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -52,7 +52,7 @@ func BenchmarkConnectionLongProjection(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		if _, err := projectConnection(id, row.info); err != nil {
+		if _, err := projectConnection(nil, id, row.info); err != nil {
 			b.Fatal(err)
 		}
 	}

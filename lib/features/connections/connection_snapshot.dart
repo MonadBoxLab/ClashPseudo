@@ -9,6 +9,8 @@ class ConnectionRecord {
       upload = _count(value['upload']),
       download = _count(value['download']),
       chains = List<String>.unmodifiable(value['chains'] as List? ?? const []),
+      strategyType = _strategyText(value['strategy'], 'type'),
+      strategyIcon = _strategyText(value['strategy'], 'icon'),
       rule = value['rule'] as String? ?? '',
       rulePayload = value['rulePayload'] as String? ?? '',
       host = (value['metadata'] as Map?)?['host'] as String? ?? '',
@@ -35,6 +37,11 @@ class ConnectionRecord {
   final int? upload;
   final int? download;
   final List<String> chains;
+  final String strategyType;
+  final String strategyIcon;
+
+  static String _strategyText(Object? value, String key) =>
+      value is Map && value[key] is String ? value[key] as String : '';
   final String rule;
   final String rulePayload;
   final String host;
@@ -56,6 +63,7 @@ class ConnectionRecord {
     'upload': upload,
     'download': download,
     'chains': chains,
+    'strategy': {'type': strategyType, 'icon': strategyIcon},
     'rule': rule,
     'rulePayload': rulePayload,
     'active': active,
@@ -85,6 +93,8 @@ class ConnectionRecord {
        upload = source.upload,
        download = source.download,
        chains = source.chains,
+       strategyType = source.strategyType,
+       strategyIcon = source.strategyIcon,
        rule = source.rule,
        rulePayload = source.rulePayload,
        host = source.host,

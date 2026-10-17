@@ -201,6 +201,26 @@ void main() {
     },
   );
 
+  test('historical and pinned icons survive stop but not session clearing', () {
+    final descriptor = {
+      ...row('a'),
+      'strategy': {'type': 'select', 'icon': 'https://fixture.test/old.svg'},
+    };
+    accept([descriptor], 0);
+    window.pinDetail('a');
+    accept([row('b')], 1000, presence: {'a': true}, detail: descriptor);
+    expect(window.detail!.strategyIcon, 'https://fixture.test/old.svg');
+    accept([], 2000, presence: {'a': false, 'b': false});
+    window.stop(3000);
+    expect(window.detail!.strategyType, 'select');
+    expect(window.detail!.strategyIcon, 'https://fixture.test/old.svg');
+    expect(window.detail!.active, isFalse);
+    window.clear();
+    accept([row('a')], 4000);
+    expect(window.records.single.strategyIcon, isEmpty);
+    expect(window.detail, isNull);
+  });
+
   test('stop bounds remaining records and clear removes the old session', () {
     accept(List.generate(1000, (i) => row('$i')), 0);
     window.pinDetail('0');

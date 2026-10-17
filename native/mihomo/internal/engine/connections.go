@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/gofrs/uuid/v5"
+	G "github.com/metacubex/mihomo/adapter/outboundgroup"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/tunnel/statistic"
 )
@@ -111,10 +112,10 @@ func (e *Engine) Connections(q ConnectionQuery) (string, error) {
 	if !e.available() || e.tun == nil {
 		return "", ErrStopped
 	}
-	return queryConnections(statistic.DefaultManager, q)
+	return queryConnections(statistic.DefaultManager, e.cfg.Proxies, q)
 }
 
-func queryConnections(source connectionSource, q ConnectionQuery) (string, error) {
+func queryConnections(source connectionSource, proxies map[string]C.Proxy, q ConnectionQuery) (string, error) {
 	if err := q.validate(); err != nil {
 		return "", err
 	}
@@ -183,7 +184,7 @@ func queryConnections(source connectionSource, q ConnectionQuery) (string, error
 	selected := make(map[string]bool, len(candidates))
 	for _, candidate := range candidates {
 		if info := lookup(candidate.id); info != nil {
-			row, err := projectConnection(candidate.id, info)
+			row, err := projectConnection(proxies, candidate.id, info)
 			if err != nil {
 				return "", err
 			}
@@ -198,7 +199,7 @@ func queryConnections(source connectionSource, q ConnectionQuery) (string, error
 		info := lookup(q.DetailID)
 		response.Presence[q.DetailID] = info != nil
 		if info != nil && !selected[q.DetailID] {
-			row, err := projectConnection(q.DetailID, info)
+			row, err := projectConnection(proxies, q.DetailID, info)
 			if err != nil {
 				return "", err
 			}
@@ -227,7 +228,13 @@ type connectionMetadata struct {
 	Type            string `json:"type"`
 }
 
+type connectionStrategy struct {
+	Type string `json:"type"`
+	Icon string `json:"icon"`
+}
+
 type connectionRow struct {
+	Strategy    *connectionStrategy `json:"strategy,omitempty"`
 	ID          string              `json:"id"`
 	Start       time.Time           `json:"start"`
 	Upload      int64               `json:"upload"`
@@ -255,11 +262,38 @@ func connectionText(value string, limit int, truncated *bool) string {
 	return strings.Clone(value)
 }
 
-func projectConnection(id string, info *statistic.TrackerInfo) (json.RawMessage, error) {
+func projectConnection(proxies map[string]C.Proxy, id string, info *statistic.TrackerInfo) (json.RawMessage, error) {
+	var descriptor *connectionStrategy
+	iconOmitted := false
+	// Resolve the entry group from the full, exact chain before display truncation.
+	for i := len(info.Chain) - 1; i >= 0; i-- {
+		proxy := proxies[info.Chain[i]]
+		if proxy == nil {
+			continue
+		}
+		if group, ok := proxy.Adapter().(G.ProxyGroup); ok {
+			icon := group.Icon()
+			if len(icon) > 1024 || !utf8.ValidString(icon) {
+				icon, iconOmitted = "", true
+			} else if encoded, _ := json.Marshal(icon); len(encoded) > 1024 {
+				icon, iconOmitted = "", true
+			}
+			descriptor = &connectionStrategy{Type: strategyType(group.Type()), Icon: strings.Clone(icon)}
+			break
+		}
+	}
+	if descriptor == nil && len(info.Chain) > 0 {
+		switch info.Chain[0] {
+		case "DIRECT":
+			descriptor = &connectionStrategy{Type: "Direct"}
+		case "REJECT", "REJECT-DROP":
+			descriptor = &connectionStrategy{Type: "Reject"}
+		}
+	}
 	for scale := 1; scale <= 16; scale *= 2 {
-		row := connectionRow{ID: id, Start: info.Start,
+		row := connectionRow{ID: id, Start: info.Start, Strategy: descriptor,
 			Upload: info.UploadTotal.Load(), Download: info.DownloadTotal.Load(),
-			Chains: make([]string, 0, min(len(info.Chain), 16)), Truncated: len(info.Chain) > 16}
+			Chains: make([]string, 0, min(len(info.Chain), 16)), Truncated: len(info.Chain) > 16 || iconOmitted}
 		text := func(s string, n int) string { return connectionText(s, n/scale, &row.Truncated) }
 		row.Rule = text(info.Rule, 64)
 		row.RulePayload = text(info.RulePayload, 512)

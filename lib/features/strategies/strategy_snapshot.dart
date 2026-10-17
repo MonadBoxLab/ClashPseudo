@@ -59,6 +59,7 @@ class StrategyGroup {
     required this.hidden,
     required this.now,
     required this.fixed,
+    this.icon = '',
     required List<StrategyMember> members,
   }) : members = List.unmodifiable(members);
 
@@ -67,6 +68,7 @@ class StrategyGroup {
   final bool hidden;
   final String now;
   final String fixed;
+  final String icon;
   final List<StrategyMember> members;
   StrategyType? get type =>
       StrategyType.values.where((type) => type.value == rawType).firstOrNull;
@@ -81,6 +83,7 @@ class StrategyGroup {
     hidden: value['hidden'] as bool,
     now: value['now'] as String,
     fixed: value['fixed'] as String,
+    icon: value['icon'] as String,
     members: (value['members'] as List).map((item) {
       final member = Map<String, dynamic>.from(item as Map);
       return StrategyMember(

@@ -20,7 +20,7 @@ class ConnectionsCallsTest {
     private val input = CoreInput("one", 1, "rule", byteArrayOf(), "{}".toByteArray())
     private val id = "00000001-0000-4000-8000-000000000000"
     private val json = """{"uploadTotal":9000000,"downloadTotal":0,"activeCount":2000,"complete":true,"limited":false,"presence":{"$id":true},"connections":[
-        {"id":"$id","start":"2026-10-15T00:00:00Z","chains":["节点🌐","出口"],"upload":2,"download":3,"metadata":{"host":"fixture.test","type":"Tun"}}
+        {"id":"$id","start":"2026-10-15T00:00:00Z","chains":["节点🌐","出口"],"strategy":{"type":"select","icon":"https://fixture.test/icon.svg"},"upload":2,"download":3,"metadata":{"host":"fixture.test","type":"Tun"}}
     ]}"""
 
     private class Harness {
@@ -92,6 +92,9 @@ class ConnectionsCallsTest {
         assertEquals(2000, result.getInt("activeCount"))
         assertEquals("节点🌐", result.getJSONArray("connections")
             .getJSONObject(0).getJSONArray("chains").getString(0))
+        val strategy = result.getJSONArray("connections").getJSONObject(0).getJSONObject("strategy")
+        assertEquals("select", strategy.getString("type"))
+        assertEquals("https://fixture.test/icon.svg", strategy.getString("icon"))
         assertEquals(1, reply.count.get())
     }
 

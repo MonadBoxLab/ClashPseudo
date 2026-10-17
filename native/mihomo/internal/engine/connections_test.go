@@ -88,7 +88,7 @@ func TestConnectionsBoundedSelectionAndPresence(t *testing.T) {
 	source.rows = append(source.rows, inner)
 	oldID := source.rows[0].ID()
 	missingID := fixtureConnection(9998).ID()
-	body, err := queryConnections(source, ConnectionQuery{Limit: 1000,
+	body, err := queryConnections(source, nil, ConnectionQuery{Limit: 1000,
 		PreviousActiveIDs: []string{oldID, missingID}, DetailID: source.rows[1].ID()})
 	reply := decodeConnections(t, body, err)
 	if reply.ActiveCount != 2000 || reply.UploadTotal != 9000000 || reply.DownloadTotal != 17000000 {
@@ -113,7 +113,7 @@ func TestConnectionsBoundedSelectionAndPresence(t *testing.T) {
 
 func TestConnectionsEmptyGlobalSummary(t *testing.T) {
 	source := &connectionFixtures{upload: 12345}
-	body, err := queryConnections(source, ConnectionQuery{Limit: 1})
+	body, err := queryConnections(source, nil, ConnectionQuery{Limit: 1})
 	reply := decodeConnections(t, body, err)
 	if reply.ActiveCount != 0 || reply.UploadTotal != 12345 || reply.DownloadTotal != 0 || source.ranges != 1 {
 		t.Fatal("empty connection table lost global counters or scanned twice")
@@ -133,7 +133,7 @@ func TestConnectionsStableTieAndDisappearingCandidate(t *testing.T) {
 	a, b, c := fixtureConnection(1), fixtureConnection(2), fixtureConnection(3)
 	b.info.Start, c.info.Start = a.info.Start, a.info.Start
 	source := &connectionFixtures{rows: []*connectionFixture{c, b, a}, missing: map[string]bool{a.ID(): true}}
-	body, err := queryConnections(source, ConnectionQuery{Limit: 2, PreviousActiveIDs: []string{a.ID()}})
+	body, err := queryConnections(source, nil, ConnectionQuery{Limit: 2, PreviousActiveIDs: []string{a.ID()}})
 	reply := decodeConnections(t, body, err)
 	if len(reply.Connections) != 1 || reply.Presence[a.ID()] {
 		t.Fatal("candidate vanished but was still returned")
@@ -153,7 +153,7 @@ func TestConnectionProjectionBoundsTextBeforeEncoding(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		row.info.Chain = append(row.info.Chain, strings.Repeat("节点🌐\x02", 1000))
 	}
-	body, err := projectConnection(row.ID(), row.info)
+	body, err := projectConnection(nil, row.ID(), row.info)
 	if err != nil {
 		t.Fatal(err)
 	}

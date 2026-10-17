@@ -42,6 +42,20 @@ def strategy_configuration(host, port, *, changing=False):
     return body
 
 
+def icon_configuration(host, port):
+    body = strategy_configuration(host, port).replace(
+        b"proxy-groups:\n", f"""proxy-groups:
+  - {{name: JPEG, type: select, icon: 'http://{host}:{port}/icons/color.jpg', proxies: [DIRECT]}}
+  - {{name: WebP, type: select, icon: 'http://{host}:{port}/icons/color.webp', proxies: [DIRECT]}}
+""".encode())
+    for name, image in (("测试🌐", "color.svg"), ("自动🌐", "color.png"),
+                        ("故障转移", "invalid.svg"), ("均衡", "missing.png")):
+        body = body.replace(
+            f"  - name: {name}\n".encode(),
+            f"  - name: {name}\n    icon: http://{host}:{port}/icons/{image}\n".encode())
+    return body
+
+
 def configuration(host, port, *, direct=False, revision=1):
     # 故意带常见平台字段：应用必须托管它们，但不能修改保存的原文。
     route = "DIRECT" if direct else "测试🌐"

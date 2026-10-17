@@ -51,7 +51,9 @@ void main() {
       180,
       scrollable: find.descendant(
         of: find.byKey(const PageStorageKey('strategies-scroll')),
-        matching: find.byType(Scrollable),
+        matching: find.byWidgetPredicate(
+          (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -104,13 +106,16 @@ void main() {
     await tester.tap(find.text('加载策略'));
     await tester.pumpAndSettle();
     expect(app.commands.length, 2);
+    final load = find.widgetWithText(TextButton, '加载策略');
+    final beforeBusy = tester.getRect(load);
     app.dispatching = true;
     app.changed();
     await tester.pump();
-    expect(find.text('加载策略'), findsNothing);
+    expect(tester.getRect(load), beforeBusy);
+    expect(tester.widget<TextButton>(load).onPressed, isNull);
     expect(find.text('重试加载策略'), findsNothing);
     expect(find.byType(LinearProgressIndicator), findsNothing);
-    expect(find.byIcon(Icons.hourglass_top), findsOneWidget);
+    expect(find.text('正在加载策略…'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -129,13 +134,17 @@ void main() {
       app.commandError = ' ';
       await show(tester);
       await strategies(tester);
+      await tester.tap(find.byTooltip('查看策略错误'));
+      await tester.pumpAndSettle();
       expect(find.text('规则引用不存在'), findsOneWidget);
+      await tester.tap(find.text('关闭'));
+      await tester.pumpAndSettle();
       expect(find.text('策略尚未加载。'), findsNothing);
-      expect(find.text('重试加载策略'), findsOneWidget);
+      expect(find.text('加载策略'), findsOneWidget);
       expect(app.commands, isEmpty);
       await tester.pump(const Duration(seconds: 30));
       expect(app.commands, isEmpty);
-      await tester.tap(find.text('重试加载策略'));
+      await tester.tap(find.text('加载策略'));
       await tester.pumpAndSettle();
       expect(app.commands.single['action'], 'prepareStrategies');
       await tester.pumpWidget(const SizedBox());
@@ -148,9 +157,13 @@ void main() {
     bridge.failRead = true;
     await show(tester);
     await strategies(tester);
+    await tester.tap(find.byTooltip('查看策略错误'));
+    await tester.pumpAndSettle();
     expect(find.textContaining('前台将自动重试'), findsOneWidget);
-    expect(find.text('策略尚未加载。'), findsNothing);
     bridge.failRead = false;
+    await tester.tap(find.text('关闭'));
+    await tester.pumpAndSettle();
+    expect(find.text('策略尚未加载。'), findsNothing);
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
     expect(find.textContaining('前台将自动重试'), findsNothing);
@@ -439,8 +452,14 @@ void main() {
     app.state = const AppSnapshot(phase: 'STOPPED', core: replacement);
     app.changed();
     await tester.pumpAndSettle();
-    expect(find.text('策略已更新，请重新打开。'), findsOneWidget);
-    expect(find.byKey(const ValueKey('strategy-member-0')), findsNothing);
+    expect(find.text('已失效 · 请重新打开'), findsOneWidget);
+    expect(find.byKey(const ValueKey('strategy-member-0')), findsOneWidget);
+    expect(
+      tester
+          .widget<InkWell>(find.byKey(const ValueKey('strategy-member-0')))
+          .onTap,
+      isNull,
+    );
     expect(app.commands, isEmpty);
     await tester.pumpWidget(const SizedBox());
   });
@@ -530,7 +549,13 @@ void main() {
       app.state = const AppSnapshot(phase: 'STOPPED', core: replacement);
       app.changed();
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('strategy-member-0')), findsNothing);
+      expect(find.byKey(const ValueKey('strategy-member-0')), findsOneWidget);
+      expect(
+        tester
+            .widget<InkWell>(find.byKey(const ValueKey('strategy-member-0')))
+            .onTap,
+        isNull,
+      );
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       app.setForeground(true);
@@ -593,13 +618,17 @@ void main() {
         maxScrolls: 30,
         scrollable: find.descendant(
           of: find.byType(StrategyPopup),
-          matching: find.byType(Scrollable),
+          matching: find.byWidgetPredicate(
+            (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+          ),
         ),
       );
       final scroll = tester.state<ScrollableState>(
         find.descendant(
           of: find.byType(StrategyPopup),
-          matching: find.byType(Scrollable),
+          matching: find.byWidgetPredicate(
+            (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+          ),
         ),
       );
       final offset = scroll.position.pixels;
@@ -623,7 +652,7 @@ void main() {
     bridge.failRead = true;
     await tester.pump(const Duration(seconds: 5));
     await tester.pump();
-    expect(find.text('状态未更新'), findsOneWidget);
+    expect(find.text('更新失败 · 查看原因'), findsOneWidget);
     expect(find.byIcon(Icons.check_rounded), findsNothing);
     expect(
       tester
@@ -667,7 +696,9 @@ void main() {
     final scroll = tester.state<ScrollableState>(
       find.descendant(
         of: find.byKey(const PageStorageKey('strategies-scroll')),
-        matching: find.byType(Scrollable),
+        matching: find.byWidgetPredicate(
+          (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+        ),
       ),
     );
     final offset = scroll.position.pixels;
@@ -737,7 +768,9 @@ void main() {
           180,
           scrollable: find.descendant(
             of: find.byType(StrategyPopup),
-            matching: find.byType(Scrollable),
+            matching: find.byWidgetPredicate(
+              (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+            ),
           ),
         );
         await tester.pumpAndSettle();
@@ -762,7 +795,9 @@ void main() {
           120,
           scrollable: find.descendant(
             of: find.byType(StrategyPopup),
-            matching: find.byType(Scrollable),
+            matching: find.byWidgetPredicate(
+              (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+            ),
           ),
         );
         await tester.pumpAndSettle();
