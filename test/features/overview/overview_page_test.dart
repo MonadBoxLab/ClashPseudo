@@ -1,5 +1,6 @@
 import 'package:clash_pseudo/app/app_controller.dart';
 import 'package:clash_pseudo/app/app_theme.dart';
+import 'package:clash_pseudo/app/widgets/operation_feedback.dart';
 import 'package:clash_pseudo/features/connections/connection_snapshot.dart';
 import 'package:clash_pseudo/features/configs/config_entry.dart';
 import 'package:clash_pseudo/features/overview/overview_page.dart';
@@ -32,7 +33,12 @@ class ViewController extends AppController {
   }
   final commands = <Map<String, Object?>>[];
   @override
-  Future<String?> submit(Map<String, Object?> command) async {
+  Future<String?> submit(
+    Map<String, Object?> command, {
+    bool automatic = false,
+  }) async {
+    lastCommandAutomatic = automatic;
+    lastCommand = Map.of(command);
     commands.add(command);
     return 'operation-${commands.length}';
   }
@@ -67,7 +73,10 @@ void main() {
             .copyWith(textScaler: TextScaler.linear(scale)),
         child: child!,
       ),
-      home: OverviewPage(controller: controller),
+      home: OperationFeedback(
+        controller: controller,
+        child: OverviewPage(controller: controller),
+      ),
     ),
   );
 
@@ -76,10 +85,10 @@ void main() {
   ) async {
     await show(tester);
     expect(find.text('接管已关闭'), findsWidgets);
-    expect(find.text('尚未导入配置'), findsOneWidget);
+    expect(find.text('导入完整配置后，即可启动'), findsWidgets);
     expect(tester.widget<FilledButton>(power).onPressed, isNull);
     expect(find.text('导入配置'), findsOneWidget);
-    expect(find.text('查看连接'), findsOneWidget);
+    expect(find.text('最近连接'), findsOneWidget);
     expect(find.byTooltip('核实状态'), findsNothing);
     expect(controller.commands, isEmpty);
   });
@@ -88,8 +97,8 @@ void main() {
     'connection entry opens a read-only secondary page while stopped',
     (tester) async {
       await show(tester);
-      await tester.ensureVisible(find.text('查看连接'));
-      await tester.tap(find.text('查看连接'));
+      await tester.ensureVisible(find.text('最近连接'));
+      await tester.tap(find.text('最近连接'));
       await tester.pumpAndSettle();
       expect(find.text('暂无近期连接'), findsOneWidget);
       expect(controller.commands, isEmpty);
@@ -123,7 +132,7 @@ void main() {
     await tester.tap(find.text('配置管理'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text('正在读取已保存配置'), findsOneWidget);
+    expect(find.text('配置 · 读取中'), findsOneWidget);
     expect(find.text('尚未保存配置'), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
@@ -271,130 +280,99 @@ void main() {
   );
 
   testWidgets(
-    'homepage hides toggle success but retains other results and risks',
+    'command feedback never moves the home layout or replays on navigation',
     (tester) async {
       controller.collection = ConfigCollection(
         entries: [config('one')],
         selectedId: 'one',
       );
       await show(tester);
-      expect(find.byKey(const ValueKey('home-feedback-slot')), findsNothing);
-      for (final snapshot in const [
-        AppSnapshot(
-          phase: 'RUNNING',
-          configId: 'one',
-          revision: 1,
-          resultSuccess: true,
-          resultMessage: '接管已启动。',
-        ),
-        AppSnapshot(
-          phase: 'STOPPED',
-          resultSuccess: true,
-          resultMessage: '接管已停止。',
-        ),
-      ]) {
-        controller.state = snapshot;
-        controller.changed();
-        await tester.pump();
-        expect(find.text(snapshot.resultMessage!), findsNothing);
-      }
-      for (final message in [
-        '配置已保存，启动时由内核解析。',
-        '已选择配置，尚未启动接管。',
-        '配置解析失败，接管未启动。',
-        '停止失败，资源清理未确认。',
-      ]) {
+      final powerRect = tester.getRect(power);
+      for (final action in ['start', 'stop', 'setMode', 'select', 'delete']) {
+        controller.lastCommand = {'action': action};
         controller.state = AppSnapshot(
           phase: 'STOPPED',
+          resultId: action,
+          resultSuccess: true,
+          resultMessage: '已完成。',
+        );
+        controller.changed();
+        await tester.pump();
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(find.text('已完成。'), findsNothing);
+        expect(tester.getRect(power), powerRect);
+      }
+      for (final message in ['配置解析失败，接管未启动。', '模式已保存供下次启动使用；本次切换未确认。']) {
+        controller.lastCommand = {'action': 'setMode'};
+        controller.state = AppSnapshot(
+          phase: 'STOPPED',
+          resultId: message,
           resultMessage: message,
         );
         controller.changed();
         await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(find.byType(AlertDialog), findsOneWidget);
         expect(find.text(message), findsOneWidget);
+        expect(tester.getRect(power), powerRect);
+        await tester.tap(find.text('关闭'));
+        await tester.pumpAndSettle();
+        controller.changed();
+        await tester.pump();
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(tester.getRect(power), powerRect);
       }
-      controller.state = const AppSnapshot(
-        phase: 'STOPPED',
-        resultSuccess: true,
-        resultMessage: '接管已停止。',
-        error: '平台状态异常',
-      );
-      controller.changed();
-      await tester.pump();
-      expect(find.text('平台状态异常'), findsOneWidget);
-      controller.commandError = '请求未被受理';
-      controller.changed();
-      await tester.pump();
-      expect(find.text('请求未被受理'), findsOneWidget);
-      controller.commandError = null;
-      controller.state = const AppSnapshot(
-        phase: 'STOPPED',
-        resultMessage: '来源重定向到 HTTP',
-        needsHttpConfirmation: true,
-      );
-      controller.lastCommand = {
-        'action': 'import',
-        'source': 'https://example.test',
-      };
-      controller.changed();
-      await tester.pump();
-      expect(find.text('来源重定向到 HTTP'), findsOneWidget);
-      await tester.ensureVisible(find.text('确认 HTTP 风险并重试'));
-      await tester.tap(find.text('确认 HTTP 风险并重试'));
+      await tester.tap(find.text('配置管理'));
       await tester.pumpAndSettle();
-      expect(find.text('允许此次明文重定向？'), findsOneWidget);
-      expect(controller.commands, isEmpty);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.text('已完成。'), findsNothing);
       await tester.pumpWidget(const SizedBox());
     },
   );
 
-  testWidgets('homepage hides mode success without hiding partial completion', (
+  testWidgets('redirect risk uses a dialog and never retries without consent', (
     tester,
   ) async {
     await show(tester);
-    for (final message in const ['运行模式已切换。', '运行模式已确认。', '模式已保存，下次启动生效。']) {
-      controller.state = AppSnapshot(
-        phase: 'STOPPED',
-        resultMessage: message,
-        resultSuccess: true,
-      );
-      controller.changed();
-      await tester.pump();
-      expect(find.text(message), findsNothing);
-    }
-    const partial = '模式已保存供下次启动使用；本次切换未确认。';
+    final rect = tester.getRect(power);
+    controller.lastCommand = {
+      'action': 'import',
+      'source': 'https://example.test',
+    };
     controller.state = const AppSnapshot(
       phase: 'STOPPED',
-      resultMessage: partial,
+      resultId: 'redirect',
+      resultMessage: '来源重定向到 HTTP',
+      needsHttpConfirmation: true,
     );
     controller.changed();
     await tester.pump();
-    expect(find.text(partial), findsOneWidget);
-    controller.state = const AppSnapshot(
-      phase: 'STOPPED',
-      resultMessage: '运行模式已切换。',
-      resultSuccess: true,
-    );
-    controller.changed();
-    await tester.pump();
-    await tester.tap(find.text('配置管理'));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('允许此次明文重定向？'), findsOneWidget);
+    expect(tester.getRect(power), rect);
+    expect(controller.commands, isEmpty);
+    await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
-    expect(find.text('运行模式已切换。'), findsOneWidget);
+    expect(controller.commands, isEmpty);
+    expect(tester.getRect(power), rect);
+    await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('configuration management retains successful toggle feedback', (
-    tester,
-  ) async {
-    controller.state = const AppSnapshot(
-      phase: 'STOPPED',
-      resultSuccess: true,
-      resultMessage: '接管已停止。',
-    );
-    await show(tester);
-    expect(find.text('接管已停止。'), findsNothing);
-    await tester.tap(find.text('配置管理'));
-    await tester.pumpAndSettle();
-    expect(find.text('接管已停止。'), findsOneWidget);
-  });
+  testWidgets(
+    'configuration page does not replay an earlier successful toggle',
+    (tester) async {
+      controller.state = const AppSnapshot(
+        phase: 'STOPPED',
+        resultId: 'old',
+        resultSuccess: true,
+        resultMessage: '接管已停止。',
+      );
+      await show(tester);
+      await tester.tap(find.text('配置管理'));
+      await tester.pumpAndSettle();
+      expect(find.text('接管已停止。'), findsNothing);
+    },
+  );
 
   testWidgets('startup failure stays stopped; cleanup failure stays unknown', (
     tester,
@@ -409,7 +387,11 @@ void main() {
     );
     await show(tester);
     expect(find.text('接管已关闭'), findsWidgets);
+    await tester.tap(find.text('状态异常 · 查看详情').hitTestable().first);
+    await tester.pumpAndSettle();
     expect(find.text('配置解析失败，接管未启动。'), findsOneWidget);
+    await tester.tap(find.text('关闭'));
+    await tester.pumpAndSettle();
     expect(tester.widget<FilledButton>(power).onPressed, isNotNull);
     controller.state = const AppSnapshot(error: '资源清理未确认。');
     controller.changed();
@@ -417,7 +399,11 @@ void main() {
     await tester.pump(const Duration(milliseconds: 320));
     expect(find.text('状态未确认'), findsWidgets);
     expect(find.text('接管已关闭'), findsNothing);
+    await tester.tap(find.text('状态异常 · 查看详情').hitTestable().first);
+    await tester.pumpAndSettle();
     expect(find.text('资源清理未确认。'), findsOneWidget);
+    await tester.tap(find.text('关闭'));
+    await tester.pumpAndSettle();
     expect(tester.widget<FilledButton>(power).onPressed, isNull);
     expect(controller.commands, isEmpty);
   });
@@ -445,7 +431,10 @@ void main() {
       await tester.tap(find.text('配置管理'));
       await tester.pumpAndSettle();
       expect(find.text('尚未保存配置'), findsNothing);
-      expect(find.text('配置读取失败，不能据此判断是否保存过配置。'), findsOneWidget);
+      expect(find.text('配置 · 未更新'), findsOneWidget);
+      await tester.tap(find.byTooltip('配置读取失败'));
+      await tester.pumpAndSettle();
+      expect(find.text('无法读取已保存配置，原文件未被修改。'), findsOneWidget);
     },
   );
 
@@ -558,7 +547,7 @@ void main() {
         expect(find.textContaining('token=private'), findsNothing);
         await tester.drag(find.byType(CustomScrollView), const Offset(0, -600));
         await tester.pumpAndSettle();
-        expect(find.text('查看连接').hitTestable(), findsOneWidget);
+        expect(find.text('最近连接').hitTestable(), findsOneWidget);
         expect(tester.takeException(), isNull);
       });
     }

@@ -21,6 +21,7 @@ class AppController extends ChangeNotifier {
   String? commandError;
   bool dispatching = false;
   Map<String, Object?>? lastCommand;
+  bool lastCommandAutomatic = false;
   bool _refreshing = false;
   bool _refreshAgain = false;
   bool _disposed = false;
@@ -154,8 +155,12 @@ class AppController extends ChangeNotifier {
     return ConfigStore(Directory(paths['configs'] as String)).read();
   }
 
-  Future<String?> submit(Map<String, Object?> command) async {
+  Future<String?> submit(
+    Map<String, Object?> command, {
+    bool automatic = false,
+  }) async {
     if (_disposed || busy) return null;
+    lastCommandAutomatic = automatic;
     String? operationId;
     lastCommand = Map.of(command);
     dispatching = true;

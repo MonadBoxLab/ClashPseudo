@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/app_controller.dart';
 import '../../../app/app_theme.dart';
+import '../../../app/app_legal.dart';
 import '../../../app/widgets/operation_feedback.dart';
 import 'power_ripples.dart';
 import 'status_text.dart';
@@ -46,9 +47,22 @@ class StatusHero extends StatelessWidget {
             'STOPPING' => '正在停止',
             _ => '状态未确认',
           };
+    final issues =
+        [
+              controller.error,
+              state.modeError,
+              state.error,
+              if (!state.resultSuccess) state.resultMessage,
+            ]
+            .whereType<String>()
+            .where((s) => s.trim().isNotEmpty)
+            .toSet()
+            .join('\n\n');
     final subtitle =
         state.operation ??
-        (controller.loading
+        (issues.isNotEmpty
+            ? '状态异常 · 查看详情'
+            : controller.loading
             ? '状态确认前，暂不可启停'
             : controller.platformError != null
             ? '暂时无法获取状态，正在自动尝试'
@@ -138,32 +152,51 @@ class StatusHero extends StatelessWidget {
                       ),
                     ),
                   ),
+                  IconButton(
+                    tooltip: '关于与许可',
+                    onPressed: () => showAppLegal(context),
+                    icon: Icon(Icons.info_outline, color: ink),
+                  ),
                 ],
               ),
               const SizedBox(height: 20),
-              TextButton(
-                onPressed: onManage,
-                style: TextButton.styleFrom(
-                  foregroundColor: ink,
-                  padding: EdgeInsets.zero,
-                  minimumSize: const Size(0, 48),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: showImport
+                          ? (controller.canEdit ? onImport : null)
+                          : onManage,
+                      style: TextButton.styleFrom(
+                        foregroundColor: ink,
+                        padding: EdgeInsets.zero,
+                        alignment: Alignment.centerLeft,
+                        minimumSize: const Size(0, 48),
+                      ),
                       child: Text(
-                        configName,
+                        showImport ? '导入配置' : configName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 14),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    const Text('配置管理', style: TextStyle(fontSize: 12)),
-                    const SizedBox(width: 4),
-                    const Icon(Icons.chevron_right, size: 16),
-                  ],
-                ),
+                  ),
+                  TextButton(
+                    onPressed: onManage,
+                    style: TextButton.styleFrom(
+                      foregroundColor: ink,
+                      minimumSize: const Size(0, 48),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('配置管理', style: TextStyle(fontSize: 12)),
+                        SizedBox(width: 4),
+                        Icon(Icons.chevron_right, size: 16),
+                      ],
+                    ),
+                  ),
+                ],
               ),
               StatusText(
                 identity,
@@ -251,19 +284,41 @@ class StatusHero extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 6),
-                      StatusText(
-                        subtitle,
-                        style: TextStyle(color: ink, fontSize: 12),
-                      ),
-                      TextButton.icon(
-                        key: const ValueKey('mode-trigger'),
-                        onPressed: controller.canChangeMode ? onMode : null,
-                        style: TextButton.styleFrom(
-                          foregroundColor: ink,
-                          disabledForegroundColor: ink.withValues(alpha: .65),
+                      InkWell(
+                        onTap: issues.isEmpty
+                            ? null
+                            : () => showOperationMessage(
+                                context,
+                                issues,
+                                title: '接管状态',
+                              ),
+                        child: StatusText(
+                          subtitle,
+                          style: TextStyle(color: ink, fontSize: 12),
                         ),
-                        icon: const Icon(Icons.expand_more, size: 16),
-                        label: StatusText(
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  key: const ValueKey('mode-trigger'),
+                  onPressed: controller.canChangeMode ? onMode : null,
+                  style: TextButton.styleFrom(
+                    foregroundColor: ink,
+                    disabledForegroundColor: ink.withValues(alpha: .65),
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(48, 48),
+                    alignment: Alignment.centerLeft,
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.expand_more, size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: StatusText(
                           controller.loading || !state.confirmed
                               ? '运行模式 · 未确认'
                               : running
@@ -274,31 +329,12 @@ class StatusHero extends StatelessWidget {
                               ? '${controller.collection.mode.label}模式 · 未运行'
                               : '保存模式未确认',
                           style: const TextStyle(fontSize: 12),
+                          textAlign: TextAlign.start,
                         ),
                       ),
-                      if (state.modeError != null)
-                        Text(
-                          state.modeError!,
-                          style: TextStyle(color: ink, fontSize: 12),
-                        ),
-                      if (showImport) ...[
-                        const SizedBox(height: 14),
-                        TextButton.icon(
-                          onPressed: controller.canEdit ? onImport : null,
-                          icon: const Icon(Icons.add_link, size: 18),
-                          label: const Text('导入配置'),
-                        ),
-                      ],
                     ],
                   ),
                 ),
-              ),
-              OperationFeedback(
-                controller: controller,
-                showOperation: false,
-                hideToggleSuccess: true,
-                hideModeSuccess: true,
-                foregroundColor: ink,
               ),
             ],
           ),

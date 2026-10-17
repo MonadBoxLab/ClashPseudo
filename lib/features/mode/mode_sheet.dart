@@ -77,6 +77,12 @@ class _ModeSheetState extends State<ModeSheet> {
     final colors = theme.colorScheme;
     final palette = ModePalette(theme.brightness == Brightness.dark);
     final enabled = controller.canChangeMode && _target == null;
+    final differs =
+        state.running &&
+        state.mode != null &&
+        controller.configsCurrent &&
+        state.mode != controller.collection.mode;
+    final warning = state.modeError != null || differs;
     Color categoryColor(TunnelMode mode) => switch (mode) {
       TunnelMode.rule => palette.rule,
       TunnelMode.global => palette.global,
@@ -94,28 +100,47 @@ class _ModeSheetState extends State<ModeSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              '运行模式',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w600,
+            ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 48),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '运行模式',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  if (warning)
+                    IconButton(
+                      tooltip: state.modeError != null
+                          ? '模式读取失败'
+                          : '保存与实际模式不一致',
+                      onPressed: () => showOperationMessage(
+                        context,
+                        [
+                          if (controller.configsCurrent)
+                            '已保存：${controller.collection.mode.label}；供下次启动使用。',
+                          if (differs) '实际运行：${state.mode!.label}；保存与实际模式不一致。',
+                          if (state.modeError != null) state.modeError!,
+                        ].join('\n\n'),
+                        title: '运行模式',
+                        error: warning,
+                      ),
+                      icon: const Icon(Icons.error_outline),
+                    ),
+                ],
               ),
             ),
             const SizedBox(height: 8),
             Text(
-              state.running
-                  ? '切换不主动断开已有连接，新连接按所选模式处理。'
-                  : '仅保存选择，下次启动生效，不会自动启动接管。',
+              '选择新连接使用的模式；未接管时仅保存选择。',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: colors.onSurfaceVariant,
                 height: 1.45,
               ),
             ),
-            if (state.running &&
-                controller.configsCurrent &&
-                state.mode != controller.collection.mode) ...[
-              const SizedBox(height: 8),
-              Text('已保存：${controller.collection.mode.label}；供下次启动使用。'),
-            ],
             const SizedBox(height: 20),
             for (final mode in TunnelMode.values)
               Padding(
@@ -131,10 +156,7 @@ class _ModeSheetState extends State<ModeSheet> {
                         borderRadius: BorderRadius.circular(16),
                       ),
                       backgroundColor: current == mode
-                          ? Color.alphaBlend(
-                              colors.primary.withValues(alpha: .04),
-                              colors.surface,
-                            )
+                          ? colors.surfaceContainer
                           : colors.surface,
                       foregroundColor: colors.onSurface,
                       disabledForegroundColor: colors.onSurface.withValues(
@@ -179,26 +201,21 @@ class _ModeSheetState extends State<ModeSheet> {
                             ],
                           ),
                         ),
-                        if (current == mode) ...[
-                          const SizedBox(width: 12),
-                          Icon(Icons.check, size: 20, color: colors.primary),
-                        ],
+                        const SizedBox(width: 12),
+                        SizedBox.square(
+                          dimension: 20,
+                          child: current == mode
+                              ? Icon(
+                                  Icons.check,
+                                  size: 20,
+                                  color: colors.primary,
+                                )
+                              : null,
+                        ),
                       ],
                     ),
                   ),
                 ),
-              ),
-            if (_target != null)
-              Semantics(
-                liveRegion: true,
-                child: Text('正在确认${_target!.label}模式…'),
-              ),
-            if (state.modeError != null) Text(state.modeError!),
-            if (_target == null)
-              OperationFeedback(
-                controller: controller,
-                hideModeSuccess: true,
-                hideToggleSuccess: true,
               ),
           ],
         ),

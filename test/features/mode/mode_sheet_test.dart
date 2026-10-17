@@ -18,7 +18,12 @@ class ModeController extends AppController {
   }
   final commands = <Map<String, Object?>>[];
   @override
-  Future<String?> submit(Map<String, Object?> command) async {
+  Future<String?> submit(
+    Map<String, Object?> command, {
+    bool automatic = false,
+  }) async {
+    lastCommandAutomatic = automatic;
+    lastCommand = Map.of(command);
     commands.add(command);
     return 'operation-${commands.length}';
   }
@@ -45,7 +50,10 @@ void main() {
           ),
           child: child!,
         ),
-        home: OverviewPage(controller: controller),
+        home: OperationFeedback(
+          controller: controller,
+          child: OverviewPage(controller: controller),
+        ),
       ),
     );
   }
@@ -57,74 +65,97 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
   }
 
-  testWidgets('mode success is redundant but failures and risks remain', (
-    tester,
-  ) async {
-    await show(tester);
-    await open(tester);
-    final feedback = find.descendant(
-      of: find.byType(ModeSheet),
-      matching: find.byType(OperationFeedback),
+  for (final width in [320.0, 390.0, 440.0]) {
+    for (final scale in [1.0, 1.3, 2.0]) {
+      testWidgets(
+        'mode explanations have uniform rows width=$width scale=$scale',
+        (tester) async {
+          tester.view.physicalSize = Size(width, 844);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          await show(tester, scale: scale);
+          await open(tester);
+          final rows = [
+            for (final mode in TunnelMode.values)
+              tester.getSize(find.byKey(ValueKey('mode-${mode.name}'))).height,
+          ];
+          final descriptions = [
+            for (final mode in TunnelMode.values)
+              tester.getSize(find.text(mode.description)).height,
+          ];
+          expect(rows.toSet(), hasLength(1));
+          expect(descriptions.toSet(), hasLength(1));
+          expect(tester.takeException(), isNull);
+          expect(find.byTooltip('模式状态与说明'), findsNothing);
+        },
+      );
+    }
+  }
+
+  for (final scale in [1.0, 2.0]) {
+    testWidgets(
+      'mode geometry stays fixed through waiting selection and errors scale=$scale',
+      (tester) async {
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        await show(tester, scale: scale);
+        await open(tester);
+        final sheet = find.byType(BottomSheet);
+        final buttons = [
+          for (final mode in TunnelMode.values)
+            find.byKey(ValueKey('mode-${mode.name}')),
+        ];
+        final rect = tester.getRect(sheet);
+        final rows = [for (final button in buttons) tester.getRect(button)];
+        await tester.ensureVisible(buttons[1]);
+        final scrolled = [for (final button in buttons) tester.getRect(button)];
+        await tester.tap(buttons[1]);
+        for (final milliseconds in [0, 16, 80, 180]) {
+          await tester.pump(Duration(milliseconds: milliseconds));
+          expect(tester.getRect(sheet), rect);
+          expect([
+            for (final button in buttons) tester.getRect(button),
+          ], scrolled);
+        }
+        expect(find.text('正在确认全局模式…'), findsNothing);
+        controller.collection = ConfigCollection(
+          entries: [],
+          mode: TunnelMode.global,
+        );
+        controller.state = const AppSnapshot(
+          phase: 'STOPPED',
+          operation: '正在保存模式',
+        );
+        controller.changed();
+        await tester.pump();
+        expect(tester.getRect(sheet), rect);
+        expect([
+          for (final button in buttons) tester.getSize(button),
+        ], rows.map((r) => r.size).toList());
+        controller.state = const AppSnapshot(
+          phase: 'STOPPED',
+          resultId: 'failed',
+          resultMessage: '无法保存模式，请重试。',
+        );
+        controller.changed();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(find.byType(AlertDialog), findsOneWidget);
+        expect(find.text('无法保存模式，请重试。'), findsOneWidget);
+        expect(tester.getRect(sheet), rect);
+        await tester.tap(find.text('关闭'));
+        await tester.pumpAndSettle();
+        expect(tester.getRect(sheet), rect);
+        expect([
+          for (final button in buttons) tester.getRect(button),
+        ], scrolled);
+        await tester.pumpWidget(const SizedBox());
+      },
     );
-    for (final message in const [
-      '运行模式已切换。',
-      '运行模式已确认。',
-      '模式已保存，下次启动生效。',
-      '接管已启动。',
-      '接管已停止。',
-    ]) {
-      controller.state = AppSnapshot(
-        phase: 'STOPPED',
-        resultSuccess: true,
-        resultMessage: message,
-      );
-      controller.changed();
-      await tester.pump();
-      expect(find.text(message), findsNothing);
-      expect(tester.getSize(feedback).height, 0);
-      expect(find.byIcon(Icons.check), findsOneWidget);
-    }
-    for (final state in const [
-      AppSnapshot(phase: 'STOPPED', operation: '正在保存模式'),
-      AppSnapshot(phase: 'STOPPED', resultMessage: '模式已保存供下次启动使用；本次切换未确认。'),
-      AppSnapshot(phase: 'STOPPED', error: '平台状态异常'),
-      AppSnapshot(
-        phase: 'STOPPED',
-        resultMessage: '接管已停止。',
-        resultSuccess: false,
-      ),
-      AppSnapshot(
-        phase: 'STOPPED',
-        resultMessage: '接管已启动。',
-        resultSuccess: false,
-      ),
-      AppSnapshot(
-        phase: 'STOPPED',
-        resultMessage: '运行模式已切换。',
-        resultSuccess: false,
-      ),
-      AppSnapshot(
-        phase: 'STOPPED',
-        resultMessage: '运行模式已切换。',
-        resultSuccess: true,
-        needsHttpConfirmation: true,
-      ),
-    ]) {
-      controller.state = state;
-      controller.changed();
-      await tester.pump();
-      expect(
-        find.descendant(
-          of: feedback,
-          matching: find.text(
-            state.operation ?? state.resultMessage ?? state.error!,
-          ),
-        ),
-        findsOneWidget,
-      );
-    }
-    await tester.pumpWidget(const SizedBox());
-  });
+  }
 
   testWidgets('stopped preselection waits for saved result then closes', (
     tester,
@@ -134,7 +165,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('mode-global')));
     await tester.pump();
     expect(controller.commands.single, {'action': 'setMode', 'mode': 'global'});
-    expect(find.text('正在确认全局模式…'), findsOneWidget);
+    expect(find.text('正在确认全局模式…'), findsNothing);
     expect(controller.collection.mode, TunnelMode.rule);
     controller.collection = ConfigCollection(
       entries: [],
@@ -181,7 +212,7 @@ void main() {
       );
       controller.changed();
       await tester.pump();
-      expect(find.text('已保存：全局；供下次启动使用。'), findsOneWidget);
+      expect(find.text('已保存：全局；供下次启动使用。'), findsNothing);
       expect(find.byType(ModeSheet), findsOneWidget);
       controller.state = const AppSnapshot(
         phase: 'RUNNING',
@@ -224,6 +255,8 @@ void main() {
     await tester.pump();
     expect(find.byType(ModeSheet), findsOneWidget);
     expect(find.text('正在确认直连模式…'), findsNothing);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(AlertDialog), findsOneWidget);
     expect(find.textContaining('本次切换未确认'), findsWidgets);
     expect(
       tester
@@ -314,12 +347,7 @@ void main() {
           );
           expect(
             button.style!.backgroundColor!.resolve({}),
-            mode == TunnelMode.rule
-                ? Color.alphaBlend(
-                    colors.primary.withValues(alpha: .04),
-                    colors.surface,
-                  )
-                : colors.surface,
+            mode == TunnelMode.rule ? colors.surfaceContainer : colors.surface,
           );
           expect(
             tester.widget<Text>(find.text(mode.description)).style!.color,

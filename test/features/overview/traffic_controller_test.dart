@@ -205,9 +205,9 @@ void main() {
         await tester.pumpWidget(show());
         await tester.pump();
         expect(
-          tester.getSemantics(find.bySemanticsLabel('下载 2.00 KiB/s，查看连接')),
+          tester.getSemantics(find.bySemanticsLabel('下载 2.00 KiB/s，最近连接')),
           matchesSemantics(
-            label: '下载 2.00 KiB/s，查看连接',
+            label: '下载 2.00 KiB/s，最近连接',
             isButton: true,
             hasTapAction: true,
           ),
@@ -218,13 +218,13 @@ void main() {
         expect(find.text('KiB/s'), findsOneWidget);
         expect(find.text('0'), findsOneWidget);
         expect(tester.hasRunningAnimations, isTrue);
-        for (final label in ['下载', '上传', '查看连接']) {
+        for (final label in ['下载', '上传', '最近连接']) {
           await tester.tap(find.text(label));
           await tester.pump();
         }
         expect(opens, 3);
         expect(
-          tester.getSize(find.widgetWithText(TextButton, '查看连接')).height,
+          tester.getSize(find.widgetWithText(TextButton, '最近连接')).height,
           greaterThanOrEqualTo(48),
         );
         await tester.pumpWidget(show(reduced: true, scale: 2));

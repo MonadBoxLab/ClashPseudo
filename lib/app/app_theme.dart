@@ -15,8 +15,23 @@ class AppTheme {
           onPrimary: palette.startInk,
           primaryContainer: palette.accentSoft,
           onPrimaryContainer: palette.accent,
+          secondary: palette.jade,
+          onSecondary: palette.dark ? const Color(0xff00382e) : Colors.white,
+          secondaryContainer: palette.jadeSoft,
+          onSecondaryContainer: palette.jade,
+          tertiary: palette.cobalt,
+          onTertiary: palette.dark ? const Color(0xff102f53) : Colors.white,
+          tertiaryContainer: palette.cobaltSoft,
+          onTertiaryContainer: palette.cobalt,
           surface: palette.surface,
+          surfaceDim: palette.background,
+          surfaceBright: palette.surface,
+          surfaceContainerLowest: palette.background,
+          surfaceContainerLow: palette.surface,
+          surfaceContainer: palette.soft,
+          surfaceContainerHigh: palette.soft,
           surfaceContainerHighest: palette.soft,
+          surfaceTint: Colors.transparent,
           onSurface: palette.ink,
           onSurfaceVariant: palette.muted,
           outlineVariant: palette.line,
@@ -59,7 +74,39 @@ class AppTheme {
           ),
         ),
       ),
-      dialogTheme: DialogThemeData(backgroundColor: palette.surface),
+      dialogTheme: DialogThemeData(
+        backgroundColor: palette.surface,
+        surfaceTintColor: Colors.transparent,
+        titleTextStyle: TextStyle(
+          color: palette.ink,
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
+          height: 1.3,
+        ),
+        contentTextStyle: TextStyle(
+          color: palette.ink,
+          fontSize: 14,
+          height: 1.5,
+        ),
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: palette.surface,
+        surfaceTintColor: Colors.transparent,
+      ),
+      popupMenuTheme: PopupMenuThemeData(
+        color: palette.surface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 3,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        textStyle: TextStyle(color: palette.ink, fontSize: 14),
+      ),
+      menuTheme: MenuThemeData(
+        style: MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(palette.surface),
+          surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+          elevation: const WidgetStatePropertyAll(3),
+        ),
+      ),
       inputDecorationTheme: const InputDecorationTheme(
         border: OutlineInputBorder(),
       ),
@@ -94,10 +141,14 @@ class HomePalette {
   Color get surface => Color(dark ? 0xff222629 : 0xfffffefa);
   Color get soft => Color(dark ? 0xff2d3338 : 0xfff1eee6);
   Color get ink => Color(dark ? 0xffe5e8e6 : 0xff2e302c);
-  Color get muted => Color(dark ? 0xffadb4b9 : 0xff756f63);
+  Color get muted => Color(dark ? 0xffadb4b9 : 0xff706a5f);
   Color get line => Color(dark ? 0xff394046 : 0xffe9e3d8);
   Color get accent => Color(dark ? 0xffedb09a : 0xffaa351f);
   Color get accentSoft => Color(dark ? 0xff42302c : 0xfffff0e5);
+  Color get jade => Color(dark ? 0xff7ed4c7 : 0xff1a7a64);
+  Color get jadeSoft => Color(dark ? 0xff183c35 : 0xffe6f2ec);
+  Color get cobalt => Color(dark ? 0xff9bc4ff : 0xff2858af);
+  Color get cobaltSoft => Color(dark ? 0xff24364e : 0xffeaf0fa);
   Color get error => Color(dark ? 0xfff1a9b7 : 0xffb63148);
   Color get hero => Color(dark ? 0xff281f1e : 0xffbf4029);
   Color get heroHighlight => Color(dark ? 0xff49302a : 0xffc24a2d);

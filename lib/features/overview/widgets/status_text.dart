@@ -68,34 +68,48 @@ class _StatusTextState extends State<StatusText>
             TextAlign.right => Alignment.centerRight,
             _ => Alignment.center,
           };
-          return Stack(
-            alignment: alignment,
-            children: [
-              Opacity(
-                opacity: 0,
-                child: Text(
-                  widget.text.isEmpty ? ' ' : widget.text,
-                  style: widget.style,
-                  textAlign: widget.textAlign,
+          final strut = StrutStyle.fromTextStyle(
+            DefaultTextStyle.of(context).style.merge(widget.style),
+            forceStrutHeight: true,
+          );
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Stack(
+              alignment: alignment,
+              children: [
+                Opacity(
+                  opacity: 0,
+                  child: Text(
+                    widget.text.isEmpty ? ' ' : widget.text,
+                    style: widget.style,
+                    strutStyle: strut,
+                    textAlign: widget.textAlign,
+                    softWrap: false,
+                  ),
                 ),
-              ),
-              Positioned.fill(
-                child: Align(
-                  alignment: alignment,
-                  child: Opacity(
-                    opacity: exiting ? 1 - eased : eased,
-                    child: Transform.translate(
-                      offset: Offset(0, exiting ? -3 * eased : 3 * (1 - eased)),
-                      child: Text(
-                        exiting ? _previous : _target,
-                        style: widget.style,
-                        textAlign: widget.textAlign,
+                Positioned.fill(
+                  child: Align(
+                    alignment: alignment,
+                    child: Opacity(
+                      opacity: exiting ? 1 - eased : eased,
+                      child: Transform.translate(
+                        offset: Offset(
+                          0,
+                          exiting ? -3 * eased : 3 * (1 - eased),
+                        ),
+                        child: Text(
+                          exiting ? _previous : _target,
+                          style: widget.style,
+                          strutStyle: strut,
+                          textAlign: widget.textAlign,
+                          softWrap: false,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           );
         },
       ),

@@ -82,6 +82,29 @@ void main() {
     expect(bridge.commands, [command, command]);
   });
 
+  for (final automatic in [false, true]) {
+    testWidgets('rejected commands retain feedback ownership ($automatic)', (
+      tester,
+    ) async {
+      await controller.refresh();
+      final accepted = Completer<void>();
+      bridge.submitResult = () => accepted.future;
+      const command = {'action': 'prepareStrategies', 'id': 'first'};
+      final pending = controller.submit(command, automatic: automatic);
+      final owner = controller.lastCommand;
+      expect(
+        await controller.submit({'action': 'start'}, automatic: !automatic),
+        isNull,
+      );
+      expect(controller.lastCommand, same(owner));
+      expect(controller.lastCommandAutomatic, automatic);
+      expect(bridge.commands, [command]);
+      accepted.complete();
+      await pending;
+      expect(controller.lastCommandAutomatic, automatic);
+    });
+  }
+
   testWidgets(
     'mode read failure retries without losing running or issuing commands',
     (tester) async {

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../app/widgets/operation_feedback.dart';
 import 'strategy_controller.dart';
 import 'strategy_icon.dart';
 import 'strategy_popup.dart';
@@ -155,8 +154,6 @@ class _StrategiesPageState extends State<StrategiesPage> {
                             ),
                           ),
                         ],
-                        if (state.needsHttpConfirmation)
-                          OperationFeedback(controller: app),
                         if (data != null && data.unrestored.isNotEmpty) ...[
                           const SizedBox(height: 16),
                           Text('原选择未恢复：${data.unrestored.keys.join('、')}'),

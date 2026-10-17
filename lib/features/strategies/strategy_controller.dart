@@ -143,13 +143,14 @@ class StrategyController extends ChangeNotifier {
           core.revision == selected.revision;
       if (_attempted != identity && (!failedHere || _allowRetry)) {
         _attempted = identity;
+        final automatic = !_allowRetry;
         _allowRetry = false;
         unawaited(
           app.submit({
             'action': 'prepareStrategies',
             'id': selected.id,
             'revision': selected.revision,
-          }),
+          }, automatic: automatic),
         );
       }
     }

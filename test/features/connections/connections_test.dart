@@ -79,7 +79,11 @@ class ConnectionAppFake extends AppController {
   }
   final commands = <Map<String, Object?>>[];
   @override
-  Future<String?> submit(Map<String, Object?> command) async {
+  Future<String?> submit(
+    Map<String, Object?> command, {
+    bool automatic = false,
+  }) async {
+    lastCommandAutomatic = automatic;
     commands.add(command);
     return 'close-${commands.length}';
   }

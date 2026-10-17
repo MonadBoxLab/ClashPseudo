@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../app/app_controller.dart';
-import '../../app/widgets/operation_feedback.dart';
 import 'config_entry.dart';
 import 'widgets/confirm_action.dart';
 import 'widgets/import_dialog.dart';
@@ -34,7 +33,6 @@ class ConfigsPage extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.all(20),
               children: [
-                OperationFeedback(controller: controller),
                 if (!controller.configsCurrent)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 24),

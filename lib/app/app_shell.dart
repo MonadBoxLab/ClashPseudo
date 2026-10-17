@@ -4,6 +4,7 @@ import '../features/overview/overview_page.dart';
 import '../features/strategies/strategies_page.dart';
 import '../features/strategies/strategy_controller.dart';
 import 'app_controller.dart';
+import 'widgets/operation_feedback.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key, required this.controller});
@@ -18,35 +19,38 @@ class _AppShellState extends State<AppShell> {
   int index = 0;
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body: IndexedStack(
-      index: index,
-      children: [
-        TickerMode(
-          enabled: index == 0,
-          child: OverviewPage(
-            controller: widget.controller,
-            active: index == 0,
+  Widget build(BuildContext context) => OperationFeedback(
+    controller: widget.controller,
+    child: Scaffold(
+      body: IndexedStack(
+        index: index,
+        children: [
+          TickerMode(
+            enabled: index == 0,
+            child: OverviewPage(
+              controller: widget.controller,
+              active: index == 0,
+            ),
           ),
-        ),
-        StrategiesPage(controller: strategies, active: index == 1),
-      ],
-    ),
-    bottomNavigationBar: NavigationBar(
-      selectedIndex: index,
-      onDestinationSelected: (value) => setState(() => index = value),
-      destinations: const [
-        NavigationDestination(
-          icon: Icon(Icons.home_outlined),
-          selectedIcon: Icon(Icons.home_rounded),
-          label: '总览',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.alt_route_outlined),
-          selectedIcon: Icon(Icons.alt_route_rounded),
-          label: '策略',
-        ),
-      ],
+          StrategiesPage(controller: strategies, active: index == 1),
+        ],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: index,
+        onDestinationSelected: (value) => setState(() => index = value),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home_rounded),
+            label: '总览',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.alt_route_outlined),
+            selectedIcon: Icon(Icons.alt_route_rounded),
+            label: '策略',
+          ),
+        ],
+      ),
     ),
   );
 

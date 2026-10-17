@@ -191,7 +191,7 @@ class _TrafficPanelState extends State<TrafficPanel>
             TextButton(
               style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
               onPressed: widget.onOpen,
-              child: const Text('查看连接'),
+              child: const Text('最近连接'),
             ),
           ],
         ),
@@ -206,18 +206,48 @@ class _TrafficPanelState extends State<TrafficPanel>
               Expanded(child: up),
             ],
           ),
-        const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: Wrap(
-            spacing: 16,
-            runSpacing: 6,
-            alignment: WrapAlignment.spaceBetween,
-            children: [
-              Text(countText, style: Theme.of(context).textTheme.bodySmall),
-              Text(note, style: Theme.of(context).textTheme.bodySmall),
-            ],
-          ),
+        const SizedBox(height: 4),
+        Builder(
+          builder: (context) {
+            final style = Theme.of(context).textTheme.bodySmall!;
+            final scaler = MediaQuery.textScalerOf(context);
+            Widget label(String text, {bool right = false}) =>
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  reverse: right,
+                  child: Text(
+                    text,
+                    softWrap: false,
+                    strutStyle: StrutStyle.fromTextStyle(
+                      style,
+                      height: 1.5,
+                      forceStrutHeight: true,
+                    ),
+                    style: style,
+                  ),
+                );
+            final stackedFooter = widget.width < scaler.scale(12) * 29;
+            if (stackedFooter) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  label(countText),
+                  const SizedBox(height: 4),
+                  label(note),
+                ],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: label(countText)),
+                const SizedBox(width: 12),
+                SizedBox(
+                  width: scaler.scale(12) * 16,
+                  child: label(note, right: true),
+                ),
+              ],
+            );
+          },
         ),
       ],
     );
@@ -234,7 +264,7 @@ class _TrafficPanelState extends State<TrafficPanel>
     return Semantics(
       button: true,
       onTap: widget.onOpen,
-      label: '$label ${rate.value} ${rate.unit}，查看连接',
+      label: '$label ${rate.value} ${rate.unit}，最近连接',
       excludeSemantics: true,
       child: InkWell(
         onTap: widget.onOpen,
@@ -256,28 +286,45 @@ class _TrafficPanelState extends State<TrafficPanel>
                 ],
               ),
               const SizedBox(height: 8),
-              Wrap(
-                crossAxisAlignment: WrapCrossAlignment.end,
-                spacing: 5,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(
-                    rate.value,
-                    style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                      fontFeatures: const [FontFeature.tabularFigures()],
+                  Flexible(
+                    child: SizedBox(
+                      width: MediaQuery.textScalerOf(context).scale(32) * 2.6,
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        reverse: true,
+                        child: Text(
+                          rate.value,
+                          softWrap: false,
+                          style: Theme.of(context).textTheme.headlineLarge
+                              ?.copyWith(
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
+                        ),
+                      ),
                     ),
                   ),
+                  const SizedBox(width: 5),
                   Padding(
                     padding: const EdgeInsets.only(bottom: 5),
-                    child: Text(
-                      rate.unit,
-                      style: Theme.of(context).textTheme.bodySmall,
+                    child: SizedBox(
+                      width: MediaQuery.textScalerOf(context).scale(12) * 3.5,
+                      child: Text(
+                        rate.unit,
+                        softWrap: false,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 8),
               SizedBox(
-                height: 64,
+                height: 48,
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final plot = TrafficPlot(
@@ -285,7 +332,7 @@ class _TrafficPanelState extends State<TrafficPanel>
                       data?.elapsedMs ?? 0,
                       upload,
                     );
-                    final size = Size(constraints.maxWidth, 64);
+                    final size = Size(constraints.maxWidth, 48);
                     return TrafficChart(
                       key: ValueKey((_identity, upload)),
                       plot: plot,

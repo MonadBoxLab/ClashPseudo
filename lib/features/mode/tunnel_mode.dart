@@ -1,7 +1,7 @@
 enum TunnelMode {
-  rule('规则', '按配置中的规则选择连接去向。'),
-  global('全局', '使用配置中的 GLOBAL 策略；不一定经过代理。'),
-  direct('直连', '按直连模式处理连接，不会关闭 VPN 接管。');
+  rule('规则', '按配置规则选择连接去向。'),
+  global('全局', '按全局策略选择连接去向。'),
+  direct('直连', '直接连接目标并保持接管。');
 
   const TunnelMode(this.label, this.description);
 
