@@ -15,7 +15,7 @@ Android 已接入总览、策略与二级配置管理：支持完整配置 URL �
 
 ## 源码与发布
 
-源码与反馈：[MonadBoxLab/ClashPseudo](https://github.com/MonadBoxLab/ClashPseudo)。计划通过 GitHub Releases 分发，Android 可通过 [Obtainium](https://github.com/ImranR98/Obtainium) 跟踪更新。许可事项见 [NOTICE](NOTICE.md)。
+源码与反馈：[MonadBoxLab/ClashPseudo](https://github.com/MonadBoxLab/ClashPseudo)。计划通过 GitHub Releases 分发，Android 可通过 [Obtainium](https://github.com/ImranR98/Obtainium) 跟踪更新。自有代码采用 [GPL-3.0-only](LICENSE)，第三方许可与分发时的对应源码要求见 [NOTICE](NOTICE.md)。
 
 ## 开发
 

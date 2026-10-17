@@ -9,6 +9,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_svg: 2.3.0
+  vector_graphics_compiler: 1.3.2
+  file_selector: 1.1.0
+  re_editor: 0.10.0
 
 dev_dependencies:
   flutter_test:
@@ -17,3 +21,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - LICENSE
+    - third_party/mihomo/LICENSE
+    - third_party/go-notices.txt
+    - third_party/android-notices.txt
+    - third_party/material-icons-notice.txt
