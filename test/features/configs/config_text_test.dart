@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:clash_pseudo/features/configs/config_entry.dart';
-import 'package:clash_pseudo/features/configs/config_text.dart';
+import 'package:clash_pseudo/src/features/configs/config_entry.dart';
+import 'package:clash_pseudo/src/features/configs/config_text.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

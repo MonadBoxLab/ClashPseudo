@@ -1,9 +1,11 @@
-import 'package:clash_pseudo/app/app_theme.dart';
-import 'package:clash_pseudo/features/connections/connections_page.dart';
+import 'package:clash_pseudo/src/app/app_theme.dart';
+import 'package:clash_pseudo/src/features/connections/connections_page.dart';
+import 'package:clash_pseudo/src/model/app_preferences.dart';
 import 'package:flutter/material.dart';
+import 'package:clash_pseudo/src/l10n/app_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'connections_test.dart' as fixtures;
+import 'connection_fakes.dart' as fixtures;
 
 void main() {
   late fixtures.ConnectionBridgeFake bridge;
@@ -18,10 +20,18 @@ void main() {
     WidgetTester tester, {
     bool dark = false,
     double scale = 1,
+    String language = 'zh',
+    BrandColor brand = BrandColor.cinnabar,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
-        theme: dark ? AppTheme.dark : AppTheme.light,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: Locale(language),
+        theme: AppTheme.forBrightness(
+          dark ? Brightness.dark : Brightness.light,
+          brand,
+        ),
         builder: (context, child) => MediaQuery(
           data: MediaQuery.of(context)
               .copyWith(textScaler: TextScaler.linear(scale)),
@@ -34,12 +44,65 @@ void main() {
   }
 
   Future<void> search(WidgetTester tester, String query) async {
-    if (find.byType(SearchBar).evaluate().isEmpty) {
+    if (find.byType(TextField).evaluate().isEmpty) {
       await tester.tap(find.byTooltip('搜索连接'));
       await tester.pumpAndSettle();
     }
     await tester.enterText(find.byType(TextField), query);
     await tester.pump();
+  }
+
+  for (final language in ['en', 'zh']) {
+    for (final scale in [1.0, 1.3, 2.0]) {
+      for (final width in [280.0, 1704.0]) {
+        for (final brand in BrandColor.values) {
+          for (final dark in [false, true]) {
+            testWidgets(
+              'SDK search targets remain accessible $language/$scale/$width/$brand/$dark',
+              (tester) async {
+                tester.view.devicePixelRatio = 1;
+                tester.view.physicalSize = Size(width, 1000);
+                addTearDown(tester.view.reset);
+                bridge.data = fixtures.snapshot([]);
+                await show(
+                  tester,
+                  language: language,
+                  scale: scale,
+                  brand: brand,
+                  dark: dark,
+                );
+                final strings = lookupAppLocalizations(Locale(language));
+                final toolbar = tester.getRect(find.byType(AppBar));
+                final body = tester.getRect(find.text(strings.allConnections));
+                await tester.tap(find.byTooltip(strings.searchConnections));
+                for (final ms in [0, 16, 80, 200]) {
+                  await tester.pump(Duration(milliseconds: ms));
+                  expect(tester.getRect(find.byType(AppBar)), toolbar);
+                  expect(
+                    tester.getRect(find.text(strings.allConnections)),
+                    body,
+                  );
+                  expect(tester.takeException(), isNull);
+                }
+                expect(
+                  tester.getCenter(find.byType(EditableText)).dy,
+                  closeTo(tester.getCenter(find.byType(TextField)).dy, .01),
+                );
+                for (final guideline in [
+                  androidTapTargetGuideline,
+                  labeledTapTargetGuideline,
+                  textContrastGuideline,
+                ]) {
+                  await expectLater(tester, meetsGuideline(guideline));
+                }
+                await tester.pumpWidget(const SizedBox.shrink());
+              },
+              semanticsEnabled: true,
+            );
+          }
+        }
+      }
+    }
   }
 
   testWidgets(
@@ -88,6 +151,38 @@ void main() {
     },
   );
 
+  testWidgets('X reads raw input received before the next frame', (
+    tester,
+  ) async {
+    bridge.data = fixtures.snapshot([]);
+    await show(tester);
+    await search(tester, '');
+    final callback = tester
+        .widget<IconButton>(
+          find.byWidgetPredicate(
+            (widget) => widget is IconButton && widget.tooltip == '退出搜索',
+          ),
+        )
+        .onPressed!;
+    const value = TextEditingValue(
+      text: 'raw',
+      selection: TextSelection.collapsed(offset: 3),
+      composing: TextRange(start: 0, end: 3),
+    );
+    tester.testTextInput.updateEditingValue(value);
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.value,
+      value,
+    );
+    callback();
+    await tester.pump();
+    expect(find.byType(TextField), findsOneWidget);
+    final field = tester.widget<TextField>(find.byType(TextField));
+    expect(field.controller!.text, isEmpty);
+    expect(field.focusNode!.hasFocus, isTrue);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('IME composing text is not normalized in the editor', (
     tester,
   ) async {
@@ -101,7 +196,7 @@ void main() {
     );
     tester.testTextInput.updateEditingValue(value);
     await tester.pump();
-    final input = tester.widget<SearchBar>(find.byType(SearchBar));
+    final input = tester.widget<TextField>(find.byType(TextField));
     expect(input.controller!.value, value);
     expect(find.text('中文🌐.test'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
@@ -123,7 +218,7 @@ void main() {
     expect(find.byIcon(Icons.link_off_rounded), findsOneWidget);
     expect(find.byIcon(Icons.radio_button_checked_rounded), findsNothing);
     expect(find.byIcon(Icons.radio_button_unchecked_rounded), findsNothing);
-    expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.check), findsOneWidget);
     await tester.tap(find.text('不活跃'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('筛选命中规则'));
@@ -134,7 +229,7 @@ void main() {
     expect(find.text('active.fixture.test'), findsNothing);
     expect(find.text('match.fixture.test'), findsNothing);
     expect(
-      tester.widget<SearchBar>(find.byType(SearchBar)).focusNode!.hasFocus,
+      tester.widget<TextField>(find.byType(TextField)).focusNode!.hasFocus,
       isFalse,
     );
     bridge.data = fixtures.snapshot([
@@ -148,6 +243,8 @@ void main() {
     expect(find.text('active-new.fixture.test'), findsNothing);
     expect(find.byTooltip('已暂停刷新'), findsNothing);
     expect(find.text('已暂停刷新'), findsNothing);
+    await tester.tap(find.byTooltip('清除搜索'));
+    await tester.pump();
     await tester.tap(find.byTooltip('退出搜索'));
     await tester.pumpAndSettle();
     expect(find.text('不活跃'), findsOneWidget);
@@ -172,7 +269,7 @@ void main() {
     expect(find.byIcon(Icons.link_off_rounded), findsOneWidget);
     expect(find.byIcon(Icons.radio_button_checked_rounded), findsNothing);
     expect(find.byIcon(Icons.radio_button_unchecked_rounded), findsNothing);
-    expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.check), findsOneWidget);
     await tester.tap(find.text('不活跃'));
     await tester.pumpAndSettle();
     final list = tester.getRect(find.byType(CustomScrollView));
@@ -192,23 +289,33 @@ void main() {
     final clearRect = tester.getRect(clear);
     await tester.tap(clear);
     await tester.pumpAndSettle();
-    final bar = tester.widget<SearchBar>(find.byType(SearchBar));
+    final bar = tester.widget<TextField>(find.byType(TextField));
     expect(bar.controller!.text, isEmpty);
     expect(bar.focusNode!.hasFocus, isTrue);
     expect(find.text('不活跃'), findsOneWidget);
     expect(find.text('inactive-new.fixture.test'), findsOneWidget);
     expect(find.text('inactive.fixture.test'), findsNothing);
     expect(find.text('active.fixture.test'), findsNothing);
-    expect(tester.getRect(clear), clearRect);
+    final exit = find.byWidgetPredicate(
+      (widget) => widget is IconButton && widget.tooltip == '退出搜索',
+    );
+    expect(find.byTooltip('清除搜索'), findsNothing);
+    expect(tester.getRect(exit), clearRect);
     expect(tester.getRect(find.byType(CustomScrollView)), list);
-    expect(tester.widget<IconButton>(clear).onPressed, isNull);
+    expect(tester.widget<IconButton>(exit).onPressed, isNotNull);
     await search(tester, '   ');
     expect(tester.widget<IconButton>(clear).onPressed, isNotNull);
     await tester.tap(clear);
     await tester.pump();
     expect(bar.controller!.text, isEmpty);
-    await tester.tap(find.byTooltip('退出搜索'));
+    expect(bar.focusNode!.hasFocus, isTrue);
+    expect(tester.getRect(exit), clearRect);
+    expect(find.byIcon(Icons.arrow_back), findsNothing);
+    await tester.tap(exit);
     await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsNothing);
+    expect(find.text('最近连接'), findsOneWidget);
+    expect(bar.focusNode!.hasFocus, isFalse);
     expect(find.byTooltip('继续刷新'), findsNothing);
     expect(find.byTooltip('清除搜索'), findsNothing);
     await tester.pumpWidget(const SizedBox());
@@ -241,11 +348,11 @@ void main() {
       tester.view.viewInsets = const FakeViewPadding(bottom: 200);
       addTearDown(tester.view.resetViewInsets);
       await tester.pump();
-      await Navigator.of(tester.element(find.byType(SearchBar))).maybePop();
+      await Navigator.of(tester.element(find.byType(TextField))).maybePop();
       await tester.pump();
-      expect(find.byType(SearchBar), findsOneWidget);
+      expect(find.byType(TextField), findsOneWidget);
       expect(
-        tester.widget<SearchBar>(find.byType(SearchBar)).focusNode!.hasFocus,
+        tester.widget<TextField>(find.byType(TextField)).focusNode!.hasFocus,
         isFalse,
       );
       tester.view.resetViewInsets();
@@ -255,9 +362,9 @@ void main() {
       await tester.pump();
       expect(find.text('刷新失败，正在重试'), findsOneWidget);
       expect(find.text('没有匹配的连接'), findsNothing);
-      await Navigator.of(tester.element(find.byType(SearchBar))).maybePop();
+      await Navigator.of(tester.element(find.byType(TextField))).maybePop();
       await tester.pumpAndSettle();
-      expect(find.byType(SearchBar), findsNothing);
+      expect(find.byType(TextField), findsNothing);
       await tester.pumpWidget(const SizedBox());
     },
   );
@@ -354,7 +461,7 @@ void main() {
           }
           expect(
             tester
-                .widget<SearchBar>(find.byType(SearchBar))
+                .widget<TextField>(find.byType(TextField))
                 .focusNode!
                 .hasFocus,
             isTrue,
@@ -400,18 +507,24 @@ void main() {
       final position = tester.getTopLeft(find.text(text));
       await tester.tap(find.text(text));
       await tester.pumpAndSettle();
-      await tester.pageBack();
+      await tester.tap(find.byType(BackButton).last);
       await tester.pumpAndSettle();
       expect(tester.getTopLeft(find.text(text)), position);
-      final bar = tester.widget<SearchBar>(find.byType(SearchBar));
+      final bar = tester.widget<TextField>(find.byType(TextField));
       expect(bar.controller!.text, ' FIXTURE.TEST ');
       expect(bar.focusNode!.hasFocus, isFalse);
       await search(tester, '1499');
       expect(find.text('1499.fixture.test'), findsOneWidget);
       expect(scroll.offset, 0);
-      await Navigator.of(tester.element(find.byType(SearchBar))).maybePop();
+      await Navigator.of(tester.element(find.byType(TextField))).maybePop();
       await tester.pumpAndSettle();
-      expect(find.byType(SearchBar), findsNothing);
+      final input = tester.widget<TextField>(find.byType(TextField));
+      expect(input.controller!.text, '1499');
+      expect(input.focusNode!.hasFocus, isFalse);
+      expect(scroll.offset, 0);
+      await Navigator.of(tester.element(find.byType(TextField))).maybePop();
+      await tester.pumpAndSettle();
+      expect(find.byType(TextField), findsNothing);
       expect(find.byTooltip('搜索连接'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
     },

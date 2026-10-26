@@ -1,65 +1,16 @@
+import 'package:clash_pseudo/src/model/app_snapshot.dart';
+
 import 'dart:async';
 
-import 'package:clash_pseudo/app/app_controller.dart';
-import 'package:clash_pseudo/app/app_theme.dart';
-import 'package:clash_pseudo/features/overview/traffic_controller.dart';
-import 'package:clash_pseudo/features/overview/traffic_window.dart';
-import 'package:clash_pseudo/features/overview/widgets/traffic_panel.dart';
-import 'package:clash_pseudo/features/strategies/strategy_snapshot.dart';
-import 'package:clash_pseudo/platform/app_bridge.dart';
+import 'package:clash_pseudo/src/app/app_theme.dart';
+import 'package:clash_pseudo/src/features/overview/traffic_controller.dart';
+import 'package:clash_pseudo/src/features/overview/traffic_window.dart';
+import 'package:clash_pseudo/src/features/overview/widgets/traffic_panel.dart';
+import 'package:clash_pseudo/src/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-const core = CoreSnapshot(
-  generation: 7,
-  phase: 'READY',
-  purpose: 'VPN',
-  configId: 'one',
-  revision: 1,
-);
-TrafficSnapshot data({int now = 1000, int generation = 7}) =>
-    TrafficSnapshot.fromMap({
-      'generation': generation,
-      'configId': 'one',
-      'revision': 1,
-      'sessionGeneration': 1,
-      'phase': 'RUNNING',
-      'fresh': true,
-      'failed': false,
-      'elapsedMs': now,
-      'sampledAt': now,
-      'upload': 0,
-      'download': 2048,
-      'activeCount': 2000,
-      'points': [
-        {'elapsedMs': now - 1000, 'upload': 0, 'download': 1024},
-        {'elapsedMs': now, 'upload': 0, 'download': 2048},
-      ],
-    });
-
-class TrafficBridge extends AppBridge {
-  int reads = 0;
-  Completer<TrafficSnapshot>? pending;
-  TrafficSnapshot value = data();
-  bool fail = false;
-  @override
-  Future<TrafficSnapshot> traffic() {
-    reads++;
-    if (fail) return Future.error(StateError('failed'));
-    return pending?.future ?? Future.value(value);
-  }
-}
-
-class TrafficApp extends AppController {
-  TrafficApp(super.platform) {
-    loading = false;
-    configsLoaded = true;
-    state = const AppSnapshot(phase: 'RUNNING', generation: 1, core: core);
-  }
-  @override
-  Future<void> refresh() async {}
-  void changed() => notifyListeners();
-}
+import 'traffic_fakes.dart';
 
 class TestClock implements Stopwatch {
   @override
@@ -72,7 +23,171 @@ class TestClock implements Stopwatch {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class MemoryBridge extends TrafficBridge {
+  int memoryReads = 0;
+  bool memoryFails = false;
+  Completer<Map<String, dynamic>>? memoryPending;
+  int? rss = 123456789;
+  bool memoryValid = true;
+  int? sampledAt;
+
+  @override
+  Future<Map<String, dynamic>> processMemory() {
+    memoryReads++;
+    if (memoryFails) return Future.error(StateError('unavailable'));
+    return memoryPending?.future ??
+        Future.value({
+          'processRssBytes': rss,
+          'sampledAt': sampledAt ?? DateTime.now().millisecondsSinceEpoch,
+          'valid': memoryValid,
+          if (!memoryValid) 'error': 'unavailable',
+        });
+  }
+}
+
 void main() {
+  testWidgets(
+    'RSS reads only while overview foreground visible, including VPN stopped',
+    (tester) async {
+      final bridge = MemoryBridge();
+      final app = TrafficApp(bridge)
+        ..state = const AppSnapshot(phase: 'STOPPED');
+      final view = TrafficController(app);
+      await tester.pump(const Duration(seconds: 2));
+      expect(bridge.memoryReads, 0);
+      view.setVisible(true);
+      await tester.pump();
+      expect(view.processRssBytes, 123456789);
+      expect(bridge.reads, 0);
+      expect(bridge.memoryReads, 1);
+      await tester.pump(const Duration(seconds: 1));
+      expect(bridge.memoryReads, 2);
+      app.setForeground(false);
+      await tester.pump(const Duration(seconds: 10));
+      expect(bridge.memoryReads, 2);
+      expect(view.processRssBytes, isNull);
+      app.setForeground(true);
+      await tester.pump();
+      expect(bridge.memoryReads, 3);
+      view.setVisible(false);
+      await tester.pump(const Duration(seconds: 10));
+      expect(bridge.memoryReads, 3);
+      expect(bridge.reads, 0);
+      view.dispose();
+      app.dispose();
+    },
+  );
+
+  testWidgets(
+    'RSS single flight survives visibility changes and discards a late hidden sample',
+    (tester) async {
+      final bridge = MemoryBridge()
+        ..memoryPending = Completer<Map<String, dynamic>>();
+      final app = TrafficApp(bridge);
+      final view = TrafficController(app)..setVisible(true);
+      view.setVisible(false);
+      view.setVisible(true);
+      await tester.pump(const Duration(seconds: 20));
+      expect(bridge.memoryReads, 1);
+      expect(view.processRssBytes, isNull);
+      final old = bridge.memoryPending!;
+      bridge.memoryPending = Completer<Map<String, dynamic>>();
+      old.complete({
+        'processRssBytes': 999,
+        'sampledAt': DateTime.now().millisecondsSinceEpoch,
+        'valid': true,
+      });
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(view.processRssBytes, isNull);
+      expect(bridge.memoryReads, 2);
+      view.dispose();
+      bridge.memoryPending!.complete({
+        'processRssBytes': 888,
+        'sampledAt': DateTime.now().millisecondsSinceEpoch,
+        'valid': true,
+      });
+      await tester.pump();
+      app.dispose();
+    },
+  );
+
+  testWidgets(
+    'RSS failure is unknown not zero and traffic remains independently valid',
+    (tester) async {
+      final bridge = MemoryBridge();
+      final app = TrafficApp(bridge);
+      final view = TrafficController(app)..setVisible(true);
+      await tester.pump();
+      expect(view.processRssBytes, 123456789);
+      bridge.memoryFails = true;
+      await tester.pump(const Duration(seconds: 1));
+      expect(view.processRssBytes, isNull);
+      expect(view.memoryUnavailable, isTrue);
+      expect(view.data!.download, 2048);
+      bridge.memoryFails = false;
+      bridge.fail = true;
+      bridge.rss = 0;
+      await tester.pump(const Duration(seconds: 1));
+      expect(view.processRssBytes, 0);
+      expect(view.memoryUnavailable, isFalse);
+      expect(view.error, isNotNull);
+      view.dispose();
+      app.dispose();
+    },
+  );
+
+  testWidgets('RSS validity, timestamp and bytes are all required', (
+    tester,
+  ) async {
+    for (final invalid in ['null', 'negative', 'invalid', 'old', 'future']) {
+      final bridge = MemoryBridge();
+      switch (invalid) {
+        case 'null':
+          bridge.rss = null;
+        case 'negative':
+          bridge.rss = -1;
+        case 'invalid':
+          bridge.memoryValid = false;
+        case 'old':
+          bridge.sampledAt = DateTime.now().millisecondsSinceEpoch - 6000;
+        case 'future':
+          bridge.sampledAt = DateTime.now().millisecondsSinceEpoch + 6000;
+      }
+      final app = TrafficApp(bridge);
+      final view = TrafficController(app)..setVisible(true);
+      await tester.pump();
+      expect(view.processRssBytes, isNull, reason: invalid);
+      expect(view.memoryUnavailable, isTrue, reason: invalid);
+      view.dispose();
+      app.dispose();
+    }
+  });
+
+  testWidgets(
+    'RSS ages to unknown while the next native read remains pending',
+    (tester) async {
+      final bridge = MemoryBridge();
+      final app = TrafficApp(bridge);
+      final view = TrafficController(app)..setVisible(true);
+      await tester.pump();
+      bridge.memoryPending = Completer<Map<String, dynamic>>();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump(const Duration(milliseconds: 4001));
+      expect(view.processRssBytes, isNull);
+      expect(view.memoryUnavailable, isTrue);
+      expect(bridge.memoryReads, 2);
+      view.dispose();
+      bridge.memoryPending!.complete({
+        'processRssBytes': 1,
+        'sampledAt': DateTime.now().millisecondsSinceEpoch,
+        'valid': true,
+      });
+      await tester.pump();
+      app.dispose();
+    },
+  );
+
   testWidgets('visible UI queries only, returning reads existing window', (
     tester,
   ) async {
@@ -168,52 +283,147 @@ void main() {
     },
   );
 
+  for (final locale in ['zh', 'en']) {
+    for (final width in [280.0, 360.0, 700.0]) {
+      for (final scale in [1.0, 2.0]) {
+        testWidgets('footer stays readable and stable $locale $width $scale', (
+          tester,
+        ) async {
+          final bridge = TrafficBridge();
+          final app = TrafficApp(bridge);
+          final traffic = TrafficController(app)..setVisible(true);
+          final semantics = tester.ensureSemantics();
+          await tester.pumpWidget(
+            MaterialApp(
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: Locale(locale),
+              home: MediaQuery(
+                data: MediaQueryData(
+                  disableAnimations: true,
+                  textScaler: TextScaler.linear(scale),
+                ),
+                child: Scaffold(
+                  body: SingleChildScrollView(
+                    child: SizedBox(
+                      width: width,
+                      child: TrafficPanel(
+                        traffic: traffic,
+                        visible: true,
+                        width: width,
+                        onOpen: () {},
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.pump();
+          final context = tester.element(find.byType(TrafficPanel));
+          final strings = AppLocalizations.of(context);
+          final panel = tester.getRect(find.byType(TrafficPanel));
+          expect(find.byKey(const ValueKey('traffic-caption')), findsNothing);
+          final status = find.byKey(const ValueKey('traffic-status'));
+          expect(status, findsNothing);
+          for (final chart in tester.widgetList<TrafficChart>(
+            find.byType(TrafficChart),
+          )) {
+            expect(chart.size.height, greaterThanOrEqualTo(80));
+          }
+          expect(
+            find.bySemanticsLabel(
+              '${strings.download} 2.00 KiB/s · ${strings.trafficDownloaded} — · ${strings.recentConnections}',
+            ),
+            findsOneWidget,
+          );
+          bridge.fail = true;
+          await tester.pump(const Duration(seconds: 1));
+          await tester.pump();
+          expect(traffic.error, isNotNull);
+          expect(status, findsNothing);
+          expect(find.byType(AlertDialog), findsNothing);
+          expect(tester.getRect(find.byType(TrafficPanel)), panel);
+          bridge.fail = false;
+          await tester.pump(const Duration(seconds: 1));
+          await tester.pump();
+          expect(tester.getRect(find.byType(TrafficPanel)), panel);
+          app.state = const AppSnapshot(phase: 'STOPPED');
+          app.changed();
+          for (final milliseconds in [0, 16, 100, 200]) {
+            await tester.pump(Duration(milliseconds: milliseconds));
+            expect(find.byTooltip(strings.waitingTakeover), findsNothing);
+            expect(status, findsNothing);
+            expect(tester.getRect(find.byType(TrafficPanel)), panel);
+            expect(tester.takeException(), isNull);
+          }
+          semantics.dispose();
+          await tester.pumpWidget(const SizedBox());
+          traffic.dispose();
+          app.dispose();
+        });
+      }
+    }
+  }
+
   for (final dark in [false, true]) {
     testWidgets(
       'panel real data, wide touch targets and reduced motion ($dark)',
       (tester) async {
         final bridge = TrafficBridge();
         final app = TrafficApp(bridge);
+        final traffic = TrafficController(app)..setVisible(true);
         var opens = 0;
         Widget show({
           bool visible = true,
           bool reduced = false,
           double scale = 1,
-        }) => MaterialApp(
-          theme: dark ? AppTheme.dark : AppTheme.light,
-          home: MediaQuery(
-            data: MediaQueryData(
-              disableAnimations: reduced,
-              textScaler: TextScaler.linear(scale),
-            ),
-            child: Scaffold(
-              body: SingleChildScrollView(
-                child: SizedBox(
-                  width: 320,
-                  child: TrafficPanel(
-                    app: app,
-                    visible: visible,
+        }) {
+          traffic.setVisible(visible);
+          return MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('zh'),
+            theme: dark ? AppTheme.dark : AppTheme.light,
+            home: MediaQuery(
+              data: MediaQueryData(
+                disableAnimations: reduced,
+                textScaler: TextScaler.linear(scale),
+              ),
+              child: Scaffold(
+                body: SingleChildScrollView(
+                  child: SizedBox(
                     width: 320,
-                    onOpen: () => opens++,
+                    child: TrafficPanel(
+                      traffic: traffic,
+                      visible: visible,
+                      width: 320,
+                      onOpen: () => opens++,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        );
+          );
+        }
+
         final semantics = tester.ensureSemantics();
         await tester.pumpWidget(show());
         await tester.pump();
         expect(
-          tester.getSemantics(find.bySemanticsLabel('下载 2.00 KiB/s，最近连接')),
+          tester.getSemantics(
+            find.bySemanticsLabel('下载 2.00 KiB/s · 累计下载 — · 最近连接'),
+          ),
           matchesSemantics(
-            label: '下载 2.00 KiB/s，最近连接',
+            label: '下载 2.00 KiB/s · 累计下载 — · 最近连接',
+            hint: AppLocalizations.of(tester.element(find.byType(TrafficPanel)))
+                .trafficSessionScope,
             isButton: true,
             hasTapAction: true,
           ),
         );
         semantics.dispose();
-        expect(find.text('2000 个活跃连接'), findsOneWidget);
+        expect(find.text('连接 2000'), findsOneWidget);
         expect(find.text('2.00'), findsOneWidget);
         expect(find.text('KiB/s'), findsOneWidget);
         expect(find.text('0'), findsOneWidget);
@@ -240,6 +450,7 @@ void main() {
         expect(bridge.reads, reads);
         expect(tester.hasRunningAnimations, isFalse);
         await tester.pumpWidget(const SizedBox());
+        traffic.dispose();
         app.dispose();
       },
     );

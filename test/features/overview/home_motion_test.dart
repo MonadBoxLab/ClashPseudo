@@ -1,5 +1,5 @@
-import 'package:clash_pseudo/features/overview/widgets/power_ripples.dart';
-import 'package:clash_pseudo/features/overview/widgets/status_text.dart';
+import 'package:clash_pseudo/src/features/overview/widgets/power_ripples.dart';
+import 'package:clash_pseudo/src/features/overview/widgets/status_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -98,6 +98,48 @@ void main() {
       expect(tester.binding.transientCallbackCount, 0);
     },
   );
+
+  testWidgets('empty status uses related text without exposing it', (
+    tester,
+  ) async {
+    const reference = '配置身份尚未确认 / Configuration identity pending';
+    var text = '';
+    late StateSetter update;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatefulBuilder(
+          builder: (context, setState) {
+            update = setState;
+            return Center(
+              child: SizedBox(
+                width: 280,
+                child: StatusText(
+                  text,
+                  emptyText: reference,
+                  style: const TextStyle(fontSize: 16),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    final status = find.byType(StatusText);
+    final bounds = tester.getRect(status);
+    expect(bounds.height, greaterThan(0));
+    expect(find.text(reference), findsNothing);
+    expect(find.semantics.byLabel(reference), findsNothing);
+    for (final next in ['接管已关闭', 'Tunnel running', '']) {
+      update(() => text = next);
+      for (final ms in [0, 16, 80, 200, 300]) {
+        await tester.pump(Duration(milliseconds: ms));
+        expect(tester.getRect(status), bounds);
+        expect(find.text(reference), findsNothing);
+        expect(find.semantics.byLabel(reference), findsNothing);
+        expect(tester.takeException(), isNull);
+      }
+    }
+  }, semanticsEnabled: true);
 
   testWidgets(
     'text fades through without overlap, skips same values and cancels old changes',

@@ -1,16 +1,22 @@
+import 'package:clash_pseudo/src/model/app_snapshot.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:clash_pseudo/features/configs/config_actions.dart';
-import 'package:clash_pseudo/features/configs/config_entry.dart';
-import 'package:clash_pseudo/features/configs/config_store.dart';
-import 'package:clash_pseudo/features/mode/tunnel_mode.dart';
-import 'package:clash_pseudo/platform/app_bridge.dart';
+import 'package:clash_pseudo/src/features/configs/config_actions.dart';
+import 'package:clash_pseudo/src/features/configs/config_entry.dart';
+import 'package:clash_pseudo/src/features/configs/config_store.dart';
+import 'package:clash_pseudo/src/features/mode/tunnel_mode.dart';
+import 'package:clash_pseudo/src/l10n/messages.dart';
+import 'package:clash_pseudo/src/model/app_preferences.dart';
+import 'package:clash_pseudo/src/logic/preferences_store.dart';
+import 'package:clash_pseudo/src/platform/app_bridge.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../configs/action_fakes.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late Directory directory;
   late ConfigStore store;
   late PlatformFake platform;
@@ -33,7 +39,7 @@ void main() {
   setUp(() async {
     directory = await Directory.systemTemp.createTemp('pseudo-mode-');
     store = ConfigStore(directory);
-    platform = PlatformFake();
+    platform = PlatformFake()..input = File('${directory.path}/run.yaml');
     actions = ConfigActions(
       store,
       DownloadFake(),
@@ -52,7 +58,7 @@ void main() {
         isA<ConfigFailure>().having(
           (e) => e.message,
           'saved result',
-          contains('已保存'),
+          messages.modeNotConfirmed,
         ),
       ),
     );
@@ -62,14 +68,14 @@ void main() {
   });
 
   test(
-    'missing and invalid current mode are rejected without rewriting',
+    'missing and invalid saved mode fallback are rejected without rewriting',
     () async {
       final file = File('${directory.path}/configurations.json');
       final data = {'version': 2, 'entries': <Object>[], 'selectedId': null};
       await file.writeAsString(jsonEncode(data));
       await expectLater(store.read(), throwsA(isA<ConfigFailure>()));
       expect(await file.readAsString(), jsonEncode(data));
-      for (final invalid in [null, 'follow', 0, true]) {
+      for (final invalid in ['follow', 0, true]) {
         final body = jsonEncode({...data, 'mode': invalid});
         await file.writeAsString(body);
         await expectLater(store.read(), throwsA(isA<ConfigFailure>()));
@@ -106,7 +112,7 @@ void main() {
           isA<ConfigFailure>().having(
             (e) => e.message,
             'partial result',
-            contains('已保存'),
+            messages.modeNotConfirmed,
           ),
         ),
       );
@@ -130,7 +136,7 @@ void main() {
       actions.execute({'action': 'setMode', 'mode': 'global'}),
       throwsA(isA<ConfigFailure>()),
     );
-    expect((await store.read()).mode, TunnelMode.rule);
+    expect((await store.read()).mode, isNull);
     platform.state = const AppSnapshot();
     await expectLater(
       actions.execute({'action': 'setMode', 'mode': 'global'}),
@@ -139,7 +145,7 @@ void main() {
     expect(platform.events, isEmpty);
   });
 
-  test('start, switch, import, update and delete preserve client mode and original body', () async {
+  test('ordinary start and selection transmit saved fallback without overriding source YAML', () async {
     await store.save(
       ConfigCollection(
         entries: [entry, other],
@@ -148,16 +154,21 @@ void main() {
       ),
     );
     await actions.execute({'action': 'start'});
-    expect(platform.state.mode, TunnelMode.global);
+    expect(platform.loaded['mode'], 'global');
+    expect(platform.loaded['routingOverride'], isNull);
     expect((await store.read()).selected!.body, entry.body);
+    expect(platform.loaded['body'], entry.body);
     await actions.execute({'action': 'select', 'id': other.id});
-    expect(platform.state.mode, TunnelMode.global);
+    expect(platform.loaded['body'], other.body);
+    expect(platform.loaded['mode'], 'global');
+    expect(platform.loaded['routingOverride'], isNull);
     await actions.execute({
       'action': 'import',
       'source': other.source,
       'replace': true,
     });
-    expect(platform.state.mode, TunnelMode.global);
+    expect(platform.loaded['mode'], 'global');
+    expect(platform.loaded['routingOverride'], isNull);
     await actions.execute({
       'action': 'import',
       'source': 'https://example.test/new',
@@ -167,7 +178,95 @@ void main() {
     expect((await store.read()).mode, TunnelMode.global);
     await actions.execute({'action': 'stop'});
     await actions.execute({'action': 'start'});
-    expect(platform.state.mode, TunnelMode.global);
+    expect(platform.loaded['mode'], 'global');
+    expect(platform.loaded['routingOverride'], isNull);
+  });
+
+  test('mode bridge preserves explicit null fallback across both start entry points', () async {
+    final calls = <(String, Map)>[];
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(AppBridge.channel, (call) async {
+      calls.add((call.method, call.arguments as Map));
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(AppBridge.channel, null),
+    );
+    final bridge = AppBridge(operationId: 'nullable-mode');
+    await bridge.start(id: entry.id, revision: entry.revision, mode: null);
+    await bridge.prepareStrategies(
+      id: entry.id,
+      revision: entry.revision,
+      mode: null,
+    );
+    expect(calls.map((call) => call.$1), ['start', 'prepareStrategies']);
+    for (final (_, arguments) in calls) {
+      expect(arguments.containsKey('mode'), isTrue);
+      expect(arguments['mode'], isNull);
+      expect(arguments['owner'], 'nullable-mode');
+      expect(arguments['id'], entry.id);
+      expect(arguments['revision'], entry.revision);
+    }
+  });
+
+  test('unselected mode is persisted as explicit null, not an implicit rule choice', () async {
+    expect((await store.read()).mode, isNull);
+    await store.save(ConfigCollection(entries: [entry], selectedId: entry.id));
+    final data = jsonDecode(
+      await File('${directory.path}/configurations.json').readAsString(),
+    ) as Map;
+    expect(data.containsKey('mode'), isTrue);
+    expect(data['mode'], isNull);
+    expect((await ConfigStore(directory).read()).mode, isNull);
+    await actions.execute({'action': 'start'});
+    expect(platform.loaded.containsKey('mode'), isTrue);
+    expect(platform.loaded['mode'], isNull);
+    expect(platform.loaded['routingOverride'], isNull);
+    expect(platform.loaded['body'], entry.body);
+  });
+
+  test('Always-on input carries nullable saved fallback, never an implicit routing override', () async {
+    final file = File('${directory.path}/system.input');
+    final system = ConfigActions(
+      store,
+      DownloadFake(),
+      platform,
+      File('${directory.path}/run.input'),
+      systemInput: file,
+    );
+    for (final fallback in <TunnelMode?>[null, TunnelMode.global]) {
+      await store.save(
+        ConfigCollection(
+          entries: [entry],
+          selectedId: entry.id,
+          mode: fallback,
+        ),
+      );
+      await system.execute({'action': 'systemStart'});
+      final input = jsonDecode(await file.readAsString()) as Map;
+      expect(input['mode'], fallback?.name);
+      expect(input['routingOverride'], isNull);
+      expect(input['body'], entry.body);
+      final start = system.result['systemStart'] as Map;
+      expect(start.containsKey('mode'), isTrue);
+      expect(start['mode'], fallback?.name);
+      expect(platform.events, isEmpty);
+    }
+  });
+
+  test('explicit reconnect mode action sends current routing override with saved fallback', () async {
+    await store.save(ConfigCollection(entries: [entry], selectedId: entry.id));
+    platform.load(entry, mode: TunnelMode.global);
+    await PreferencesStore(directory)
+        .save(const AppPreferences(reconnectOnRoutingChange: true));
+    await actions.execute({'action': 'setMode', 'mode': 'rule'});
+    expect((await store.read()).mode, TunnelMode.rule);
+    expect(platform.loaded['mode'], 'rule');
+    expect(platform.loaded['routingOverride'], 'rule');
+    expect(platform.loaded['body'], entry.body);
+    expect(platform.state.mode, TunnelMode.rule);
+    expect(platform.events, ['stop', 'start:one']);
   });
 
   test('native invalid or missing mode preserves running phase and permits independent recovery', () {

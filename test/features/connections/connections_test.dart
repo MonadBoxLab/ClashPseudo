@@ -1,99 +1,19 @@
+import 'package:clash_pseudo/src/model/app_snapshot.dart';
+import 'package:clash_pseudo/src/model/core_snapshot.dart';
+
 import 'dart:async';
 
-import 'package:clash_pseudo/app/app_controller.dart';
-import 'package:clash_pseudo/app/app_theme.dart';
-import 'package:clash_pseudo/features/connections/connection_controller.dart';
-import 'package:clash_pseudo/features/connections/connection_snapshot.dart';
-import 'package:clash_pseudo/features/connections/connections_page.dart';
-import 'package:clash_pseudo/features/strategies/strategy_snapshot.dart';
-import 'package:clash_pseudo/platform/app_bridge.dart';
+import 'package:clash_pseudo/src/app/app_theme.dart';
+import 'package:clash_pseudo/src/features/connections/connection_controller.dart';
+import 'package:clash_pseudo/src/features/connections/connection_snapshot.dart';
+import 'package:clash_pseudo/src/features/connections/connections_page.dart';
+import 'package:clash_pseudo/src/model/app_preferences.dart';
 import 'package:flutter/material.dart';
+import 'package:clash_pseudo/src/l10n/app_localizations.dart';
+import 'package:clash_pseudo/src/l10n/messages.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-const core = CoreSnapshot(
-  generation: 7,
-  phase: 'READY',
-  purpose: 'VPN',
-  configId: 'one',
-  revision: 1,
-);
-Map<String, dynamic> row(
-  String id, {
-  int download = 10,
-  String type = 'Tun',
-  String rule = 'Domain',
-  String? host,
-}) => {
-  'id': id,
-  'start': '2026-10-15T10:00:00Z',
-  'upload': 2,
-  'download': download,
-  'chains': ['node', '出口'],
-  'rule': rule,
-  'rulePayload': 'fixture.test',
-  'metadata': {
-    'host': host ?? '$id.fixture.test',
-    'destinationIP': '127.0.0.1',
-    'destinationPort': '18880',
-    'sourceIP': '::1',
-    'sourcePort': '1234',
-    'network': 'tcp',
-    'type': type,
-  },
-};
-ConnectionSnapshot snapshot(
-  List<Map<String, dynamic>> rows, {
-  int generation = 7,
-  int sessionGeneration = 0,
-  Object? sampleAgeMs = 0,
-  Map<String, dynamic>? detail,
-}) => ConnectionSnapshot.fromMap({
-  'generation': generation,
-  'configId': 'one',
-  'revision': 1,
-  'sessionGeneration': sessionGeneration,
-  'sampleAgeMs': sampleAgeMs,
-  'detail': detail,
-  'connections': rows,
-});
-
-class ConnectionBridgeFake extends AppBridge {
-  int reads = 0;
-  bool fail = false;
-  Completer<ConnectionSnapshot>? pending;
-  ConnectionSnapshot data = snapshot([row('one')]);
-  @override
-  Future<void> releaseConnectionDetail() async {}
-
-  @override
-  Future<ConnectionSnapshot> recentConnections({Map<String, Object?>? detail}) {
-    reads++;
-    if (fail) return Future.error(StateError('unavailable'));
-    return pending?.future ?? Future.value(data);
-  }
-}
-
-class ConnectionAppFake extends AppController {
-  ConnectionAppFake(super.platform) {
-    loading = false;
-    configsLoaded = true;
-    state = const AppSnapshot(phase: 'RUNNING', core: core);
-  }
-  final commands = <Map<String, Object?>>[];
-  @override
-  Future<String?> submit(
-    Map<String, Object?> command, {
-    bool automatic = false,
-  }) async {
-    lastCommandAutomatic = automatic;
-    commands.add(command);
-    return 'close-${commands.length}';
-  }
-
-  @override
-  Future<void> refresh() async {}
-  void changed() => notifyListeners();
-}
+import 'connection_fakes.dart';
 
 class _TestClock implements Stopwatch {
   @override
@@ -112,6 +32,7 @@ void main() {
   late ConnectionController controller;
   late _TestClock clock;
   setUp(() {
+    setMessageLanguage(AppLanguage.zh);
     bridge = ConnectionBridgeFake();
     app = ConnectionAppFake(bridge);
     clock = _TestClock();
@@ -120,6 +41,7 @@ void main() {
   tearDown(() {
     controller.dispose();
     app.dispose();
+    setMessageLanguage(AppLanguage.system);
   });
 
   test(
@@ -470,6 +392,9 @@ void main() {
   }) async {
     await tester.pumpWidget(
       MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('zh'),
         theme: dark ? AppTheme.dark : AppTheme.light,
         builder: (context, child) => MediaQuery(
           data: MediaQuery.of(context)
@@ -526,7 +451,7 @@ void main() {
       expect(bridge.reads, count + 1);
       expect(find.text('已不活跃'), findsOneWidget);
       expect(find.text('one.fixture.test'), findsOneWidget);
-      await tester.pageBack();
+      await tester.tap(find.byType(BackButton).last);
       await tester.pumpAndSettle();
       expect(find.text('暂无连接'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
@@ -535,6 +460,145 @@ void main() {
       expect(bridge.reads, stopped);
     },
   );
+
+  for (final (width, scale) in [(390.0, 1.0), (320.0, 2.0)]) {
+    testWidgets(
+      'live detail field identities survive zh-en-zh and missing values '
+      '$width/$scale',
+      (tester) async {
+        tester.view.physicalSize = Size(width, 900);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final locale = ValueNotifier(const Locale('zh'));
+        addTearDown(locale.dispose);
+        final page = ConnectionsPage(app: app);
+        await tester.pumpWidget(
+          ValueListenableBuilder<Locale>(
+            valueListenable: locale,
+            builder: (context, value, _) => MaterialApp(
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: value,
+              theme: AppTheme.light,
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context)
+                    .copyWith(textScaler: TextScaler.linear(scale)),
+                child: child!,
+              ),
+              home: page,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('one.fixture.test'));
+        await tester.pumpAndSettle();
+        final scroll = find.byKey(const ValueKey('connection-detail-scroll'));
+        final route = ModalRoute.of(tester.element(scroll));
+        final fields = find.descendant(
+          of: scroll,
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is KeyedSubtree &&
+                widget.key != null &&
+                widget.child is Padding,
+          ),
+        );
+        expect(fields, findsNWidgets(3));
+        final keys = tester
+            .widgetList<KeyedSubtree>(fields)
+            .map((widget) => widget.key!)
+            .toList();
+        final elements = [
+          for (final key in keys) tester.element(find.byKey(key)),
+        ];
+        final values = ['127.0.0.1', '[::1]:1234', 'Tun'];
+
+        void expectFields(Locale value, List<String> expectedValues) {
+          final strings = lookupAppLocalizations(value);
+          expect(ModalRoute.of(tester.element(scroll)), same(route));
+          expect(fields, findsNWidgets(3));
+          expect(
+            tester.widgetList<KeyedSubtree>(fields).map((widget) => widget.key),
+            keys,
+          );
+          final labels = [
+            strings.targetIp,
+            strings.sourceAddress,
+            strings.inbound,
+          ];
+          for (var index = 0; index < keys.length; index++) {
+            final field = find.byKey(keys[index]);
+            expect(tester.element(field), same(elements[index]));
+            expect(
+              find.descendant(of: field, matching: find.text(labels[index])),
+              findsOneWidget,
+            );
+            expect(
+              find.descendant(
+                of: field,
+                matching: find.byWidgetPredicate(
+                  (widget) =>
+                      widget is SelectableText &&
+                      widget.data == expectedValues[index],
+                ),
+              ),
+              findsOneWidget,
+            );
+          }
+          expect(tester.takeException(), isNull);
+        }
+
+        expectFields(locale.value, values);
+        for (final value in [const Locale('en'), const Locale('zh')]) {
+          setMessageLanguage(
+            value.languageCode == 'en' ? AppLanguage.en : AppLanguage.zh,
+          );
+          locale.value = value;
+          await tester.pumpAndSettle();
+          expectFields(value, values);
+        }
+
+        await tester.drag(scroll, const Offset(0, -1500));
+        await tester.pumpAndSettle();
+        final before = [
+          for (final key in keys) tester.getRect(find.byKey(key)),
+        ];
+        final missing = row('one');
+        missing['metadata'] = {
+          ...missing['metadata'] as Map<String, dynamic>,
+          'destinationIP': '',
+          'sourceIP': '',
+          'type': '',
+        };
+        bridge.data = snapshot([missing]);
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pump();
+        final strings = lookupAppLocalizations(locale.value);
+        expectFields(locale.value, List.filled(3, strings.notProvided));
+        expect([
+          for (final key in keys) tester.getRect(find.byKey(key)),
+        ], before);
+
+        final restored = row('one');
+        restored['metadata'] = {
+          ...restored['metadata'] as Map<String, dynamic>,
+          'destinationIP': '192.0.2.1',
+          'sourceIP': '::2',
+          'sourcePort': '4321',
+          'type': 'HTTP',
+        };
+        bridge.data = snapshot([restored]);
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pump();
+        expectFields(locale.value, ['192.0.2.1', '[::2]:4321', 'HTTP']);
+        expect([
+          for (final key in keys) tester.getRect(find.byKey(key)),
+        ], before);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
 
   testWidgets('rule filter survives details and follows new observations', (
     tester,
@@ -549,7 +613,7 @@ void main() {
     expect(find.text('two.fixture.test'), findsNothing);
     await tester.tap(find.text('one.fixture.test'));
     await tester.pumpAndSettle();
-    await tester.pageBack();
+    await tester.tap(find.byType(BackButton).last);
     await tester.pumpAndSettle();
     expect(find.text('two.fixture.test'), findsNothing);
     bridge.data = snapshot([row('new')]);
@@ -610,7 +674,7 @@ void main() {
       navigator.pop();
       await tester.pumpAndSettle();
       expect(bridge.reads, greaterThan(before));
-      await tester.pageBack();
+      await tester.tap(find.byType(BackButton).last);
       await tester.pumpAndSettle();
       final listReads = bridge.reads;
       await tester.pump(const Duration(seconds: 1));
@@ -754,7 +818,7 @@ void main() {
       expect(tester.widget<Text>(find.text('活跃')).style!.color, palette.active);
       expect(find.byTooltip('暂停刷新'), findsNothing);
       expect(find.byTooltip('断开连接'), findsOneWidget);
-      await tester.pageBack();
+      await tester.tap(find.byType(BackButton).last);
       await tester.pumpAndSettle();
       expect(find.byTooltip('暂停刷新'), findsNothing);
       expect(find.byTooltip('继续刷新'), findsNothing);

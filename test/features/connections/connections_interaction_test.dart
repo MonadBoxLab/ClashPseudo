@@ -1,9 +1,10 @@
-import 'package:clash_pseudo/app/app_theme.dart';
-import 'package:clash_pseudo/features/connections/connections_page.dart';
+import 'package:clash_pseudo/src/app/app_theme.dart';
+import 'package:clash_pseudo/src/features/connections/connections_page.dart';
 import 'package:flutter/material.dart';
+import 'package:clash_pseudo/src/l10n/app_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'connections_test.dart' as fixtures;
+import 'connection_fakes.dart' as fixtures;
 
 void main() {
   late fixtures.ConnectionBridgeFake bridge;
@@ -21,6 +22,9 @@ void main() {
   }) async {
     await tester.pumpWidget(
       MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('zh'),
         theme: AppTheme.light,
         builder: (context, child) => MediaQuery(
           data: MediaQuery.of(context).copyWith(
@@ -36,6 +40,93 @@ void main() {
   }
 
   for (final scale in [1.0, 2.0]) {
+    for (final lifecycle in [true, false]) {
+      testWidgets(
+        'owned filter menu stays live but another route pauses reads $scale $lifecycle',
+        (tester) async {
+          bridge.data = fixtures.snapshot([
+            fixtures.row('one'),
+            fixtures.row('two'),
+          ]);
+          await show(tester, scale: scale, reduceMotion: true);
+          final trigger = lifecycle
+              ? find.byKey(
+                  tester
+                      .widget<TextButton>(
+                        find.widgetWithText(TextButton, '全部连接'),
+                      )
+                      .key!,
+                )
+              : find.byTooltip('筛选命中规则');
+          final triggerRect = tester.getRect(trigger);
+          await tester.tap(trigger);
+          await tester.pumpAndSettle();
+          final entries = find.byType(MenuItemButton);
+          final positions = tester
+              .widgetList<MenuItemButton>(entries)
+              .map((item) => tester.getRect(find.byWidget(item)))
+              .toList();
+          final labels = tester
+              .widgetList<Text>(
+                find.descendant(of: entries, matching: find.byType(Text)),
+              )
+              .map((text) => text.data)
+              .toList();
+          final before = bridge.reads;
+          bridge.data = fixtures.snapshot([
+            fixtures.row('one', download: 2048),
+            fixtures.row('two'),
+            fixtures.row('three', rule: 'NewRule'),
+          ]);
+          await tester.pump(const Duration(seconds: 1));
+          await tester.pump();
+          expect(bridge.reads, greaterThan(before));
+          expect(find.text('↓ 2.0 KiB'), findsOneWidget);
+          expect(tester.getRect(trigger), triggerRect);
+          expect(
+            tester
+                .widgetList<MenuItemButton>(entries)
+                .map((item) => tester.getRect(find.byWidget(item)))
+                .toList(),
+            positions,
+          );
+          expect(
+            tester
+                .widgetList<Text>(
+                  find.descendant(of: entries, matching: find.byType(Text)),
+                )
+                .map((text) => text.data)
+                .toList(),
+            labels,
+          );
+          final navigator = tester.state<NavigatorState>(
+            find.byType(Navigator),
+          );
+          navigator.push<void>(
+            MaterialPageRoute(
+              builder: (_) => const Scaffold(body: Text('other route')),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final coveredReads = bridge.reads;
+          await tester.pump(const Duration(seconds: 3));
+          expect(bridge.reads, coveredReads);
+          navigator.pop();
+          await tester.pumpAndSettle();
+          expect(bridge.reads, greaterThan(coveredReads));
+          expect(find.byType(MenuItemButton), findsNothing);
+          await tester.tap(trigger);
+          await tester.pumpAndSettle();
+          await tester.tap(
+            find.widgetWithText(MenuItemButton, lifecycle ? '全部连接' : '全部规则'),
+          );
+          await tester.pumpAndSettle();
+          expect(find.byType(MenuItemButton), findsNothing);
+          expect(tester.takeException(), isNull);
+          await tester.pumpWidget(const SizedBox());
+        },
+      );
+    }
     testWidgets('traffic-only updates keep the scroll origin, scale=$scale', (
       tester,
     ) async {
@@ -139,42 +230,49 @@ void main() {
     );
   }
 
-  testWidgets('live list updates while covered list waits for return', (
-    tester,
-  ) async {
-    await show(tester);
-    bridge.data = fixtures.snapshot([fixtures.row('new')]);
-    await tester.pump(const Duration(seconds: 1));
-    await tester.pumpAndSettle();
-    expect(find.text('one.fixture.test'), findsNothing);
-    expect(find.text('new.fixture.test'), findsOneWidget);
-    await tester.tap(find.text('new.fixture.test'));
-    await tester.pumpAndSettle();
-    final covered = tester
-        .widgetList<SliverList>(find.byType(SliverList, skipOffstage: false))
-        .last
-        .delegate;
-    bridge.data = fixtures.snapshot([fixtures.row('new', download: 45)]);
-    await tester.pump(const Duration(seconds: 1));
-    await tester.pump();
-    expect(
-      identical(
-        tester
-            .widgetList<SliverList>(
-              find.byType(SliverList, skipOffstage: false),
-            )
-            .last
-            .delegate,
-        covered,
-      ),
-      isTrue,
-    );
-    expect(find.text('累计 45 B'), findsOneWidget);
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-    expect(find.text('↓ 45 B'), findsOneWidget);
-    await tester.pumpWidget(const SizedBox());
-  });
+  for (final width in [800.0, 1200.0]) {
+    testWidgets('list follows actual pane visibility at width=$width', (
+      tester,
+    ) async {
+      tester.view.physicalSize = Size(width, 600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await show(tester);
+      bridge.data = fixtures.snapshot([fixtures.row('new')]);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(find.text('one.fixture.test'), findsNothing);
+      expect(find.text('new.fixture.test'), findsOneWidget);
+      await tester.tap(find.text('new.fixture.test'));
+      await tester.pumpAndSettle();
+      final delegate = tester
+          .widgetList<SliverList>(find.byType(SliverList, skipOffstage: false))
+          .last
+          .delegate;
+      bridge.data = fixtures.snapshot([fixtures.row('new', download: 45)]);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(
+        identical(
+          tester
+              .widgetList<SliverList>(
+                find.byType(SliverList, skipOffstage: false),
+              )
+              .last
+              .delegate,
+          delegate,
+        ),
+        width == 800,
+      );
+      expect(find.text('累计 45 B'), findsOneWidget);
+      if (width == 1200) expect(find.text('↓ 45 B'), findsOneWidget);
+      await tester.tap(find.byType(BackButton).last);
+      await tester.pumpAndSettle();
+      expect(find.text('↓ 45 B'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
 
   testWidgets('menu cancellation preserves position and returns focus', (
     tester,
@@ -198,9 +296,9 @@ void main() {
     await tester.tap(find.byTooltip('筛选命中规则'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
-    expect(find.byType(PopupMenuItem<int>), findsWidgets);
+    expect(find.byType(MenuItemButton), findsWidgets);
     await tester.pumpAndSettle();
-    Navigator.of(tester.element(find.text('全部规则').last)).pop();
+    await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
     expect(tester.getTopLeft(find.text(target)).dy, position);
     final button = tester.widget<TextButton>(

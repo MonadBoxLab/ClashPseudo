@@ -1,8 +1,10 @@
 import 'dart:convert';
 
-import 'package:clash_pseudo/features/configs/config_entry.dart';
-import 'package:clash_pseudo/features/configs/config_file.dart';
-import 'package:clash_pseudo/features/configs/config_text.dart';
+import 'package:clash_pseudo/src/features/configs/config_entry.dart';
+import 'package:clash_pseudo/src/features/configs/config_file.dart';
+import 'package:clash_pseudo/src/features/configs/config_text.dart';
+import 'package:clash_pseudo/src/l10n/messages.dart';
+import 'package:clash_pseudo/src/model/app_preferences.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -80,10 +82,26 @@ void main() {
     );
   });
 
+  for (final language in [AppLanguage.en, AppLanguage.zh]) {
+    test('empty filename fallback uses the current language: $language', () {
+      setMessageLanguage(language);
+      addTearDown(() => setMessageLanguage(AppLanguage.system));
+      expect(
+        configFileName(''),
+        language == AppLanguage.en ? 'Local configuration' : '本地配置',
+      );
+      expect(
+        configFileName('  .yaml'),
+        language == AppLanguage.en ? 'Local configuration' : '本地配置',
+      );
+    });
+  }
+
   test('display name removes only final extension and never becomes empty', () {
     expect(configFileName('rules.prod.yaml'), 'rules.prod');
     expect(configFileName('配置🌐.yml'), '配置🌐');
-    expect(configFileName(''), '本地配置');
-    expect(configFileName('${'🌐' * 81}.yaml').runes.length, 80);
+    expect(configFileName(''), localizedMessages.localConfig);
+    expect(configFileName('${'🌐' * 81}.yaml'), '🌐' * 20);
+    expect(utf8.encode(configFileName('${'🌐' * 81}.yaml')).length, 80);
   });
 }

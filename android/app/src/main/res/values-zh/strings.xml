@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="notify_channel_vpn">网络接管</string>
+    <string name="notify_channel_work">配置操作</string>
+    <string name="notify_preparing">正在准备原生接管</string>
+    <string name="notify_restoring">正在恢复系统接管</string>
+    <string name="notify_running">原生接管运行中</string>
+    <string name="notify_working">正在处理配置操作</string>
+
+    <string name="stage_loading">加载配置</string>
+    <string name="stage_establishing">建立 VPN</string>
+    <string name="stage_attaching">接入虚拟网卡</string>
+    <string name="error_stage_failed">%1$s失败，请检查配置来源与网络后重试。</string>
+
+    <string name="error_app_info_version">无法读取版本信息。</string>
+    <string name="error_app_info_native">无法加载原生内核。</string>
+    <string name="error_applications">无法读取应用列表。</string>
+    <string name="error_logic_expired">逻辑引擎已结束。</string>
+    <string name="error_operation_ended">操作已结束。</string>
+    <string name="error_schedule_save">无法保存自动更新计划。</string>
+    <string name="error_busy">已有操作正在处理，请等待确认。</string>
+    <string name="error_unknown_command">无法识别此操作。</string>
+    <string name="operation_accepting">正在受理操作</string>
+    <string name="operation_preparing_system_start">正在准备系统启动</string>
+    <string name="error_service_start">系统未允许启动任务，请返回应用后重试。</string>
+    <string name="error_service_not_allowed">系统未允许启动任务。</string>
+    <string name="error_vpn_permission_return">请返回应用并重新启动以完成 VPN 授权。</string>
+    <string name="error_vpn_permission_requests">授权请求次数过多，请重启应用后再试。</string>
+    <string name="error_result_unconfirmed">操作已结束，请核实状态。</string>
+    <string name="error_activity_return">请返回应用后重试。</string>
+    <string name="error_open_vpn_settings">无法打开系统 VPN 设置。</string>
+    <string name="error_system_start_prepare">系统启动时未能准备运行配置。</string>
+    <string name="error_session_changed">接管会话已变化。</string>
+    <string name="error_session_mode_changed">接管会话已变化，本次模式未确认。</string>
+
+    <string name="error_background_start">无法启动后台操作，请返回应用重试。</string>
+    <string name="error_invalid_result">操作未返回有效结果。</string>
+    <string name="error_operation_incomplete">业务操作未完成，请核实状态后重试。</string>
+    <string name="status_updating">正在更新</string>
+    <string name="error_update_failed">更新失败</string>
+
+    <string name="error_unknown_mode">无法识别运行模式。</string>
+    <string name="error_mode_timeout">运行模式确认超时。</string>
+    <string name="error_mode_unconfirmed">无法确认运行模式，请等待状态重新读取。</string>
+    <string name="error_native_mode_unavailable">原生模式接口不可用。</string>
+
+    <string name="error_takeover_timeout">接管操作等待超时，请核实实际状态。</string>
+    <string name="error_takeover_running">当前接管未停止，不能启动新配置。</string>
+    <string name="error_core_not_ready">内核资源未就绪，不能启动新配置。</string>
+    <string name="error_vpn_permission_invalid">VPN 授权未完成或已失效。</string>
+    <string name="error_vpn_service_start">系统未允许启动 VPN 服务，请返回应用后重试。</string>
+    <string name="error_release_unconfirmed">资源释放未确认，不能报告已停止或重新启动。</string>
+    <string name="error_takeover_start_failed">接管未能启动。</string>
+    <string name="error_takeover_release_unknown">无法确认接管资源是否已释放。</string>
+    <string name="error_stop_not_accepted">系统未受理停止请求，接管状态未确认。</string>
+
+    <string name="error_strategy_prepare">策略配置加载未完成，请检查配置与网络后重试。</string>
+    <string name="error_native_release_unconfirmed">原生资源释放未确认。</string>
+    <string name="error_strategy_params">策略加载参数无效。</string>
+    <string name="error_strategy_context">策略上下文已变化，本次结果未确认。</string>
+    <string name="error_strategy_timeout">策略操作等待超时，请等待实际状态重新读取。</string>
+    <string name="error_strategy_unconfirmed">策略操作未确认，请核实当前配置、成员与内核状态。</string>
+    <string name="error_native_strategy_unavailable">原生策略接口不可用。</string>
+
+    <string name="error_core_context_refresh">内核上下文已变化，请刷新后重试。</string>
+    <string name="error_core_context_reread">内核上下文已变化，请重新读取。</string>
+    <string name="error_group_untestable">当前策略组无法测试。</string>
+    <string name="error_delay_start">无法启动延迟测试。</string>
+    <string name="error_native_delay_unavailable">原生测速接口不可用。</string>
+    <string name="error_batch_expired">测速批次已失效，请重新测试。</string>
+    <string name="error_delay_read">无法读取测速结果。</string>
+
+    <string name="error_connection_query_size">连接查询参数过大。</string>
+    <string name="error_connection_id">连接标识无效。</string>
+    <string name="error_connection_busy">连接操作尚未完成。</string>
+    <string name="error_connection_timeout">连接操作等待超时。</string>
+    <string name="error_disconnect_unconfirmed">断开结果未确认。</string>
+    <string name="error_update_failed_short">更新失败。</string>
+    <string name="error_native_connection_unavailable">原生连接接口不可用。</string>
+    <string name="error_connection_not_accepted">连接操作未被受理。</string>
+
+    <string name="error_operation_wait_timeout">操作等待超时，请核实状态后重试。</string>
+    <string name="error_system_timeout_task">系统结束了超时任务，请核实状态后重试。</string>
+    <string name="error_operation_interrupted">操作已中断，请核实状态后重试。</string>
+
+    <string name="error_resource_update_size">资源更新请求超出大小限制。</string>
+    <string name="error_nodes_query_size">节点查询超出大小限制。</string>
+    <string name="error_rules_query_size">规则查询超出大小限制。</string>
+    <string name="error_logs_query_size">日志查询超出大小限制。</string>
+    <string name="error_core_busy">内核忙碌或上下文已变化，请刷新后重试。</string>
+    <string name="error_core_read_timeout">内核读取超时，请重试。</string>
+    <string name="error_core_read_failed">无法读取内核数据，请刷新后重试。</string>
+    <string name="error_native_read_unavailable">原生读取接口不可用。</string>
+
+    <string name="error_vpn_input_missing">VPN 授权已失效或运行输入缺失。</string>
+    <string name="error_notification_denied">系统未允许显示接管通知。</string>
+    <string name="error_notification_update">接管通知无法更新。</string>
+    <string name="error_native_core_load">原生内核无法加载，请检查安装包。</string>
+    <string name="error_system_revoked">系统已撤销 VPN</string>
+    <string name="error_service_destroyed">VPN 服务已销毁</string>
+    <string name="error_application_allowlist_missing">仅接管列表中的应用均已卸载，请重新选择应用。</string>
+    <string name="notify_running_missing_apps">VPN 运行中；部分所选应用已卸载，请检查应用访问设置。</string>
+    <string name="system_control_title">Clash Pseudo</string>
+    <string name="system_control_connect">连接</string>
+    <string name="system_control_disconnect">断开</string>
+    <string name="system_control_connected">已连接</string>
+    <string name="system_control_stopped">未连接</string>
+    <string name="system_control_starting">正在连接</string>
+    <string name="system_control_stopping">正在断开</string>
+    <string name="system_control_unknown">状态未知</string>
+    <string name="system_control_failed">操作失败</string>
+    <string name="system_control_busy">正在处理</string>
+    <string name="system_control_restoring">正在恢复数据</string>
+    <string name="system_control_mode_rule">规则</string>
+    <string name="system_control_mode_global">全局</string>
+    <string name="system_control_mode_direct">直连</string>
+    <string name="system_control_mode_actual">实际：%1$s</string>
+    <string name="system_control_mode_saved">保存回退：%1$s</string>
+    <string name="system_control_mode_config">模式：随配置</string>
+    <string name="system_control_mode_unknown">模式：—</string>
+    <string name="system_control_capsule_unavailable">不可用</string>
+    <string name="system_control_widget_description">显示最近确认的 VPN 状态与模式，提供明确的连接或断开操作。点击状态可打开应用。</string>
+    <string name="system_control_action_start">连接 VPN</string>
+    <string name="system_control_action_stop">断开 VPN</string>
+    <string name="system_control_action_unavailable">连接控制不可用：%1$s</string>
+    <string name="widget_running">运行中</string>
+    <string name="widget_stopped">已停止</string>
+    <string name="widget_starting">连接中</string>
+    <string name="widget_stopping">停止中</string>
+    <string name="widget_unknown">未确认</string>
+    <string name="widget_failed">失败</string>
+    <string name="widget_busy">忙碌</string>
+    <string name="widget_restoring">恢复中</string>
+    <string name="widget_mode_config">配置</string>
+    <string name="widget_mode_unknown">—</string>
+    <string name="widget_capacity">空间不足\n打开应用</string>
+    <string name="widget_open_description">%1$s，%2$s。打开应用。</string>
+</resources>

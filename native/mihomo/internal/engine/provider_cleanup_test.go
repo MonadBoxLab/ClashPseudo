@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"flag"
 	"os"
 	"os/exec"
 	"runtime"
@@ -17,17 +18,19 @@ func wireguardWorkers() int {
 }
 
 func TestParseFailureClosesAllocatedNodes(t *testing.T) {
-	// Isolate unrecoverable allocations so this regression cannot contaminate
-	// subsequent worker-count tests, even when upstream cleanup is missing.
+	// Run unrecoverable allocation regressions in an isolated process.
 	if os.Getenv("CLASH_PSEUDO_PARSE_FAILURE_CHILD") != "1" {
 		command := exec.Command(os.Args[0], "-test.run=^TestParseFailureClosesAllocatedNodes$", "-test.v")
+		if directory := flag.Lookup("test.gocoverdir"); directory != nil && directory.Value.String() != "" {
+			command.Args = append(command.Args, "-test.gocoverdir="+directory.Value.String())
+		}
 		command.Env = append(os.Environ(), "CLASH_PSEUDO_PARSE_FAILURE_CHILD=1")
 		if output, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("parse-failure subprocess: %v\n%s", err, output)
 		}
 		return
 	}
-	// Explicit cleanup must not depend on a later garbage collection cycle.
+	// Observe explicit cleanup before garbage collection.
 	debug.SetGCPercent(-1)
 	const body = `mode: rule
 proxies:
@@ -48,11 +51,11 @@ rules:
 		requireStop(t, &e)
 		t.Fatal("invalid rule was accepted")
 	}
-	requireStop(t, &e)
+	stopErr := e.Stop()
 	// Allow both newly scheduled workers and asynchronous shutdown to settle.
 	time.Sleep(2 * time.Second)
 	if got := wireguardWorkers(); got != baseline {
-		t.Fatalf("parse failed and Stop returned success, but WireGuard workers = %d, baseline = %d", got, baseline)
+		t.Fatalf("parse failure leaked WireGuard workers = %d, baseline = %d; Stop = %v", got, baseline, stopErr)
 	}
 }
 
@@ -86,8 +89,8 @@ rules:
 		if len(nodes) != 1 {
 			t.Fatal("missing provider node")
 		}
-		// Retain the node so GC cannot conceal an omitted explicit close. Also
-		// release it if the regression fails, to avoid contaminating other tests.
+		// Retain the node through the explicit-close assertion, then release it on both
+		// success and failure.
 		t.Cleanup(func() { _ = nodes[0].Close() })
 		deadline := time.Now().Add(2 * time.Second)
 		for wireguardWorkers() <= baseline && time.Now().Before(deadline) {
@@ -106,5 +109,28 @@ rules:
 			t.Fatalf("round %d: workers after Stop = %d, baseline = %d", round, got, baseline)
 		}
 		runtime.KeepAlive(nodes)
+	}
+}
+
+func TestInlineRuleProviderStopsAndCanPrepareAgain(t *testing.T) {
+	body := []byte(`rule-providers:
+ inline:
+  type: inline
+  behavior: classical
+  payload: ['DOMAIN,example.test']
+rules:
+ - RULE-SET,inline,DIRECT
+ - MATCH,DIRECT
+`)
+	var e Engine
+	home := t.TempDir()
+	for range 2 {
+		if err := e.Prepare(home, body, "rule", nil, func(int) bool { return true }); err != nil {
+			t.Fatal(err)
+		}
+		requireStop(t, &e)
+		if e.failed || e.cfg != nil || e.owner != nil || e.ruleSources != nil {
+			t.Fatal("inline provider left an unconfirmed session")
+		}
 	}
 }

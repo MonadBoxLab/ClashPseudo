@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="144dp"
+    android:minHeight="144dp"
+    android:resizeMode="none"
+    android:initialLayout="@layout/vpn_widget"
+    android:previewLayout="@layout/vpn_widget"
+    android:description="@string/system_control_widget_description"
+    android:widgetCategory="home_screen"
+    android:updatePeriodMillis="0" />

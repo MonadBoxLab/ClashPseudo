@@ -1,5 +1,7 @@
 package io.github.monadboxlab.clashpseudo.debug
 
+import io.github.monadboxlab.clashpseudo.vpn.NativeSession
+
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
@@ -31,7 +33,7 @@ class NativeCheckActivity : Activity() {
     private val worker = Executors.newFixedThreadPool(2)
     private val refreshing = AtomicBoolean(false)
     private var pending: String? = null
-    private var message = "仅用于验证原生接入，不是正式客户端。"
+    private var message = "原生接入验证工具。"
     private var host = ""
     private var port = 0
     private var closed = false

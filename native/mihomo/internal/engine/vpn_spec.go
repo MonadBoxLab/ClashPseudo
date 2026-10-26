@@ -1,0 +1,330 @@
+package engine
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/netip"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"github.com/metacubex/mihomo/config"
+	P "github.com/metacubex/mihomo/constant/provider"
+	LC "github.com/metacubex/mihomo/listener/config"
+	"github.com/metacubex/mihomo/tunnel"
+	"go4.org/netipx"
+
+	"clashpseudo/native/internal/configinput"
+)
+
+type PrepareOptions struct {
+	MainOrigin           configinput.ConfigOrigin `json:"mainOrigin"`
+	Purpose              string                   `json:"purpose"`
+	Generation           int64                    `json:"generation"`
+	Composition          string                   `json:"composition"`
+	RoutingOverride      string                   `json:"routingOverride"`
+	Network              NetworkDNS               `json:"network"`
+	ProtectNetwork       func(int, string) bool   `json:"-"`
+	SeedGeo              func([]GeoSeed) error    `json:"-"`
+	SpecificationChanged func(uint64, bool)       `json:"-"`
+}
+
+type GeoSeed struct {
+	Kind       string `json:"kind"`
+	TargetName string `json:"targetName"`
+}
+
+func geoSeeds(paths [4]string, p configinput.Presence) ([]GeoSeed, error) {
+	result := []GeoSeed{}
+	for i, kind := range []string{"geoip", "mmdb", "asn", "geosite"} {
+		if p.Has("geox-url." + kind) {
+			continue
+		}
+		_, err := os.Lstat(paths[i])
+		if os.IsNotExist(err) {
+			result = append(result, GeoSeed{kind, filepath.Base(paths[i])})
+		} else if err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
+}
+
+type PacketFilter struct {
+	Configured         bool     `json:"configured"`
+	IncludePackage     []string `json:"includePackage"`
+	ExcludePackage     []string `json:"excludePackage"`
+	IncludeUID         []uint32 `json:"includeUid"`
+	ExcludeUID         []uint32 `json:"excludeUid"`
+	IncludeUIDRange    []string `json:"includeUidRange"`
+	ExcludeUIDRange    []string `json:"excludeUidRange"`
+	IncludeAndroidUser []int    `json:"includeAndroidUser"`
+}
+
+type VPNSpec struct {
+	Generation    int64          `json:"generation"`
+	Composition   string         `json:"composition"`
+	Revision      uint64         `json:"revision"`
+	MTU           uint32         `json:"mtu"`
+	Addresses     []netip.Prefix `json:"addresses"`
+	Routes        []netip.Prefix `json:"routes"`
+	DNSServers    []string       `json:"dnsServers"`
+	Filter        PacketFilter   `json:"filter"`
+	UsesSystemDNS bool           `json:"usesSystemDns"`
+	NetworkKey    string         `json:"networkKey"`
+}
+
+func parseHijack(values []string) ([]netip.AddrPort, error) {
+	result := make([]netip.AddrPort, 0, len(values))
+	for _, text := range values {
+		if _, after, ok := strings.Cut(text, "://"); ok {
+			text = after
+		}
+		text = strings.Replace(text, "any", "0.0.0.0", 1)
+		address, err := netip.ParseAddrPort(text)
+		if err != nil {
+			return nil, fmt.Errorf("tun.dns-hijack: %w", err)
+		}
+		result = append(result, address)
+	}
+	return result, nil
+}
+
+func providerPrefixes(providers map[string]P.RuleProvider, names []string) ([]netip.Prefix, error) {
+	var prefixes []netip.Prefix
+	for _, name := range names {
+		provider := providers[name]
+		if provider == nil {
+			return nil, fmt.Errorf("TUN route set %q was not found", name)
+		}
+		strategy, ok := provider.Strategy().(interface{ ToIpCidr() *netipx.IPSet })
+		if !ok {
+			return nil, fmt.Errorf("TUN route set %q does not expose an IP CIDR strategy", name)
+		}
+		if set := strategy.ToIpCidr(); set != nil {
+			prefixes = append(prefixes, set.Prefixes()...)
+		}
+	}
+	return prefixes, nil
+}
+
+func routePrefixes(options LC.Tun, providers map[string]P.RuleProvider) ([]netip.Prefix, error) {
+	include := slices.Clone(options.RouteAddress)
+	include = append(include, options.Inet4RouteAddress...)
+	include = append(include, options.Inet6RouteAddress...)
+	fromSet, err := providerPrefixes(providers, options.RouteAddressSet)
+	if err != nil {
+		return nil, err
+	}
+	include = append(include, fromSet...)
+	// An explicitly empty provider set retains an empty route set.
+	if options.AutoRoute && len(include) == 0 && len(options.RouteAddressSet) == 0 {
+		if len(options.Inet4Address) > 0 {
+			include = append(include, netip.MustParsePrefix("0.0.0.0/0"))
+		}
+		if len(options.Inet6Address) > 0 {
+			include = append(include, netip.MustParsePrefix("::/0"))
+		}
+	}
+	var set netipx.IPSetBuilder
+	for _, prefix := range include {
+		set.AddPrefix(prefix)
+	}
+	exclude := slices.Clone(options.RouteExcludeAddress)
+	exclude = append(exclude, options.Inet4RouteExcludeAddress...)
+	exclude = append(exclude, options.Inet6RouteExcludeAddress...)
+	fromSet, err = providerPrefixes(providers, options.RouteExcludeAddressSet)
+	if err != nil {
+		return nil, err
+	}
+	exclude = append(exclude, fromSet...)
+	for _, prefix := range exclude {
+		set.RemovePrefix(prefix)
+	}
+	result, err := set.IPSet()
+	if err != nil {
+		return nil, err
+	}
+	return result.Prefixes(), nil
+}
+
+func routeFamilies(routes []netip.Prefix, options LC.Tun) error {
+	for _, route := range routes {
+		if route.Addr().Is6() && len(options.Inet6Address) == 0 {
+			return &PlatformError{Field: "tun.route-address", Reason: "ipv6Unavailable"}
+		}
+		if route.Addr().Is4() && len(options.Inet4Address) == 0 {
+			return &PlatformError{Field: "tun.route-address", Reason: "invalidAddress"}
+		}
+	}
+	return nil
+}
+
+func projectDNSServers(enabled bool, hijack []netip.AddrPort, addresses []netip.Prefix,
+	routes []netip.Prefix, network NetworkDNS) (servers []string, usedSystem bool, err error) {
+	if enabled && len(hijack) > 0 {
+		// Use the public handler's actual wildcard hijack list.
+		for _, prefix := range addresses {
+			candidate := netip.AddrPortFrom(prefix.Addr().Next(), 53)
+			for _, entry := range hijack {
+				if entry == candidate || entry.Addr().IsUnspecified() {
+					for _, route := range routes {
+						if route.Contains(candidate.Addr()) {
+							servers = append(servers, candidate.Addr().String())
+							break
+						}
+					}
+					break
+				}
+			}
+		}
+		if len(servers) == 0 {
+			for _, entry := range hijack {
+				if entry.Port() == 53 && !entry.Addr().IsUnspecified() {
+					for _, route := range routes {
+						if route.Contains(entry.Addr()) {
+							servers = append(servers, entry.Addr().String())
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+	if len(servers) == 0 {
+		underlying, err := network.addresses()
+		if err != nil {
+			return nil, false, fmt.Errorf("client DNS without an effective TUN hijack: %w", err)
+		}
+		for _, server := range underlying {
+			addr, err := netip.ParseAddrPort(server.Addr)
+			if err != nil {
+				return nil, false, err
+			}
+			for _, prefix := range addresses {
+				if prefix.Addr().Is4() == addr.Addr().Is4() {
+					servers = append(servers, addr.Addr().String())
+					break
+				}
+			}
+		}
+		if len(servers) == 0 {
+			return nil, false, &PlatformError{Field: "system-dns", Reason: "systemDnsUnavailable"}
+		}
+		usedSystem = true
+	}
+	return servers, usedSystem, nil
+}
+
+func makeVPNSpec(cfg *config.Config, presence configinput.Presence, options PrepareOptions, usedSystem bool) (*VPNSpec, error) {
+	tun := cfg.General.Tun
+	if tun.MTU == 0 || tun.MTU > 65535 {
+		return nil, &PlatformError{Field: "tun.mtu", Reason: "invalidMtu"}
+	}
+	addresses := append(slices.Clone(tun.Inet4Address), tun.Inet6Address...)
+	if len(addresses) == 0 {
+		return nil, &PlatformError{Field: "tun", Reason: "invalidAddress"}
+	}
+	for _, prefix := range addresses {
+		addr := prefix.Addr()
+		if !prefix.IsValid() || addr.IsUnspecified() || addr.IsMulticast() || !prefix.Contains(addr.Next()) {
+			return nil, &PlatformError{Field: "tun", Reason: "invalidAddress"}
+		}
+		if addr.Is6() && tun.MTU < 1280 {
+			return nil, &PlatformError{Field: "tun.mtu", Reason: "invalidMtu"}
+		}
+	}
+	routes, err := routePrefixes(tun, cfg.RuleProviders)
+	if err != nil {
+		return nil, err
+	}
+	// Require an effective IPv6 interface address before publishing an explicit IPv6
+	// route.
+	if err := routeFamilies(routes, tun); err != nil {
+		return nil, err
+	}
+	hijack, err := parseHijack(tun.DNSHijack)
+	if err != nil {
+		return nil, err
+	}
+	dnsServers, usedSystem, err := projectDNSServers(cfg.DNS.Enable, hijack, addresses, routes, options.Network)
+	if err != nil {
+		return nil, err
+	}
+	configured := false
+	for _, key := range []string{"include-package", "exclude-package", "include-uid", "exclude-uid", "include-uid-range", "exclude-uid-range", "include-android-user"} {
+		configured = configured || presence.Has("tun."+key)
+	}
+	return &VPNSpec{Generation: options.Generation, Composition: options.Composition, Revision: 1, MTU: tun.MTU, Addresses: addresses, Routes: routes, DNSServers: dnsServers,
+		Filter: PacketFilter{configured, tun.IncludePackage, tun.ExcludePackage, tun.IncludeUID, tun.ExcludeUID, tun.IncludeUIDRange, tun.ExcludeUIDRange, tun.IncludeAndroidUser}, UsesSystemDNS: usedSystem, NetworkKey: options.Network.key()}, nil
+}
+
+func (e *Engine) VPNSpec() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.available() || e.spec == nil {
+		return `{"error":"VPN specification is unavailable"}`
+	}
+	data, err := json.Marshal(e.spec)
+	if err != nil {
+		return `{"error":"VPN specification encoding failed"}`
+	}
+	return string(data)
+}
+
+func (e *Engine) watchRouteSets() io.Closer {
+	options := e.cfg.General.Tun
+	if len(options.RouteAddressSet)+len(options.RouteExcludeAddressSet) == 0 {
+		return nil
+	}
+	owner := e.owner
+	return tunnel.Tunnel.RuleUpdateCallback().Register(func(provider P.RuleProvider) {
+		if !slices.Contains(options.RouteAddressSet, provider.Name()) && !slices.Contains(options.RouteExcludeAddressSet, provider.Name()) {
+			return
+		}
+		e.mu.Lock()
+		if e.owner != owner || !e.available() || e.spec == nil {
+			e.mu.Unlock()
+			return
+		}
+		routes, err := routePrefixes(options, e.cfg.RuleProviders)
+		if err == nil {
+			err = routeFamilies(routes, options)
+		}
+		var servers []string
+		var usedSystem bool
+		if err == nil {
+			var hijack []netip.AddrPort
+			hijack, err = parseHijack(options.DNSHijack)
+			if err == nil {
+				servers, usedSystem, err = projectDNSServers(e.cfg.DNS.Enable, hijack,
+					e.spec.Addresses, routes, e.options.Network)
+			}
+		}
+		// Validate routes and DNS as one complete candidate before publication.
+		changed := (err == nil) != (e.specError == nil)
+		if err != nil && e.specError != nil {
+			changed = err.Error() != e.specError.Error()
+		} else if err == nil {
+			changed = changed || !slices.Equal(routes, e.spec.Routes) ||
+				!slices.Equal(servers, e.spec.DNSServers) || usedSystem != e.spec.UsesSystemDNS
+		}
+		if !changed {
+			e.mu.Unlock()
+			return
+		}
+		e.specError = err
+		if err == nil {
+			e.spec.Routes, e.spec.DNSServers, e.spec.UsesSystemDNS = routes, servers, usedSystem
+		}
+		e.spec.Revision++
+		callback, revision := e.specChanged, e.spec.Revision
+		needed := e.tun != nil && (err != nil || !slices.Equal(routes, e.attachedRoutes))
+		e.mu.Unlock()
+		if callback != nil {
+			callback(revision, needed)
+		}
+	})
+}

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Static transparent 288dp artwork; all visible pixels fit the 192dp safe circle. -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowSplashScreenBackground">@color/branding_launch_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/branding_splash</item>
+        <!-- The system splash uses the artwork above; the window displays its background color. -->
+        <item name="android:windowBackground">@color/branding_launch_background</item>
+    </style>
+</resources>

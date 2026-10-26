@@ -1,11 +1,35 @@
 package io.github.monadboxlab.clashpseudo.vpn
 
+import io.github.monadboxlab.clashpseudo.app.AppMessage
 import org.junit.Assert.*
 import org.junit.Test
 
 class NativeSessionTest {
+    @Test fun uptimeStartsAtAttachmentAndNeverRestartsWithinTheSession() {
+        var elapsed = 100L
+        val session = NativeSession { elapsed }
+        val first = session.begin("first", 1)!!
+        assertNull(session.snapshot().runningSinceElapsedMs)
+        elapsed = 500L
+        assertTrue(session.attached(first))
+        assertEquals(500L, session.snapshot().runningSinceElapsedMs)
+        elapsed += 10L * 366 * 24 * 60 * 60 * 1000
+        assertFalse(session.attached(first))
+        assertEquals(500L, session.snapshot().runningSinceElapsedMs)
+        assertEquals(elapsed, session.snapshot().elapsedRealtimeMs)
+        session.stopping(first)
+        assertNull(session.snapshot().runningSinceElapsedMs)
+        session.finished(first, null)
+        val second = session.begin("second", 2)!!
+        assertFalse(session.attached(first))
+        assertNull(session.snapshot().runningSinceElapsedMs)
+        elapsed += 1000
+        assertTrue(session.attached(second))
+        assertEquals(elapsed, session.snapshot().runningSinceElapsedMs)
+    }
+
     @Test fun duplicateStartIsRejected() {
-        val session = NativeSession()
+        val session = NativeSession { 0L }
         val id = session.begin()!!
         assertNull(session.begin())
         assertTrue(session.attached(id))
@@ -13,7 +37,7 @@ class NativeSessionTest {
     }
 
     @Test fun stopInvalidatesPendingAttach() {
-        val session = NativeSession()
+        val session = NativeSession { 0L }
         val id = session.begin()!!
         assertTrue(session.stopping(id))
         assertFalse(session.canStart(id))
@@ -24,40 +48,43 @@ class NativeSessionTest {
     }
 
     @Test fun oldCallbacksCannotAffectNewSession() {
-        val session = NativeSession()
+        val session = NativeSession { 0L }
         val old = session.begin()!!
         session.stopping(old)
         session.finished(old, null)
         val current = session.begin()!!
         assertFalse(session.attached(old))
         assertFalse(session.stopping(old))
-        session.finished(old, "late failure")
+        session.finished(old, AppMessage("androidErrorReleaseUnconfirmed"))
         assertTrue(session.canStart(current))
         assertNull(session.snapshot().error)
     }
 
     @Test fun unconfirmedCleanupBlocksRestart() {
-        val session = NativeSession()
+        val session = NativeSession { 0L }
         val id = session.begin()!!
-        session.stopping(id, "start failed")
-        session.finished(id, "close failed")
+        session.stopping(id, AppMessage("androidErrorTakeoverStartFailed"))
+        session.finished(id, AppMessage("androidErrorReleaseUnconfirmed"))
         assertEquals(NativeSession.Phase.UNKNOWN, session.snapshot().phase)
         assertFalse(session.stopping(id))
         assertNull(session.begin())
-        assertTrue(session.snapshot().error!!.contains("close failed"))
+        assertEquals(AppMessage("operationAndCleanupFailed", mapOf(
+            "operation" to AppMessage("androidErrorTakeoverStartFailed"),
+            "cleanup" to AppMessage("androidErrorReleaseUnconfirmed")
+        )), session.snapshot().error)
     }
 
     @Test fun failedStartWithSuccessfulCleanupCanRestart() {
-        val session = NativeSession()
+        val session = NativeSession { 0L }
         val id = session.begin()!!
-        session.stopping(id, "permission revoked")
+        session.stopping(id, AppMessage("androidErrorSystemRevoked"))
         session.finished(id, null)
-        assertEquals("permission revoked", session.snapshot().error)
+        assertEquals(AppMessage("androidErrorSystemRevoked"), session.snapshot().error)
         assertNotNull(session.begin())
     }
 
     @Test fun identityTracksActualSessionAndClearsOnlyAfterConfirmedStop() {
-        val session = NativeSession()
+        val session = NativeSession { 0L }
         val observed = mutableListOf<NativeSession.Snapshot>()
         session.changed = { observed.add(session.snapshot()) }
         val first = session.begin("first", 3)!!
@@ -70,11 +97,11 @@ class NativeSessionTest {
         assertNull(session.snapshot().configId)
         assertNull(session.snapshot().revision)
         val next = session.begin("second", 5)!!
-        session.finished(first, "late failure")
+        session.finished(first, AppMessage("androidErrorReleaseUnconfirmed"))
         assertFalse(session.attached(first))
         assertEquals("second", session.snapshot().configId)
         session.stopping(next)
-        session.finished(next, "cleanup failed")
+        session.finished(next, AppMessage("androidErrorReleaseUnconfirmed"))
         assertEquals("second", session.snapshot().configId)
         assertEquals(5, session.snapshot().revision)
         assertEquals(listOf(NativeSession.Phase.STARTING, NativeSession.Phase.RUNNING,
@@ -84,7 +111,7 @@ class NativeSessionTest {
     }
 
     @Test fun queryDoesNotStartAnything() {
-        val session = NativeSession()
+        val session = NativeSession { 0L }
         repeat(3) {
             assertEquals(NativeSession.Phase.STOPPED, session.snapshot().phase)
             assertEquals(0L, session.snapshot().generation)

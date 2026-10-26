@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Default locale: English. values-zh carries the Simplified Chinese text. -->
+<resources>
+    <string name="notify_channel_vpn">Network takeover</string>
+    <string name="notify_channel_work">Configuration operation</string>
+    <string name="notify_preparing">Preparing native takeover</string>
+    <string name="notify_restoring">Restoring system takeover</string>
+    <string name="notify_running">Native takeover running</string>
+    <string name="notify_working">Processing configuration operation</string>
+
+    <string name="stage_loading">Loading configuration</string>
+    <string name="stage_establishing">Establishing VPN</string>
+    <string name="stage_attaching">Attaching virtual interface</string>
+    <string name="error_stage_failed">%1$s failed. Check the configuration source and network, then try again.</string>
+
+    <string name="error_app_info_version">Unable to read version information.</string>
+    <string name="error_app_info_native">Unable to load the native core.</string>
+    <string name="error_applications">Unable to read the application list.</string>
+    <string name="error_logic_expired">The logic engine has ended.</string>
+    <string name="error_operation_ended">The operation has ended.</string>
+    <string name="error_schedule_save">Unable to save the automatic update schedule.</string>
+    <string name="error_busy">Another operation is in progress. Wait for it to finish.</string>
+    <string name="error_unknown_command">Unrecognized operation.</string>
+    <string name="operation_accepting">Accepting operation</string>
+    <string name="operation_preparing_system_start">Preparing system start</string>
+    <string name="error_service_start">The system did not allow starting the task. Return to the app and try again.</string>
+    <string name="error_service_not_allowed">The system did not allow starting the task.</string>
+    <string name="error_vpn_permission_return">Return to the app and restart to complete VPN authorization.</string>
+    <string name="error_vpn_permission_requests">Too many authorization requests. Restart the app and try again.</string>
+    <string name="error_result_unconfirmed">The operation has ended. Verify the current state.</string>
+    <string name="error_activity_return">Return to the app and try again.</string>
+    <string name="error_open_vpn_settings">Unable to open system VPN settings.</string>
+    <string name="error_system_start_prepare">The run configuration could not be prepared for the system start.</string>
+    <string name="error_session_changed">The takeover session has changed.</string>
+    <string name="error_session_mode_changed">The takeover session has changed; this mode change was not confirmed.</string>
+
+    <string name="error_background_start">Unable to start the background operation. Return to the app and try again.</string>
+    <string name="error_invalid_result">The operation returned no valid result.</string>
+    <string name="error_operation_incomplete">The business operation did not complete. Verify the current state and try again.</string>
+    <string name="status_updating">Updating</string>
+    <string name="error_update_failed">Update failed</string>
+
+    <string name="error_unknown_mode">Unrecognized run mode.</string>
+    <string name="error_mode_timeout">Timed out confirming the run mode.</string>
+    <string name="error_mode_unconfirmed">Unable to confirm the run mode. Wait for the state to refresh.</string>
+    <string name="error_native_mode_unavailable">The native mode interface is unavailable.</string>
+
+    <string name="error_takeover_timeout">The takeover operation timed out. Verify the actual state.</string>
+    <string name="error_takeover_running">The current takeover has not stopped; a new configuration cannot start.</string>
+    <string name="error_core_not_ready">Core resources are not ready; a new configuration cannot start.</string>
+    <string name="error_vpn_permission_invalid">VPN authorization is incomplete or has expired.</string>
+    <string name="error_vpn_service_start">The system did not allow starting the VPN service. Return to the app and try again.</string>
+    <string name="error_release_unconfirmed">Resource release was not confirmed; stopped or restarted state cannot be reported.</string>
+    <string name="error_takeover_start_failed">The takeover could not start.</string>
+    <string name="error_takeover_release_unknown">Unable to confirm whether takeover resources were released.</string>
+    <string name="error_stop_not_accepted">The system did not accept the stop request; takeover state is unconfirmed.</string>
+
+    <string name="error_strategy_prepare">Strategy configuration did not finish loading. Check the configuration and network, then try again.</string>
+    <string name="error_native_release_unconfirmed">Native resource release was not confirmed.</string>
+    <string name="error_strategy_params">Invalid strategy load parameters.</string>
+    <string name="error_strategy_context">The strategy context has changed; this result was not confirmed.</string>
+    <string name="error_strategy_timeout">The strategy operation timed out. Wait for the actual state to refresh.</string>
+    <string name="error_strategy_unconfirmed">The strategy operation was not confirmed. Verify the configuration, members, and core state.</string>
+    <string name="error_native_strategy_unavailable">The native strategy interface is unavailable.</string>
+
+    <string name="error_core_context_refresh">The core context has changed. Refresh and try again.</string>
+    <string name="error_core_context_reread">The core context has changed. Read it again.</string>
+    <string name="error_group_untestable">The current strategy group cannot be tested.</string>
+    <string name="error_delay_start">Unable to start the delay test.</string>
+    <string name="error_native_delay_unavailable">The native delay test interface is unavailable.</string>
+    <string name="error_batch_expired">The delay test batch has expired. Test again.</string>
+    <string name="error_delay_read">Unable to read delay test results.</string>
+
+    <string name="error_connection_query_size">The connection query is too large.</string>
+    <string name="error_connection_id">Invalid connection identifier.</string>
+    <string name="error_connection_busy">A connection operation has not finished.</string>
+    <string name="error_connection_timeout">The connection operation timed out.</string>
+    <string name="error_disconnect_unconfirmed">The disconnect result was not confirmed.</string>
+    <string name="error_update_failed_short">Update failed.</string>
+    <string name="error_native_connection_unavailable">The native connection interface is unavailable.</string>
+    <string name="error_connection_not_accepted">The connection operation was not accepted.</string>
+
+    <string name="error_operation_wait_timeout">The operation timed out. Verify the state and try again.</string>
+    <string name="error_system_timeout_task">The system ended an overdue task. Verify the state and try again.</string>
+    <string name="error_operation_interrupted">The operation was interrupted. Verify the state and try again.</string>
+
+    <string name="error_resource_update_size">The resource update request exceeds the size limit.</string>
+    <string name="error_nodes_query_size">The node query exceeds the size limit.</string>
+    <string name="error_rules_query_size">The rule query exceeds the size limit.</string>
+    <string name="error_logs_query_size">The log query exceeds the size limit.</string>
+    <string name="error_core_busy">The core is busy or its context changed. Refresh and try again.</string>
+    <string name="error_core_read_timeout">The core read timed out. Try again.</string>
+    <string name="error_core_read_failed">Unable to read core data. Refresh and try again.</string>
+    <string name="error_native_read_unavailable">The native read interface is unavailable.</string>
+
+    <string name="error_vpn_input_missing">VPN authorization has expired or the run input is missing.</string>
+    <string name="error_notification_denied">The system did not allow showing the takeover notification.</string>
+    <string name="error_notification_update">The takeover notification could not be updated.</string>
+    <string name="error_native_core_load">The native core could not be loaded. Check the installed package.</string>
+    <string name="error_system_revoked">The system revoked the VPN</string>
+    <string name="error_service_destroyed">The VPN service was destroyed</string>
+    <string name="error_application_allowlist_missing">All apps in the allow list are no longer installed. Select apps again.</string>
+    <string name="notify_running_missing_apps">VPN is running. Some selected apps are no longer installed; review app access settings.</string>
+    <string name="system_control_title">Clash Pseudo</string>
+    <string name="system_control_connect">Connect</string>
+    <string name="system_control_disconnect">Disconnect</string>
+    <string name="system_control_connected">Connected</string>
+    <string name="system_control_stopped">Stopped</string>
+    <string name="system_control_starting">Connecting</string>
+    <string name="system_control_stopping">Disconnecting</string>
+    <string name="system_control_unknown">Unknown</string>
+    <string name="system_control_failed">Failed</string>
+    <string name="system_control_busy">Working</string>
+    <string name="system_control_restoring">Restoring data</string>
+    <string name="system_control_mode_rule">Rule</string>
+    <string name="system_control_mode_global">Global</string>
+    <string name="system_control_mode_direct">Direct</string>
+    <string name="system_control_mode_actual">Live: %1$s</string>
+    <string name="system_control_mode_saved">Saved: %1$s</string>
+    <string name="system_control_mode_config">Mode: config</string>
+    <string name="system_control_mode_unknown">Mode: —</string>
+    <!-- A capsule caption while no fixed action is offered; the state text says why. -->
+    <string name="system_control_capsule_unavailable">Unavailable</string>
+    <string name="system_control_widget_description">Recent VPN state with an explicit connect or disconnect control. Tap the state to open the app.</string>
+    <string name="system_control_action_start">Connect VPN</string>
+    <string name="system_control_action_stop">Disconnect VPN</string>
+    <string name="system_control_action_unavailable">Connection control unavailable: %1$s</string>
+    <string name="widget_running">Running</string>
+    <string name="widget_stopped">Stopped</string>
+    <string name="widget_starting">Starting</string>
+    <string name="widget_stopping">Stop…</string>
+    <string name="widget_unknown">Unsure</string>
+    <string name="widget_failed">Failed</string>
+    <string name="widget_busy">Busy</string>
+    <string name="widget_restoring">Restore</string>
+    <string name="widget_mode_config">Config</string>
+    <string name="widget_mode_unknown">—</string>
+    <string name="widget_capacity">Too small\nOpen app</string>
+    <string name="widget_open_description">%1$s. %2$s. Open the app.</string>
+</resources>

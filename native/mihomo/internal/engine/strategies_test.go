@@ -2,15 +2,22 @@ package engine
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
 
 	G "github.com/metacubex/mihomo/adapter/outboundgroup"
+	"github.com/metacubex/mihomo/component/profile/cachefile"
+	"github.com/metacubex/mihomo/component/resolver"
+	C "github.com/metacubex/mihomo/constant"
 )
 
 func strategyConfig(t *testing.T) string {
@@ -244,8 +251,166 @@ func TestInvalidStrategyChoices(t *testing.T) {
 	}
 }
 
-// The official interfaces retain v1.19.32's selected-field races. This test
-// deliberately exposes them under -race; serializing our API is not a fix.
+// Use an isolated real upstream singleton cache.
+func TestProfileDefaultSelectedCoreCacheAndApplicationChoices(t *testing.T) {
+	if os.Getenv("CLASH_PROFILE_CACHE_CHILD") != "1" {
+		command := exec.Command(os.Args[0], "-test.run=^TestProfileDefaultSelectedCoreCacheAndApplicationChoices$", "-test.v")
+		if directory := flag.Lookup("test.gocoverdir"); directory != nil && directory.Value.String() != "" {
+			command.Args = append(command.Args, "-test.gocoverdir="+directory.Value.String())
+		}
+		command.Env = append(os.Environ(), "CLASH_PROFILE_CACHE_CHILD=1")
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("profile cache subprocess: %v\n%s", err, output)
+		}
+		return
+	}
+	home := t.TempDir()
+	body := `profile: {store-selected: true}
+proxy-groups:
+  - {name: pick, type: select, proxies: [DIRECT, REJECT], default-selected: REJECT}
+rules: ["MATCH,pick"]
+`
+	var e Engine
+	prepare := func(text string, choices map[string]Choice) {
+		t.Helper()
+		if err := e.Prepare(home, []byte(text), "", choices, func(int) bool { return true }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	selected := func() string {
+		t.Helper()
+		for _, g := range readStrategies(t, &e).Groups {
+			if g.Name == "pick" {
+				return g.Now
+			}
+		}
+		t.Fatal("missing group")
+		return ""
+	}
+	prepare(body, nil)
+	if selected() != "REJECT" {
+		t.Fatal("default-selected was replaced by a hard-coded first member")
+	}
+	if err := e.SetStrategy("pick", choose("select", "DIRECT")); err != nil {
+		t.Fatal(err)
+	}
+	if cachefile.Cache().SelectedMap()["pick"] != "DIRECT" {
+		t.Fatal("successful explicit operation was not persisted to the upstream cache")
+	}
+	if err := e.SetStrategy("pick", choose("select", "missing")); err == nil {
+		t.Fatal("invalid choice accepted")
+	}
+	if cachefile.Cache().SelectedMap()["pick"] != "DIRECT" {
+		t.Fatal("failed operation rewrote selection cache")
+	}
+	requireStop(t, &e)
+	prepare(body, nil)
+	if selected() != "DIRECT" {
+		t.Fatal("valid upstream selected cache was not restored")
+	}
+	requireStop(t, &e)
+	prepare(body, map[string]Choice{"pick": choose("select", "REJECT")})
+	if selected() != "REJECT" {
+		t.Fatal("application choice did not override the core cache")
+	}
+	if cachefile.Cache().SelectedMap()["pick"] != "DIRECT" {
+		t.Fatal("restoration impersonated a new explicit selection")
+	}
+	cachefile.Cache().SetSelected("pick", "missing")
+	requireStop(t, &e)
+	prepare(body, nil)
+	if selected() != "REJECT" {
+		t.Fatal("invalid core cache displaced the file's initial default")
+	}
+	requireStop(t, &e)
+	prepare(strings.Replace(body, "store-selected: true", "store-selected: false", 1), nil)
+	if selected() != "REJECT" {
+		t.Fatal("disabled core cache was restored")
+	}
+	if err := e.SetStrategy("pick", choose("select", "DIRECT")); err != nil {
+		t.Fatal(err)
+	}
+	requireStop(t, &e)
+	prepare(body, nil)
+	if selected() != "REJECT" {
+		t.Fatal("store-selected=false still wrote the disabled choice")
+	}
+	requireStop(t, &e)
+	if _, err := os.Stat(filepath.Join(home, "cache.db")); err != nil {
+		t.Fatalf("normal upstream cache was not used: %v", err)
+	}
+}
+
+func TestStoreFakeIPPersistsNormalPoolStateBeforeStopClearsMapper(t *testing.T) {
+	if os.Getenv("CLASH_FAKE_POOL_CHILD") != "1" {
+		command := exec.Command(os.Args[0], "-test.run=^TestStoreFakeIPPersistsNormalPoolStateBeforeStopClearsMapper$", "-test.v")
+		if directory := flag.Lookup("test.gocoverdir"); directory != nil && directory.Value.String() != "" {
+			command.Args = append(command.Args, "-test.gocoverdir="+directory.Value.String())
+		}
+		command.Env = append(os.Environ(), "CLASH_FAKE_POOL_CHILD=1")
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("fake-IP persistence subprocess: %v\n%s", err, output)
+		}
+		return
+	}
+	home := t.TempDir()
+	body := "ipv6: false\nprofile: {store-fake-ip: true}\ndns: {enhanced-mode: fake-ip, fake-ip-range: 198.18.0.1/16}\nrules: [\"MATCH,DIRECT\"]\n"
+	var e Engine
+	prepare := func() {
+		t.Helper()
+		if err := e.Prepare(home, []byte(body), "", nil, func(int) bool { return true }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prepare()
+	pool := e.cfg.DNS.FakeIPPool
+	if pool == nil {
+		t.Fatal("explicit fake-IP pool was not enabled")
+	}
+	first, second := pool.Lookup("first.persistence.test"), pool.Lookup("second.persistence.test")
+	requireStop(t, &e)
+	disabled := strings.Replace(body, "dns: {enhanced-mode", "dns: {enable: false, enhanced-mode", 1)
+	disabled = strings.Replace(disabled, "198.18.0.1/16", "198.19.0.1/16", 1)
+	if err := e.Prepare(home, []byte(disabled), "", nil, func(int) bool { return true }); err != nil {
+		t.Fatal(err)
+	}
+	if e.cfg.DNS.Enable || e.cfg.DNS.EnhancedMode != C.DNSFakeIP || e.cfg.DNS.FakeIPPool != nil || e.cfg.DNS.FakeIPPool6 != nil || resolver.DefaultHostMapper != nil || resolver.DefaultService != nil || resolver.DefaultResolver != nil {
+		t.Fatal("disabled DNS created a fake-IP pool/service or erased the explicit inactive mode")
+	}
+	requireStop(t, &e)
+	prepare()
+	pool = e.cfg.DNS.FakeIPPool
+	if got := pool.Lookup("first.persistence.test"); got != first {
+		t.Fatalf("persisted mapping changed from %v to %v", first, got)
+	}
+	if host, ok := pool.LookBack(second); !ok || host != "second.persistence.test" {
+		t.Fatal("persisted reverse mapping was lost")
+	}
+	if got := pool.Lookup("third.persistence.test"); got != second.Next() {
+		t.Fatalf("Stop did not save the allocation offset: %v after %v", got, second)
+	}
+	if value := dnsObject(t, e.ClearDNSCache()); value["status"] != "completed" {
+		t.Fatal(value)
+	}
+	if host, ok := pool.LookBack(second); !ok || host != "second.persistence.test" {
+		t.Fatal("DNS cache clear removed the persistent fake-IP mapping")
+	}
+	if value := dnsObject(t, e.FlushFakeIP()); value["status"] != "completed" || value["persistent"] != true {
+		t.Fatal("fake-IP flush did not report its actual persistent scope", value)
+	}
+	requireStop(t, &e)
+	prepare()
+	pool = e.cfg.DNS.FakeIPPool
+	if _, ok := pool.LookBack(second); ok {
+		t.Fatal("flushed persistent fake-IP mapping returned after prepare")
+	}
+	if got := pool.Lookup("after-flush.persistence.test"); got != first {
+		t.Fatal("flushed persistent allocation offset was not reset", got, first)
+	}
+	requireStop(t, &e)
+}
+
+// Expose the selected-field upstream races through official interfaces under -race.
 func TestStrategyConcurrentReads(t *testing.T) {
 	var e Engine
 	if err := e.Prepare(t.TempDir(), []byte(strategyConfig(t)), "rule", nil, func(int) bool { return true }); err != nil {

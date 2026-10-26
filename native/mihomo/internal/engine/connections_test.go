@@ -4,13 +4,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
 
 	"github.com/gofrs/uuid/v5"
+	"github.com/metacubex/mihomo/component/fakeip"
+	"github.com/metacubex/mihomo/component/resolver"
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/dns"
 	"github.com/metacubex/mihomo/tunnel/statistic"
 )
 
@@ -76,6 +81,115 @@ func decodeConnections(t *testing.T, body string, err error) connectionReply {
 		t.Fatal(err)
 	}
 	return reply
+}
+
+func TestConnectionRuleSuggestionsUseIDNAAndPublicSuffixPrivateBoundaries(t *testing.T) {
+	for _, test := range []struct {
+		host, want string
+		suffixes   []string
+	}{
+		{"a.b.example.co.uk", "a.b.example.co.uk", []string{"a.b.example.co.uk", "b.example.co.uk", "example.co.uk"}},
+		{"a.tenant.github.io", "a.tenant.github.io", []string{"a.tenant.github.io", "tenant.github.io"}},
+		{"a.tenant.blogspot.com", "a.tenant.blogspot.com", []string{"a.tenant.blogspot.com", "tenant.blogspot.com"}},
+		{"a.www.ck", "a.www.ck", []string{"a.www.ck", "www.ck"}},
+		{"WWW.例子.测试。", "www.xn--fsqu00a.xn--0zwm56d", []string{"www.xn--fsqu00a.xn--0zwm56d", "xn--fsqu00a.xn--0zwm56d"}},
+		{"co.uk", "co.uk", []string{}}, {"LOCALHOST", "localhost", []string{}},
+	} {
+		value := connectionSuggestions("observed", &C.Metadata{Host: test.host})
+		if value == nil || value.Host == nil || *value.Host != test.want || !reflect.DeepEqual(value.Suffixes, test.suffixes) {
+			t.Fatalf("%s: %+v", test.host, value)
+		}
+		if value.IPCIDR != nil {
+			t.Fatal("a host suggestion invented an address")
+		}
+	}
+	for _, host := range []string{"", ".", "a..test", "a.test..", "https://example.test", "example.test:443", "a.test/path", "a\n.test", "a\x00.test", "_srv._tcp.test", "192.0.2.7", "2001:db8::7", "a." + strings.Repeat("x", 64), strings.Repeat("x", 1025), "-bad.test"} {
+		value := connectionSuggestions("observed", &C.Metadata{Host: host})
+		if value == nil || value.Host != nil || len(value.Suffixes) != 0 {
+			t.Fatalf("invalid/incomplete/literal host suggested a rule: %q %+v", host, value)
+		}
+	}
+	long := strings.Repeat("a.", 126) + "a"
+	value := connectionSuggestions("observed", &C.Metadata{Host: long})
+	if value == nil || value.Host == nil || *value.Host != long || len(value.Suffixes) != 126 {
+		t.Fatal("wire-valid long domain was truncated", value)
+	}
+	if body, err := json.Marshal(value); err != nil || len(body) > 32<<10 {
+		t.Fatal("suggestions exceeded bounded envelope", err, len(body))
+	}
+}
+
+func TestConnectionRuleSuggestionsUseOnlyObservedIPAndPublicFakeIPDetection(t *testing.T) {
+	old := resolver.DefaultHostMapper
+	defer func() { resolver.DefaultHostMapper = old }()
+	pool, err := fakeip.New(fakeip.Options{IPNet: netip.MustParsePrefix("203.0.113.1/24"), Size: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver.DefaultHostMapper = dns.NewEnhancer(dns.EnhancerConfig{EnhancedMode: C.DNSFakeIP, FakeIPPool: pool})
+	fake := pool.Lookup("custom-range.test")
+	for _, test := range []struct {
+		ip   netip.Addr
+		want string
+	}{
+		{fake, ""}, {netip.MustParseAddr("198.18.0.4"), "198.18.0.4/32"},
+		{netip.MustParseAddr("::ffff:192.0.2.7"), "192.0.2.7/32"},
+		{netip.MustParseAddr("2001:db8::7"), "2001:db8::7/128"},
+		{netip.MustParseAddr("fe80::7%wlan0"), ""}, {netip.IPv4Unspecified(), ""}, {netip.Addr{}, ""},
+	} {
+		value := connectionSuggestions("observed", &C.Metadata{DstIP: test.ip, Host: "real.example.test"})
+		if test.want == "" {
+			if value.IPCIDR != nil {
+				t.Fatal("invalid/fake address was offered", test.ip, *value.IPCIDR)
+			}
+		} else if value.IPCIDR == nil || *value.IPCIDR != test.want {
+			t.Fatal("observed address changed", test.ip, value)
+		}
+	}
+	// Use actual tracker addresses and fake-IP classification.
+	value := connectionSuggestions("observed", &C.Metadata{Host: "not-resolved.example.test"})
+	if value.IPCIDR != nil {
+		t.Fatal("address invented from host")
+	}
+}
+
+func TestConnectionRuleSuggestionsAreComputedOnlyForCurrentRequestedDetail(t *testing.T) {
+	first, latest := fixtureConnection(1), fixtureConnection(2)
+	first.info.Metadata.Host = "a.tenant.github.io"
+	first.info.Metadata.DstIP = netip.MustParseAddr("192.0.2.7")
+	latest.info.Metadata.Host = "unrelated.example.test"
+	source := &connectionFixtures{rows: []*connectionFixture{first, latest}, missing: map[string]bool{}}
+	body, err := queryConnections(source, nil, ConnectionQuery{Limit: 1})
+	if value := decodeConnections(t, body, err); value.RuleSuggestions != nil {
+		t.Fatal("ordinary 1000-row sampling calculated rule suggestions")
+	}
+	body, err = queryConnections(source, nil, ConnectionQuery{Limit: 1, DetailID: first.ID()})
+	value := decodeConnections(t, body, err)
+	if value.Detail == nil || value.RuleSuggestions == nil || value.RuleSuggestions.Host == nil || value.RuleSuggestions.IPCIDR == nil || value.RuleSuggestions.ConnectionID != first.ID() || *value.RuleSuggestions.Host != "a.tenant.github.io" || *value.RuleSuggestions.IPCIDR != "192.0.2.7/32" {
+		t.Fatal("suggestions came from another/display-selected tracker", value.RuleSuggestions)
+	}
+	source.missing[first.ID()] = true
+	body, err = queryConnections(source, nil, ConnectionQuery{Limit: 1, DetailID: first.ID()})
+	if value := decodeConnections(t, body, err); value.RuleSuggestions != nil || value.Presence[first.ID()] {
+		t.Fatal("closed tracker retained old rule suggestions")
+	}
+	delete(source.missing, first.ID())
+	first.info.Metadata.Type = C.INNER
+	body, err = queryConnections(source, nil, ConnectionQuery{Limit: 1, DetailID: first.ID()})
+	if value := decodeConnections(t, body, err); value.RuleSuggestions != nil {
+		t.Fatal("internal tracker offered a rule")
+	}
+	first.info.Metadata.Type = C.TUN
+	first.info.Metadata.Host = strings.Repeat("a.", 600) + "example.test"
+	body, err = queryConnections(source, nil, ConnectionQuery{Limit: 1, DetailID: first.ID()})
+	value = decodeConnections(t, body, err)
+	var row connectionRow
+	if err := json.Unmarshal(value.Detail, &row); err != nil {
+		t.Fatal(err)
+	}
+	if !row.Truncated || row.Metadata.Host == "" || value.RuleSuggestions == nil || value.RuleSuggestions.Host != nil || len(value.RuleSuggestions.Suffixes) != 0 {
+		t.Fatal("truncated display host was used as a trustworthy complete name", value.RuleSuggestions)
+	}
 }
 
 func TestConnectionsBoundedSelectionAndPresence(t *testing.T) {

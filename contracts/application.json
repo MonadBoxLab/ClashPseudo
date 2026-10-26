@@ -1,0 +1,50 @@
+{
+  "configuration": {
+    "text_bytes": 16777216,
+    "name_bytes": 80,
+    "revision_max": 2147483647,
+    "override_json_bytes": 134217728,
+    "preparation_options_bytes": 16777216
+  },
+  "operation": {
+    "ordinary_timeout_ms": 120000,
+    "backup_timeout_ms": 300000,
+    "ui_grace_ms": 5000,
+    "scheduled_network_timeout_ms": 110000
+  },
+  "backup": {
+    "archive_bytes": 268435456,
+    "expanded_bytes": 268435456,
+    "configurations_json_bytes": 134217728,
+    "overrides_json_bytes": 134217728,
+    "preferences_json_bytes": 1048576,
+    "manifest_bytes": 65536,
+    "central_directory_bytes": 65536,
+    "collection_entries": 4096,
+    "json_depth": 32,
+    "json_nodes": 200000,
+    "format": "clash-pseudo-backup",
+    "version": 1,
+    "manifest_file": "manifest.json",
+    "configurations_file": "configurations.json",
+    "overrides_file": "overrides.json",
+    "preferences_file": "preferences.json"
+  },
+  "dns": {
+    "name_bytes": 1024,
+    "request_bytes": 4096,
+    "result_bytes": 262144,
+    "result_records": 512,
+    "query_timeout_ms": 5000,
+    "bridge_timeout_ms": 6000
+  },
+  "connection": {
+    "active_entries": 1000,
+    "inactive_entries": 500,
+    "extra_details": 1,
+    "inactive_retention_ms": 900000,
+    "request_bytes": 65536,
+    "row_bytes": 4096,
+    "response_bytes": 8388608
+  }
+}

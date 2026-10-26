@@ -1,10 +1,11 @@
-import 'package:clash_pseudo/app/app_theme.dart';
-import 'package:clash_pseudo/features/connections/connections_page.dart';
-import 'package:clash_pseudo/features/strategies/strategy_icon.dart';
+import 'package:clash_pseudo/src/app/app_theme.dart';
+import 'package:clash_pseudo/src/features/connections/connections_page.dart';
+import 'package:clash_pseudo/src/features/strategies/strategy_icon.dart';
 import 'package:flutter/material.dart';
+import 'package:clash_pseudo/src/l10n/app_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'connections_test.dart' as fixtures;
+import 'connection_fakes.dart' as fixtures;
 
 void main() {
   for (final dark in [false, true]) {
@@ -33,6 +34,10 @@ void main() {
               ]);
               await tester.pumpWidget(
                 MaterialApp(
+                  localizationsDelegates:
+                      AppLocalizations.localizationsDelegates,
+                  supportedLocales: AppLocalizations.supportedLocales,
+                  locale: const Locale('zh'),
                   theme: dark ? AppTheme.dark : AppTheme.light,
                   builder: (context, child) => MediaQuery(
                     data: MediaQuery.of(context)

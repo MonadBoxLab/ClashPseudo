@@ -1,5 +1,8 @@
 package io.github.monadboxlab.clashpseudo.nativecore
 
+import io.github.monadboxlab.clashpseudo.app.AppTrust
+import io.github.monadboxlab.clashpseudo.vpn.NativeSession
+
 import android.os.ParcelFileDescriptor
 import android.system.ErrnoException
 import android.system.Os
@@ -22,7 +25,6 @@ import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.*
-import org.junit.Assume.assumeFalse
 import org.junit.Before
 import org.junit.Test
 
@@ -32,10 +34,22 @@ class NativeCoreFailureTest {
 
     @Before
     fun requireIdleCore() {
-        // A failed cleanup poisons this process; later tests must not reuse it.
-        assumeFalse("Previous native cleanup was not confirmed", cleanupFailed.get())
+        // A failed cleanup marks this process unusable for subsequent cases.
+        assertFalse("Previous native cleanup was not confirmed", cleanupFailed.get())
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        CoreHost.installAndroid(context)
+        val material = io.github.monadboxlab.clashpseudo.app.AppTrust.pem(context).toByteArray(Charsets.UTF_8)
+        val error = NativeCore.initializeTrust(material)
+        // Report the native error code only.
+        assertEquals("AppTrust.pem -> NativeCore.initializeTrust raw error", "", error)
         assertStopped()
         ownsSession = true
+    }
+
+    @Test
+    fun androidTrustPemInitializesNativeWithoutPreparingCore() {
+        // The shared setup exercises the Java PEM, JNI and Go trust path.
+        assertStopped()
     }
 
     @After
@@ -45,19 +59,49 @@ class NativeCoreFailureTest {
     }
 
     @Test
-    fun invalidParametersConsumeDescriptorAndRecover() {
+    fun invalidParametersKeepDescriptorInKotlinAndRecover() {
         repeat(3) { round ->
-            checkAttachFailure(33, "invalid IPv4 TUN parameters")
-            logResources("parameters", round)
+            prepare(DIRECT, Protector(), vpn = true)
+            val revision = JSONObject(NativeCore.vpnSpec()).getLong("revision")
+            ParcelFileDescriptor.open(File("/dev/null"), ParcelFileDescriptor.MODE_READ_WRITE).use { descriptor ->
+                val fd = descriptor.fd
+                val error = NativeCore.attach(descriptor, revision + 1)
+                assertTrue(error, error.contains("specification revision"))
+                assertEquals(fd, descriptor.fd)
+                Os.fstat(descriptor.fileDescriptor)
+            }
+            assertFalse(snapshot().getBoolean("attached"))
+            stop()
+            logResources("pre-detach-validation", round)
         }
     }
 
     @Test
     fun stackConstructionFailureConsumesDescriptorAndRecovers() {
         repeat(3) { round ->
-            // /32 passes our validation, but system stack needs a second address.
-            checkAttachFailure(32, "need one more IPv4 address")
+            // Trigger deterministic failure in the default mips constructor.
+            checkAttachFailure()
             logResources("stack", round)
+        }
+    }
+
+    @Test
+    fun kernelForwarderInterfaceQueryFailureConsumesDescriptorAndRecovers() {
+        for (stack in listOf("system", "mixed")) repeat(3) { round ->
+            val home = prepare(DIRECT + "tun: {stack: $stack}\n", Protector(), vpn = true)
+            val revision = JSONObject(NativeCore.vpnSpec()).getLong("revision")
+            val marker = File(home, "interface-query-marker").apply { writeBytes(byteArrayOf()) }
+            val descriptor = ParcelFileDescriptor.open(marker, ParcelFileDescriptor.MODE_READ_WRITE)
+            val fd = descriptor.fd
+            val original = Os.fstat(descriptor.fileDescriptor)
+            val error = descriptor.use { NativeCore.attach(it, revision) }
+            assertTrue(error, error.contains("external TUN interface query"))
+            assertConsumed(fd, original, error)
+            assertFalse(snapshot().getBoolean("attached"))
+            stop()
+            prepare(DIRECT, Protector())
+            stop()
+            logResources("$stack-interface-query", round)
         }
     }
 
@@ -150,24 +194,55 @@ class NativeCoreFailureTest {
         }
     }
 
-    private fun checkAttachFailure(prefix: Int, expected: String) {
-        prepare(DIRECT, Protector())
-        val fd = ParcelFileDescriptor.open(File("/dev/null"), ParcelFileDescriptor.MODE_READ_WRITE)
-            .use { it.detachFd() }
-        val error = NativeCore.attach(fd, 1400, "192.0.2.1", prefix)
-        // Probe before snapshot/logging can allocate another descriptor with this number.
-        assertConsumed(fd)
-        assertTrue(error, error.contains(expected))
+    @Test
+    fun descriptorConsumptionChecksOriginalResourceAfterNumberReuse() {
+        val cache = InstrumentationRegistry.getInstrumentation().targetContext.cacheDir
+        val home = File(cache, "native-fd-probe-${UUID.randomUUID()}")
+        assertTrue(home.mkdir())
+        homes.add(home)
+        val originalFile = File(home, "original").apply { writeBytes(byteArrayOf()) }
+        val replacementFile = File(home, "replacement").apply { writeBytes(byteArrayOf()) }
+        val descriptor = ParcelFileDescriptor.open(originalFile, ParcelFileDescriptor.MODE_READ_WRITE)
+        val fd = descriptor.fd
+        val original = Os.fstat(descriptor.fileDescriptor)
+        try {
+            val failure = try {
+                assertConsumed(fd, original, "probe-only")
+                null
+            } catch (error: AssertionError) { error }
+            assertNotNull("The probe accepted the still-open original resource", failure)
+            assertTrue(failure!!.message.orEmpty().contains("still owns the original resource"))
+        } finally { descriptor.close() }
+        ParcelFileDescriptor.open(replacementFile, ParcelFileDescriptor.MODE_READ_WRITE).use {
+            assertEquals("The fixture must actually reuse the descriptor number", fd, it.fd)
+            assertNotEquals(original.st_ino, Os.fstat(it.fileDescriptor).st_ino)
+            // The old EBADF-only criterion rejects this valid, independently owned reuse.
+            ParcelFileDescriptor.fromFd(fd).use { duplicate -> Os.fstat(duplicate.fileDescriptor) }
+            assertConsumed(fd, original, "probe-only")
+        }
+        assertConsumed(fd, original, "probe-only")
+    }
+
+    private fun checkAttachFailure() {
+        val home = prepare(DIRECT + "tun: {congestion-controller: invalid-native-test-controller}\n", Protector(), vpn = true)
+        val revision = JSONObject(NativeCore.vpnSpec()).getLong("revision")
+        val marker = File(home, "descriptor-marker").apply { writeBytes(byteArrayOf()) }
+        val descriptor = ParcelFileDescriptor.open(marker, ParcelFileDescriptor.MODE_READ_WRITE)
+        val fd = descriptor.fd
+        val original = Os.fstat(descriptor.fileDescriptor)
+        val error = descriptor.use { NativeCore.attach(it, revision) }
+        assertConsumed(fd, original, error)
+        assertTrue(error, error.contains("invalid TCP congestion control"))
         assertFalse(snapshot().getBoolean("attached"))
         stop()
         prepare(DIRECT, Protector())
         stop()
     }
 
-    private fun assertConsumed(fd: Int) {
-        try {
-            // fromFd duplicates: never adopt/close the transferred number, which may be reused.
-            ParcelFileDescriptor.fromFd(fd).close()
+    private fun assertConsumed(fd: Int, original: android.system.StructStat, attachmentError: String) {
+        val current = try {
+            // fromFd duplicates the descriptor; inspect and close only that duplicate.
+            ParcelFileDescriptor.fromFd(fd).use { Os.fstat(it.fileDescriptor) }
         } catch (error: IOException) {
             val errno = generateSequence<Throwable>(error) { it.cause }
                 .filterIsInstance<ErrnoException>().firstOrNull()
@@ -175,7 +250,11 @@ class NativeCoreFailureTest {
             assertEquals(OsConstants.EBADF, errno!!.errno)
             return
         }
-        fail("Transferred descriptor $fd remains open")
+        assertFalse("Transferred descriptor $fd still owns the original resource; " +
+            "original=${original.st_dev}/${original.st_ino}/${original.st_mode}, " +
+            "current=${current.st_dev}/${current.st_ino}/${current.st_mode}, " +
+            "attachment=$attachmentError",
+            current.st_dev == original.st_dev && current.st_ino == original.st_ino)
     }
 
     private fun checkProtectFailure(throws: Boolean) {
@@ -183,7 +262,7 @@ class NativeCoreFailureTest {
             ProviderServer().use { server ->
                 val rejected = Protector(accept = false, throws = throws)
                 try {
-                    // mihomo tolerates an unavailable provider; prepare need not fail.
+                    // Preparation may succeed with an unavailable provider.
                     prepare(providerConfig(server), rejected)
                     rejected.assertCalled()
                     val state = snapshot()
@@ -203,7 +282,7 @@ class NativeCoreFailureTest {
                     accepted.assertCalled()
                     assertTrue(snapshot().getLong("protected") > 0)
                     assertEquals(0L, snapshot().getLong("refused"))
-                    assertFalse("Remote cache path must be ignored", File(home, "provider.yaml").exists())
+                    assertTrue("Explicit managed remote cache path was discarded", File(home, "provider.yaml").isFile)
                     val expected = server.body.toByteArray(Charsets.UTF_8)
                     assertEquals(1, home.walkTopDown().filter { it.isFile }
                         .count { it.readBytes().contentEquals(expected) })
@@ -215,12 +294,15 @@ class NativeCoreFailureTest {
         }
     }
 
-    private fun prepare(body: String, protector: Protector): File {
+    private fun prepare(body: String, protector: Protector, vpn: Boolean = false): File {
         val cache = InstrumentationRegistry.getInstrumentation().targetContext.cacheDir
         val home = File(cache, "native-failure-${UUID.randomUUID()}")
         assertTrue(home.mkdir())
         homes.add(home)
-        assertEquals("", NativeCore.prepare(home.path, body.toByteArray(Charsets.UTF_8), "rule", protector))
+        val options = JSONObject().put("purpose", if (vpn) "VPN" else "PREVIEW")
+            .put("generation", 1).put("composition", "native-failure-test").toString().toByteArray(Charsets.UTF_8)
+        assertEquals("", NativeCore.prepare(home.path, body.toByteArray(Charsets.UTF_8), "rule", protector,
+            options = options))
         assertTrue(snapshot().getBoolean("prepared"))
         return home
     }
@@ -262,12 +344,12 @@ class NativeCoreFailureTest {
             health-check: {enable: false}
     """.trimIndent() + "\n"
 
-    class Protector(private val accept: Boolean = true, private val throws: Boolean = false) {
+    class Protector(private val accept: Boolean = true, private val throws: Boolean = false) : NativeCore.PreparationCallbacks {
         val calls = AtomicInteger()
         private val invalidSocket = AtomicReference<Throwable?>()
 
         @Keep // JNI looks up this method by name, not through Kotlin call sites.
-        fun protectSocket(fd: Int): Boolean {
+        override fun protectSocket(fd: Int): Boolean {
             calls.incrementAndGet()
             try {
                 ParcelFileDescriptor.fromFd(fd).use {
@@ -281,6 +363,11 @@ class NativeCoreFailureTest {
             if (throws) throw IllegalStateException("Injected protect callback failure")
             return accept
         }
+
+        @Keep override fun protectSocketOnNetwork(fd: Int, handle: String): Boolean = protectSocket(fd)
+        override fun preparationOptions(): ByteArray = "{\"purpose\":\"PREVIEW\"}".toByteArray()
+        @Keep override fun seedGeo(request: String): String = error("Unexpected Geo request in a test with explicit geox-url keys")
+        @Keep override fun specificationChanged(generation: Long, composition: String, revision: Long, needed: Boolean) = Unit
 
         fun assertCalled() {
             assertTrue("JNI never called protectSocket", calls.get() > 0)
@@ -342,7 +429,7 @@ class NativeCoreFailureTest {
     }
 
     companion object {
-        private const val DIRECT = "mode: rule\nfind-process-mode: off\nlog-level: info\nrules:\n  - MATCH,DIRECT\n"
+        private const val DIRECT = "mode: rule\nfind-process-mode: off\nlog-level: info\ngeox-url: {geoip: '', geosite: '', mmdb: '', asn: ''}\nrules:\n  - MATCH,DIRECT\n"
         private val cleanupFailed = AtomicBoolean()
     }
 }

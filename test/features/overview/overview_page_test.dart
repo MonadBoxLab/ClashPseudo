@@ -1,12 +1,18 @@
-import 'package:clash_pseudo/app/app_controller.dart';
-import 'package:clash_pseudo/app/app_theme.dart';
-import 'package:clash_pseudo/app/widgets/operation_feedback.dart';
-import 'package:clash_pseudo/features/connections/connection_snapshot.dart';
-import 'package:clash_pseudo/features/configs/config_entry.dart';
-import 'package:clash_pseudo/features/overview/overview_page.dart';
-import 'package:clash_pseudo/features/overview/widgets/power_ripples.dart';
-import 'package:clash_pseudo/platform/app_bridge.dart';
+import 'package:clash_pseudo/src/model/app_snapshot.dart';
+import 'package:clash_pseudo/src/app/app_controller.dart';
+import 'package:clash_pseudo/src/app/app_theme.dart';
+import 'package:clash_pseudo/src/app/widgets/operation_feedback.dart';
+import 'package:clash_pseudo/src/features/connections/connection_snapshot.dart';
+import 'package:clash_pseudo/src/features/configs/config_entry.dart';
+import 'package:clash_pseudo/src/features/overview/overview_page.dart';
+import 'package:clash_pseudo/src/features/overview/widgets/traffic_panel.dart';
+import 'package:clash_pseudo/src/features/overview/widgets/power_ripples.dart';
+import 'package:clash_pseudo/src/features/overview/widgets/session_uptime.dart';
+import 'package:clash_pseudo/src/l10n/app_localizations.dart';
+import 'package:clash_pseudo/src/platform/app_bridge.dart';
 import 'package:flutter/material.dart';
+import 'package:clash_pseudo/src/model/app_preferences.dart';
+import 'package:clash_pseudo/src/l10n/messages.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class ViewBridge extends AppBridge {
@@ -33,6 +39,9 @@ class ViewController extends AppController {
   }
   final commands = <Map<String, Object?>>[];
   @override
+  Future<void> refresh() async {}
+
+  @override
   Future<String?> submit(
     Map<String, Object?> command, {
     bool automatic = false,
@@ -46,7 +55,7 @@ class ViewController extends AppController {
   void changed() => notifyListeners();
 }
 
-ConfigEntry config(String id, {int revision = 1, String? body = 'config'}) =>
+ConfigEntry config(String id, {int revision = 1, String body = 'config'}) =>
     ConfigEntry(
       id: id,
       name: '配置 $id',
@@ -57,20 +66,31 @@ ConfigEntry config(String id, {int revision = 1, String? body = 'config'}) =>
 
 void main() {
   late ViewController controller;
-  setUp(() => controller = ViewController());
-  tearDown(() => controller.dispose());
+  setUp(() {
+    setMessageLanguage(AppLanguage.zh);
+    controller = ViewController();
+  });
+  tearDown(() {
+    controller.dispose();
+    setMessageLanguage(AppLanguage.system);
+  });
   final power = find.byKey(const ValueKey('power-button'));
 
   Future<void> show(
     WidgetTester tester, {
     bool dark = false,
     double scale = 1,
+    Locale locale = const Locale('zh'),
+    EdgeInsets padding = EdgeInsets.zero,
   }) => tester.pumpWidget(
     MaterialApp(
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      locale: locale,
       theme: dark ? AppTheme.dark : AppTheme.light,
       builder: (context, child) => MediaQuery(
         data: MediaQuery.of(context)
-            .copyWith(textScaler: TextScaler.linear(scale)),
+            .copyWith(textScaler: TextScaler.linear(scale), padding: padding),
         child: child!,
       ),
       home: OperationFeedback(
@@ -79,6 +99,157 @@ void main() {
       ),
     ),
   );
+
+  for (final locale in const [Locale('zh'), Locale('en')]) {
+    for (final width in [320.0, 390.0]) {
+      for (final scale in [1.0, 2.0]) {
+        testWidgets(
+          'whole overview measures plots through sliver intrinsic sizing $locale $width $scale',
+          (tester) async {
+            tester.view.physicalSize = Size(width, 600);
+            tester.view.devicePixelRatio = 1;
+            addTearDown(tester.view.resetPhysicalSize);
+            addTearDown(tester.view.resetDevicePixelRatio);
+            await show(
+              tester,
+              locale: locale,
+              scale: scale,
+              padding: const EdgeInsets.only(left: 20, right: 12),
+            );
+            expect(tester.takeException(), isNull);
+            final charts = find.byType(TrafficChart);
+            expect(charts, findsNWidgets(2));
+            final before = [
+              for (var i = 0; i < 2; i++) tester.getRect(charts.at(i)),
+            ];
+            for (var i = 0; i < 2; i++) {
+              final chart = tester.widget<TrafficChart>(charts.at(i));
+              expect(chart.size.width, closeTo(before[i].width, 0.001));
+              expect(before[i].height, inInclusiveRange(80, 112));
+            }
+            for (final state in const [
+              AppSnapshot(),
+              AppSnapshot(phase: 'STOPPED'),
+            ]) {
+              controller.state = state;
+              controller.changed();
+              for (final ms in [0, 16, 100, 320]) {
+                await tester.pump(Duration(milliseconds: ms));
+                expect([
+                  for (var i = 0; i < 2; i++) tester.getRect(charts.at(i)),
+                ], before);
+                expect(tester.takeException(), isNull);
+              }
+            }
+            final memory = find.byKey(const ValueKey('traffic-memory'));
+            await tester.scrollUntilVisible(
+              memory,
+              150,
+              scrollable: find
+                  .descendant(
+                    of: find.byType(CustomScrollView),
+                    matching: find.byType(Scrollable),
+                  )
+                  .first,
+            );
+            await tester.pumpAndSettle();
+            expect(memory.hitTestable(), findsOneWidget);
+            expect(tester.takeException(), isNull);
+            await tester.pumpWidget(const SizedBox());
+          },
+        );
+      }
+    }
+  }
+
+  for (final locale in const [Locale('zh'), Locale('en')]) {
+    for (final scale in [1.0, 1.3, 2.0]) {
+      testWidgets('button is the center anchor across states $locale $scale', (
+        tester,
+      ) async {
+        tester.view.physicalSize = const Size(390, 1300);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        controller.collection = ConfigCollection(
+          entries: [config('one')],
+          selectedId: 'one',
+        );
+        await show(tester, locale: locale, scale: scale);
+        final identity = find.byKey(const ValueKey('config-identity'));
+        final mode = find.byKey(const ValueKey('mode-trigger'));
+        final uptime = find.byType(SessionUptime);
+        final initial = [
+          tester.getRect(power),
+          tester.getRect(identity),
+          tester.getRect(mode),
+          tester.getRect(uptime),
+          tester.getRect(find.byKey(const ValueKey('network-surface'))),
+        ];
+        void check() {
+          final top = tester.getRect(identity).bottom + 28;
+          final bottom = tester.getRect(mode).top - 28;
+          final button = tester.getRect(power);
+          final tail = tester.getRect(uptime).bottom - button.bottom;
+          final centered = ((top + bottom) / 2).clamp(
+            top + button.height / 2,
+            bottom - button.height / 2 - tail,
+          );
+          expect(
+            button.center.dy,
+            closeTo(centered, .01),
+            reason: 'Center the power button, not the button and its captions.',
+          );
+          expect(
+            tester.getRect(find.byType(PowerRipples)).center,
+            button.center,
+          );
+          expect(
+            tester.getRect(uptime).bottom,
+            lessThanOrEqualTo(bottom + .01),
+          );
+          expect(tester.takeException(), isNull);
+        }
+
+        check();
+        for (final state in [
+          const AppSnapshot(
+            phase: 'STOPPED',
+            operation: AppMessage('stageWaitingVpnAuth'),
+          ),
+          const AppSnapshot(phase: 'STARTING'),
+          const AppSnapshot(
+            phase: 'RUNNING',
+            generation: 1,
+            configId: 'one',
+            revision: 1,
+            runningSinceElapsedMs: 1,
+            elapsedRealtimeMs: 1000000000000,
+          ),
+          const AppSnapshot(phase: 'STOPPING'),
+          const AppSnapshot(
+            phase: 'STOPPED',
+            error: AppMessage('downloadFailed'),
+          ),
+          const AppSnapshot(phase: 'STOPPED'),
+        ]) {
+          controller.state = state;
+          controller.changed();
+          for (final ms in [0, 16, 80, 100, 180, 320]) {
+            await tester.pump(Duration(milliseconds: ms));
+            check();
+            expect([
+              tester.getRect(power),
+              tester.getRect(identity),
+              tester.getRect(mode),
+              tester.getRect(uptime),
+              tester.getRect(find.byKey(const ValueKey('network-surface'))),
+            ], initial);
+          }
+        }
+        await tester.pumpWidget(const SizedBox());
+      });
+    }
+  }
 
   testWidgets('empty overview never dispatches a startup command', (
     tester,
@@ -102,7 +273,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('暂无近期连接'), findsOneWidget);
       expect(controller.commands, isEmpty);
-      await tester.pageBack();
+      await tester.tap(find.byType(BackButton));
       await tester.pumpAndSettle();
       expect(find.text('网络活动'), findsOneWidget);
     },
@@ -137,10 +308,11 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('HTTP import waits for explicit plaintext confirmation', (
+  testWidgets('HTTP import executes directly without a confirmation or retry', (
     tester,
   ) async {
     await show(tester);
+    final rect = tester.getRect(power);
     await tester.tap(find.text('导入配置'));
     await tester.pumpAndSettle();
     await tester.enterText(
@@ -149,37 +321,42 @@ void main() {
     );
     await tester.tap(find.text('下载并保存'));
     await tester.pumpAndSettle();
-    expect(controller.commands, isEmpty);
-    expect(find.text('使用 HTTP 明文来源？'), findsOneWidget);
-    await tester.tap(find.text('仍然下载'));
-    await tester.pumpAndSettle();
-    expect(controller.commands.single['allowHttp'], true);
-    expect(controller.commands.single['source'], contains('token=private'));
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(controller.commands.single, {
+      'action': 'import',
+      'name': '',
+      'source': 'http://example.test/config?token=private',
+      'replace': false,
+      'storageEpoch': 0,
+    });
+    expect(tester.getRect(power), rect);
   });
 
-  testWidgets('invalid body blocks start but running may still stop', (
-    tester,
-  ) async {
-    controller.collection = ConfigCollection(
-      entries: [config('one', body: null)],
-      selectedId: 'one',
-    );
-    await show(tester);
-    expect(tester.widget<FilledButton>(power).onPressed, isNull);
-    controller.state = const AppSnapshot(
-      phase: 'RUNNING',
-      configId: 'one',
-      revision: 1,
-    );
-    controller.configError = '配置存储无法读取';
-    controller.changed();
-    await tester.pump();
-    expect(tester.widget<FilledButton>(power).onPressed, isNotNull);
-    expect(find.text('配置身份未确认'), findsOneWidget);
-    await tester.tap(power);
-    expect(controller.commands.single['action'], 'stop');
-    await tester.pumpWidget(const SizedBox());
-  });
+  testWidgets(
+    'unreadable configurations block start but running may still stop',
+    (tester) async {
+      controller.collection = ConfigCollection(
+        entries: [config('one')],
+        selectedId: 'one',
+      );
+      controller.configErrorMessage = messages.configStoreUnreadable;
+      await show(tester);
+      expect(tester.widget<FilledButton>(power).onPressed, isNull);
+      controller.state = const AppSnapshot(
+        phase: 'RUNNING',
+        configId: 'one',
+        revision: 1,
+      );
+      controller.configErrorMessage = messages.configStoreUnreadable;
+      controller.changed();
+      await tester.pump();
+      expect(tester.widget<FilledButton>(power).onPressed, isNotNull);
+      expect(find.text('配置身份未确认'), findsOneWidget);
+      await tester.tap(power);
+      expect(controller.commands.single['action'], 'stop');
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   testWidgets('actual configuration and revision are not the saved selection', (
     tester,
@@ -201,10 +378,13 @@ void main() {
       selectedId: 'one',
     );
     controller.changed();
-    await tester.pump();
+    for (final ms in [0, 16, 80, 200]) {
+      await tester.pump(Duration(milliseconds: ms));
+      expect(find.semantics.byLabel('运行中版本与已保存版本不同'), findsOneWidget);
+    }
     expect(find.text('运行中版本与已保存版本不同'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
-  });
+  }, semanticsEnabled: true);
 
   testWidgets(
     'normal startup and shutdown never show unknown configuration hint',
@@ -218,7 +398,10 @@ void main() {
       final height = tester.getSize(identity).height;
       final center = tester.getCenter(power);
       for (final snapshot in const [
-        AppSnapshot(phase: 'STOPPED', operation: '正在等待 VPN 授权'),
+        AppSnapshot(
+          phase: 'STOPPED',
+          operation: AppMessage('stageWaitingVpnAuth'),
+        ),
         AppSnapshot(phase: 'STARTING'),
         AppSnapshot(phase: 'RUNNING', configId: 'one', revision: 1),
         AppSnapshot(phase: 'STOPPING'),
@@ -294,26 +477,29 @@ void main() {
           phase: 'STOPPED',
           resultId: action,
           resultSuccess: true,
-          resultMessage: '已完成。',
+          resultMessage: messages.modeConfirmed,
         );
         controller.changed();
         await tester.pump();
         expect(find.byType(AlertDialog), findsNothing);
-        expect(find.text('已完成。'), findsNothing);
+        expect(find.text(messages.modeConfirmed.text), findsNothing);
         expect(tester.getRect(power), powerRect);
       }
-      for (final message in ['配置解析失败，接管未启动。', '模式已保存供下次启动使用；本次切换未确认。']) {
+      for (final message in [
+        messages.androidErrorTakeoverStartFailed,
+        messages.modeNotConfirmed,
+      ]) {
         controller.lastCommand = {'action': 'setMode'};
         controller.state = AppSnapshot(
           phase: 'STOPPED',
-          resultId: message,
+          resultId: message.id,
           resultMessage: message,
         );
         controller.changed();
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
         expect(find.byType(AlertDialog), findsOneWidget);
-        expect(find.text(message), findsOneWidget);
+        expect(find.text(message.text), findsOneWidget);
         expect(tester.getRect(power), powerRect);
         await tester.tap(find.text('关闭'));
         await tester.pumpAndSettle();
@@ -325,34 +511,36 @@ void main() {
       await tester.tap(find.text('配置管理'));
       await tester.pumpAndSettle();
       expect(find.byType(AlertDialog), findsNothing);
-      expect(find.text('已完成。'), findsNothing);
+      expect(find.text(messages.modeConfirmed.text), findsNothing);
       await tester.pumpWidget(const SizedBox());
     },
   );
 
-  testWidgets('redirect risk uses a dialog and never retries without consent', (
+  testWidgets('download failure uses ordinary feedback without resubmission', (
     tester,
   ) async {
     await show(tester);
     final rect = tester.getRect(power);
     controller.lastCommand = {
       'action': 'import',
-      'source': 'https://example.test',
+      'source': 'http://example.test',
     };
-    controller.state = const AppSnapshot(
+    controller.state = AppSnapshot(
       phase: 'STOPPED',
-      resultId: 'redirect',
-      resultMessage: '来源重定向到 HTTP',
-      needsHttpConfirmation: true,
+      resultId: 'download-failure',
+      resultMessage: messages.downloadFailed,
     );
     controller.changed();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
-    expect(find.text('允许此次明文重定向？'), findsOneWidget);
+    expect(find.text(messages.downloadFailed.text), findsOneWidget);
     expect(tester.getRect(power), rect);
     expect(controller.commands, isEmpty);
-    await tester.tap(find.text('取消'));
+    await tester.tap(find.text('关闭'));
     await tester.pumpAndSettle();
+    controller.changed();
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
     expect(controller.commands, isEmpty);
     expect(tester.getRect(power), rect);
     await tester.pumpWidget(const SizedBox());
@@ -365,7 +553,7 @@ void main() {
         phase: 'STOPPED',
         resultId: 'old',
         resultSuccess: true,
-        resultMessage: '接管已停止。',
+        resultMessage: AppMessage('tunnelStopped'),
       );
       await show(tester);
       await tester.tap(find.text('配置管理'));
@@ -383,17 +571,22 @@ void main() {
     );
     controller.state = const AppSnapshot(
       phase: 'STOPPED',
-      error: '配置解析失败，接管未启动。',
+      error: AppMessage('androidErrorTakeoverStartFailed'),
     );
     await show(tester);
     expect(find.text('接管已关闭'), findsWidgets);
     await tester.tap(find.text('状态异常 · 查看详情').hitTestable().first);
     await tester.pumpAndSettle();
-    expect(find.text('配置解析失败，接管未启动。'), findsOneWidget);
+    expect(
+      find.text(messages.androidErrorTakeoverStartFailed.text),
+      findsOneWidget,
+    );
     await tester.tap(find.text('关闭'));
     await tester.pumpAndSettle();
     expect(tester.widget<FilledButton>(power).onPressed, isNotNull);
-    controller.state = const AppSnapshot(error: '资源清理未确认。');
+    controller.state = const AppSnapshot(
+      error: AppMessage('androidErrorReleaseUnconfirmed'),
+    );
     controller.changed();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 320));
@@ -401,7 +594,10 @@ void main() {
     expect(find.text('接管已关闭'), findsNothing);
     await tester.tap(find.text('状态异常 · 查看详情').hitTestable().first);
     await tester.pumpAndSettle();
-    expect(find.text('资源清理未确认。'), findsOneWidget);
+    expect(
+      find.text(messages.androidErrorReleaseUnconfirmed.text),
+      findsOneWidget,
+    );
     await tester.tap(find.text('关闭'));
     await tester.pumpAndSettle();
     expect(tester.widget<FilledButton>(power).onPressed, isNull);
@@ -413,7 +609,7 @@ void main() {
   ) async {
     controller.state = const AppSnapshot(
       phase: 'STOPPED',
-      operation: '正在等待 VPN 授权',
+      operation: AppMessage('stageWaitingVpnAuth'),
     );
     await show(tester);
     expect(find.text('正在等待 VPN 授权'), findsWidgets);
@@ -426,7 +622,7 @@ void main() {
     'failed configuration read does not display an empty collection',
     (tester) async {
       controller.configsLoaded = false;
-      controller.configError = '无法读取已保存配置，原文件未被修改。';
+      controller.configErrorMessage = messages.configStoreUnreadable;
       await show(tester);
       await tester.tap(find.text('配置管理'));
       await tester.pumpAndSettle();
@@ -463,7 +659,7 @@ void main() {
           .whereType<RipplePainter>()
           .single;
       expect(paint.waves, isEmpty);
-      await tester.pageBack();
+      await tester.tap(find.byType(BackButton));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpWidget(const SizedBox());
@@ -487,19 +683,25 @@ void main() {
         final surface = find.byKey(const ValueKey('network-surface'));
         final top = tester.getTopLeft(surface);
         for (final snapshot in const [
-          AppSnapshot(phase: 'STARTING', operation: '正在启动接管'),
+          AppSnapshot(
+            phase: 'STARTING',
+            operation: AppMessage('stageStartingTunnel'),
+          ),
           AppSnapshot(
             phase: 'RUNNING',
             configId: 'one',
             revision: 1,
             resultSuccess: true,
-            resultMessage: '接管已启动。',
+            resultMessage: AppMessage('tunnelStarted'),
           ),
-          AppSnapshot(phase: 'STOPPING', operation: '正在停止接管'),
+          AppSnapshot(
+            phase: 'STOPPING',
+            operation: AppMessage('stageStopping'),
+          ),
           AppSnapshot(
             phase: 'STOPPED',
             resultSuccess: true,
-            resultMessage: '接管已停止。',
+            resultMessage: AppMessage('tunnelStopped'),
           ),
         ]) {
           controller.state = snapshot;
@@ -545,7 +747,16 @@ void main() {
         await show(tester, dark: dark, scale: scale);
         expect(tester.takeException(), isNull);
         expect(find.textContaining('token=private'), findsNothing);
-        await tester.drag(find.byType(CustomScrollView), const Offset(0, -600));
+        await tester.scrollUntilVisible(
+          find.text('最近连接'),
+          100,
+          scrollable: find
+              .descendant(
+                of: find.byType(CustomScrollView),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
         await tester.pumpAndSettle();
         expect(find.text('最近连接').hitTestable(), findsOneWidget);
         expect(tester.takeException(), isNull);

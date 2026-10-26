@@ -1,13 +1,19 @@
-import 'package:clash_pseudo/app/app_controller.dart';
-import 'package:clash_pseudo/app/app_theme.dart';
-import 'package:clash_pseudo/app/widgets/operation_feedback.dart';
-import 'package:clash_pseudo/features/configs/config_entry.dart';
-import 'package:clash_pseudo/features/mode/mode_sheet.dart';
-import 'package:clash_pseudo/features/mode/tunnel_mode.dart';
-import 'package:clash_pseudo/features/overview/overview_page.dart';
-import 'package:clash_pseudo/features/overview/widgets/power_ripples.dart';
-import 'package:clash_pseudo/platform/app_bridge.dart';
+import 'dart:async';
+
+import 'package:clash_pseudo/src/model/app_snapshot.dart';
+import 'package:clash_pseudo/src/app/app_controller.dart';
+import 'package:clash_pseudo/src/app/app_theme.dart';
+import 'package:clash_pseudo/src/app/widgets/operation_feedback.dart';
+import 'package:clash_pseudo/src/features/configs/config_entry.dart';
+import 'package:clash_pseudo/src/features/mode/mode_sheet.dart';
+import 'package:clash_pseudo/src/features/mode/tunnel_mode.dart';
+import 'package:clash_pseudo/src/features/overview/overview_page.dart';
+import 'package:clash_pseudo/src/features/overview/widgets/power_ripples.dart';
+import 'package:clash_pseudo/src/model/app_preferences.dart';
+import 'package:clash_pseudo/src/platform/app_bridge.dart';
 import 'package:flutter/material.dart';
+import 'package:clash_pseudo/src/l10n/app_localizations.dart';
+import 'package:clash_pseudo/src/l10n/messages.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class ModeController extends AppController {
@@ -16,6 +22,13 @@ class ModeController extends AppController {
     configsLoaded = true;
     state = const AppSnapshot(phase: 'STOPPED');
   }
+  @override
+  Future<void> refresh() async {}
+
+  int epoch = 0;
+  Completer<void>? reply;
+  @override
+  int get storageEpoch => epoch;
   final commands = <Map<String, Object?>>[];
   @override
   Future<String?> submit(
@@ -25,6 +38,12 @@ class ModeController extends AppController {
     lastCommandAutomatic = automatic;
     lastCommand = Map.of(command);
     commands.add(command);
+    await reply?.future;
+    if (command['action'] != 'stop' && command['storageEpoch'] != epoch) {
+      commandErrorMessage = messages.storageUnavailable;
+      notifyListeners();
+      return null;
+    }
     return 'operation-${commands.length}';
   }
 
@@ -33,15 +52,25 @@ class ModeController extends AppController {
 
 void main() {
   late ModeController controller;
-  setUp(() => controller = ModeController());
-  tearDown(() => controller.dispose());
+  setUp(() {
+    setMessageLanguage(AppLanguage.zh);
+    controller = ModeController();
+  });
+  tearDown(() {
+    controller.dispose();
+    setMessageLanguage(AppLanguage.system);
+  });
   Future<void> show(
     WidgetTester tester, {
     double scale = 1,
     bool dark = false,
+    Locale locale = const Locale('zh'),
   }) async {
     await tester.pumpWidget(
       MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: locale,
         theme: dark ? AppTheme.dark : AppTheme.light,
         builder: (context, child) => MediaQuery(
           data: MediaQuery.of(context).copyWith(
@@ -65,6 +94,175 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
   }
 
+  testWidgets(
+    'mode opening captures its epoch before the deferred route build and never borrows restore permissions',
+    (tester) async {
+      controller.epoch = 1;
+      await show(tester, scale: 2);
+      final trigger = find.byKey(const ValueKey('mode-trigger'));
+      await tester.ensureVisible(trigger);
+      await tester.tap(trigger);
+      controller.epoch = 2;
+      controller.collection = ConfigCollection(
+        entries: [],
+        mode: TunnelMode.global,
+      );
+      controller.state = const AppSnapshot(
+        phase: 'STOPPED',
+        resultId: 'restore',
+        resultSuccess: true,
+      );
+      controller.changed();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(tester.widget<ModeSheet>(find.byType(ModeSheet)).storageEpoch, 1);
+      final buttons = [
+        for (final mode in TunnelMode.values)
+          find.byKey(ValueKey('mode-${mode.name}')),
+      ];
+      final anchors = [for (final button in buttons) tester.getRect(button)];
+      await tester.ensureVisible(find.byKey(const ValueKey('mode-global')));
+      final scrolled = [for (final button in buttons) tester.getRect(button)];
+      controller.reply = Completer<void>();
+      await tester.tap(find.byKey(const ValueKey('mode-global')));
+      for (final elapsed in [
+        Duration.zero,
+        const Duration(milliseconds: 16),
+        const Duration(milliseconds: 80),
+      ]) {
+        await tester.pump(elapsed);
+        expect(find.byType(ModeSheet), findsOneWidget);
+        expect([
+          for (final button in buttons) tester.getRect(button),
+        ], scrolled);
+        for (final button in buttons) {
+          expect(tester.widget<OutlinedButton>(button).onPressed, isNull);
+        }
+      }
+      controller.reply!.complete();
+      await tester.pumpAndSettle();
+      expect(controller.commands.single, {
+        'action': 'setMode',
+        'mode': 'global',
+        'storageEpoch': 1,
+      });
+      expect(controller.collection.mode, TunnelMode.global);
+      expect(find.text(messages.storageUnavailable.text), findsWidgets);
+      await tester.tap(find.text('关闭').hitTestable());
+      await tester.pumpAndSettle();
+      expect(find.byType(ModeSheet), findsOneWidget);
+      expect([for (final button in buttons) tester.getRect(button)], scrolled);
+      expect(
+        anchors.map((rect) => rect.size),
+        scrolled.map((rect) => rect.size),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  for (final locale in const [Locale('zh'), Locale('en')]) {
+    testWidgets(
+      'nullable fallback and actual-mode info stay anchored ${locale.languageCode}',
+      (tester) async {
+        tester.view.physicalSize = const Size(320, 960);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        await show(tester, scale: 2, locale: locale);
+        final strings = AppLocalizations.of(
+          tester.element(find.byType(OverviewPage)),
+        );
+        expect(find.text(strings.modeFollowConfigIdle), findsWidgets);
+        expect(find.text(strings.modeSavedUnconfirmed), findsNothing);
+        await open(tester);
+        final buttons = [
+          for (final mode in TunnelMode.values)
+            find.byKey(ValueKey('mode-${mode.name}')),
+        ];
+        final rows = [for (final button in buttons) tester.getRect(button)];
+        final title = find.descendant(
+          of: find.byType(ModeSheet),
+          matching: find.text(strings.modeTitle),
+        );
+        final titleRect = tester.getRect(title);
+        for (final button in buttons) {
+          expect(
+            tester
+                .widget<OutlinedButton>(button)
+                .style!
+                .backgroundColor!
+                .resolve({}),
+            AppTheme.light.colorScheme.surface,
+          );
+        }
+        controller.state = const AppSnapshot(
+          phase: 'RUNNING',
+          mode: TunnelMode.global,
+        );
+        controller.collection = ConfigCollection(
+          entries: [],
+          mode: TunnelMode.rule,
+        );
+        controller.changed();
+        for (final elapsed in [
+          Duration.zero,
+          const Duration(milliseconds: 16),
+          const Duration(milliseconds: 80),
+        ]) {
+          await tester.pump(elapsed);
+          expect(tester.getRect(title), titleRect);
+          expect([for (final button in buttons) tester.getRect(button)], rows);
+        }
+        expect(
+          find.descendant(
+            of: find.byType(ModeSheet),
+            matching: find.byIcon(Icons.info_outline),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: find.byType(ModeSheet),
+            matching: find.byIcon(Icons.error_outline),
+          ),
+          findsNothing,
+        );
+        final info = find.descendant(
+          of: find.byType(ModeSheet),
+          matching: find.byIcon(Icons.info_outline),
+        );
+        expect(
+          tester.widget<Icon>(info).color,
+          Theme.of(tester.element(info)).colorScheme.primary,
+        );
+        controller.state = const AppSnapshot(
+          phase: 'RUNNING',
+          modeError: AppMessage('androidErrorModeUnconfirmed'),
+        );
+        controller.changed();
+        await tester.pump();
+        expect(tester.getRect(title), titleRect);
+        expect([for (final button in buttons) tester.getRect(button)], rows);
+        expect(
+          find.descendant(
+            of: find.byType(ModeSheet),
+            matching: find.byIcon(Icons.error_outline),
+          ),
+          findsOneWidget,
+        );
+        final failure = find.descendant(
+          of: find.byType(ModeSheet),
+          matching: find.byIcon(Icons.error_outline),
+        );
+        expect(
+          tester.widget<Icon>(failure).color,
+          Theme.of(tester.element(failure)).colorScheme.error,
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   for (final width in [320.0, 390.0, 440.0]) {
     for (final scale in [1.0, 1.3, 2.0]) {
       testWidgets(
@@ -82,7 +280,17 @@ void main() {
           ];
           final descriptions = [
             for (final mode in TunnelMode.values)
-              tester.getSize(find.text(mode.description)).height,
+              tester
+                  .getSize(
+                    find.text(
+                      mode.description(
+                        AppLocalizations.of(
+                          tester.element(find.byType(ModeSheet)),
+                        ),
+                      ),
+                    ),
+                  )
+                  .height,
           ];
           expect(rows.toSet(), hasLength(1));
           expect(descriptions.toSet(), hasLength(1));
@@ -127,7 +335,7 @@ void main() {
         );
         controller.state = const AppSnapshot(
           phase: 'STOPPED',
-          operation: '正在保存模式',
+          operation: AppMessage('stageSwitchingMode'),
         );
         controller.changed();
         await tester.pump();
@@ -138,13 +346,13 @@ void main() {
         controller.state = const AppSnapshot(
           phase: 'STOPPED',
           resultId: 'failed',
-          resultMessage: '无法保存模式，请重试。',
+          resultMessage: AppMessage('configSaveFailed'),
         );
         controller.changed();
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
         expect(find.byType(AlertDialog), findsOneWidget);
-        expect(find.text('无法保存模式，请重试。'), findsOneWidget);
+        expect(find.text(messages.configSaveFailed.text), findsOneWidget);
         expect(tester.getRect(sheet), rect);
         await tester.tap(find.text('关闭'));
         await tester.pumpAndSettle();
@@ -164,9 +372,13 @@ void main() {
     await open(tester);
     await tester.tap(find.byKey(const ValueKey('mode-global')));
     await tester.pump();
-    expect(controller.commands.single, {'action': 'setMode', 'mode': 'global'});
+    expect(controller.commands.single, {
+      'action': 'setMode',
+      'mode': 'global',
+      'storageEpoch': 0,
+    });
     expect(find.text('正在确认全局模式…'), findsNothing);
-    expect(controller.collection.mode, TunnelMode.rule);
+    expect(controller.collection.mode, isNull);
     controller.collection = ConfigCollection(
       entries: [],
       mode: TunnelMode.global,
@@ -208,7 +420,7 @@ void main() {
       controller.state = const AppSnapshot(
         phase: 'RUNNING',
         mode: TunnelMode.rule,
-        operation: '正在切换运行模式',
+        operation: AppMessage('stageSwitchingMode'),
       );
       controller.changed();
       await tester.pump();
@@ -249,7 +461,7 @@ void main() {
       phase: 'RUNNING',
       mode: TunnelMode.rule,
       resultId: 'failed',
-      resultMessage: '模式已保存供下次启动使用；本次切换未确认。',
+      resultMessage: AppMessage('modeNotConfirmed'),
     );
     controller.changed();
     await tester.pump();
@@ -257,7 +469,7 @@ void main() {
     expect(find.text('正在确认直连模式…'), findsNothing);
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.byType(AlertDialog), findsOneWidget);
-    expect(find.textContaining('本次切换未确认'), findsWidgets);
+    expect(find.text(messages.modeNotConfirmed.text), findsWidgets);
     expect(
       tester
           .widget<OutlinedButton>(find.byKey(const ValueKey('mode-direct')))
@@ -276,7 +488,7 @@ void main() {
       );
       controller.state = const AppSnapshot(
         phase: 'RUNNING',
-        modeError: '模式读取失败',
+        modeError: AppMessage('androidErrorModeUnconfirmed'),
       );
       await show(tester);
       expect(find.text('运行模式未确认'), findsWidgets);
@@ -345,16 +557,42 @@ void main() {
             button.style!.shape!.resolve({}),
             RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           );
+          expect(button.style!.backgroundColor!.resolve({}), colors.surface);
           expect(
-            button.style!.backgroundColor!.resolve({}),
-            mode == TunnelMode.rule ? colors.surfaceContainer : colors.surface,
-          );
-          expect(
-            tester.widget<Text>(find.text(mode.description)).style!.color,
+            tester
+                .widget<Text>(
+                  find.text(
+                    mode.description(
+                      AppLocalizations.of(
+                        tester.element(find.byType(ModeSheet)),
+                      ),
+                    ),
+                  ),
+                )
+                .style!
+                .color,
             colors.onSurfaceVariant,
           );
         }
+        expect(find.byIcon(Icons.check), findsNothing);
+        final rule = find.byKey(const ValueKey('mode-rule'));
+        final originalRect = tester.getRect(rule);
+        controller.collection = ConfigCollection(
+          entries: [],
+          mode: TunnelMode.rule,
+        );
+        controller.changed();
+        await tester.pump();
+        expect(tester.getRect(rule), originalRect);
         expect(find.byIcon(Icons.check), findsOneWidget);
+        expect(
+          tester
+              .widget<OutlinedButton>(rule)
+              .style!
+              .backgroundColor!
+              .resolve({}),
+          colors.surfaceContainer,
+        );
         expect(
           tester.widget<Icon>(find.byIcon(Icons.check)).color,
           colors.primary,

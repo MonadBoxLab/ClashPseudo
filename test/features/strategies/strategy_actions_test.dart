@@ -1,13 +1,19 @@
+import 'package:clash_pseudo/src/model/app_snapshot.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:clash_pseudo/features/configs/config_actions.dart';
-import 'package:clash_pseudo/features/configs/config_entry.dart';
-import 'package:clash_pseudo/features/configs/config_store.dart';
-import 'package:clash_pseudo/features/mode/tunnel_mode.dart';
-import 'package:clash_pseudo/features/strategies/strategy_actions.dart';
-import 'package:clash_pseudo/features/strategies/strategy_choice.dart';
-import 'package:clash_pseudo/platform/core_input.dart';
+import 'package:clash_pseudo/src/features/configs/config_actions.dart';
+import 'package:clash_pseudo/src/features/configs/config_entry.dart';
+import 'package:clash_pseudo/src/features/configs/config_store.dart';
+import 'package:clash_pseudo/src/features/mode/tunnel_mode.dart';
+import 'package:clash_pseudo/src/model/app_preferences.dart';
+import 'package:clash_pseudo/src/logic/preferences_store.dart';
+import 'package:clash_pseudo/src/features/strategies/strategy_snapshot.dart';
+import 'package:clash_pseudo/src/features/strategies/strategy_actions.dart';
+import 'package:clash_pseudo/src/features/strategies/strategy_choice.dart';
+import 'package:clash_pseudo/src/platform/core_input.dart';
+import 'package:clash_pseudo/src/l10n/messages.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../configs/action_fakes.dart';
@@ -27,6 +33,7 @@ void main() {
     'id': 'one',
     'revision': 1,
     'generation': generation,
+    'composition': bridge.state.core.composition,
     'name': name,
     'choice': {'type': type, 'member': member},
   };
@@ -37,7 +44,11 @@ void main() {
       ConfigCollection(entries: [strategyEntry], selectedId: 'one'),
     );
     bridge = StrategyBridgeFake();
-    actions = StrategyActions(store, bridge);
+    actions = StrategyActions(
+      store,
+      bridge,
+      runInput: File('${directory.path}/owned.input'),
+    );
   });
   tearDown(() => directory.delete(recursive: true));
 
@@ -50,7 +61,7 @@ void main() {
         expect(entry.body, strategyEntry.body);
         expect(entry.revision, 1);
       };
-      expect(await actions.execute(command()), '');
+      expect(await actions.execute(command()), isNull);
       expect(bridge.events, ['strategy:出口:B']);
       expect(bridge.data.find('出口')!.now, 'B');
     },
@@ -76,7 +87,7 @@ void main() {
           isA<ConfigFailure>().having(
             (e) => e.message,
             'message',
-            contains('已保存'),
+            messages.strategySelectionUnconfirmed,
           ),
         ),
       );
@@ -90,7 +101,7 @@ void main() {
           isA<ConfigFailure>().having(
             (e) => e.message,
             'message',
-            contains('未确认'),
+            messages.strategySelectionUnconfirmed,
           ),
         ),
       );
@@ -115,6 +126,92 @@ void main() {
       }
       expect(bridge.events, isEmpty);
       expect((await store.read()).selected!.choices, isEmpty);
+    },
+  );
+
+  test(
+    'explicit composition is mandatory and stale compositions cannot save',
+    () async {
+      for (final request in [
+        command()..remove('composition'),
+        {...command(), 'composition': 'stale'},
+      ]) {
+        await expectLater(
+          actions.execute(request),
+          throwsA(isA<ConfigFailure>()),
+        );
+      }
+      expect((await store.read()).selected!.choices, isEmpty);
+      expect(bridge.events, isEmpty);
+    },
+  );
+
+  test(
+    'running actual groups remain authoritative over pending main definitions',
+    () async {
+      bridge.state = const AppSnapshot(
+        phase: 'RUNNING',
+        configId: 'one',
+        revision: 1,
+        mode: TunnelMode.rule,
+        core: vpnCore,
+      );
+      bridge.data = strategyData(core: vpnCore);
+      final pending = strategyEntry.withContent(
+        'proxy-groups: [{name: 出口, type: load-balance, proxies: [Other]}]',
+      );
+      await store.save(ConfigCollection(entries: [pending], selectedId: 'one'));
+      await actions.execute(command());
+      final saved = (await store.read()).selected!;
+      expect(saved.revision, pending.revision);
+      expect(saved.body, pending.body);
+      expect(saved.choices['出口']!.member, 'B');
+      expect(bridge.events, ['strategy:出口:B']);
+      await expectLater(
+        actions.execute(command(member: 'Other')),
+        throwsA(isA<ConfigFailure>()),
+      );
+      expect((await store.read()).selected!.choices['出口']!.member, 'B');
+    },
+  );
+
+  test(
+    'preview pending revision and deleted running targets remain rejected',
+    () async {
+      await store.save(
+        ConfigCollection(
+          entries: [strategyEntry.withContent('pending')],
+          selectedId: 'one',
+        ),
+      );
+      await expectLater(
+        actions.execute(command()),
+        throwsA(isA<ConfigFailure>()),
+      );
+      bridge.state = const AppSnapshot(
+        phase: 'RUNNING',
+        configId: 'one',
+        revision: 1,
+        mode: TunnelMode.rule,
+        core: vpnCore,
+      );
+      bridge.data = strategyData(core: vpnCore);
+      await store.save(ConfigCollection(entries: [], selectedId: null));
+      await expectLater(
+        actions.execute(command()),
+        throwsA(isA<ConfigFailure>()),
+      );
+      expect(bridge.events, isEmpty);
+    },
+  );
+
+  test(
+    'reconnect setting does not turn preview selection into a VPN start',
+    () async {
+      await PreferencesStore(directory)
+          .save(const AppPreferences(reconnectOnRoutingChange: true));
+      await actions.execute(command());
+      expect(bridge.events, ['strategy:出口:B']);
     },
   );
 
@@ -151,6 +248,82 @@ void main() {
     },
   );
 
+  test('strategy snapshot actual mode is optional and never inferred from saved fallback', () {
+    for (final value in <Object?>[
+      'rule',
+      'global',
+      'direct',
+      null,
+      'invalid',
+      3,
+    ]) {
+      final snapshot = StrategySnapshot.fromMap({
+        'generation': previewCore.generation,
+        'configId': previewCore.configId,
+        'revision': previewCore.revision,
+        'purpose': previewCore.purpose,
+        'composition': previewCore.composition,
+        'mode': value,
+        'globalReferenced': false,
+        'groups': [],
+        'unrestored': [],
+      });
+      expect(snapshot.matches(previewCore), isTrue);
+      expect(
+        snapshot.mode,
+        value is String && value != 'invalid'
+            ? TunnelMode.parse(value)
+            : isNull,
+      );
+    }
+    final missing = StrategySnapshot.fromMap({
+      'generation': previewCore.generation,
+      'configId': previewCore.configId,
+      'revision': previewCore.revision,
+      'purpose': previewCore.purpose,
+      'composition': previewCore.composition,
+      'globalReferenced': false,
+      'groups': [],
+      'unrestored': [],
+    });
+    expect(missing.mode, isNull);
+  });
+
+  test('changed saved fallback refreshes an existing preview without forcing its actual YAML mode', () async {
+    final entry = strategyEntry.withContent(
+      'mode: direct\nrules: [MATCH,DIRECT]\n',
+    );
+    await store.save(ConfigCollection(entries: [entry], selectedId: entry.id));
+    final file = File('${directory.path}/mode-preview.input');
+    bridge.input = file;
+    bridge.previewMode = TunnelMode.direct;
+    final configs = ConfigActions(store, DownloadFake(), bridge, file);
+    await configs.execute({
+      'action': 'prepareStrategies',
+      'id': entry.id,
+      'revision': entry.revision,
+    });
+    final previous = bridge.state.core;
+    bridge.events.clear();
+    final message = await configs.execute({
+      'action': 'setMode',
+      'mode': 'global',
+    });
+    expect(message, messages.modeSavedNextStart);
+    expect((await store.read()).mode, TunnelMode.global);
+    expect(bridge.events, ['prepare:one:2']);
+    expect(bridge.loaded['mode'], 'global');
+    expect(bridge.loaded['routingOverride'], isNull);
+    expect(bridge.loaded['body'], entry.body);
+    expect(bridge.data.mode, TunnelMode.direct);
+    expect(bridge.state.core.generation, greaterThan(previous.generation));
+    expect(bridge.state.core.composition, previous.composition);
+    expect(await file.exists(), isFalse);
+    bridge.events.clear();
+    await configs.execute({'action': 'setMode', 'mode': 'global'});
+    expect(bridge.events, isEmpty);
+  });
+
   test('preview preparation does not authorize or start VPN', () async {
     final input = File('${directory.path}/work/input.json');
     final configs = ConfigActions(store, DownloadFake(), bridge, input);
@@ -173,20 +346,28 @@ void main() {
   });
 
   test(
-    'failed current update retires preview while preserving saved choice',
+    'failed current update preserves actual preview input and saved choice',
     () async {
       final entry = strategyEntry.withChoice(
         '出口',
         const StrategyChoice(type: StrategyType.select, member: 'B'),
       );
       await store.save(ConfigCollection(entries: [entry], selectedId: 'one'));
+      final file = File('${directory.path}/input.json');
+      bridge.input = file;
       final download = DownloadFake()..fail = true;
-      final configs = ConfigActions(
-        store,
-        download,
-        bridge,
-        File('${directory.path}/input.json'),
-      );
+      final configs = ConfigActions(store, download, bridge, file);
+      await configs.execute({
+        'action': 'prepareStrategies',
+        'id': entry.id,
+        'revision': entry.revision,
+      });
+      final prepared = jsonDecode(jsonEncode(bridge.loaded));
+      final identity = bridge.state.core;
+      expect(bridge.loaded['composition'], '["one",1]');
+      expect(bridge.loaded['body'], entry.body);
+      expect(bridge.loaded['mode'], isNull);
+      bridge.events.clear();
       await expectLater(
         configs.execute({
           'action': 'import',
@@ -196,9 +377,49 @@ void main() {
         throwsA(isA<ConfigFailure>()),
       );
       final saved = (await store.read()).selected!;
-      expect(saved.body, isNull);
+      expect(saved.toJson(), entry.toJson());
       expect(saved.choices['出口']!.member, 'B');
+      expect(bridge.loaded, prepared);
+      expect(bridge.state.core.matchesIdentity(identity), isTrue);
+      expect(bridge.events, isEmpty);
+      expect(await file.exists(), isFalse);
+    },
+  );
+
+  test(
+    'only successfully changed preview content releases the actual lease',
+    () async {
+      final entry = strategyEntry.withChoice(
+        '出口',
+        const StrategyChoice(type: StrategyType.select, member: 'B'),
+      );
+      await store.save(
+        ConfigCollection(entries: [entry], selectedId: entry.id),
+      );
+      final file = File('${directory.path}/preview.input');
+      bridge.input = file;
+      final download = DownloadFake()..body = entry.body;
+      final configs = ConfigActions(store, download, bridge, file);
+      await configs.execute({
+        'action': 'prepareStrategies',
+        'id': entry.id,
+        'revision': entry.revision,
+      });
+      final identity = bridge.state.core;
+      bridge.events.clear();
+      await configs.execute({'action': 'updateConfig', 'id': entry.id});
+      expect(bridge.events, isEmpty);
+      expect(bridge.state.core.matchesIdentity(identity), isTrue);
+      download.body = 'mode: global\nrules: [MATCH,DIRECT]\n';
+      await configs.execute({'action': 'updateConfig', 'id': entry.id});
       expect(bridge.events, ['release-preview']);
+      expect(bridge.state.core.purpose, isNull);
+      expect(bridge.loaded, isEmpty);
+      final saved = (await store.read()).selected!;
+      expect(saved.body, download.body);
+      expect(saved.revision, 2);
+      expect(saved.choices['出口']!.member, 'B');
+      expect(await file.exists(), isFalse);
     },
   );
 }

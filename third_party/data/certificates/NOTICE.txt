@@ -1,0 +1,18 @@
+公共 CA 数据通知
+
+Mozilla 公共 CA 数据，经 curl 的 Mozilla CA Extract 项目提供。
+来源与说明：https://curl.se/docs/caextract.html
+原始快照：https://curl.se/ca/cacert-2026-09-25.pem
+Mozilla 数据时间：Fri Sep 25 03:12:01 2026 GMT
+源码位置：android/app/src/main/assets/certificates/cacert-2026-09-25.pem
+原始文件：188900 bytes
+完整文件 SHA-256：a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505
+
+本应用原样分发该快照，保留原始头部、证书名称和证书字节。
+上述 SHA-256 标识完整原文件，PEM 头部的摘要属于上游生成元数据。
+
+公共 CA 数据采用 Mozilla Public License 2.0。
+MPL-2.0 全文：third_party/data/certificates/MPL-2.0.txt
+官方法律原文：https://www.mozilla.org/media/MPL/2.0/index.txt
+本应用源码提供上述原始PEM源文件。二进制分发保留本通知、MPL全文
+及取得该固定源文件的方式；完整对应源码安排见应用 NOTICE。

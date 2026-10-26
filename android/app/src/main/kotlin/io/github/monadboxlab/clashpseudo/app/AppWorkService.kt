@@ -1,5 +1,8 @@
 package io.github.monadboxlab.clashpseudo.app
 
+import io.github.monadboxlab.clashpseudo.bridge.AppBridge
+
+import io.github.monadboxlab.clashpseudo.R
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -12,7 +15,6 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import io.github.monadboxlab.clashpseudo.MainActivity
-import io.github.monadboxlab.clashpseudo.R
 
 class AppWorkService : Service() {
     private val main = Handler(Looper.getMainLooper())
@@ -20,26 +22,39 @@ class AppWorkService : Service() {
     private var startId = 0
     private var finished = false
     private val deadline = Runnable {
-        interrupt("操作等待超时，请核实状态后重试。")
+        interrupt(AppStrings.message(R.string.error_operation_wait_timeout))
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (id != null && !finished) return START_NOT_STICKY
         this.startId = startId
-        val owner = AppBridge.operationId
+        if (id != null && !finished) return START_NOT_STICKY
+        val owner = intent?.getStringExtra(EXTRA_OWNER)
+        if (owner == null || owner != AppBridge.operationId) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         id = owner
-        if (owner == null) { stopSelf(startId); return START_NOT_STICKY }
         finished = false
         try {
             foreground()
-            main.postDelayed(deadline, 120000)
+            val remaining = AppBridge.operationRemainingMs(owner)
+            if (remaining == 0L) {
+                interrupt(AppStrings.message(R.string.error_operation_wait_timeout))
+                return START_NOT_STICKY
+            }
+            main.postDelayed(deadline, remaining)
             AppBridge.logic.execute(owner, AppBridge.command ?: emptyMap()) { outcome ->
                 if (id == owner) complete(outcome)
             }
         } catch (_: Exception) {
-            interrupt("无法启动后台操作，请返回应用重试。")
+            interrupt(AppStrings.message(R.string.error_background_start))
         }
         return START_NOT_STICKY
     }
@@ -53,33 +68,52 @@ class AppWorkService : Service() {
         stopSelfResult(startId)
     }
 
-    private fun interrupt(message: String) {
+    private fun interrupt(message: AppMessage) {
         if (finished) return
-        id?.let { AppBridge.logic.cancel(it) }
-        complete(mapOf("message" to message))
+        val workOwner = id?.takeIf { AppBridge.logic.ownsOperation(it) }
+        if (workOwner != null && AppBridge.interruptBackupRestore(workOwner, message)) {
+            // 超时或Service销毁撤销后续提交权；已提交结果沿实际I/O返回结算。
+            main.removeCallbacks(deadline)
+            return
+        }
+        workOwner?.let { AppBridge.logic.cancel(it) }
+        complete(if (workOwner != null) mapOf("message" to message.toMap())
+            else AppBridge.notExecutedResult(AppBridge.command.takeIf { AppBridge.operationId == id }, message))
     }
 
     override fun onTimeout(startId: Int, fgsType: Int) {
-        interrupt("系统结束了超时任务，请核实状态后重试。")
+        interrupt(AppStrings.message(R.string.error_system_timeout_task))
     }
 
     override fun onDestroy() {
-        interrupt("操作已中断，请核实状态后重试。")
+        if (instance === this) instance = null
+        interrupt(AppStrings.message(R.string.error_operation_interrupted))
         main.removeCallbacks(deadline)
         super.onDestroy()
     }
 
-    private fun foreground() {
+    internal fun refreshNotification() {
+        if (id != null && !finished) foreground(refresh = true)
+    }
+
+    private fun foreground(refresh: Boolean = false) {
         val manager = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= 26) {
-            manager.createNotificationChannel(NotificationChannel("app-work", "配置操作", NotificationManager.IMPORTANCE_LOW))
+            manager.createNotificationChannel(NotificationChannel("app-work", AppStrings.get(R.string.notify_channel_work), NotificationManager.IMPORTANCE_LOW))
         }
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, "app-work") else Notification.Builder(this)
         val notification = builder.setSmallIcon(R.drawable.ic_vpn_notification)
-            .setContentTitle("Clash Pseudo").setContentText("正在处理配置操作")
+            .setContentTitle("Clash Pseudo").setContentText(AppStrings.get(R.string.notify_working))
             .setContentIntent(open).setOngoing(true).build()
-        if (Build.VERSION.SDK_INT >= 29) startForeground(2, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        if (refresh) manager.notify(2, notification)
+        else if (Build.VERSION.SDK_INT >= 29) startForeground(2, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         else startForeground(2, notification)
+    }
+
+    companion object {
+        const val EXTRA_OWNER = "owner"
+        internal var instance: AppWorkService? = null
+            private set
     }
 }

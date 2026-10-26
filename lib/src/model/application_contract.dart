@@ -1,0 +1,42 @@
+// 由 contracts/application.json 生成；修改源声明后运行 tool/contracts/generate.py。
+
+abstract final class ApplicationContract {
+  static const configurationTextBytes = 16777216;
+  static const configurationNameBytes = 80;
+  static const configurationRevisionMax = 2147483647;
+  static const configurationOverrideJsonBytes = 134217728;
+  static const configurationPreparationOptionsBytes = 16777216;
+  static const operationOrdinaryTimeoutMs = 120000;
+  static const operationBackupTimeoutMs = 300000;
+  static const operationUiGraceMs = 5000;
+  static const operationScheduledNetworkTimeoutMs = 110000;
+  static const backupArchiveBytes = 268435456;
+  static const backupExpandedBytes = 268435456;
+  static const backupConfigurationsJsonBytes = 134217728;
+  static const backupOverridesJsonBytes = 134217728;
+  static const backupPreferencesJsonBytes = 1048576;
+  static const backupManifestBytes = 65536;
+  static const backupCentralDirectoryBytes = 65536;
+  static const backupCollectionEntries = 4096;
+  static const backupJsonDepth = 32;
+  static const backupJsonNodes = 200000;
+  static const backupFormat = "clash-pseudo-backup";
+  static const backupVersion = 1;
+  static const backupManifestFile = "manifest.json";
+  static const backupConfigurationsFile = "configurations.json";
+  static const backupOverridesFile = "overrides.json";
+  static const backupPreferencesFile = "preferences.json";
+  static const dnsNameBytes = 1024;
+  static const dnsRequestBytes = 4096;
+  static const dnsResultBytes = 262144;
+  static const dnsResultRecords = 512;
+  static const dnsQueryTimeoutMs = 5000;
+  static const dnsBridgeTimeoutMs = 6000;
+  static const connectionActiveEntries = 1000;
+  static const connectionInactiveEntries = 500;
+  static const connectionExtraDetails = 1;
+  static const connectionInactiveRetentionMs = 900000;
+  static const connectionRequestBytes = 65536;
+  static const connectionRowBytes = 4096;
+  static const connectionResponseBytes = 8388608;
+}

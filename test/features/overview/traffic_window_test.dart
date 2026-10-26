@@ -1,5 +1,6 @@
-import 'package:clash_pseudo/features/overview/traffic_window.dart';
-import 'package:clash_pseudo/features/overview/widgets/traffic_panel.dart';
+import 'package:clash_pseudo/src/app/format_bytes.dart';
+import 'package:clash_pseudo/src/features/overview/traffic_window.dart';
+import 'package:clash_pseudo/src/features/overview/widgets/traffic_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -27,6 +28,80 @@ TrafficSnapshot snapshot(TrafficWindow window, int now, {bool fresh = true}) =>
     }).at(now);
 
 void main() {
+  test('native session totals include first-sample bytes and never use visible rows', () {
+    final window = TrafficWindow()
+      ..accept({
+        ...sample(1000, 9000000, 17000000),
+        'sessionUploadBytes': 4500,
+        'sessionDownloadBytes': 8800,
+        'connections': const [],
+      });
+    var value = snapshot(window, 1000);
+    expect(value.sessionUploadBytes, 4500);
+    expect(value.sessionDownloadBytes, 8800);
+    expect(value.upload, isNull);
+    window.accept({
+      ...sample(2000, 9000100, 17000200, count: 0),
+      'sessionUploadBytes': 4600,
+      'sessionDownloadBytes': 9000,
+    });
+    value = snapshot(window, 2000);
+    expect(value.activeCount, 0);
+    expect(value.sessionUploadBytes, 4600);
+    expect(value.sessionDownloadBytes, 9000);
+    expect(value.upload, 100);
+    expect(value.at(7001).sessionUploadBytes, isNull);
+    expect(value.at(2000, unavailable: true).sessionDownloadBytes, isNull);
+    window.invalidate();
+    expect(snapshot(window, 2000).sessionUploadBytes, isNull);
+    window.accept({
+      ...sample(3000, 9000200, 17000300),
+      'sessionUploadBytes': 4700,
+      'sessionDownloadBytes': 9100,
+    });
+    expect(snapshot(window, 3000).sessionUploadBytes, 4700);
+    window.clear();
+    window.accept({
+      ...sample(4000, 99999999, 99999999),
+      'sessionUploadBytes': 11,
+      'sessionDownloadBytes': 12,
+    });
+    expect(snapshot(window, 4000).sessionUploadBytes, 11);
+  });
+
+  test('session totals remain unknown independently for missing or invalid native values', () {
+    final window = TrafficWindow();
+    for (final invalid in [null, -1, '0', 1.0, double.nan]) {
+      window.clear();
+      window.accept({
+        ...sample(1000, 100, 200),
+        'sessionUploadBytes': invalid,
+        'sessionDownloadBytes': 0,
+      });
+      final value = snapshot(window, 1000);
+      expect(value.sessionUploadBytes, isNull);
+      expect(value.sessionDownloadBytes, 0);
+    }
+    window.clear();
+    window.accept(sample(1000, 99999, 99999));
+    expect(snapshot(window, 1000).sessionUploadBytes, isNull);
+  });
+
+  test('byte formatting keeps binary units, unknown separate from zero', () {
+    expect(formatBytes(null), '—');
+    expect(formatBytes(-1), '—');
+    expect(formatBytes(0), '0 B');
+    expect(formatBytes(1023), '1023 B');
+    expect(formatBytes(1024), '1.00 KiB');
+    expect(formatBytes(1048576), '1.00 MiB');
+    expect(formatBytes(8348509), '7.96 MiB');
+    expect(formatBytes(2328878), '2.22 MiB');
+    expect(formatBytes(9566363), '9.12 MiB');
+    expect(formatBytes(1073741824), '1.00 GiB');
+    expect(formatBytes(1099511627776), '1.00 TiB');
+    expect(formatBytes(0x7fffffffffffffff), '8.00 EiB');
+  });
+
   test('first global sample has a count but no invented speed', () {
     final window = TrafficWindow()..accept(sample(1000, 9000000, 17000000));
     final value = snapshot(window, 1000);

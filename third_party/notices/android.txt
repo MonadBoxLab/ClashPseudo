@@ -1,0 +1,1987 @@
+Android 运行依赖许可与通知
+
+范围：已核对的 releaseRuntimeClasspath 中的 55 个非 Flutter Maven 坐标及解析元数据。Flutter 引擎和 Dart 包通知由 NOTICES.Z 提供。
+材料来自对应版本 POM、已解析 JAR/AAR（含嵌套 JAR）及发布的 sources.jar；下文保留原始许可、版权和随附通知，重复全文按内容合并。实际编入内容按构建产物核对。
+Go 依赖通知见 third_party/notices/go.txt，分发与对应源码要求见 NOTICE.md。
+
+Apache License 2.0 全文（androidx.annotation:annotation-jvm:1.10.0 随附）
+文本 SHA-256: 809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0
+
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+
+
+========================================================================
+androidx.activity:activity:1.8.1
+POM: https://dl.google.com/dl/android/maven2/androidx/activity/activity/1.8.1/activity-1.8.1.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/activity/activity/1.8.1/activity-1.8.1-sources.jar
+归档 SHA-256: ded663c2dd23c7a44f21d56407b267a0d76f1d5097d384b0cc7448138f48f855
+androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/BackEventCompat.kt, androidx/activity/EdgeToEdge.kt)
+文本 SHA-256: ffbf3b8a42860b5eaa8228cca1c1f328305ad749737bef00ef43520d8f5e48b7
+/*
+ * Copyright 2023 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/Cancellable.kt, androidx/activity/OnBackPressedDispatcher.kt, androidx/activity/OnBackPressedDispatcherOwner.kt)
+文本 SHA-256: 0fb76639cf65ffb51bcc4bdf5c15623ef6cd1c4ae400c99fcf32187123bbc35c
+/*
+ * Copyright 2019 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+/*
+ * Copyright 2018 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentDialog.kt, androidx/activity/ViewTreeOnBackPressedDispatcherOwner.kt)
+文本 SHA-256: b698582c54bfdc53aace53dba7612f36ddbb0259cfddd6168604e1e0e56212ee
+/*
+ * Copyright 2021 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/FullyDrawnReporter.kt, androidx/activity/FullyDrawnReporterOwner.kt, androidx/activity/ViewTreeFullyLoadedReporterOwner.kt, androidx/activity/result/PickVisualMediaRequest.kt)
+文本 SHA-256: 098ca21a7be9224c03b2c4966bbec5c1b3c7511f391545373c2b450fae6541e4
+/*
+ * Copyright 2022 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/contextaware/ContextAware.kt, androidx/activity/contextaware/ContextAwareHelper.kt, androidx/activity/contextaware/OnContextAvailableListener.kt, androidx/activity/result/ActivityResult.java, androidx/activity/result/ActivityResultRegistryOwner.kt, androidx/activity/result/IntentSenderRequest.kt, androidx/activity/result/contract/ActivityResultContract.kt, androidx/activity/result/contract/ActivityResultContracts.kt)
+文本 SHA-256: 575ee5739171b0a546eb044c10ef188f605a1e8c975a728a6072f61ed2658e94
+/*
+ * Copyright 2020 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/result/ActivityResultCallback.kt, androidx/activity/result/ActivityResultCaller.java, androidx/activity/result/ActivityResultLauncher.java, androidx/activity/result/ActivityResultRegistry.java)
+文本 SHA-256: fd14cf2373f18c32e45014401759f2d03327d918729be380314118647b82784c
+/*
+ * Copyright (C) 2020 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+========================================================================
+androidx.annotation:annotation:1.10.0
+POM: https://dl.google.com/dl/android/maven2/androidx/annotation/annotation/1.10.0/annotation-1.10.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/annotation/annotation/1.10.0/annotation-1.10.0-sources.jar
+归档 SHA-256: fdbc7afaa8b82b8270731aa0fbfd6ae80106409033313f192d58e971b377b816
+androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/AnyThread.kt, commonMain/androidx/annotation/ProductionVisibility.kt, commonMain/androidx/annotation/RestrictTo.kt, nonJvmMain/androidx/annotation/RestrictTo.nonJvm.kt)
+文本 SHA-256: bd681efb8799978450f2abfdb13bf66aa8e2050c974625bf6ab8e184d4500b65
+/*
+ * Copyright (C) 2016 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/CallSuper.kt, commonMain/androidx/annotation/CheckResult.kt, commonMain/androidx/annotation/ColorInt.kt, commonMain/androidx/annotation/FloatRange.kt, commonMain/androidx/annotation/IntRange.kt, commonMain/androidx/annotation/MainThread.kt, commonMain/androidx/annotation/Size.kt, commonMain/androidx/annotation/UiThread.kt, commonMain/androidx/annotation/VisibleForTesting.kt)
+文本 SHA-256: 3eef9d928917c18427704cbdf31a57e9548a88a918cbb3924a2cfbff04a86ffd
+/*
+ * Copyright (C) 2015 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/ColorLong.kt, commonMain/androidx/annotation/GuardedBy.kt, commonMain/androidx/annotation/LongDef.kt)
+文本 SHA-256: 75dbadc0b3159a276c67a0bf4f5e7fb11b02fec4223eae12aa3a64e195a4fca6
+/*
+ * Copyright (C) 2017 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/Discouraged.kt)
+文本 SHA-256: 883fc7ae513b62f8c406fe00a6dda4a281a059fc674b554c6e24ee0e36347193
+/*
+ * Copyright (C) 2021 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/EmptySuper.kt, commonMain/androidx/annotation/OpenForTesting.kt, commonMain/androidx/annotation/ReturnThis.kt)
+文本 SHA-256: a34cd7c49b07da7319aadce0fee47da135773758afb314667d92ecc29657deb4
+/*
+ * Copyright (C) 2022 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/IntDef.kt, commonMain/androidx/annotation/StringDef.kt)
+文本 SHA-256: 112331fa20ed11a2311644f2b9cef74da0274eac198f18ec6b16bac4e6f82613
+/*
+ * Copyright (C) 2014 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/RequiresApi.kt)
+文本 SHA-256: ffbf3b8a42860b5eaa8228cca1c1f328305ad749737bef00ef43520d8f5e48b7
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/BackEventCompat.kt, androidx/activity/EdgeToEdge.kt)
+
+androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/RequiresFeature.kt)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+========================================================================
+androidx.annotation:annotation-experimental:1.4.1
+POM: https://dl.google.com/dl/android/maven2/androidx/annotation/annotation-experimental/1.4.1/annotation-experimental-1.4.1.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/annotation/annotation-experimental/1.4.1/annotation-experimental-1.4.1-sources.jar
+归档 SHA-256: 783a221a7c1093ff8932053998a69a24489f7930806a32b55366108146d29c1d
+androidx.annotation:annotation-experimental:1.4.1 / 源码许可头 (androidx/annotation/OptIn.kt, androidx/annotation/experimental/Experimental.kt, androidx/annotation/experimental/UseExperimental.kt)
+文本 SHA-256: 0fb76639cf65ffb51bcc4bdf5c15623ef6cd1c4ae400c99fcf32187123bbc35c
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/Cancellable.kt, androidx/activity/OnBackPressedDispatcher.kt, androidx/activity/OnBackPressedDispatcherOwner.kt)
+
+androidx.annotation:annotation-experimental:1.4.1 / 源码许可头 (androidx/annotation/RequiresOptIn.kt)
+文本 SHA-256: 575ee5739171b0a546eb044c10ef188f605a1e8c975a728a6072f61ed2658e94
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/contextaware/ContextAware.kt, androidx/activity/contextaware/ContextAwareHelper.kt, androidx/activity/contextaware/OnContextAvailableListener.kt, androidx/activity/result/ActivityResult.java, androidx/activity/result/ActivityResultRegistryOwner.kt, androidx/activity/result/IntentSenderRequest.kt, androidx/activity/result/contract/ActivityResultContract.kt, androidx/activity/result/contract/ActivityResultContracts.kt)
+
+========================================================================
+androidx.annotation:annotation-jvm:1.10.0
+POM: https://dl.google.com/dl/android/maven2/androidx/annotation/annotation-jvm/1.10.0/annotation-jvm-1.10.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/annotation/annotation-jvm/1.10.0/annotation-jvm-1.10.0-sources.jar
+归档 SHA-256: 4f093265c2f99d314a5e161d748100588c49663b098a8a031aa173315c530ef7
+androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (commonMain/androidx/annotation/IntDef.kt, commonMain/androidx/annotation/StringDef.kt, jvmMain/androidx/annotation/AnimRes.jvm.kt, jvmMain/androidx/annotation/AnimatorRes.jvm.kt, jvmMain/androidx/annotation/AnyRes.jvm.kt, jvmMain/androidx/annotation/ArrayRes.jvm.kt, jvmMain/androidx/annotation/AttrRes.jvm.kt, jvmMain/androidx/annotation/BoolRes.jvm.kt, jvmMain/androidx/annotation/ColorRes.jvm.kt, jvmMain/androidx/annotation/DimenRes.jvm.kt, jvmMain/androidx/annotation/DrawableRes.jvm.kt, jvmMain/androidx/annotation/FractionRes.jvm.kt, jvmMain/androidx/annotation/IdRes.jvm.kt, jvmMain/androidx/annotation/IntegerRes.jvm.kt, jvmMain/androidx/annotation/InterpolatorRes.jvm.kt, jvmMain/androidx/annotation/LayoutRes.jvm.kt, jvmMain/androidx/annotation/MenuRes.jvm.kt, jvmMain/androidx/annotation/PluralsRes.jvm.kt, jvmMain/androidx/annotation/RawRes.jvm.kt, jvmMain/androidx/annotation/StringRes.jvm.kt, jvmMain/androidx/annotation/StyleRes.jvm.kt, jvmMain/androidx/annotation/StyleableRes.jvm.kt, jvmMain/androidx/annotation/XmlRes.jvm.kt)
+文本 SHA-256: 112331fa20ed11a2311644f2b9cef74da0274eac198f18ec6b16bac4e6f82613
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/IntDef.kt, commonMain/androidx/annotation/StringDef.kt)
+
+androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (commonMain/androidx/annotation/CallSuper.kt, commonMain/androidx/annotation/CheckResult.kt, commonMain/androidx/annotation/ColorInt.kt, commonMain/androidx/annotation/FloatRange.kt, commonMain/androidx/annotation/IntRange.kt, commonMain/androidx/annotation/MainThread.kt, commonMain/androidx/annotation/Size.kt, commonMain/androidx/annotation/UiThread.kt, commonMain/androidx/annotation/VisibleForTesting.kt, jvmMain/androidx/annotation/BinderThread.jvm.kt, jvmMain/androidx/annotation/Keep.jvm.kt, jvmMain/androidx/annotation/RequiresPermission.jvm.kt, jvmMain/androidx/annotation/TransitionRes.jvm.kt, jvmMain/androidx/annotation/WorkerThread.jvm.kt)
+文本 SHA-256: 3eef9d928917c18427704cbdf31a57e9548a88a918cbb3924a2cfbff04a86ffd
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/CallSuper.kt, commonMain/androidx/annotation/CheckResult.kt, commonMain/androidx/annotation/ColorInt.kt, commonMain/androidx/annotation/FloatRange.kt, commonMain/androidx/annotation/IntRange.kt, commonMain/androidx/annotation/MainThread.kt, commonMain/androidx/annotation/Size.kt, commonMain/androidx/annotation/UiThread.kt, commonMain/androidx/annotation/VisibleForTesting.kt)
+
+androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (jvmMain/androidx/annotation/ChecksFlag.jvm.kt, jvmMain/androidx/annotation/RequiresFlag.jvm.kt)
+文本 SHA-256: f5021ffa3612486880f2e3307e1560862dd6e6dd8b2cb7bd9d0df85e8f6c6961
+/*
+ * Copyright 2025 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (jvmMain/androidx/annotation/ChecksSdkIntAtLeast.jvm.kt, jvmMain/androidx/annotation/DoNotInline.jvm.kt)
+文本 SHA-256: fd14cf2373f18c32e45014401759f2d03327d918729be380314118647b82784c
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/result/ActivityResultCallback.kt, androidx/activity/result/ActivityResultCaller.java, androidx/activity/result/ActivityResultLauncher.java, androidx/activity/result/ActivityResultRegistry.java)
+
+androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (jvmMain/androidx/annotation/ContentView.jvm.kt, jvmMain/androidx/annotation/InspectableProperty.jvm.kt)
+文本 SHA-256: 0fb76639cf65ffb51bcc4bdf5c15623ef6cd1c4ae400c99fcf32187123bbc35c
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/Cancellable.kt, androidx/activity/OnBackPressedDispatcher.kt, androidx/activity/OnBackPressedDispatcherOwner.kt)
+
+androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (commonMain/androidx/annotation/EmptySuper.kt, commonMain/androidx/annotation/OpenForTesting.kt, commonMain/androidx/annotation/ReturnThis.kt, jvmMain/androidx/annotation/DeprecatedSinceApi.jvm.kt, jvmMain/androidx/annotation/RequiresExtension.jvm.kt)
+文本 SHA-256: a34cd7c49b07da7319aadce0fee47da135773758afb314667d92ecc29657deb4
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/EmptySuper.kt, commonMain/androidx/annotation/OpenForTesting.kt, commonMain/androidx/annotation/ReturnThis.kt)
+
+androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (commonMain/androidx/annotation/AnyThread.kt, commonMain/androidx/annotation/ProductionVisibility.kt, commonMain/androidx/annotation/RestrictTo.kt, jvmMain/androidx/annotation/Dimension.jvm.kt, jvmMain/androidx/annotation/DimensionUnit.jvm.kt, jvmMain/androidx/annotation/HalfFloat.jvm.kt, jvmMain/androidx/annotation/Px.jvm.kt, jvmMain/androidx/annotation/RequiresApi.jvm.kt, jvmMain/androidx/annotation/RestrictTo.jvm.kt)
+文本 SHA-256: bd681efb8799978450f2abfdb13bf66aa8e2050c974625bf6ab8e184d4500b65
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/AnyThread.kt, commonMain/androidx/annotation/ProductionVisibility.kt, commonMain/androidx/annotation/RestrictTo.kt, nonJvmMain/androidx/annotation/RestrictTo.nonJvm.kt)
+
+androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (jvmMain/androidx/annotation/DisplayContext.jvm.kt, jvmMain/androidx/annotation/GravityInt.jvm.kt, jvmMain/androidx/annotation/NonUiContext.jvm.kt, jvmMain/androidx/annotation/UiContext.jvm.kt)
+文本 SHA-256: b698582c54bfdc53aace53dba7612f36ddbb0259cfddd6168604e1e0e56212ee
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentDialog.kt, androidx/activity/ViewTreeOnBackPressedDispatcherOwner.kt)
+
+androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (commonMain/androidx/annotation/ColorLong.kt, commonMain/androidx/annotation/GuardedBy.kt, commonMain/androidx/annotation/LongDef.kt, jvmMain/androidx/annotation/FontRes.jvm.kt, jvmMain/androidx/annotation/NavigationRes.jvm.kt)
+文本 SHA-256: 75dbadc0b3159a276c67a0bf4f5e7fb11b02fec4223eae12aa3a64e195a4fca6
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/ColorLong.kt, commonMain/androidx/annotation/GuardedBy.kt, commonMain/androidx/annotation/LongDef.kt)
+
+androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (jvmMain/androidx/annotation/NonNull.jvm.kt, jvmMain/androidx/annotation/Nullable.jvm.kt)
+文本 SHA-256: 324242fc42ca1fe5892a57220c8a8720f68f1d5923bd69f0fc4e63f2b032656f
+/*
+ * Copyright (C) 2013 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (jvmMain/androidx/annotation/ReplaceWith.jvm.kt)
+文本 SHA-256: 85d89e90bd56722f8d3a5386d12bacfc7eb6c0bb83e87d1f8e29d7f0ea871bf5
+/*
+ * Copyright 2024 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (commonMain/androidx/annotation/Discouraged.kt)
+文本 SHA-256: 883fc7ae513b62f8c406fe00a6dda4a281a059fc674b554c6e24ee0e36347193
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/Discouraged.kt)
+
+androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (commonMain/androidx/annotation/RequiresApi.kt)
+文本 SHA-256: ffbf3b8a42860b5eaa8228cca1c1f328305ad749737bef00ef43520d8f5e48b7
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/BackEventCompat.kt, androidx/activity/EdgeToEdge.kt)
+
+androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (commonMain/androidx/annotation/RequiresFeature.kt)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+========================================================================
+androidx.arch.core:core-common:2.2.0
+POM: https://dl.google.com/dl/android/maven2/androidx/arch/core/core-common/2.2.0/core-common-2.2.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/arch/core/core-common/2.2.0/core-common-2.2.0-sources.jar
+归档 SHA-256: 563d430880d847890029234386ef03adb95403c34f3c9dec3a7002e2f4007ae4
+androidx.arch.core:core-common:2.2.0 / 源码许可头 (androidx/arch/core/internal/FastSafeIterableMap.java, androidx/arch/core/internal/SafeIterableMap.java, androidx/arch/core/util/Function.java)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+========================================================================
+androidx.arch.core:core-runtime:2.2.0
+POM: https://dl.google.com/dl/android/maven2/androidx/arch/core/core-runtime/2.2.0/core-runtime-2.2.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/arch/core/core-runtime/2.2.0/core-runtime-2.2.0-sources.jar
+归档 SHA-256: 4adaab3a8ab711634d566d2e239e199af8b5ac92c1de85540dc34c7040754e96
+androidx.arch.core:core-runtime:2.2.0 / 源码许可头 (androidx/arch/core/executor/ArchTaskExecutor.java, androidx/arch/core/executor/DefaultTaskExecutor.java, androidx/arch/core/executor/TaskExecutor.java)
+文本 SHA-256: 75dbadc0b3159a276c67a0bf4f5e7fb11b02fec4223eae12aa3a64e195a4fca6
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/ColorLong.kt, commonMain/androidx/annotation/GuardedBy.kt, commonMain/androidx/annotation/LongDef.kt)
+
+========================================================================
+androidx.collection:collection:1.4.2
+POM: https://dl.google.com/dl/android/maven2/androidx/collection/collection/1.4.2/collection-1.4.2.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/collection/collection/1.4.2/collection-1.4.2-sources.jar
+归档 SHA-256: 8032d24e0f77174b194d14700a0a35e0823bcce9908867a40b4596fc615a0569
+androidx.collection:collection:1.4.2 / 源码许可头 (commonMain/androidx/collection/ArraySet.kt, commonMain/androidx/collection/LongSparseArray.kt, commonMain/androidx/collection/SimpleArrayMap.kt, nativeMain/androidx/collection/LongSparseArray.native.kt)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+androidx.collection:collection:1.4.2 / 源码许可头 (commonMain/androidx/collection/CircularArray.kt, commonMain/androidx/collection/CircularIntArray.kt, commonMain/androidx/collection/CollectionPlatformUtils.kt, commonMain/androidx/collection/LruCache.kt, commonMain/androidx/collection/SparseArray.kt, commonMain/androidx/collection/SparseArrayCompat.kt, commonMain/androidx/collection/internal/ContainerHelpers.kt, commonMain/androidx/collection/internal/Lock.kt, commonMain/androidx/collection/internal/LockExt.kt, commonMain/androidx/collection/internal/LruHashMap.kt, darwinMain/androidx.collection.internal/Lock.mac.kt, linuxMain/androidx/collection/internal/Lock.linux.kt, nativeMain/androidx/collection/ArraySet.native.kt, nativeMain/androidx/collection/CollectionPlatformUtils.native.kt, nativeMain/androidx/collection/SparseArrayCompat.native.kt, nativeMain/androidx/collection/internal/Lock.native.kt, nativeMain/androidx/collection/internal/LruHashMap.native.kt)
+文本 SHA-256: 098ca21a7be9224c03b2c4966bbec5c1b3c7511f391545373c2b450fae6541e4
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/FullyDrawnReporter.kt, androidx/activity/FullyDrawnReporterOwner.kt, androidx/activity/ViewTreeFullyLoadedReporterOwner.kt, androidx/activity/result/PickVisualMediaRequest.kt)
+
+androidx.collection:collection:1.4.2 / 源码许可头 (commonMain/androidx/collection/FloatFloatMap.kt, commonMain/androidx/collection/FloatFloatPair.kt, commonMain/androidx/collection/FloatIntMap.kt, commonMain/androidx/collection/FloatList.kt, commonMain/androidx/collection/FloatLongMap.kt, commonMain/androidx/collection/FloatObjectMap.kt, commonMain/androidx/collection/FloatSet.kt, commonMain/androidx/collection/IntFloatMap.kt, commonMain/androidx/collection/IntIntMap.kt, commonMain/androidx/collection/IntIntPair.kt, commonMain/androidx/collection/IntList.kt, commonMain/androidx/collection/IntLongMap.kt, commonMain/androidx/collection/IntObjectMap.kt, commonMain/androidx/collection/IntSet.kt, commonMain/androidx/collection/LongFloatMap.kt, commonMain/androidx/collection/LongIntMap.kt, commonMain/androidx/collection/LongList.kt, commonMain/androidx/collection/LongLongMap.kt, commonMain/androidx/collection/LongLongPair.kt, commonMain/androidx/collection/LongObjectMap.kt, commonMain/androidx/collection/LongSet.kt, commonMain/androidx/collection/ObjectFloatMap.kt, commonMain/androidx/collection/ObjectIntMap.kt, commonMain/androidx/collection/ObjectList.kt, commonMain/androidx/collection/ObjectLongMap.kt, commonMain/androidx/collection/PackingUtils.kt, commonMain/androidx/collection/ScatterMap.kt, commonMain/androidx/collection/ScatterSet.kt, commonMain/androidx/collection/internal/PackingHelpers.kt, nativeMain/androidx/collection/internal/PackingHelpers.native.kt)
+文本 SHA-256: ffbf3b8a42860b5eaa8228cca1c1f328305ad749737bef00ef43520d8f5e48b7
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/BackEventCompat.kt, androidx/activity/EdgeToEdge.kt)
+
+androidx.collection:collection:1.4.2 / 源码许可头 (commonMain/androidx/collection/IndexBasedArrayIterator.kt)
+文本 SHA-256: 575ee5739171b0a546eb044c10ef188f605a1e8c975a728a6072f61ed2658e94
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/contextaware/ContextAware.kt, androidx/activity/contextaware/ContextAwareHelper.kt, androidx/activity/contextaware/OnContextAvailableListener.kt, androidx/activity/result/ActivityResult.java, androidx/activity/result/ActivityResultRegistryOwner.kt, androidx/activity/result/IntentSenderRequest.kt, androidx/activity/result/contract/ActivityResultContract.kt, androidx/activity/result/contract/ActivityResultContracts.kt)
+
+========================================================================
+androidx.collection:collection-jvm:1.4.2
+POM: https://dl.google.com/dl/android/maven2/androidx/collection/collection-jvm/1.4.2/collection-jvm-1.4.2.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/collection/collection-jvm/1.4.2/collection-jvm-1.4.2-sources.jar
+归档 SHA-256: 9cdb219ee75724515c232ae2bb04403c1fd1b40208c61d92aaa6452836d943c5
+androidx.collection:collection-jvm:1.4.2 / 源码许可头 (jvmMain/androidx/collection/ArrayMap.kt)
+文本 SHA-256: 7147d3f75b51ca20ce6e3f5095c0b4ec0193de2804e8daac15749a8ed424f415
+/*
+ * Copyright (C) 2017 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *       http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.collection:collection-jvm:1.4.2 / 源码许可头 (commonMain/androidx/collection/CircularArray.kt, commonMain/androidx/collection/CircularIntArray.kt, commonMain/androidx/collection/CollectionPlatformUtils.kt, commonMain/androidx/collection/LruCache.kt, commonMain/androidx/collection/SparseArray.kt, commonMain/androidx/collection/SparseArrayCompat.kt, commonMain/androidx/collection/internal/ContainerHelpers.kt, commonMain/androidx/collection/internal/Lock.kt, commonMain/androidx/collection/internal/LockExt.kt, commonMain/androidx/collection/internal/LruHashMap.kt, jvmMain/androidx/collection/ArraySet.jvm.kt, jvmMain/androidx/collection/ArraySetJvmUtil.java, jvmMain/androidx/collection/CollectionPlatformUtils.jvm.kt, jvmMain/androidx/collection/SparseArrayCompat.jvm.kt, jvmMain/androidx/collection/internal/Lock.jvm.kt, jvmMain/androidx/collection/internal/LruHashMap.jvm.kt)
+文本 SHA-256: 098ca21a7be9224c03b2c4966bbec5c1b3c7511f391545373c2b450fae6541e4
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/FullyDrawnReporter.kt, androidx/activity/FullyDrawnReporterOwner.kt, androidx/activity/ViewTreeFullyLoadedReporterOwner.kt, androidx/activity/result/PickVisualMediaRequest.kt)
+
+androidx.collection:collection-jvm:1.4.2 / 源码许可头 (commonMain/androidx/collection/ArraySet.kt, commonMain/androidx/collection/LongSparseArray.kt, commonMain/androidx/collection/SimpleArrayMap.kt, jvmMain/androidx/collection/ArrayMap.java, jvmMain/androidx/collection/LongSparseArray.jvm.kt)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+androidx.collection:collection-jvm:1.4.2 / 源码许可头 (jvmMain/androidx/collection/package-info.java)
+文本 SHA-256: f522a5228a4efd49ff1fba81fa2fba84dd5864ae3a85ed3af016abb700aa49f9
+/*
+ * Copyright (C) 2019 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.collection:collection-jvm:1.4.2 / 源码许可头 (commonMain/androidx/collection/FloatFloatMap.kt, commonMain/androidx/collection/FloatFloatPair.kt, commonMain/androidx/collection/FloatIntMap.kt, commonMain/androidx/collection/FloatList.kt, commonMain/androidx/collection/FloatLongMap.kt, commonMain/androidx/collection/FloatObjectMap.kt, commonMain/androidx/collection/FloatSet.kt, commonMain/androidx/collection/IntFloatMap.kt, commonMain/androidx/collection/IntIntMap.kt, commonMain/androidx/collection/IntIntPair.kt, commonMain/androidx/collection/IntList.kt, commonMain/androidx/collection/IntLongMap.kt, commonMain/androidx/collection/IntObjectMap.kt, commonMain/androidx/collection/IntSet.kt, commonMain/androidx/collection/LongFloatMap.kt, commonMain/androidx/collection/LongIntMap.kt, commonMain/androidx/collection/LongList.kt, commonMain/androidx/collection/LongLongMap.kt, commonMain/androidx/collection/LongLongPair.kt, commonMain/androidx/collection/LongObjectMap.kt, commonMain/androidx/collection/LongSet.kt, commonMain/androidx/collection/ObjectFloatMap.kt, commonMain/androidx/collection/ObjectIntMap.kt, commonMain/androidx/collection/ObjectList.kt, commonMain/androidx/collection/ObjectLongMap.kt, commonMain/androidx/collection/PackingUtils.kt, commonMain/androidx/collection/ScatterMap.kt, commonMain/androidx/collection/ScatterSet.kt, commonMain/androidx/collection/internal/PackingHelpers.kt, jvmMain/androidx/collection/internal/PackingHelpers.jvm.kt)
+文本 SHA-256: ffbf3b8a42860b5eaa8228cca1c1f328305ad749737bef00ef43520d8f5e48b7
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/BackEventCompat.kt, androidx/activity/EdgeToEdge.kt)
+
+androidx.collection:collection-jvm:1.4.2 / 源码许可头 (commonMain/androidx/collection/IndexBasedArrayIterator.kt)
+文本 SHA-256: 575ee5739171b0a546eb044c10ef188f605a1e8c975a728a6072f61ed2658e94
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/contextaware/ContextAware.kt, androidx/activity/contextaware/ContextAwareHelper.kt, androidx/activity/contextaware/OnContextAvailableListener.kt, androidx/activity/result/ActivityResult.java, androidx/activity/result/ActivityResultRegistryOwner.kt, androidx/activity/result/IntentSenderRequest.kt, androidx/activity/result/contract/ActivityResultContract.kt, androidx/activity/result/contract/ActivityResultContracts.kt)
+
+========================================================================
+androidx.concurrent:concurrent-futures:1.1.0
+POM: https://dl.google.com/dl/android/maven2/androidx/concurrent/concurrent-futures/1.1.0/concurrent-futures-1.1.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/concurrent/concurrent-futures/1.1.0/concurrent-futures-1.1.0-sources.jar
+归档 SHA-256: cc06fb6045a6c066f50e237a3c2126bc88c16d358a57b3612ba633c9f530b0a0
+androidx.concurrent:concurrent-futures:1.1.0 / 源码许可头 (androidx/concurrent/futures/AbstractResolvableFuture.java, androidx/concurrent/futures/CallbackToFutureAdapter.java, androidx/concurrent/futures/DirectExecutor.java, androidx/concurrent/futures/ResolvableFuture.java)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+========================================================================
+androidx.concurrent:concurrent-futures-ktx:1.1.0
+POM: https://dl.google.com/dl/android/maven2/androidx/concurrent/concurrent-futures-ktx/1.1.0/concurrent-futures-ktx-1.1.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/concurrent/concurrent-futures-ktx/1.1.0/concurrent-futures-ktx-1.1.0-sources.jar
+归档 SHA-256: 1490f45d9a2a3781548eca5231629f378828d685b3b035fb07e29a287e930165
+androidx.concurrent:concurrent-futures-ktx:1.1.0 / 源码许可头 (androidx/concurrent/futures/ListenableFuture.kt)
+文本 SHA-256: 0fb76639cf65ffb51bcc4bdf5c15623ef6cd1c4ae400c99fcf32187123bbc35c
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/Cancellable.kt, androidx/activity/OnBackPressedDispatcher.kt, androidx/activity/OnBackPressedDispatcherOwner.kt)
+
+========================================================================
+androidx.core:core:1.13.1
+POM: https://dl.google.com/dl/android/maven2/androidx/core/core/1.13.1/core-1.13.1.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/core/core/1.13.1/core-1.13.1-sources.jar
+归档 SHA-256: 947cc4b95df57d5d2ed16149458f4d3757da63a019d2d55a740db625bb3efcd6
+androidx.core:core:1.13.1 / 源码许可头 (android/support/v4/os/ResultReceiver.java, androidx/core/app/AppComponentFactory.java, androidx/core/app/CoreComponentFactory.java, androidx/core/app/Person.java, androidx/core/app/RemoteActionCompat.java, androidx/core/content/pm/PackageInfoCompat.java, androidx/core/content/pm/PermissionInfoCompat.java, androidx/core/content/pm/ShortcutInfoCompatSaver.java, androidx/core/database/CursorWindowCompat.java, androidx/core/database/sqlite/SQLiteCursorCompat.java, androidx/core/graphics/PathSegment.java, androidx/core/graphics/PathUtils.java, androidx/core/graphics/TypefaceCompatApi29Impl.java, androidx/core/graphics/drawable/WrappedDrawableState.java, androidx/core/os/HandlerCompat.java, androidx/core/os/LocaleListCompatWrapper.java, androidx/core/os/LocaleListPlatformWrapper.java, androidx/core/os/MessageCompat.java, androidx/core/os/ParcelCompat.java, androidx/core/text/HtmlCompat.java, androidx/core/text/PrecomputedTextCompat.java, androidx/core/text/util/FindAddress.java, androidx/core/util/Consumer.kt, androidx/core/util/Supplier.kt, androidx/core/view/AccessibilityDelegateCompat.java, androidx/core/view/ActionProvider.java, androidx/core/view/DisplayCutoutCompat.java, androidx/core/view/GestureDetectorCompat.java, androidx/core/view/GravityCompat.java, androidx/core/view/InputDeviceCompat.java, androidx/core/view/KeyEventDispatcher.java, androidx/core/view/LayoutInflaterCompat.java, androidx/core/view/LayoutInflaterFactory.java, androidx/core/view/MarginLayoutParamsCompat.java, androidx/core/view/MenuCompat.java, androidx/core/view/MenuItemCompat.java, androidx/core/view/MotionEventCompat.java, androidx/core/view/NestedScrollingChild.java, androidx/core/view/NestedScrollingChild2.java, androidx/core/view/NestedScrollingChild3.java, androidx/core/view/NestedScrollingChildHelper.java, androidx/core/view/NestedScrollingParent.java, androidx/core/view/NestedScrollingParent2.java, androidx/core/view/NestedScrollingParent3.java, androidx/core/view/NestedScrollingParentHelper.java, androidx/core/view/OnApplyWindowInsetsListener.java, androidx/core/view/OneShotPreDrawListener.java, androidx/core/view/PointerIconCompat.java, androidx/core/view/ScaleGestureDetectorCompat.java, androidx/core/view/ScrollingView.java, androidx/core/view/TintableBackgroundView.java, androidx/core/view/VelocityTrackerCompat.java, androidx/core/view/ViewCompat.java, androidx/core/view/ViewConfigurationCompat.java, androidx/core/view/ViewGroupCompat.java, androidx/core/view/ViewParentCompat.java, androidx/core/view/ViewPropertyAnimatorCompat.java, androidx/core/view/ViewPropertyAnimatorListener.java, androidx/core/view/ViewPropertyAnimatorListenerAdapter.java, androidx/core/view/ViewPropertyAnimatorUpdateListener.java, androidx/core/view/WindowCompat.java, androidx/core/view/WindowInsetsCompat.java, androidx/core/view/accessibility/AccessibilityClickableSpanCompat.java, androidx/core/view/accessibility/AccessibilityViewCommand.java, androidx/core/widget/TintableCompoundDrawablesView.java)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/accessibilityservice/AccessibilityServiceInfoCompat.java, androidx/core/app/ActivityCompat.java, androidx/core/app/ServiceCompat.java, androidx/core/app/ShareCompat.java, androidx/core/content/IntentCompat.java, androidx/core/content/PackageManagerCompat.java, androidx/core/content/pm/ActivityInfoCompat.java, androidx/core/database/DatabaseUtilsCompat.java, androidx/core/os/EnvironmentCompat.java, androidx/core/os/ParcelableCompat.java, androidx/core/os/ParcelableCompatCreatorCallbacks.java, androidx/core/util/DebugUtils.java, androidx/core/util/LogWriter.java, androidx/core/util/TimeUtils.java, androidx/core/view/accessibility/AccessibilityEventCompat.java, androidx/core/view/accessibility/AccessibilityManagerCompat.java, androidx/core/view/accessibility/AccessibilityNodeInfoCompat.java, androidx/core/view/accessibility/AccessibilityRecordCompat.java, androidx/core/widget/EdgeEffectCompat.java)
+文本 SHA-256: b9fc24a6ca136cc571f5237f1b82536034946353b635870a7640a1443eb2e209
+/*
+ * Copyright (C) 2011 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/app/ActivityManagerCompat.java, androidx/core/app/NotificationCompatExtras.java, androidx/core/app/NotificationCompatSideChannelService.java, androidx/core/app/NotificationManagerCompat.java, androidx/core/app/RemoteInput.java, androidx/core/app/SharedElementCallback.java, androidx/core/content/res/ResourcesCompat.java, androidx/core/graphics/BitmapCompat.java, androidx/core/graphics/drawable/RoundedBitmapDrawable.java, androidx/core/graphics/drawable/RoundedBitmapDrawable21.java, androidx/core/graphics/drawable/RoundedBitmapDrawableFactory.java)
+文本 SHA-256: 112331fa20ed11a2311644f2b9cef74da0274eac198f18ec6b16bac4e6f82613
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/IntDef.kt, commonMain/androidx/annotation/StringDef.kt)
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/app/ActivityOptionsCompat.java, androidx/core/app/NavUtils.java, androidx/core/app/NotificationCompat.java, androidx/core/app/NotificationCompatJellybean.java, androidx/core/app/TaskStackBuilder.java, androidx/core/content/ContextCompat.java, androidx/core/net/ConnectivityManagerCompat.java, androidx/core/net/TrafficStatsCompat.java, androidx/core/os/CancellationSignal.java, androidx/core/view/accessibility/AccessibilityNodeProviderCompat.java, androidx/core/widget/ScrollerCompat.java)
+文本 SHA-256: a1dfc2b88d1a51e2574ccf5b123ffb2c7c518a5ed10f4c57dfc43faec195907c
+/*
+ * Copyright (C) 2012 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/app/ActivityRecreator.java, androidx/core/content/ContentProviderCompat.java, androidx/core/graphics/BlendModeColorFilterCompat.java, androidx/core/graphics/BlendModeUtils.java, androidx/core/graphics/Insets.java, androidx/core/location/GnssStatusCompat.java, androidx/core/location/GnssStatusWrapper.java, androidx/core/location/GpsStatusWrapper.java, androidx/core/location/LocationManagerCompat.java, androidx/core/net/UriCompat.java, androidx/core/util/Predicate.java, androidx/core/view/DisplayCompat.java)
+文本 SHA-256: 0fb76639cf65ffb51bcc4bdf5c15623ef6cd1c4ae400c99fcf32187123bbc35c
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/Cancellable.kt, androidx/activity/OnBackPressedDispatcher.kt, androidx/activity/OnBackPressedDispatcherOwner.kt)
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/app/AlarmManagerCompat.java, androidx/core/app/AppLaunchChecker.java, androidx/core/app/ComponentActivity.kt, androidx/core/content/MimeTypeFilter.java, androidx/core/content/res/ConfigurationHelper.java, androidx/core/graphics/drawable/TintAwareDrawable.java, androidx/core/math/MathUtils.java, androidx/core/os/BuildCompat.kt, androidx/core/text/util/LinkifyCompat.java, androidx/core/util/PatternsCompat.java, androidx/core/view/DragAndDropPermissionsCompat.java, androidx/core/view/DragStartHelper.java, androidx/core/view/inputmethod/EditorInfoCompat.java, androidx/core/view/inputmethod/InputConnectionCompat.java, androidx/core/view/inputmethod/InputContentInfoCompat.java, androidx/core/widget/ListViewCompat.java)
+文本 SHA-256: bd681efb8799978450f2abfdb13bf66aa8e2050c974625bf6ab8e184d4500b65
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/AnyThread.kt, commonMain/androidx/annotation/ProductionVisibility.kt, commonMain/androidx/annotation/RestrictTo.kt, nonJvmMain/androidx/annotation/RestrictTo.nonJvm.kt)
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/app/AppLocalesStorageHelper.java, androidx/core/app/GrammaticalInflectionManagerCompat.java, androidx/core/app/OnUserLeaveHintProvider.kt, androidx/core/service/quicksettings/PendingIntentActivityWrapper.java, androidx/core/service/quicksettings/TileServiceCompat.java, androidx/core/util/Function.kt, androidx/core/util/TypedValueCompat.java, androidx/core/view/DifferentialMotionFlingController.java, androidx/core/view/DifferentialMotionFlingTarget.java, androidx/core/view/HapticFeedbackConstantsCompat.java, androidx/core/view/SoftwareKeyboardControllerCompat.java, androidx/core/view/VelocityTrackerFallback.java, androidx/core/view/ViewStructureCompat.java, androidx/core/view/autofill/AutofillIdCompat.java, androidx/core/view/contentcapture/ContentCaptureSessionCompat.java)
+文本 SHA-256: ffbf3b8a42860b5eaa8228cca1c1f328305ad749737bef00ef43520d8f5e48b7
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/BackEventCompat.kt, androidx/activity/EdgeToEdge.kt)
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/app/AppOpsManagerCompat.java, androidx/core/app/BundleCompat.java, androidx/core/content/PermissionChecker.java, androidx/core/content/res/GrowingArrayUtils.java, androidx/core/content/res/TypedArrayUtils.java, androidx/core/graphics/drawable/WrappedDrawable.java, androidx/core/graphics/drawable/WrappedDrawableApi14.java, androidx/core/graphics/drawable/WrappedDrawableApi21.java, androidx/core/net/DatagramSocketWrapper.java, androidx/core/os/UserManagerCompat.java, androidx/core/view/accessibility/AccessibilityWindowInfoCompat.java, androidx/core/view/animation/PathInterpolatorApi14.java, androidx/core/widget/CompoundButtonCompat.java, androidx/core/widget/NestedScrollView.java, androidx/core/widget/TextViewCompat.java, androidx/core/widget/TintableCompoundButton.java)
+文本 SHA-256: 3eef9d928917c18427704cbdf31a57e9548a88a918cbb3924a2cfbff04a86ffd
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/CallSuper.kt, commonMain/androidx/annotation/CheckResult.kt, commonMain/androidx/annotation/ColorInt.kt, commonMain/androidx/annotation/FloatRange.kt, commonMain/androidx/annotation/IntRange.kt, commonMain/androidx/annotation/MainThread.kt, commonMain/androidx/annotation/Size.kt, commonMain/androidx/annotation/UiThread.kt, commonMain/androidx/annotation/VisibleForTesting.kt)
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/app/DialogCompat.java, androidx/core/content/res/ColorStateListInflaterCompat.java, androidx/core/content/res/ComplexColorCompat.java, androidx/core/content/res/GradientColorInflaterCompat.java, androidx/core/telephony/mbms/MbmsHelper.java, androidx/core/view/WindowInsetsAnimationControlListenerCompat.java)
+文本 SHA-256: 9d0f46e29c70c3c5e1bf9827a8b6f89dd4633da52ce437ab334a833487c84e14
+/*
+ * Copyright (C) 2018 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/app/FrameMetricsAggregator.java, androidx/core/app/JobIntentService.java, androidx/core/app/NotificationBuilderWithBuilderAccessor.java, androidx/core/app/NotificationCompatBuilder.java, androidx/core/content/res/FontResourcesParserCompat.java, androidx/core/graphics/PaintCompat.java, androidx/core/graphics/PathParser.java, androidx/core/graphics/TypefaceCompat.java, androidx/core/graphics/TypefaceCompatApi21Impl.java, androidx/core/graphics/TypefaceCompatApi24Impl.java, androidx/core/graphics/TypefaceCompatApi26Impl.java, androidx/core/graphics/TypefaceCompatBaseImpl.java, androidx/core/graphics/TypefaceCompatUtil.java, androidx/core/graphics/drawable/IconCompat.java, androidx/core/os/ConfigurationCompat.java, androidx/core/os/LocaleListCompat.java, androidx/core/os/LocaleListInterface.java, androidx/core/provider/FontRequest.java, androidx/core/provider/FontsContractCompat.java, androidx/core/provider/SelfDestructiveThread.java, androidx/core/util/ObjectsCompat.java, androidx/core/util/Preconditions.java, androidx/core/widget/AutoSizeableTextView.java, androidx/core/widget/ImageViewCompat.java, androidx/core/widget/TintableImageSourceView.java)
+文本 SHA-256: 75dbadc0b3159a276c67a0bf4f5e7fb11b02fec4223eae12aa3a64e195a4fca6
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/ColorLong.kt, commonMain/androidx/annotation/GuardedBy.kt, commonMain/androidx/annotation/LongDef.kt)
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/app/LocaleManagerCompat.java, androidx/core/app/MultiWindowModeChangedInfo.kt, androidx/core/app/PictureInPictureModeChangedInfo.kt, androidx/core/content/IntentSanitizer.java, androidx/core/content/UriMatcherCompat.java, androidx/core/os/BundleCompat.java)
+文本 SHA-256: 098ca21a7be9224c03b2c4966bbec5c1b3c7511f391545373c2b450fae6541e4
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/FullyDrawnReporter.kt, androidx/activity/FullyDrawnReporterOwner.kt, androidx/activity/ViewTreeFullyLoadedReporterOwner.kt, androidx/activity/result/PickVisualMediaRequest.kt)
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/app/NotificationChannelCompat.java, androidx/core/app/NotificationChannelGroupCompat.java, androidx/core/content/LocusIdCompat.java, androidx/core/net/MailTo.java, androidx/core/net/ParseException.java, androidx/core/os/ExecutorCompat.java, androidx/core/os/ProcessCompat.java, androidx/core/view/ContentInfoCompat.java, androidx/core/view/OnReceiveContentListener.java, androidx/core/view/OnReceiveContentViewBehavior.java, androidx/core/view/WindowInsetsAnimationCompat.java, androidx/core/view/WindowInsetsAnimationControllerCompat.java, androidx/core/view/WindowInsetsControllerCompat.java, androidx/core/widget/TextViewOnReceiveContentListener.java)
+文本 SHA-256: 575ee5739171b0a546eb044c10ef188f605a1e8c975a728a6072f61ed2658e94
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/contextaware/ContextAware.kt, androidx/activity/contextaware/ContextAwareHelper.kt, androidx/activity/contextaware/OnContextAvailableListener.kt, androidx/activity/result/ActivityResult.java, androidx/activity/result/ActivityResultRegistryOwner.kt, androidx/activity/result/IntentSenderRequest.kt, androidx/activity/result/contract/ActivityResultContract.kt, androidx/activity/result/contract/ActivityResultContracts.kt)
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/app/OnMultiWindowModeChangedProvider.kt, androidx/core/app/OnNewIntentProvider.kt, androidx/core/app/OnPictureInPictureModeChangedProvider.kt, androidx/core/content/OnConfigurationChangedProvider.kt, androidx/core/content/OnTrimMemoryProvider.kt, androidx/core/content/UnusedAppRestrictionsBackportCallback.java, androidx/core/content/UnusedAppRestrictionsBackportService.java, androidx/core/content/UnusedAppRestrictionsBackportServiceConnection.java, androidx/core/content/UnusedAppRestrictionsConstants.java, androidx/core/content/pm/ShortcutInfoChangeListener.java, androidx/core/content/pm/ShortcutXmlParser.java, androidx/core/content/res/CamColor.java, androidx/core/content/res/CamUtils.java, androidx/core/content/res/ViewingConditions.java, androidx/core/graphics/WeightTypefaceApi14.java, androidx/core/graphics/WeightTypefaceApi21.java, androidx/core/graphics/WeightTypefaceApi26.java, androidx/core/location/LocationCompat.java, androidx/core/location/LocationListenerCompat.java, androidx/core/location/LocationRequestCompat.java, androidx/core/os/UserHandleCompat.java, androidx/core/provider/CallbackWithHandler.java, androidx/core/provider/CalleeHandler.java, androidx/core/provider/DocumentsContractCompat.java, androidx/core/provider/FontProvider.java, androidx/core/provider/FontRequestWorker.java, androidx/core/provider/RequestExecutor.java, androidx/core/telephony/SubscriptionManagerCompat.java, androidx/core/telephony/TelephonyManagerCompat.java, androidx/core/util/SizeFCompat.java, androidx/core/view/MenuHost.java, androidx/core/view/MenuHostHelper.java, androidx/core/view/MenuProvider.java)
+文本 SHA-256: b698582c54bfdc53aace53dba7612f36ddbb0259cfddd6168604e1e0e56212ee
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentDialog.kt, androidx/activity/ViewTreeOnBackPressedDispatcherOwner.kt)
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/app/PendingIntentCompat.java)
+文本 SHA-256: cc72f0c458dab99b2021d05c8bf272eb917dda654c3baf737db83ba3cf57aeb4
+/*
+ * Copyright (C) 2022 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/content/ContentResolverCompat.java, androidx/core/content/FileProvider.java, androidx/core/graphics/drawable/DrawableCompat.java, androidx/core/hardware/display/DisplayManagerCompat.java, androidx/core/internal/view/SupportMenu.java, androidx/core/internal/view/SupportMenuItem.java, androidx/core/internal/view/SupportSubMenu.java, androidx/core/os/OperationCanceledException.java, androidx/core/text/BidiFormatter.java, androidx/core/text/ICUCompat.java, androidx/core/text/TextDirectionHeuristicCompat.java, androidx/core/text/TextDirectionHeuristicsCompat.java, androidx/core/text/TextUtilsCompat.java, androidx/core/util/Pools.kt, androidx/core/widget/AutoScrollHelper.java, androidx/core/widget/ContentLoadingProgressBar.java, androidx/core/widget/ListPopupWindowCompat.java, androidx/core/widget/ListViewAutoScrollHelper.java, androidx/core/widget/PopupMenuCompat.java, androidx/core/widget/PopupWindowCompat.java)
+文本 SHA-256: 324242fc42ca1fe5892a57220c8a8720f68f1d5923bd69f0fc4e63f2b032656f
+原文同前：androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (jvmMain/androidx/annotation/NonNull.jvm.kt, jvmMain/androidx/annotation/Nullable.jvm.kt)
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/content/SharedPreferencesCompat.java, androidx/core/hardware/fingerprint/FingerprintManagerCompat.java)
+文本 SHA-256: 85304b741dae82536140550f0ee7054d122ebdf816c852c92bbbe86686501ae6
+/*
+ * Copyright (C) 2015 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License
+ */
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/content/pm/ShortcutInfoCompat.java, androidx/core/content/pm/ShortcutManagerCompat.java)
+文本 SHA-256: 627eb9ffdae7f73ea2a685b2bed602684547109928c6bf4afa08a88f7f96af32
+/**
+ * Copyright (C) 2017 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/graphics/BlendModeCompat.java)
+文本 SHA-256: f522a5228a4efd49ff1fba81fa2fba84dd5864ae3a85ed3af016abb700aa49f9
+原文同前：androidx.collection:collection-jvm:1.4.2 / 源码许可头 (jvmMain/androidx/collection/package-info.java)
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/graphics/ColorUtils.java)
+文本 SHA-256: 1a6d45f82689dd204ca86c5a6dc8b06244cd1ddd46fb9bdbbc82f0b62fdcdd97
+/*
+ * Copyright 2015 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/graphics/TypefaceCompatApi28Impl.java)
+文本 SHA-256: 0a482956cdefef7b857c207289fcf91b92f4c4003e79fdd0d6e5021d6ec60305
+/*
+ * Copyright 2017 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/os/TraceCompat.java)
+文本 SHA-256: 7d6bc44faadcfc207a6e1e5ba86e8a3d3df5ab796a1fbfa779bdd42ffbb8cc5c
+/*
+ * Copyright (C) 2015 The Android Open Source Project
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/text/method/LinkMovementMethodCompat.java)
+文本 SHA-256: d6cfc574bd8e3ac4a60037317c60b273556b72fa04fa4e32bb8b3581f949c76e
+/*
+ * Copyright (C) 2023 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/text/util/LocalePreferences.java)
+文本 SHA-256: a34cd7c49b07da7319aadce0fee47da135773758afb314667d92ecc29657deb4
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/EmptySuper.kt, commonMain/androidx/annotation/OpenForTesting.kt, commonMain/androidx/annotation/ReturnThis.kt)
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/util/AtomicFile.java, androidx/core/util/Pair.java)
+文本 SHA-256: 623d3727872cbcb7ff339b9a151f6f1a6eeb5bdf9f0afe2d7d51b2804fb6591c
+/*
+ * Copyright (C) 2009 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/view/animation/PathInterpolatorCompat.java)
+文本 SHA-256: 916ad05d2ddb5952efa00a8eacd18ecca04b6fab9c55adf238e4847ac255c35f
+/*
+ * Copyright (C) 2015 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.core:core:1.13.1 / 源码许可头 (androidx/core/widget/CheckedTextViewCompat.java, androidx/core/widget/TintableCheckedTextView.java)
+文本 SHA-256: 883fc7ae513b62f8c406fe00a6dda4a281a059fc674b554c6e24ee0e36347193
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/Discouraged.kt)
+
+========================================================================
+androidx.core:core-ktx:1.13.1
+POM: https://dl.google.com/dl/android/maven2/androidx/core/core-ktx/1.13.1/core-ktx-1.13.1.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/core/core-ktx/1.13.1/core-ktx-1.13.1-sources.jar
+归档 SHA-256: b6646f76cd2d59210561dffb16b32a4e5fcca6de37ca027f1dae82bfb0cf6493
+androidx.core:core-ktx:1.13.1 / 源码许可头 (androidx/core/animation/Animator.kt, androidx/core/transition/Transition.kt, androidx/core/util/AtomicFile.kt, androidx/core/util/Half.kt, androidx/core/view/View.kt, androidx/core/view/ViewGroup.kt)
+文本 SHA-256: 75dbadc0b3159a276c67a0bf4f5e7fb11b02fec4223eae12aa3a64e195a4fca6
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/ColorLong.kt, commonMain/androidx/annotation/GuardedBy.kt, commonMain/androidx/annotation/LongDef.kt)
+
+androidx.core:core-ktx:1.13.1 / 源码许可头 (androidx/core/content/ContentValues.kt, androidx/core/content/res/TypedArray.kt, androidx/core/database/Cursor.kt, androidx/core/database/sqlite/SQLiteDatabase.kt, androidx/core/graphics/ImageDecoder.kt, androidx/core/graphics/Matrix.kt, androidx/core/graphics/Path.kt, androidx/core/graphics/PorterDuff.kt, androidx/core/graphics/drawable/BitmapDrawable.kt, androidx/core/graphics/drawable/ColorDrawable.kt, androidx/core/graphics/drawable/Drawable.kt, androidx/core/graphics/drawable/Icon.kt, androidx/core/location/Location.kt, androidx/core/os/Bundle.kt, androidx/core/os/PersistableBundle.kt, androidx/core/text/CharSequence.kt, androidx/core/text/Html.kt, androidx/core/text/SpannableString.kt, androidx/core/text/SpannedString.kt, androidx/core/text/String.kt, androidx/core/util/Range.kt, androidx/core/util/Size.kt, androidx/core/view/Menu.kt, androidx/core/widget/TextView.kt)
+文本 SHA-256: dc12336bbf298546ef57c053e433668b61d9e2d5bf142d29b0f017a37a0eb151
+/*
+ * Copyright (C) 2018 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *       http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.core:core-ktx:1.13.1 / 源码许可头 (androidx/core/content/Context.kt, androidx/core/content/SharedPreferences.kt, androidx/core/graphics/Bitmap.kt, androidx/core/graphics/Canvas.kt, androidx/core/graphics/Color.kt, androidx/core/graphics/Point.kt, androidx/core/graphics/Rect.kt, androidx/core/graphics/Region.kt, androidx/core/graphics/Shader.kt, androidx/core/net/Uri.kt, androidx/core/os/Handler.kt, androidx/core/os/Trace.kt, androidx/core/text/SpannableStringBuilder.kt, androidx/core/util/LongSparseArray.kt, androidx/core/util/Pair.kt, androidx/core/util/SparseArray.kt, androidx/core/util/SparseBooleanArray.kt, androidx/core/util/SparseIntArray.kt, androidx/core/util/SparseLongArray.kt)
+文本 SHA-256: 7147d3f75b51ca20ce6e3f5095c0b4ec0193de2804e8daac15749a8ed424f415
+原文同前：androidx.collection:collection-jvm:1.4.2 / 源码许可头 (jvmMain/androidx/collection/ArrayMap.kt)
+
+androidx.core:core-ktx:1.13.1 / 源码许可头 (androidx/core/graphics/Paint.kt)
+文本 SHA-256: f522a5228a4efd49ff1fba81fa2fba84dd5864ae3a85ed3af016abb700aa49f9
+原文同前：androidx.collection:collection-jvm:1.4.2 / 源码许可头 (jvmMain/androidx/collection/package-info.java)
+
+androidx.core:core-ktx:1.13.1 / 源码许可头 (androidx/core/graphics/Picture.kt)
+文本 SHA-256: 60fdc91f1d77dab4e4d2ef9b97fb850b500698c4514f859602e1fbc692de2974
+/*
+ * Copyright (C) 20188 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *       http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.core:core-ktx:1.13.1 / 源码许可头 (androidx/core/os/OutcomeReceiver.kt, androidx/core/util/AndroidXConsumer.kt, androidx/core/util/PlatformConsumer.kt, androidx/core/util/Runnable.kt)
+文本 SHA-256: 098ca21a7be9224c03b2c4966bbec5c1b3c7511f391545373c2b450fae6541e4
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/FullyDrawnReporter.kt, androidx/activity/FullyDrawnReporterOwner.kt, androidx/activity/ViewTreeFullyLoadedReporterOwner.kt, androidx/activity/result/PickVisualMediaRequest.kt)
+
+androidx.core:core-ktx:1.13.1 / 源码许可头 (androidx/core/text/Locale.kt)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+androidx.core:core-ktx:1.13.1 / 源码许可头 (androidx/core/util/LruCache.kt)
+文本 SHA-256: 9d0f46e29c70c3c5e1bf9827a8b6f89dd4633da52ce437ab334a833487c84e14
+原文同前：androidx.core:core:1.13.1 / 源码许可头 (androidx/core/app/DialogCompat.java, androidx/core/content/res/ColorStateListInflaterCompat.java, androidx/core/content/res/ComplexColorCompat.java, androidx/core/content/res/GradientColorInflaterCompat.java, androidx/core/telephony/mbms/MbmsHelper.java, androidx/core/view/WindowInsetsAnimationControlListenerCompat.java)
+
+========================================================================
+androidx.customview:customview:1.0.0
+POM: https://dl.google.com/dl/android/maven2/androidx/customview/customview/1.0.0/customview-1.0.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/customview/customview/1.0.0/customview-1.0.0-sources.jar
+归档 SHA-256: 87c910a3c3c5d1e4881ebcc7a8f7fced04fdad6ff1f8e5ff7f100adf62df1787
+androidx.customview:customview:1.0.0 / 源码许可头 (androidx/customview/view/AbsSavedState.java, androidx/customview/widget/ExploreByTouchHelper.java, androidx/customview/widget/FocusStrategy.java, androidx/customview/widget/ViewDragHelper.java)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+========================================================================
+androidx.exifinterface:exifinterface:1.4.1
+POM: https://dl.google.com/dl/android/maven2/androidx/exifinterface/exifinterface/1.4.1/exifinterface-1.4.1.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/exifinterface/exifinterface/1.4.1/exifinterface-1.4.1-sources.jar
+归档 SHA-256: 6451ce7b1d935c8d295bc704ae4cc9c1c1ef890ccf61dca65dccd17980990997
+androidx.exifinterface:exifinterface:1.4.1 / 源码许可头 (androidx/exifinterface/media/ExifInterface.java)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+androidx.exifinterface:exifinterface:1.4.1 / 源码许可头 (androidx/exifinterface/media/ExifInterfaceUtils.java)
+文本 SHA-256: 575ee5739171b0a546eb044c10ef188f605a1e8c975a728a6072f61ed2658e94
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/contextaware/ContextAware.kt, androidx/activity/contextaware/ContextAwareHelper.kt, androidx/activity/contextaware/OnContextAvailableListener.kt, androidx/activity/result/ActivityResult.java, androidx/activity/result/ActivityResultRegistryOwner.kt, androidx/activity/result/IntentSenderRequest.kt, androidx/activity/result/contract/ActivityResultContract.kt, androidx/activity/result/contract/ActivityResultContracts.kt)
+
+========================================================================
+androidx.fragment:fragment:1.7.1
+POM: https://dl.google.com/dl/android/maven2/androidx/fragment/fragment/1.7.1/fragment-1.7.1.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/fragment/fragment/1.7.1/fragment-1.7.1-sources.jar
+归档 SHA-256: e1f221e82d5d549dfc50151b5f80aab86dd62a3db71a5ca0b0a3bbabf91765df
+androidx.fragment:fragment:1.7.1 / 源码许可头 (androidx/fragment/app/BackStackRecord.java, androidx/fragment/app/BackStackRecordState.java, androidx/fragment/app/DialogFragment.java, androidx/fragment/app/Fragment.java, androidx/fragment/app/FragmentActivity.java, androidx/fragment/app/FragmentContainer.java, androidx/fragment/app/FragmentController.java, androidx/fragment/app/FragmentFactory.java, androidx/fragment/app/FragmentHostCallback.kt, androidx/fragment/app/FragmentManager.java, androidx/fragment/app/FragmentManagerNonConfig.java, androidx/fragment/app/FragmentManagerState.java, androidx/fragment/app/FragmentManagerViewModel.java, androidx/fragment/app/FragmentPagerAdapter.java, androidx/fragment/app/FragmentState.java, androidx/fragment/app/FragmentStatePagerAdapter.java, androidx/fragment/app/FragmentTabHost.java, androidx/fragment/app/FragmentTransaction.java, androidx/fragment/app/FragmentTransition.kt, androidx/fragment/app/FragmentTransitionCompat21.java, androidx/fragment/app/FragmentTransitionImpl.java, androidx/fragment/app/FragmentViewLifecycleOwner.java, androidx/fragment/app/ListFragment.java, androidx/fragment/app/SuperNotCalledException.java)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+androidx.fragment:fragment:1.7.1 / 源码许可头 (androidx/fragment/app/BackStackState.java, androidx/fragment/app/strictmode/FragmentReuseViolation.kt, androidx/fragment/app/strictmode/FragmentStrictMode.kt, androidx/fragment/app/strictmode/FragmentTagUsageViolation.kt, androidx/fragment/app/strictmode/GetRetainInstanceUsageViolation.kt, androidx/fragment/app/strictmode/GetTargetFragmentRequestCodeUsageViolation.kt, androidx/fragment/app/strictmode/GetTargetFragmentUsageViolation.kt, androidx/fragment/app/strictmode/RetainInstanceUsageViolation.kt, androidx/fragment/app/strictmode/SetRetainInstanceUsageViolation.kt, androidx/fragment/app/strictmode/SetTargetFragmentUsageViolation.kt, androidx/fragment/app/strictmode/SetUserVisibleHintViolation.kt, androidx/fragment/app/strictmode/TargetFragmentUsageViolation.kt, androidx/fragment/app/strictmode/Violation.kt, androidx/fragment/app/strictmode/WrongFragmentContainerViolation.kt)
+文本 SHA-256: b698582c54bfdc53aace53dba7612f36ddbb0259cfddd6168604e1e0e56212ee
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentDialog.kt, androidx/activity/ViewTreeOnBackPressedDispatcherOwner.kt)
+
+androidx.fragment:fragment:1.7.1 / 源码许可头 (androidx/fragment/app/DefaultSpecialEffectsController.kt, androidx/fragment/app/FragmentAnim.java, androidx/fragment/app/FragmentContainerView.kt, androidx/fragment/app/FragmentLayoutInflaterFactory.java, androidx/fragment/app/FragmentLifecycleCallbacksDispatcher.kt, androidx/fragment/app/FragmentManagerImpl.java, androidx/fragment/app/FragmentStateManager.java, androidx/fragment/app/FragmentStore.java, androidx/fragment/app/LogWriter.java, androidx/fragment/app/SpecialEffectsController.kt, androidx/fragment/app/SpecialEffectsControllerFactory.java)
+文本 SHA-256: 0fb76639cf65ffb51bcc4bdf5c15623ef6cd1c4ae400c99fcf32187123bbc35c
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/Cancellable.kt, androidx/activity/OnBackPressedDispatcher.kt, androidx/activity/OnBackPressedDispatcherOwner.kt)
+
+androidx.fragment:fragment:1.7.1 / 源码许可头 (androidx/fragment/app/FragmentOnAttachListener.java, androidx/fragment/app/FragmentResultListener.java, androidx/fragment/app/FragmentResultOwner.java)
+文本 SHA-256: 575ee5739171b0a546eb044c10ef188f605a1e8c975a728a6072f61ed2658e94
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/contextaware/ContextAware.kt, androidx/activity/contextaware/ContextAwareHelper.kt, androidx/activity/contextaware/OnContextAvailableListener.kt, androidx/activity/result/ActivityResult.java, androidx/activity/result/ActivityResultRegistryOwner.kt, androidx/activity/result/IntentSenderRequest.kt, androidx/activity/result/contract/ActivityResultContract.kt, androidx/activity/result/contract/ActivityResultContracts.kt)
+
+androidx.fragment:fragment:1.7.1 / 源码许可头 (androidx/fragment/app/PredictiveBackControl.kt)
+文本 SHA-256: ffbf3b8a42860b5eaa8228cca1c1f328305ad749737bef00ef43520d8f5e48b7
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/BackEventCompat.kt, androidx/activity/EdgeToEdge.kt)
+
+androidx.fragment:fragment:1.7.1 / 源码许可头 (androidx/fragment/app/strictmode/WrongNestedHierarchyViolation.kt)
+文本 SHA-256: 098ca21a7be9224c03b2c4966bbec5c1b3c7511f391545373c2b450fae6541e4
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/FullyDrawnReporter.kt, androidx/activity/FullyDrawnReporterOwner.kt, androidx/activity/ViewTreeFullyLoadedReporterOwner.kt, androidx/activity/result/PickVisualMediaRequest.kt)
+
+========================================================================
+androidx.interpolator:interpolator:1.0.0
+POM: https://dl.google.com/dl/android/maven2/androidx/interpolator/interpolator/1.0.0/interpolator-1.0.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/interpolator/interpolator/1.0.0/interpolator-1.0.0-sources.jar
+归档 SHA-256: fa13ada71fe7bd9461f622f418e7c16a18e85da7708fb505c75229a9b8830345
+androidx.interpolator:interpolator:1.0.0 / 源码许可头 (androidx/interpolator/view/animation/FastOutLinearInInterpolator.java, androidx/interpolator/view/animation/FastOutSlowInInterpolator.java, androidx/interpolator/view/animation/LinearOutSlowInInterpolator.java, androidx/interpolator/view/animation/LookupTableInterpolator.java)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+========================================================================
+androidx.lifecycle:lifecycle-common:2.7.0
+POM: https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-common/2.7.0/lifecycle-common-2.7.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-common/2.7.0/lifecycle-common-2.7.0-sources.jar
+归档 SHA-256: eea037c7fe165a0bd493d7e7c872d8e7da4c42623fcd356e12ede42e288c4c75
+androidx.lifecycle:lifecycle-common:2.7.0 / 源码许可头 (androidx/lifecycle/ClassesInfoCache.java, androidx/lifecycle/CompositeGeneratedAdaptersObserver.kt, androidx/lifecycle/DefaultLifecycleObserver.kt, androidx/lifecycle/DefaultLifecycleObserverAdapter.kt, androidx/lifecycle/GeneratedAdapter.kt, androidx/lifecycle/GenericLifecycleObserver.java, androidx/lifecycle/Lifecycle.kt, androidx/lifecycle/LifecycleObserver.kt, androidx/lifecycle/LifecycleOwner.kt, androidx/lifecycle/Lifecycling.kt, androidx/lifecycle/MethodCallsLogger.kt, androidx/lifecycle/OnLifecycleEvent.java, androidx/lifecycle/ReflectiveGenericLifecycleObserver.java, androidx/lifecycle/SingleGeneratedAdapterObserver.kt)
+文本 SHA-256: 75dbadc0b3159a276c67a0bf4f5e7fb11b02fec4223eae12aa3a64e195a4fca6
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/ColorLong.kt, commonMain/androidx/annotation/GuardedBy.kt, commonMain/androidx/annotation/LongDef.kt)
+
+androidx.lifecycle:lifecycle-common:2.7.0 / 源码许可头 (androidx/lifecycle/DispatchQueue.kt, androidx/lifecycle/LifecycleController.kt, androidx/lifecycle/PausingDispatcher.kt)
+文本 SHA-256: 0fb76639cf65ffb51bcc4bdf5c15623ef6cd1c4ae400c99fcf32187123bbc35c
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/Cancellable.kt, androidx/activity/OnBackPressedDispatcher.kt, androidx/activity/OnBackPressedDispatcherOwner.kt)
+
+androidx.lifecycle:lifecycle-common:2.7.0 / 源码许可头 (androidx/lifecycle/LifecycleEventObserver.kt)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+========================================================================
+androidx.lifecycle:lifecycle-common-java8:2.7.0
+POM: https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-common-java8/2.7.0/lifecycle-common-java8-2.7.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-common-java8/2.7.0/lifecycle-common-java8-2.7.0-sources.jar
+归档 SHA-256: c6deada2fac53b8ea6523dbda77597b128006674616f140f04df23264c6d1aa3
+========================================================================
+androidx.lifecycle:lifecycle-livedata:2.7.0
+POM: https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-livedata/2.7.0/lifecycle-livedata-2.7.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-livedata/2.7.0/lifecycle-livedata-2.7.0-sources.jar
+归档 SHA-256: e1cd9061e43922cd9715feafb518d3a3d1c649a177a7b5ef71e6d0b4491609ad
+androidx.lifecycle:lifecycle-livedata:2.7.0 / 源码许可头 (androidx/lifecycle/ComputableLiveData.kt, androidx/lifecycle/MediatorLiveData.java, androidx/lifecycle/Transformations.kt)
+文本 SHA-256: 75dbadc0b3159a276c67a0bf4f5e7fb11b02fec4223eae12aa3a64e195a4fca6
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/ColorLong.kt, commonMain/androidx/annotation/GuardedBy.kt, commonMain/androidx/annotation/LongDef.kt)
+
+androidx.lifecycle:lifecycle-livedata:2.7.0 / 源码许可头 (androidx/lifecycle/CoroutineLiveData.kt, androidx/lifecycle/FlowLiveData.kt)
+文本 SHA-256: 0fb76639cf65ffb51bcc4bdf5c15623ef6cd1c4ae400c99fcf32187123bbc35c
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/Cancellable.kt, androidx/activity/OnBackPressedDispatcher.kt, androidx/activity/OnBackPressedDispatcherOwner.kt)
+
+========================================================================
+androidx.lifecycle:lifecycle-livedata-core:2.7.0
+POM: https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-livedata-core/2.7.0/lifecycle-livedata-core-2.7.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-livedata-core/2.7.0/lifecycle-livedata-core-2.7.0-sources.jar
+归档 SHA-256: 5ed0b2f1e01bed494c9d70558a6b1fca295c32f47e5d9e652b316e8989d9689c
+androidx.lifecycle:lifecycle-livedata-core:2.7.0 / 源码许可头 (androidx/lifecycle/LiveData.java, androidx/lifecycle/MutableLiveData.java, androidx/lifecycle/Observer.kt)
+文本 SHA-256: 75dbadc0b3159a276c67a0bf4f5e7fb11b02fec4223eae12aa3a64e195a4fca6
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/ColorLong.kt, commonMain/androidx/annotation/GuardedBy.kt, commonMain/androidx/annotation/LongDef.kt)
+
+========================================================================
+androidx.lifecycle:lifecycle-livedata-core-ktx:2.7.0
+POM: https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-livedata-core-ktx/2.7.0/lifecycle-livedata-core-ktx-2.7.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-livedata-core-ktx/2.7.0/lifecycle-livedata-core-ktx-2.7.0-sources.jar
+归档 SHA-256: 52aebe57b7619530d5d762671262a6be54972c7ab64e41a330d81ab21adfcba9
+androidx.lifecycle:lifecycle-livedata-core-ktx:2.7.0 / 源码许可头 (androidx/lifecycle/LiveData.kt)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+========================================================================
+androidx.lifecycle:lifecycle-process:2.7.0
+POM: https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-process/2.7.0/lifecycle-process-2.7.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-process/2.7.0/lifecycle-process-2.7.0-sources.jar
+归档 SHA-256: ddbe8ab100f081cd8b899404183e0a0818436e64f1a9a7e56e2323bf28d31900
+androidx.lifecycle:lifecycle-process:2.7.0 / 源码许可头 (androidx/lifecycle/EmptyActivityLifecycleCallbacks.kt, androidx/lifecycle/LifecycleDispatcher.kt, androidx/lifecycle/ProcessLifecycleOwner.kt)
+文本 SHA-256: 75dbadc0b3159a276c67a0bf4f5e7fb11b02fec4223eae12aa3a64e195a4fca6
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/ColorLong.kt, commonMain/androidx/annotation/GuardedBy.kt, commonMain/androidx/annotation/LongDef.kt)
+
+androidx.lifecycle:lifecycle-process:2.7.0 / 源码许可头 (androidx/lifecycle/ProcessLifecycleInitializer.kt)
+文本 SHA-256: b698582c54bfdc53aace53dba7612f36ddbb0259cfddd6168604e1e0e56212ee
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentDialog.kt, androidx/activity/ViewTreeOnBackPressedDispatcherOwner.kt)
+
+========================================================================
+androidx.lifecycle:lifecycle-runtime:2.7.0
+POM: https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-runtime/2.7.0/lifecycle-runtime-2.7.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-runtime/2.7.0/lifecycle-runtime-2.7.0-sources.jar
+归档 SHA-256: ee988b3f96c8252e50b4a9eb823ba0f472a46f54f33f1b59f1149eb4c7a14c6d
+androidx.lifecycle:lifecycle-runtime:2.7.0 / 源码许可头 (androidx/lifecycle/LifecycleRegistry.kt, androidx/lifecycle/LifecycleRegistryOwner.java, androidx/lifecycle/ReportFragment.kt)
+文本 SHA-256: 75dbadc0b3159a276c67a0bf4f5e7fb11b02fec4223eae12aa3a64e195a4fca6
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/ColorLong.kt, commonMain/androidx/annotation/GuardedBy.kt, commonMain/androidx/annotation/LongDef.kt)
+
+androidx.lifecycle:lifecycle-runtime:2.7.0 / 源码许可头 (androidx/lifecycle/ViewTreeLifecycleOwner.kt)
+文本 SHA-256: 0fb76639cf65ffb51bcc4bdf5c15623ef6cd1c4ae400c99fcf32187123bbc35c
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/Cancellable.kt, androidx/activity/OnBackPressedDispatcher.kt, androidx/activity/OnBackPressedDispatcherOwner.kt)
+
+========================================================================
+androidx.lifecycle:lifecycle-service:2.7.0
+POM: https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-service/2.7.0/lifecycle-service-2.7.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-service/2.7.0/lifecycle-service-2.7.0-sources.jar
+归档 SHA-256: fc44d702aec171f8c2a233f122ab9c7911cb8e19b4409b3c1fb580716381d0ff
+androidx.lifecycle:lifecycle-service:2.7.0 / 源码许可头 (androidx/lifecycle/LifecycleService.kt, androidx/lifecycle/ServiceLifecycleDispatcher.kt)
+文本 SHA-256: 75dbadc0b3159a276c67a0bf4f5e7fb11b02fec4223eae12aa3a64e195a4fca6
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/ColorLong.kt, commonMain/androidx/annotation/GuardedBy.kt, commonMain/androidx/annotation/LongDef.kt)
+
+========================================================================
+androidx.lifecycle:lifecycle-viewmodel:2.7.0
+POM: https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-viewmodel/2.7.0/lifecycle-viewmodel-2.7.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-viewmodel/2.7.0/lifecycle-viewmodel-2.7.0-sources.jar
+归档 SHA-256: 9a128207cd40986aaec6354b7e88f5b8ef865d31b1195e71990784940bdeb33d
+androidx.lifecycle:lifecycle-viewmodel:2.7.0 / 源码许可头 (androidx/lifecycle/AndroidViewModel.kt, androidx/lifecycle/ViewModel.java, androidx/lifecycle/ViewModelProvider.kt, androidx/lifecycle/ViewModelStore.kt, androidx/lifecycle/ViewModelStoreOwner.kt)
+文本 SHA-256: 75dbadc0b3159a276c67a0bf4f5e7fb11b02fec4223eae12aa3a64e195a4fca6
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/ColorLong.kt, commonMain/androidx/annotation/GuardedBy.kt, commonMain/androidx/annotation/LongDef.kt)
+
+androidx.lifecycle:lifecycle-viewmodel:2.7.0 / 源码许可头 (androidx/lifecycle/HasDefaultViewModelProviderFactory.kt)
+文本 SHA-256: 0fb76639cf65ffb51bcc4bdf5c15623ef6cd1c4ae400c99fcf32187123bbc35c
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/Cancellable.kt, androidx/activity/OnBackPressedDispatcher.kt, androidx/activity/OnBackPressedDispatcherOwner.kt)
+
+androidx.lifecycle:lifecycle-viewmodel:2.7.0 / 源码许可头 (androidx/lifecycle/ViewModelLazy.kt, androidx/lifecycle/viewmodel/CreationExtras.kt)
+文本 SHA-256: b698582c54bfdc53aace53dba7612f36ddbb0259cfddd6168604e1e0e56212ee
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentDialog.kt, androidx/activity/ViewTreeOnBackPressedDispatcherOwner.kt)
+
+androidx.lifecycle:lifecycle-viewmodel:2.7.0 / 源码许可头 (androidx/lifecycle/ViewTreeViewModel.kt)
+文本 SHA-256: ffbf3b8a42860b5eaa8228cca1c1f328305ad749737bef00ef43520d8f5e48b7
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/BackEventCompat.kt, androidx/activity/EdgeToEdge.kt)
+
+androidx.lifecycle:lifecycle-viewmodel:2.7.0 / 源码许可头 (androidx/lifecycle/ViewTreeViewModelStoreOwner.kt)
+文本 SHA-256: 575ee5739171b0a546eb044c10ef188f605a1e8c975a728a6072f61ed2658e94
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/contextaware/ContextAware.kt, androidx/activity/contextaware/ContextAwareHelper.kt, androidx/activity/contextaware/OnContextAvailableListener.kt, androidx/activity/result/ActivityResult.java, androidx/activity/result/ActivityResultRegistryOwner.kt, androidx/activity/result/IntentSenderRequest.kt, androidx/activity/result/contract/ActivityResultContract.kt, androidx/activity/result/contract/ActivityResultContracts.kt)
+
+androidx.lifecycle:lifecycle-viewmodel:2.7.0 / 源码许可头 (androidx/lifecycle/viewmodel/InitializerViewModelFactory.kt)
+文本 SHA-256: 098ca21a7be9224c03b2c4966bbec5c1b3c7511f391545373c2b450fae6541e4
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/FullyDrawnReporter.kt, androidx/activity/FullyDrawnReporterOwner.kt, androidx/activity/ViewTreeFullyLoadedReporterOwner.kt, androidx/activity/result/PickVisualMediaRequest.kt)
+
+========================================================================
+androidx.lifecycle:lifecycle-viewmodel-savedstate:2.7.0
+POM: https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-viewmodel-savedstate/2.7.0/lifecycle-viewmodel-savedstate-2.7.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-viewmodel-savedstate/2.7.0/lifecycle-viewmodel-savedstate-2.7.0-sources.jar
+归档 SHA-256: 046a6aadc758c45be321e804daae8686fff374d42e9291a2fbf2612183fa6533
+androidx.lifecycle:lifecycle-viewmodel-savedstate:2.7.0 / 源码许可头 (androidx/lifecycle/AbstractSavedStateViewModelFactory.kt, androidx/lifecycle/SavedStateHandle.kt, androidx/lifecycle/SavedStateViewModelFactory.kt)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+androidx.lifecycle:lifecycle-viewmodel-savedstate:2.7.0 / 源码许可头 (androidx/lifecycle/LegacySavedStateHandleController.kt, androidx/lifecycle/SavedStateHandleSupport.kt)
+文本 SHA-256: b698582c54bfdc53aace53dba7612f36ddbb0259cfddd6168604e1e0e56212ee
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentDialog.kt, androidx/activity/ViewTreeOnBackPressedDispatcherOwner.kt)
+
+androidx.lifecycle:lifecycle-viewmodel-savedstate:2.7.0 / 源码许可头 (androidx/lifecycle/SavedStateHandleController.kt)
+文本 SHA-256: 0fb76639cf65ffb51bcc4bdf5c15623ef6cd1c4ae400c99fcf32187123bbc35c
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/Cancellable.kt, androidx/activity/OnBackPressedDispatcher.kt, androidx/activity/OnBackPressedDispatcherOwner.kt)
+
+========================================================================
+androidx.loader:loader:1.0.0
+POM: https://dl.google.com/dl/android/maven2/androidx/loader/loader/1.0.0/loader-1.0.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/loader/loader/1.0.0/loader-1.0.0-sources.jar
+归档 SHA-256: efcbafaac8fc06bd5b162b57ac1e146d11919b79dea2202339470c931cecdc67
+androidx.loader:loader:1.0.0 / 源码许可头 (androidx/loader/app/LoaderManager.java, androidx/loader/app/LoaderManagerImpl.java, androidx/loader/content/AsyncTaskLoader.java, androidx/loader/content/CursorLoader.java, androidx/loader/content/Loader.java, androidx/loader/content/ModernAsyncTask.java)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+========================================================================
+androidx.profileinstaller:profileinstaller:1.3.1
+POM: https://dl.google.com/dl/android/maven2/androidx/profileinstaller/profileinstaller/1.3.1/profileinstaller-1.3.1.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/profileinstaller/profileinstaller/1.3.1/profileinstaller-1.3.1-sources.jar
+归档 SHA-256: 0ff5f58d8df11e5f8254013b04386789bdb1367288e9eb74433198261fb14d95
+androidx.profileinstaller:profileinstaller:1.3.1 / 源码许可头 (androidx/profileinstaller/BenchmarkOperation.java, androidx/profileinstaller/ProfileVerifier.java)
+文本 SHA-256: 098ca21a7be9224c03b2c4966bbec5c1b3c7511f391545373c2b450fae6541e4
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/FullyDrawnReporter.kt, androidx/activity/FullyDrawnReporterOwner.kt, androidx/activity/ViewTreeFullyLoadedReporterOwner.kt, androidx/activity/result/PickVisualMediaRequest.kt)
+
+androidx.profileinstaller:profileinstaller:1.3.1 / 源码许可头 (androidx/profileinstaller/DeviceProfileWriter.java, androidx/profileinstaller/DexProfileData.java, androidx/profileinstaller/Encoding.java, androidx/profileinstaller/FileSectionType.java, androidx/profileinstaller/ProfileInstallReceiver.java, androidx/profileinstaller/ProfileInstaller.java, androidx/profileinstaller/ProfileInstallerInitializer.java, androidx/profileinstaller/ProfileTranscoder.java, androidx/profileinstaller/ProfileVersion.java, androidx/profileinstaller/WritableFileSection.java)
+文本 SHA-256: b698582c54bfdc53aace53dba7612f36ddbb0259cfddd6168604e1e0e56212ee
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentDialog.kt, androidx/activity/ViewTreeOnBackPressedDispatcherOwner.kt)
+
+androidx.profileinstaller:profileinstaller:1.3.1 / 源码许可头 (androidx/profileinstaller/package-info.java)
+文本 SHA-256: 883fc7ae513b62f8c406fe00a6dda4a281a059fc674b554c6e24ee0e36347193
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/Discouraged.kt)
+
+========================================================================
+androidx.room:room-common:2.7.0
+POM: https://dl.google.com/dl/android/maven2/androidx/room/room-common/2.7.0/room-common-2.7.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/room/room-common/2.7.0/room-common-2.7.0-sources.jar
+归档 SHA-256: ddf55e664a8b67d1676db872852e0d2102c99608cdd8731eecc9263f753ce129
+androidx.room:room-common:2.7.0 / 源码许可头 (commonMain/androidx/room/AmbiguousColumnResolver.kt)
+文本 SHA-256: 098ca21a7be9224c03b2c4966bbec5c1b3c7511f391545373c2b450fae6541e4
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/FullyDrawnReporter.kt, androidx/activity/FullyDrawnReporterOwner.kt, androidx/activity/ViewTreeFullyLoadedReporterOwner.kt, androidx/activity/result/PickVisualMediaRequest.kt)
+
+androidx.room:room-common:2.7.0 / 源码许可头 (commonMain/androidx/room/AutoMigration.kt, commonMain/androidx/room/BuiltInTypeConverters.kt, commonMain/androidx/room/DeleteColumn.kt, commonMain/androidx/room/DeleteTable.kt, commonMain/androidx/room/MapColumn.kt, commonMain/androidx/room/MapInfo.kt, commonMain/androidx/room/RenameColumn.kt, commonMain/androidx/room/RenameTable.kt)
+文本 SHA-256: b698582c54bfdc53aace53dba7612f36ddbb0259cfddd6168604e1e0e56212ee
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentDialog.kt, androidx/activity/ViewTreeOnBackPressedDispatcherOwner.kt)
+
+androidx.room:room-common:2.7.0 / 源码许可头 (commonMain/androidx/room/ColumnInfo.kt, commonMain/androidx/room/Dao.kt, commonMain/androidx/room/Database.kt, commonMain/androidx/room/Delete.kt, commonMain/androidx/room/Entity.kt, commonMain/androidx/room/Ignore.kt, commonMain/androidx/room/Insert.kt, commonMain/androidx/room/PrimaryKey.kt, commonMain/androidx/room/Query.kt)
+文本 SHA-256: bd681efb8799978450f2abfdb13bf66aa8e2050c974625bf6ab8e184d4500b65
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/AnyThread.kt, commonMain/androidx/annotation/ProductionVisibility.kt, commonMain/androidx/annotation/RestrictTo.kt, nonJvmMain/androidx/annotation/RestrictTo.nonJvm.kt)
+
+androidx.room:room-common:2.7.0 / 源码许可头 (commonMain/androidx/room/ConstructedBy.kt, nativeMain/androidx/room/ConstructedBy.native.kt)
+文本 SHA-256: 85d89e90bd56722f8d3a5386d12bacfc7eb6c0bb83e87d1f8e29d7f0ea871bf5
+原文同前：androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (jvmMain/androidx/annotation/ReplaceWith.jvm.kt)
+
+androidx.room:room-common:2.7.0 / 源码许可头 (commonMain/androidx/room/DatabaseView.kt, commonMain/androidx/room/Fts3.kt, commonMain/androidx/room/Fts4.kt, commonMain/androidx/room/FtsOptions.kt, commonMain/androidx/room/RawQuery.kt)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+androidx.room:room-common:2.7.0 / 源码许可头 (commonMain/androidx/room/Embedded.kt, commonMain/androidx/room/ForeignKey.kt, commonMain/androidx/room/Index.kt, commonMain/androidx/room/OnConflictStrategy.kt, commonMain/androidx/room/Relation.kt, commonMain/androidx/room/RoomMasterTable.kt, commonMain/androidx/room/RoomWarnings.kt, commonMain/androidx/room/SkipQueryVerification.kt, commonMain/androidx/room/Transaction.kt, commonMain/androidx/room/TypeConverter.kt, commonMain/androidx/room/TypeConverters.kt, commonMain/androidx/room/Update.kt)
+文本 SHA-256: 75dbadc0b3159a276c67a0bf4f5e7fb11b02fec4223eae12aa3a64e195a4fca6
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/ColorLong.kt, commonMain/androidx/annotation/GuardedBy.kt, commonMain/androidx/annotation/LongDef.kt)
+
+androidx.room:room-common:2.7.0 / 源码许可头 (commonMain/androidx/room/Junction.kt)
+文本 SHA-256: 0fb76639cf65ffb51bcc4bdf5c15623ef6cd1c4ae400c99fcf32187123bbc35c
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/Cancellable.kt, androidx/activity/OnBackPressedDispatcher.kt, androidx/activity/OnBackPressedDispatcherOwner.kt)
+
+androidx.room:room-common:2.7.0 / 源码许可头 (commonMain/androidx/room/ProvidedAutoMigrationSpec.kt, commonMain/androidx/room/ProvidedTypeConverter.kt, commonMain/androidx/room/RewriteQueriesToDropUnusedColumns.kt)
+文本 SHA-256: 575ee5739171b0a546eb044c10ef188f605a1e8c975a728a6072f61ed2658e94
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/contextaware/ContextAware.kt, androidx/activity/contextaware/ContextAwareHelper.kt, androidx/activity/contextaware/OnContextAvailableListener.kt, androidx/activity/result/ActivityResult.java, androidx/activity/result/ActivityResultRegistryOwner.kt, androidx/activity/result/IntentSenderRequest.kt, androidx/activity/result/contract/ActivityResultContract.kt, androidx/activity/result/contract/ActivityResultContracts.kt)
+
+androidx.room:room-common:2.7.0 / 源码许可头 (commonMain/androidx/room/Upsert.kt)
+文本 SHA-256: a34cd7c49b07da7319aadce0fee47da135773758afb314667d92ecc29657deb4
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/EmptySuper.kt, commonMain/androidx/annotation/OpenForTesting.kt, commonMain/androidx/annotation/ReturnThis.kt)
+
+========================================================================
+androidx.room:room-common-jvm:2.7.0
+POM: https://dl.google.com/dl/android/maven2/androidx/room/room-common-jvm/2.7.0/room-common-jvm-2.7.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/room/room-common-jvm/2.7.0/room-common-jvm-2.7.0-sources.jar
+归档 SHA-256: 7ef86a5b7de6dd29e63369ac2ec1241dda6fe9daecdee878c6b2e4e8ad1d7cee
+androidx.room:room-common-jvm:2.7.0 / 源码许可头 (commonMain/androidx/room/ConstructedBy.kt, jvmMain/androidx/room/ConstructedBy.jvm.kt)
+文本 SHA-256: 85d89e90bd56722f8d3a5386d12bacfc7eb6c0bb83e87d1f8e29d7f0ea871bf5
+原文同前：androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (jvmMain/androidx/annotation/ReplaceWith.jvm.kt)
+
+androidx.room:room-common-jvm:2.7.0 / 源码许可头 (jvmMain/androidx/room/DeleteColumn.jvm.kt, jvmMain/androidx/room/DeleteTable.jvm.kt, jvmMain/androidx/room/RenameColumn.jvm.kt, jvmMain/androidx/room/RenameTable.jvm.kt)
+文本 SHA-256: ffbf3b8a42860b5eaa8228cca1c1f328305ad749737bef00ef43520d8f5e48b7
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/BackEventCompat.kt, androidx/activity/EdgeToEdge.kt)
+
+androidx.room:room-common-jvm:2.7.0 / 源码许可头 (commonMain/androidx/room/AmbiguousColumnResolver.kt)
+文本 SHA-256: 098ca21a7be9224c03b2c4966bbec5c1b3c7511f391545373c2b450fae6541e4
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/FullyDrawnReporter.kt, androidx/activity/FullyDrawnReporterOwner.kt, androidx/activity/ViewTreeFullyLoadedReporterOwner.kt, androidx/activity/result/PickVisualMediaRequest.kt)
+
+androidx.room:room-common-jvm:2.7.0 / 源码许可头 (commonMain/androidx/room/AutoMigration.kt, commonMain/androidx/room/BuiltInTypeConverters.kt, commonMain/androidx/room/DeleteColumn.kt, commonMain/androidx/room/DeleteTable.kt, commonMain/androidx/room/MapColumn.kt, commonMain/androidx/room/MapInfo.kt, commonMain/androidx/room/RenameColumn.kt, commonMain/androidx/room/RenameTable.kt)
+文本 SHA-256: b698582c54bfdc53aace53dba7612f36ddbb0259cfddd6168604e1e0e56212ee
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentDialog.kt, androidx/activity/ViewTreeOnBackPressedDispatcherOwner.kt)
+
+androidx.room:room-common-jvm:2.7.0 / 源码许可头 (commonMain/androidx/room/ColumnInfo.kt, commonMain/androidx/room/Dao.kt, commonMain/androidx/room/Database.kt, commonMain/androidx/room/Delete.kt, commonMain/androidx/room/Entity.kt, commonMain/androidx/room/Ignore.kt, commonMain/androidx/room/Insert.kt, commonMain/androidx/room/PrimaryKey.kt, commonMain/androidx/room/Query.kt)
+文本 SHA-256: bd681efb8799978450f2abfdb13bf66aa8e2050c974625bf6ab8e184d4500b65
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/AnyThread.kt, commonMain/androidx/annotation/ProductionVisibility.kt, commonMain/androidx/annotation/RestrictTo.kt, nonJvmMain/androidx/annotation/RestrictTo.nonJvm.kt)
+
+androidx.room:room-common-jvm:2.7.0 / 源码许可头 (commonMain/androidx/room/DatabaseView.kt, commonMain/androidx/room/Fts3.kt, commonMain/androidx/room/Fts4.kt, commonMain/androidx/room/FtsOptions.kt, commonMain/androidx/room/RawQuery.kt)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+androidx.room:room-common-jvm:2.7.0 / 源码许可头 (commonMain/androidx/room/Embedded.kt, commonMain/androidx/room/ForeignKey.kt, commonMain/androidx/room/Index.kt, commonMain/androidx/room/OnConflictStrategy.kt, commonMain/androidx/room/Relation.kt, commonMain/androidx/room/RoomMasterTable.kt, commonMain/androidx/room/RoomWarnings.kt, commonMain/androidx/room/SkipQueryVerification.kt, commonMain/androidx/room/Transaction.kt, commonMain/androidx/room/TypeConverter.kt, commonMain/androidx/room/TypeConverters.kt, commonMain/androidx/room/Update.kt)
+文本 SHA-256: 75dbadc0b3159a276c67a0bf4f5e7fb11b02fec4223eae12aa3a64e195a4fca6
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/ColorLong.kt, commonMain/androidx/annotation/GuardedBy.kt, commonMain/androidx/annotation/LongDef.kt)
+
+androidx.room:room-common-jvm:2.7.0 / 源码许可头 (commonMain/androidx/room/Junction.kt)
+文本 SHA-256: 0fb76639cf65ffb51bcc4bdf5c15623ef6cd1c4ae400c99fcf32187123bbc35c
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/Cancellable.kt, androidx/activity/OnBackPressedDispatcher.kt, androidx/activity/OnBackPressedDispatcherOwner.kt)
+
+androidx.room:room-common-jvm:2.7.0 / 源码许可头 (commonMain/androidx/room/ProvidedAutoMigrationSpec.kt, commonMain/androidx/room/ProvidedTypeConverter.kt, commonMain/androidx/room/RewriteQueriesToDropUnusedColumns.kt)
+文本 SHA-256: 575ee5739171b0a546eb044c10ef188f605a1e8c975a728a6072f61ed2658e94
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/contextaware/ContextAware.kt, androidx/activity/contextaware/ContextAwareHelper.kt, androidx/activity/contextaware/OnContextAvailableListener.kt, androidx/activity/result/ActivityResult.java, androidx/activity/result/ActivityResultRegistryOwner.kt, androidx/activity/result/IntentSenderRequest.kt, androidx/activity/result/contract/ActivityResultContract.kt, androidx/activity/result/contract/ActivityResultContracts.kt)
+
+androidx.room:room-common-jvm:2.7.0 / 源码许可头 (commonMain/androidx/room/Upsert.kt)
+文本 SHA-256: a34cd7c49b07da7319aadce0fee47da135773758afb314667d92ecc29657deb4
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/EmptySuper.kt, commonMain/androidx/annotation/OpenForTesting.kt, commonMain/androidx/annotation/ReturnThis.kt)
+
+========================================================================
+androidx.room:room-runtime:2.7.0
+POM: https://dl.google.com/dl/android/maven2/androidx/room/room-runtime/2.7.0/room-runtime-2.7.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/room/room-runtime/2.7.0/room-runtime-2.7.0-sources.jar
+归档 SHA-256: bef48edcca483f0e54b1e837aa192a09e8973e4b8c350085770018e53f717bd3
+androidx.room:room-runtime:2.7.0 / 源码许可头 (commonMain/androidx/room/DatabaseConfiguration.kt, commonMain/androidx/room/RoomConnectionManager.kt, commonMain/androidx/room/RoomDatabase.kt, commonMain/androidx/room/RoomOpenDelegate.kt, commonMain/androidx/room/migration/AutoMigrationSpec.kt, commonMain/androidx/room/migration/Migration.kt, commonMain/androidx/room/util/DBUtil.kt, commonMain/androidx/room/util/MigrationUtil.kt, nativeMain/androidx/room/Room.native.kt, nativeMain/androidx/room/util/KClassUtil.native.kt)
+文本 SHA-256: ffbf3b8a42860b5eaa8228cca1c1f328305ad749737bef00ef43520d8f5e48b7
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/BackEventCompat.kt, androidx/activity/EdgeToEdge.kt)
+
+androidx.room:room-runtime:2.7.0 / 源码许可头 (commonMain/androidx/room/EntityDeleteOrUpdateAdapter.kt, commonMain/androidx/room/EntityInsertAdapter.kt, commonMain/androidx/room/EntityUpsertAdapter.kt, commonMain/androidx/room/InvalidationTracker.kt, commonMain/androidx/room/Room.kt, commonMain/androidx/room/RoomDatabaseConstructor.kt, commonMain/androidx/room/RoomRawQuery.kt, commonMain/androidx/room/Transactor.kt, commonMain/androidx/room/concurrent/CloseBarrier.kt, commonMain/androidx/room/concurrent/ExclusiveLock.kt, commonMain/androidx/room/concurrent/FileLock.kt, commonMain/androidx/room/concurrent/ThreadLocal.kt, commonMain/androidx/room/coroutines/ConnectionPool.kt, commonMain/androidx/room/coroutines/ConnectionPoolImpl.kt, commonMain/androidx/room/coroutines/FlowBuilder.kt, commonMain/androidx/room/util/ByteArrayWrapper.kt, commonMain/androidx/room/util/ConnectionUtil.kt, commonMain/androidx/room/util/FtsTableInfo.kt, commonMain/androidx/room/util/RelationUtil.kt, commonMain/androidx/room/util/SQLiteUtil.kt, commonMain/androidx/room/util/SchemaInfoUtil.kt, commonMain/androidx/room/util/StatementUtil.kt, commonMain/androidx/room/util/ViewInfo.kt, jvmAndroidMain/androidx/room/concurrent/FileLock.jvmAndroid.kt, jvmAndroidMain/androidx/room/concurrent/ThreadLocal.jvmAndroid.kt, jvmAndroidMain/androidx/room/util/KClassUtil.jvmAndroid.kt, jvmNativeMain/androidx/room/DatabaseConfiguration.jvmNative.kt, jvmNativeMain/androidx/room/InvalidationTracker.jvmNative.kt, jvmNativeMain/androidx/room/RoomConnectionManager.jvmNative.kt, jvmNativeMain/androidx/room/RoomDatabase.jvmNative.kt, jvmNativeMain/androidx/room/migration/AutoMigrationSpec.jvmNative.kt, jvmNativeMain/androidx/room/migration/Migration.jvmNative.kt, jvmNativeMain/androidx/room/util/DBUtil.jvmNative.kt, jvmNativeMain/androidx/room/util/FtsTableInfo.jvmNative.kt, jvmNativeMain/androidx/room/util/StatementUtil.jvmNative.kt, jvmNativeMain/androidx/room/util/ViewInfo.jvmNative.kt, nativeMain/androidx/room/concurrent/FileLock.native.kt, nativeMain/androidx/room/concurrent/ThreadLocal.native.kt, nativeMain/androidx/room/util/PosixUtil.kt)
+文本 SHA-256: 85d89e90bd56722f8d3a5386d12bacfc7eb6c0bb83e87d1f8e29d7f0ea871bf5
+原文同前：androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (jvmMain/androidx/annotation/ReplaceWith.jvm.kt)
+
+androidx.room:room-runtime:2.7.0 / 源码许可头 (commonMain/androidx/room/concurrent/Atomics.kt, commonMain/androidx/room/concurrent/ReentrantLock.kt, commonMain/androidx/room/concurrent/Synchronized.kt, jvmAndroidMain/androidx/room/concurrent/Atomics.jvmAndroid.kt, jvmAndroidMain/androidx/room/concurrent/ReentrantLock.jvmAndroid.kt, jvmAndroidMain/androidx/room/concurrent/Synchronized.jvmAndroid.kt, nativeMain/androidx/room/concurrent/Atomics.native.kt, nativeMain/androidx/room/concurrent/ReentrantLock.native.kt, nativeMain/androidx/room/concurrent/Synchronized.native.kt)
+文本 SHA-256: f5021ffa3612486880f2e3307e1560862dd6e6dd8b2cb7bd9d0df85e8f6c6961
+原文同前：androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (jvmMain/androidx/annotation/ChecksFlag.jvm.kt, jvmMain/androidx/annotation/RequiresFlag.jvm.kt)
+
+androidx.room:room-runtime:2.7.0 / 源码许可头 (commonMain/androidx/room/util/StringUtil.kt)
+文本 SHA-256: bd681efb8799978450f2abfdb13bf66aa8e2050c974625bf6ab8e184d4500b65
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/AnyThread.kt, commonMain/androidx/annotation/ProductionVisibility.kt, commonMain/androidx/annotation/RestrictTo.kt, nonJvmMain/androidx/annotation/RestrictTo.nonJvm.kt)
+
+androidx.room:room-runtime:2.7.0 / 源码许可头 (commonMain/androidx/room/util/TableInfo.kt)
+文本 SHA-256: 75dbadc0b3159a276c67a0bf4f5e7fb11b02fec4223eae12aa3a64e195a4fca6
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/ColorLong.kt, commonMain/androidx/annotation/GuardedBy.kt, commonMain/androidx/annotation/LongDef.kt)
+
+androidx.room:room-runtime:2.7.0 / 源码许可头 (jvmAndroidMain/androidx/room/util/UUIDUtil.jvmAndroid.kt)
+文本 SHA-256: b698582c54bfdc53aace53dba7612f36ddbb0259cfddd6168604e1e0e56212ee
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentDialog.kt, androidx/activity/ViewTreeOnBackPressedDispatcherOwner.kt)
+
+androidx.room:room-runtime:2.7.0 / 源码许可头 (jvmNativeMain/androidx/room/util/TableInfo.jvmNative.kt)
+文本 SHA-256: c2845d4ef93c794ef47fd460a599aef8ed029edf0e550918180cc320cddadad9
+/*
+ * Copyright (C) 2024 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+========================================================================
+androidx.room:room-runtime-android:2.7.0
+POM: https://dl.google.com/dl/android/maven2/androidx/room/room-runtime-android/2.7.0/room-runtime-android-2.7.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/room/room-runtime-android/2.7.0/room-runtime-android-2.7.0-sources.jar
+归档 SHA-256: 0a9ce90de69b6c8b90d5f739d032f35f91fac7d4cf2df5902007ecf53ccf02ba
+androidx.room:room-runtime-android:2.7.0 / 源码许可头 (androidMain/androidx/room/CoroutinesRoom.android.kt, androidMain/androidx/room/InvalidationLiveDataContainer.android.kt, androidMain/androidx/room/MultiInstanceInvalidationClient.android.kt, androidMain/androidx/room/MultiInstanceInvalidationService.android.kt, androidMain/androidx/room/RoomTrackingLiveData.android.kt, androidMain/androidx/room/util/FtsTableInfo.android.kt, androidMain/androidx/room/util/ViewInfo.android.kt)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+androidx.room:room-runtime-android:2.7.0 / 源码许可头 (androidMain/androidx/room/DatabaseConfiguration.android.kt, androidMain/androidx/room/EntityDeletionOrUpdateAdapter.android.kt, androidMain/androidx/room/EntityInsertionAdapter.android.kt, androidMain/androidx/room/Room.android.kt, androidMain/androidx/room/RoomDatabase.android.kt, androidMain/androidx/room/SharedSQLiteStatement.android.kt, commonMain/androidx/room/util/StringUtil.kt)
+文本 SHA-256: bd681efb8799978450f2abfdb13bf66aa8e2050c974625bf6ab8e184d4500b65
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/AnyThread.kt, commonMain/androidx/annotation/ProductionVisibility.kt, commonMain/androidx/annotation/RestrictTo.kt, nonJvmMain/androidx/annotation/RestrictTo.nonJvm.kt)
+
+androidx.room:room-runtime-android:2.7.0 / 源码许可头 (androidMain/androidx/room/DelegatingOpenHelper.android.kt, androidMain/androidx/room/ExperimentalRoomApi.android.kt, androidMain/androidx/room/support/AutoCloser.android.kt, androidMain/androidx/room/support/AutoClosingRoomOpenHelperFactory.android.kt, androidMain/androidx/room/support/QueryInterceptorDatabase.android.kt, androidMain/androidx/room/support/QueryInterceptorOpenHelper.android.kt, androidMain/androidx/room/support/QueryInterceptorOpenHelperFactory.android.kt, androidMain/androidx/room/support/QueryInterceptorProgram.android.kt, androidMain/androidx/room/support/QueryInterceptorStatement.android.kt)
+文本 SHA-256: 575ee5739171b0a546eb044c10ef188f605a1e8c975a728a6072f61ed2658e94
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/contextaware/ContextAware.kt, androidx/activity/contextaware/ContextAwareHelper.kt, androidx/activity/contextaware/OnContextAvailableListener.kt, androidx/activity/result/ActivityResult.java, androidx/activity/result/ActivityResultRegistryOwner.kt, androidx/activity/result/IntentSenderRequest.kt, androidx/activity/result/contract/ActivityResultContract.kt, androidx/activity/result/contract/ActivityResultContracts.kt)
+
+androidx.room:room-runtime-android:2.7.0 / 源码许可头 (androidMain/androidx/room/EntityUpsertionAdapter.android.kt, androidMain/androidx/room/util/RelationUtil.android.kt)
+文本 SHA-256: 098ca21a7be9224c03b2c4966bbec5c1b3c7511f391545373c2b450fae6541e4
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/FullyDrawnReporter.kt, androidx/activity/FullyDrawnReporterOwner.kt, androidx/activity/ViewTreeFullyLoadedReporterOwner.kt, androidx/activity/result/PickVisualMediaRequest.kt)
+
+androidx.room:room-runtime-android:2.7.0 / 源码许可头 (androidMain/androidx/room/InvalidationTracker.android.kt, androidMain/androidx/room/RoomOpenHelper.android.kt, androidMain/androidx/room/RoomSQLiteQuery.android.kt, androidMain/androidx/room/migration/Migration.android.kt, androidMain/androidx/room/package-info.java, androidMain/androidx/room/paging/LimitOffsetDataSource.java, androidMain/androidx/room/util/TableInfo.android.kt, commonMain/androidx/room/util/TableInfo.kt)
+文本 SHA-256: 75dbadc0b3159a276c67a0bf4f5e7fb11b02fec4223eae12aa3a64e195a4fca6
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/ColorLong.kt, commonMain/androidx/annotation/GuardedBy.kt, commonMain/androidx/annotation/LongDef.kt)
+
+androidx.room:room-runtime-android:2.7.0 / 源码许可头 (androidMain/androidx/room/RoomConnectionManager.android.kt, androidMain/androidx/room/driver/SupportSQLiteConnection.android.kt, androidMain/androidx/room/driver/SupportSQLiteDriver.android.kt, androidMain/androidx/room/driver/SupportSQLiteStatement.android.kt, commonMain/androidx/room/DatabaseConfiguration.kt, commonMain/androidx/room/RoomConnectionManager.kt, commonMain/androidx/room/RoomDatabase.kt, commonMain/androidx/room/RoomOpenDelegate.kt, commonMain/androidx/room/migration/AutoMigrationSpec.kt, commonMain/androidx/room/migration/Migration.kt, commonMain/androidx/room/util/DBUtil.kt, commonMain/androidx/room/util/MigrationUtil.kt)
+文本 SHA-256: ffbf3b8a42860b5eaa8228cca1c1f328305ad749737bef00ef43520d8f5e48b7
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/BackEventCompat.kt, androidx/activity/EdgeToEdge.kt)
+
+androidx.room:room-runtime-android:2.7.0 / 源码许可头 (androidMain/androidx/room/TransactionExecutor.android.kt, androidMain/androidx/room/support/PrePackagedCopyOpenHelper.android.kt, androidMain/androidx/room/support/PrePackagedCopyOpenHelperFactory.android.kt, androidMain/androidx/room/util/FileUtil.android.kt)
+文本 SHA-256: 0fb76639cf65ffb51bcc4bdf5c15623ef6cd1c4ae400c99fcf32187123bbc35c
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/Cancellable.kt, androidx/activity/OnBackPressedDispatcher.kt, androidx/activity/OnBackPressedDispatcherOwner.kt)
+
+androidx.room:room-runtime-android:2.7.0 / 源码许可头 (androidMain/androidx/room/coroutines/AndroidSQLiteDriverConnectionPool.android.kt, androidMain/androidx/room/driver/SupportSQLiteConnectionPool.android.kt, androidMain/androidx/room/paging/CursorSQLiteStatement.android.kt, androidMain/androidx/room/util/StatementUtil.android.kt, commonMain/androidx/room/EntityDeleteOrUpdateAdapter.kt, commonMain/androidx/room/EntityInsertAdapter.kt, commonMain/androidx/room/EntityUpsertAdapter.kt, commonMain/androidx/room/InvalidationTracker.kt, commonMain/androidx/room/Room.kt, commonMain/androidx/room/RoomDatabaseConstructor.kt, commonMain/androidx/room/RoomRawQuery.kt, commonMain/androidx/room/Transactor.kt, commonMain/androidx/room/concurrent/CloseBarrier.kt, commonMain/androidx/room/concurrent/ExclusiveLock.kt, commonMain/androidx/room/concurrent/FileLock.kt, commonMain/androidx/room/concurrent/ThreadLocal.kt, commonMain/androidx/room/coroutines/ConnectionPool.kt, commonMain/androidx/room/coroutines/ConnectionPoolImpl.kt, commonMain/androidx/room/coroutines/FlowBuilder.kt, commonMain/androidx/room/util/ByteArrayWrapper.kt, commonMain/androidx/room/util/ConnectionUtil.kt, commonMain/androidx/room/util/FtsTableInfo.kt, commonMain/androidx/room/util/RelationUtil.kt, commonMain/androidx/room/util/SQLiteUtil.kt, commonMain/androidx/room/util/SchemaInfoUtil.kt, commonMain/androidx/room/util/StatementUtil.kt, commonMain/androidx/room/util/ViewInfo.kt, jvmAndroidMain/androidx/room/concurrent/FileLock.jvmAndroid.kt, jvmAndroidMain/androidx/room/concurrent/ThreadLocal.jvmAndroid.kt, jvmAndroidMain/androidx/room/util/KClassUtil.jvmAndroid.kt)
+文本 SHA-256: 85d89e90bd56722f8d3a5386d12bacfc7eb6c0bb83e87d1f8e29d7f0ea871bf5
+原文同前：androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (jvmMain/androidx/annotation/ReplaceWith.jvm.kt)
+
+androidx.room:room-runtime-android:2.7.0 / 源码许可头 (androidMain/androidx/room/coroutines/RunBlockingUninterruptible.android.kt, commonMain/androidx/room/concurrent/Atomics.kt, commonMain/androidx/room/concurrent/ReentrantLock.kt, commonMain/androidx/room/concurrent/Synchronized.kt, jvmAndroidMain/androidx/room/concurrent/Atomics.jvmAndroid.kt, jvmAndroidMain/androidx/room/concurrent/ReentrantLock.jvmAndroid.kt, jvmAndroidMain/androidx/room/concurrent/Synchronized.jvmAndroid.kt)
+文本 SHA-256: f5021ffa3612486880f2e3307e1560862dd6e6dd8b2cb7bd9d0df85e8f6c6961
+原文同前：androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (jvmMain/androidx/annotation/ChecksFlag.jvm.kt, jvmMain/androidx/annotation/RequiresFlag.jvm.kt)
+
+androidx.room:room-runtime-android:2.7.0 / 源码许可头 (androidMain/androidx/room/migration/AutoMigrationSpec.android.kt, jvmAndroidMain/androidx/room/util/UUIDUtil.jvmAndroid.kt)
+文本 SHA-256: b698582c54bfdc53aace53dba7612f36ddbb0259cfddd6168604e1e0e56212ee
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentDialog.kt, androidx/activity/ViewTreeOnBackPressedDispatcherOwner.kt)
+
+androidx.room:room-runtime-android:2.7.0 / 源码许可头 (androidMain/androidx/room/support/AutoClosingRoomOpenHelper.android.kt)
+文本 SHA-256: fd14cf2373f18c32e45014401759f2d03327d918729be380314118647b82784c
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/result/ActivityResultCallback.kt, androidx/activity/result/ActivityResultCaller.java, androidx/activity/result/ActivityResultLauncher.java, androidx/activity/result/ActivityResultRegistry.java)
+
+androidx.room:room-runtime-android:2.7.0 / 源码许可头 (androidMain/androidx/room/util/CursorUtil.android.kt, androidMain/androidx/room/util/DBUtil.android.kt)
+文本 SHA-256: 9d0f46e29c70c3c5e1bf9827a8b6f89dd4633da52ce437ab334a833487c84e14
+原文同前：androidx.core:core:1.13.1 / 源码许可头 (androidx/core/app/DialogCompat.java, androidx/core/content/res/ColorStateListInflaterCompat.java, androidx/core/content/res/ComplexColorCompat.java, androidx/core/content/res/GradientColorInflaterCompat.java, androidx/core/telephony/mbms/MbmsHelper.java, androidx/core/view/WindowInsetsAnimationControlListenerCompat.java)
+
+========================================================================
+androidx.savedstate:savedstate:1.2.1
+POM: https://dl.google.com/dl/android/maven2/androidx/savedstate/savedstate/1.2.1/savedstate-1.2.1.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/savedstate/savedstate/1.2.1/savedstate-1.2.1-sources.jar
+归档 SHA-256: fd201fb9ea2d3e66262cb09bf1e33cbbe41050fcfcb96c9ce197f1780b614a73
+androidx.savedstate:savedstate:1.2.1 / 源码许可头 (androidx/savedstate/Recreator.kt, androidx/savedstate/SavedStateRegistry.kt, androidx/savedstate/SavedStateRegistryOwner.kt)
+文本 SHA-256: 0fb76639cf65ffb51bcc4bdf5c15623ef6cd1c4ae400c99fcf32187123bbc35c
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/Cancellable.kt, androidx/activity/OnBackPressedDispatcher.kt, androidx/activity/OnBackPressedDispatcherOwner.kt)
+
+androidx.savedstate:savedstate:1.2.1 / 源码许可头 (androidx/savedstate/SavedStateRegistryController.kt)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+androidx.savedstate:savedstate:1.2.1 / 源码许可头 (androidx/savedstate/ViewTreeSavedStateRegistryOwner.kt)
+文本 SHA-256: 575ee5739171b0a546eb044c10ef188f605a1e8c975a728a6072f61ed2658e94
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/contextaware/ContextAware.kt, androidx/activity/contextaware/ContextAwareHelper.kt, androidx/activity/contextaware/OnContextAvailableListener.kt, androidx/activity/result/ActivityResult.java, androidx/activity/result/ActivityResultRegistryOwner.kt, androidx/activity/result/IntentSenderRequest.kt, androidx/activity/result/contract/ActivityResultContract.kt, androidx/activity/result/contract/ActivityResultContracts.kt)
+
+========================================================================
+androidx.sqlite:sqlite:2.5.0
+POM: https://dl.google.com/dl/android/maven2/androidx/sqlite/sqlite/2.5.0/sqlite-2.5.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/sqlite/sqlite/2.5.0/sqlite-2.5.0-sources.jar
+归档 SHA-256: 87a8d1d289d387900b82201e5a7444f405678763ab90146e369c9c4639c437d9
+androidx.sqlite:sqlite:2.5.0 / 源码许可头 (commonMain/androidx/sqlite/SQLite.kt, commonMain/androidx/sqlite/SQLiteConnection.kt, commonMain/androidx/sqlite/SQLiteDriver.kt, commonMain/androidx/sqlite/SQLiteException.kt, commonMain/androidx/sqlite/SQLiteStatement.kt, nativeMain/androidx/sqlite/SQLiteException.native.kt)
+文本 SHA-256: ffbf3b8a42860b5eaa8228cca1c1f328305ad749737bef00ef43520d8f5e48b7
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/BackEventCompat.kt, androidx/activity/EdgeToEdge.kt)
+
+========================================================================
+androidx.sqlite:sqlite-android:2.5.0
+POM: https://dl.google.com/dl/android/maven2/androidx/sqlite/sqlite-android/2.5.0/sqlite-android-2.5.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/sqlite/sqlite-android/2.5.0/sqlite-android-2.5.0-sources.jar
+归档 SHA-256: 4c16014ac7f20b390ec2705b505521e270198bf86109582abb31552396a8dda1
+androidx.sqlite:sqlite-android:2.5.0 / 源码许可头 (androidMain/androidx/sqlite/SQLiteException.android.kt, commonMain/androidx/sqlite/SQLite.kt, commonMain/androidx/sqlite/SQLiteConnection.kt, commonMain/androidx/sqlite/SQLiteDriver.kt, commonMain/androidx/sqlite/SQLiteException.kt, commonMain/androidx/sqlite/SQLiteStatement.kt)
+文本 SHA-256: ffbf3b8a42860b5eaa8228cca1c1f328305ad749737bef00ef43520d8f5e48b7
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/BackEventCompat.kt, androidx/activity/EdgeToEdge.kt)
+
+androidx.sqlite:sqlite-android:2.5.0 / 源码许可头 (androidMain/androidx/sqlite/db/SimpleSQLiteQuery.android.kt, androidMain/androidx/sqlite/db/SupportSQLiteQuery.android.kt, androidMain/androidx/sqlite/db/SupportSQLiteQueryBuilder.android.kt)
+文本 SHA-256: 75dbadc0b3159a276c67a0bf4f5e7fb11b02fec4223eae12aa3a64e195a4fca6
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/ColorLong.kt, commonMain/androidx/annotation/GuardedBy.kt, commonMain/androidx/annotation/LongDef.kt)
+
+androidx.sqlite:sqlite-android:2.5.0 / 源码许可头 (androidMain/androidx/sqlite/db/SupportSQLiteCompat.android.kt)
+文本 SHA-256: b698582c54bfdc53aace53dba7612f36ddbb0259cfddd6168604e1e0e56212ee
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentDialog.kt, androidx/activity/ViewTreeOnBackPressedDispatcherOwner.kt)
+
+androidx.sqlite:sqlite-android:2.5.0 / 源码许可头 (androidMain/androidx/sqlite/db/SupportSQLiteDatabase.android.kt, androidMain/androidx/sqlite/db/SupportSQLiteOpenHelper.android.kt, androidMain/androidx/sqlite/db/SupportSQLiteProgram.android.kt, androidMain/androidx/sqlite/db/SupportSQLiteStatement.android.kt)
+文本 SHA-256: bd681efb8799978450f2abfdb13bf66aa8e2050c974625bf6ab8e184d4500b65
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/AnyThread.kt, commonMain/androidx/annotation/ProductionVisibility.kt, commonMain/androidx/annotation/RestrictTo.kt, nonJvmMain/androidx/annotation/RestrictTo.nonJvm.kt)
+
+========================================================================
+androidx.sqlite:sqlite-framework:2.5.0
+POM: https://dl.google.com/dl/android/maven2/androidx/sqlite/sqlite-framework/2.5.0/sqlite-framework-2.5.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/sqlite/sqlite-framework/2.5.0/sqlite-framework-2.5.0-sources.jar
+归档 SHA-256: 74cbdd2258d07815021a0f7097801a773ba5cc058dc28d8f2b430de877e6688c
+androidx.sqlite:sqlite-framework:2.5.0 / 源码许可头 (nativeMain/androidx/sqlite/driver/NativeSQLite.kt, nativeMain/androidx/sqlite/driver/NativeSQLiteConnection.kt, nativeMain/androidx/sqlite/driver/NativeSQLiteDriver.kt, nativeMain/androidx/sqlite/driver/NativeSQLiteStatement.kt)
+文本 SHA-256: ffbf3b8a42860b5eaa8228cca1c1f328305ad749737bef00ef43520d8f5e48b7
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/BackEventCompat.kt, androidx/activity/EdgeToEdge.kt)
+
+========================================================================
+androidx.sqlite:sqlite-framework-android:2.5.0
+POM: https://dl.google.com/dl/android/maven2/androidx/sqlite/sqlite-framework-android/2.5.0/sqlite-framework-android-2.5.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/sqlite/sqlite-framework-android/2.5.0/sqlite-framework-android-2.5.0-sources.jar
+归档 SHA-256: dd94ec94171ec0290dec01da092ce678dbe862895f55bbe4700e366ba6a07b14
+androidx.sqlite:sqlite-framework-android:2.5.0 / 源码许可头 (androidMain/androidx/sqlite/db/framework/FrameworkSQLiteDatabase.android.kt, androidMain/androidx/sqlite/db/framework/FrameworkSQLiteOpenHelper.android.kt, androidMain/androidx/sqlite/db/framework/FrameworkSQLiteOpenHelperFactory.android.kt, androidMain/androidx/sqlite/db/framework/FrameworkSQLiteStatement.android.kt)
+文本 SHA-256: bd681efb8799978450f2abfdb13bf66aa8e2050c974625bf6ab8e184d4500b65
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/AnyThread.kt, commonMain/androidx/annotation/ProductionVisibility.kt, commonMain/androidx/annotation/RestrictTo.kt, nonJvmMain/androidx/annotation/RestrictTo.nonJvm.kt)
+
+androidx.sqlite:sqlite-framework-android:2.5.0 / 源码许可头 (androidMain/androidx/sqlite/db/framework/FrameworkSQLiteProgram.android.kt)
+文本 SHA-256: 75dbadc0b3159a276c67a0bf4f5e7fb11b02fec4223eae12aa3a64e195a4fca6
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/ColorLong.kt, commonMain/androidx/annotation/GuardedBy.kt, commonMain/androidx/annotation/LongDef.kt)
+
+androidx.sqlite:sqlite-framework-android:2.5.0 / 源码许可头 (androidMain/androidx/sqlite/driver/AndroidSQLite.android.kt, androidMain/androidx/sqlite/driver/AndroidSQLiteConnection.android.kt, androidMain/androidx/sqlite/driver/AndroidSQLiteDriver.android.kt, androidMain/androidx/sqlite/driver/AndroidSQLiteStatement.android.kt)
+文本 SHA-256: ffbf3b8a42860b5eaa8228cca1c1f328305ad749737bef00ef43520d8f5e48b7
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/BackEventCompat.kt, androidx/activity/EdgeToEdge.kt)
+
+androidx.sqlite:sqlite-framework-android:2.5.0 / 源码许可头 (androidMain/androidx/sqlite/util/ProcessLock.android.kt)
+文本 SHA-256: 0fb76639cf65ffb51bcc4bdf5c15623ef6cd1c4ae400c99fcf32187123bbc35c
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/Cancellable.kt, androidx/activity/OnBackPressedDispatcher.kt, androidx/activity/OnBackPressedDispatcherOwner.kt)
+
+========================================================================
+androidx.startup:startup-runtime:1.1.1
+POM: https://dl.google.com/dl/android/maven2/androidx/startup/startup-runtime/1.1.1/startup-runtime-1.1.1.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/startup/startup-runtime/1.1.1/startup-runtime-1.1.1-sources.jar
+归档 SHA-256: 53e03bc065b26b2227b5fdca6776cbfa0d1a69afb8f3c1e96c1743fa54320196
+androidx.startup:startup-runtime:1.1.1 / 源码许可头 (androidx/startup/AppInitializer.java, androidx/startup/InitializationProvider.java, androidx/startup/Initializer.java, androidx/startup/StartupException.java, androidx/startup/StartupLogger.java)
+文本 SHA-256: 575ee5739171b0a546eb044c10ef188f605a1e8c975a728a6072f61ed2658e94
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/contextaware/ContextAware.kt, androidx/activity/contextaware/ContextAwareHelper.kt, androidx/activity/contextaware/OnContextAvailableListener.kt, androidx/activity/result/ActivityResult.java, androidx/activity/result/ActivityResultRegistryOwner.kt, androidx/activity/result/IntentSenderRequest.kt, androidx/activity/result/contract/ActivityResultContract.kt, androidx/activity/result/contract/ActivityResultContracts.kt)
+
+========================================================================
+androidx.tracing:tracing:1.2.0
+POM: https://dl.google.com/dl/android/maven2/androidx/tracing/tracing/1.2.0/tracing-1.2.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/tracing/tracing/1.2.0/tracing-1.2.0-sources.jar
+归档 SHA-256: 3daf3a210e213f1675e6ea9ae2a9c0b9c837b42805835b65d999eca58fbddc90
+androidx.tracing:tracing:1.2.0 / 源码许可头 (androidx/tracing/Trace.java, androidx/tracing/TraceApi18Impl.java, androidx/tracing/TraceApi29Impl.java)
+文本 SHA-256: 575ee5739171b0a546eb044c10ef188f605a1e8c975a728a6072f61ed2658e94
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/contextaware/ContextAware.kt, androidx/activity/contextaware/ContextAwareHelper.kt, androidx/activity/contextaware/OnContextAvailableListener.kt, androidx/activity/result/ActivityResult.java, androidx/activity/result/ActivityResultRegistryOwner.kt, androidx/activity/result/IntentSenderRequest.kt, androidx/activity/result/contract/ActivityResultContract.kt, androidx/activity/result/contract/ActivityResultContracts.kt)
+
+========================================================================
+androidx.tracing:tracing-ktx:1.2.0
+POM: https://dl.google.com/dl/android/maven2/androidx/tracing/tracing-ktx/1.2.0/tracing-ktx-1.2.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/tracing/tracing-ktx/1.2.0/tracing-ktx-1.2.0-sources.jar
+归档 SHA-256: a2998626297e803d410f3b800f04bed974def11ac9936538485a46cd4ff21c6d
+androidx.tracing:tracing-ktx:1.2.0 / 源码许可头 (androidx/tracing/Trace.kt)
+文本 SHA-256: 575ee5739171b0a546eb044c10ef188f605a1e8c975a728a6072f61ed2658e94
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/contextaware/ContextAware.kt, androidx/activity/contextaware/ContextAwareHelper.kt, androidx/activity/contextaware/OnContextAvailableListener.kt, androidx/activity/result/ActivityResult.java, androidx/activity/result/ActivityResultRegistryOwner.kt, androidx/activity/result/IntentSenderRequest.kt, androidx/activity/result/contract/ActivityResultContract.kt, androidx/activity/result/contract/ActivityResultContracts.kt)
+
+========================================================================
+androidx.versionedparcelable:versionedparcelable:1.1.1
+POM: https://dl.google.com/dl/android/maven2/androidx/versionedparcelable/versionedparcelable/1.1.1/versionedparcelable-1.1.1.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/versionedparcelable/versionedparcelable/1.1.1/versionedparcelable-1.1.1-sources.jar
+归档 SHA-256: 135016af471acf4cd9583d36ceb779710c6b46812ccaaef7c526d5d60eae6b0b
+androidx.versionedparcelable:versionedparcelable:1.1.1 / 源码许可头 (androidx/versionedparcelable/CustomVersionedParcelable.java, androidx/versionedparcelable/NonParcelField.java, androidx/versionedparcelable/ParcelField.java, androidx/versionedparcelable/ParcelImpl.java, androidx/versionedparcelable/ParcelUtils.java, androidx/versionedparcelable/VersionedParcel.java, androidx/versionedparcelable/VersionedParcelParcel.java, androidx/versionedparcelable/VersionedParcelStream.java, androidx/versionedparcelable/VersionedParcelable.java, androidx/versionedparcelable/VersionedParcelize.java)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+========================================================================
+androidx.viewpager:viewpager:1.0.0
+POM: https://dl.google.com/dl/android/maven2/androidx/viewpager/viewpager/1.0.0/viewpager-1.0.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/viewpager/viewpager/1.0.0/viewpager-1.0.0-sources.jar
+归档 SHA-256: d4f9a044ab8c23392b12a3f2930d5fd6b5982421a746f2f2a812e9619431fbfd
+androidx.viewpager:viewpager:1.0.0 / 源码许可头 (androidx/viewpager/widget/PagerAdapter.java, androidx/viewpager/widget/PagerTabStrip.java, androidx/viewpager/widget/PagerTitleStrip.java, androidx/viewpager/widget/ViewPager.java)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+========================================================================
+androidx.window:window:1.2.0
+POM: https://dl.google.com/dl/android/maven2/androidx/window/window/1.2.0/window-1.2.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/window/window/1.2.0/window-1.2.0-sources.jar
+归档 SHA-256: 9c4df6e9fc5f3edb3afa4cba0a720c707f4aa6979d5e6c626ae0596296e307d0
+androidx.window:window:1.2.0 / 源码许可头 (androidx/window/RequiresWindowSdkExtension.kt, androidx/window/SafeWindowExtensionsProvider.kt, androidx/window/WindowSdkExtensions.kt, androidx/window/area/SafeWindowAreaComponentProvider.kt, androidx/window/area/WindowAreaAdapter.kt, androidx/window/area/WindowAreaCapability.kt, androidx/window/area/WindowAreaInfo.kt, androidx/window/area/reflectionguard/ExtensionWindowAreaPresentationRequirements.java, androidx/window/area/reflectionguard/ExtensionWindowAreaStatusRequirements.java, androidx/window/area/reflectionguard/WindowAreaComponentApi2Requirements.java, androidx/window/area/reflectionguard/WindowAreaComponentApi3Requirements.java, androidx/window/area/reflectionguard/WindowAreaComponentValidator.kt, androidx/window/area/utils/DeviceMetrics.kt, androidx/window/area/utils/DeviceUtils.kt, androidx/window/embedding/EmbeddingAspectRatio.kt, androidx/window/embedding/SafeActivityEmbeddingComponentProvider.kt, androidx/window/layout/adapter/extensions/ExtensionWindowBackend.kt, androidx/window/layout/adapter/extensions/ExtensionWindowBackendApi0.kt, androidx/window/layout/adapter/extensions/ExtensionWindowBackendApi1.kt, androidx/window/layout/adapter/extensions/ExtensionWindowBackendApi2.kt, androidx/window/layout/adapter/extensions/MulticastConsumer.kt, androidx/window/reflection/ReflectionUtils.kt, androidx/window/reflection/WindowExtensionsConstants.kt)
+文本 SHA-256: ffbf3b8a42860b5eaa8228cca1c1f328305ad749737bef00ef43520d8f5e48b7
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/BackEventCompat.kt, androidx/activity/EdgeToEdge.kt)
+
+androidx.window:window:1.2.0 / 源码许可头 (androidx/window/WindowProperties.kt, androidx/window/area/RearDisplayPresentationSessionPresenterImpl.kt, androidx/window/area/WindowAreaPresentationSessionCallback.kt, androidx/window/area/WindowAreaSessionPresenter.kt, androidx/window/core/ActivityComponentInfo.kt, androidx/window/core/ConsumerAdapter.kt, androidx/window/core/ExtensionsUtil.kt, androidx/window/core/PredicateAdapter.kt, androidx/window/core/VerificationMode.kt, androidx/window/embedding/ActivityEmbeddingController.kt, androidx/window/embedding/RuleController.kt, androidx/window/embedding/SplitAttributes.kt, androidx/window/embedding/SplitAttributesCalculatorParams.kt, androidx/window/layout/adapter/sidecar/DistinctElementSidecarCallback.java, androidx/window/layout/util/ContextCompatHelper.kt)
+文本 SHA-256: 098ca21a7be9224c03b2c4966bbec5c1b3c7511f391545373c2b450fae6541e4
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/FullyDrawnReporter.kt, androidx/activity/FullyDrawnReporterOwner.kt, androidx/activity/ViewTreeFullyLoadedReporterOwner.kt, androidx/activity/result/PickVisualMediaRequest.kt)
+
+androidx.window:window:1.2.0 / 源码许可头 (androidx/window/area/EmptyWindowAreaControllerImpl.kt, androidx/window/area/RearDisplaySessionImpl.kt, androidx/window/area/WindowAreaController.kt, androidx/window/area/WindowAreaControllerImpl.kt, androidx/window/area/WindowAreaSession.kt, androidx/window/area/WindowAreaSessionCallback.kt, androidx/window/core/Bounds.kt, androidx/window/core/ExperimentalWindowApi.kt, androidx/window/core/SpecificationComputer.kt, androidx/window/core/Version.kt, androidx/window/embedding/ActivityFilter.kt, androidx/window/embedding/ActivityRule.kt, androidx/window/embedding/ActivityStack.kt, androidx/window/embedding/EmbeddingAdapter.kt, androidx/window/embedding/EmbeddingBackend.kt, androidx/window/embedding/EmbeddingCompat.kt, androidx/window/embedding/EmbeddingInterfaceCompat.kt, androidx/window/embedding/EmbeddingRule.kt, androidx/window/embedding/ExtensionEmbeddingBackend.kt, androidx/window/embedding/MatcherUtils.kt, androidx/window/embedding/RuleParser.kt, androidx/window/embedding/SplitController.kt, androidx/window/embedding/SplitInfo.kt, androidx/window/embedding/SplitPairFilter.kt, androidx/window/embedding/SplitPairRule.kt, androidx/window/embedding/SplitPlaceholderRule.kt, androidx/window/embedding/SplitRule.kt, androidx/window/layout/DisplayFeature.kt, androidx/window/layout/FoldingFeature.kt, androidx/window/layout/HardwareFoldingFeature.kt, androidx/window/layout/SafeWindowLayoutComponentProvider.kt, androidx/window/layout/WindowInfoTracker.kt, androidx/window/layout/WindowInfoTrackerImpl.kt, androidx/window/layout/WindowLayoutInfo.kt, androidx/window/layout/WindowMetrics.kt, androidx/window/layout/WindowMetricsCalculator.kt, androidx/window/layout/WindowMetricsCalculatorCompat.kt, androidx/window/layout/adapter/WindowBackend.kt, androidx/window/layout/adapter/extensions/ExtensionsWindowLayoutInfoAdapter.kt, androidx/window/layout/adapter/sidecar/ExtensionInterfaceCompat.kt, androidx/window/layout/adapter/sidecar/SidecarAdapter.kt, androidx/window/layout/adapter/sidecar/SidecarCompat.kt, androidx/window/layout/adapter/sidecar/SidecarWindowBackend.kt, androidx/window/layout/util/ActivityCompatHelperApi24.kt, androidx/window/layout/util/DisplayCompatHelper.kt)
+文本 SHA-256: b698582c54bfdc53aace53dba7612f36ddbb0259cfddd6168604e1e0e56212ee
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentDialog.kt, androidx/activity/ViewTreeOnBackPressedDispatcherOwner.kt)
+
+========================================================================
+androidx.window:window-java:1.2.0
+POM: https://dl.google.com/dl/android/maven2/androidx/window/window-java/1.2.0/window-java-1.2.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/window/window-java/1.2.0/window-java-1.2.0-sources.jar
+归档 SHA-256: b257a29441778b87c704f39b2abb957d6a82ff639dec45f51811f69627576d1b
+androidx.window:window-java:1.2.0 / 源码许可头 (androidx/window/java/area/WindowAreaControllerCallbackAdapter.kt, androidx/window/java/core/CallbackToFlowAdapter.kt, androidx/window/java/embedding/SplitControllerCallbackAdapter.kt)
+文本 SHA-256: ffbf3b8a42860b5eaa8228cca1c1f328305ad749737bef00ef43520d8f5e48b7
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/BackEventCompat.kt, androidx/activity/EdgeToEdge.kt)
+
+androidx.window:window-java:1.2.0 / 源码许可头 (androidx/window/java/layout/WindowInfoTrackerCallbackAdapter.kt)
+文本 SHA-256: b698582c54bfdc53aace53dba7612f36ddbb0259cfddd6168604e1e0e56212ee
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentDialog.kt, androidx/activity/ViewTreeOnBackPressedDispatcherOwner.kt)
+
+========================================================================
+androidx.window.extensions.core:core:1.0.0
+POM: https://dl.google.com/dl/android/maven2/androidx/window/extensions/core/core/1.0.0/core-1.0.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/window/extensions/core/core/1.0.0/core-1.0.0-sources.jar
+归档 SHA-256: 95d5005752d513694d7922553af4249855f05a358fff7b2016686c1f3828ebcb
+androidx.window.extensions.core:core:1.0.0 / 源码许可头 (androidx/window/extensions/core/util/function/Consumer.java, androidx/window/extensions/core/util/function/Function.java, androidx/window/extensions/core/util/function/Predicate.java)
+文本 SHA-256: ffbf3b8a42860b5eaa8228cca1c1f328305ad749737bef00ef43520d8f5e48b7
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/BackEventCompat.kt, androidx/activity/EdgeToEdge.kt)
+
+========================================================================
+androidx.work:work-runtime:2.12.0
+POM: https://dl.google.com/dl/android/maven2/androidx/work/work-runtime/2.12.0/work-runtime-2.12.0.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://dl.google.com/dl/android/maven2/androidx/work/work-runtime/2.12.0/work-runtime-2.12.0-sources.jar
+归档 SHA-256: aa1897408d15e82d03c388f8e552b13c0d32e976158cc1d33d59a8633a100065
+androidx.work:work-runtime:2.12.0 / 源码许可头 (androidx/work/ArrayCreatingInputMerger.kt, androidx/work/BackoffPolicy.kt, androidx/work/Configuration.kt, androidx/work/Constraints.kt, androidx/work/CoroutineWorker.kt, androidx/work/Data.kt, androidx/work/Data_.kt, androidx/work/DirectExecutor.kt, androidx/work/ExistingPeriodicWorkPolicy.kt, androidx/work/ExistingWorkPolicy.kt, androidx/work/InputMerger.kt, androidx/work/ListenableFuture.kt, androidx/work/ListenableWorker.java, androidx/work/Logger.java, androidx/work/NetworkType.kt, androidx/work/OneTimeWorkRequest.kt, androidx/work/Operation.java, androidx/work/Operation.kt, androidx/work/OverwritingInputMerger.kt, androidx/work/PeriodicWorkRequest.kt, androidx/work/WorkContinuation.java, androidx/work/WorkInfo.kt, androidx/work/WorkManager.kt, androidx/work/WorkRequest.kt, androidx/work/Worker.kt, androidx/work/WorkerFactory.kt, androidx/work/WorkerParameters.java, androidx/work/impl/Schedulers.java, androidx/work/impl/WorkContinuationImpl.java, androidx/work/impl/WorkDatabaseMigrations.kt, androidx/work/impl/background/greedy/GreedyScheduler.java, androidx/work/impl/background/package-info.java, androidx/work/impl/background/systemalarm/RescheduleReceiver.java, androidx/work/impl/background/systemalarm/package-info.java, androidx/work/impl/background/systemjob/package-info.java, androidx/work/impl/constraints/controllers/package-info.java, androidx/work/impl/constraints/package-info.java, androidx/work/impl/constraints/trackers/package-info.java, androidx/work/impl/model/SystemIdInfo.kt, androidx/work/impl/model/SystemIdInfoDao.kt, androidx/work/impl/model/WorkName.kt, androidx/work/impl/model/WorkNameDao.kt, androidx/work/impl/model/WorkTypeConverters.kt, androidx/work/impl/model/package-info.java, androidx/work/impl/package-info.java, androidx/work/impl/utils/EnqueueRunnable.kt, androidx/work/impl/utils/ForceStopRunnable.java, androidx/work/impl/utils/PreferenceUtils.java, androidx/work/impl/utils/PruneWorkRunnable.kt, androidx/work/impl/utils/StatusRunnable.kt, androidx/work/impl/utils/StopWorkRunnable.kt, androidx/work/impl/utils/SynchronousExecutor.java, androidx/work/impl/utils/WakeLocks.kt, androidx/work/impl/utils/futures/AbstractFuture.java, androidx/work/impl/utils/futures/DirectExecutor.java, androidx/work/impl/utils/futures/SettableFuture.java, androidx/work/impl/utils/futures/package-info.java, androidx/work/impl/utils/package-info.java, androidx/work/impl/utils/taskexecutor/package-info.java, androidx/work/impl/workers/CombineContinuationsWorker.kt, androidx/work/impl/workers/ConstraintTrackingWorker.kt, androidx/work/package-info.java)
+文本 SHA-256: 768f8c7388691bf175d55d8107d3bb9cd7c64ac1f74411309d0b138fa9895cb0
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentActivity.java, androidx/activity/ImmLeaksCleaner.java, androidx/activity/OnBackPressedCallback.kt)
+
+androidx.work:work-runtime:2.12.0 / 源码许可头 (androidx/work/Clock.java, androidx/work/LoggerExt.kt, androidx/work/SystemClock.java, androidx/work/impl/WorkLauncher.kt, androidx/work/impl/WorkManagerImplExt.kt, androidx/work/impl/background/greedy/TimeLimiter.kt, androidx/work/impl/background/systemjob/SystemJobInfoConverterExt.kt, androidx/work/impl/utils/NetworkRequestCompat.kt)
+文本 SHA-256: ffbf3b8a42860b5eaa8228cca1c1f328305ad749737bef00ef43520d8f5e48b7
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/BackEventCompat.kt, androidx/activity/EdgeToEdge.kt)
+
+androidx.work:work-runtime:2.12.0 / 源码许可头 (androidx/work/DelegatingWorkerFactory.kt, androidx/work/ForegroundInfo.java, androidx/work/ForegroundUpdater.java, androidx/work/InputMergerFactory.kt, androidx/work/ProgressUpdater.java, androidx/work/impl/WorkDatabasePathHelper.kt, androidx/work/impl/background/greedy/DelayedWorkTracker.java, androidx/work/impl/foreground/ForegroundProcessor.java, androidx/work/impl/foreground/SystemForegroundDispatcher.java, androidx/work/impl/foreground/SystemForegroundService.java, androidx/work/impl/model/Preference.kt, androidx/work/impl/model/PreferenceDao.kt, androidx/work/impl/model/WorkProgress.kt, androidx/work/impl/model/WorkProgressDao.kt, androidx/work/impl/utils/SerialExecutorImpl.java, androidx/work/impl/utils/WorkForegroundUpdater.java, androidx/work/impl/utils/WorkProgressUpdater.java, androidx/work/impl/utils/WorkTimer.java)
+文本 SHA-256: 0fb76639cf65ffb51bcc4bdf5c15623ef6cd1c4ae400c99fcf32187123bbc35c
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/Cancellable.kt, androidx/activity/OnBackPressedDispatcher.kt, androidx/activity/OnBackPressedDispatcherOwner.kt)
+
+androidx.work:work-runtime:2.12.0 / 源码许可头 (androidx/work/ExecutionEventListener.kt, androidx/work/ScheduleEventListener.kt)
+文本 SHA-256: f5021ffa3612486880f2e3307e1560862dd6e6dd8b2cb7bd9d0df85e8f6c6961
+原文同前：androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (jvmMain/androidx/annotation/ChecksFlag.jvm.kt, jvmMain/androidx/annotation/RequiresFlag.jvm.kt)
+
+androidx.work:work-runtime:2.12.0 / 源码许可头 (androidx/work/ExperimentalConfigurationApi.kt, androidx/work/ExperimentalWorkRequestBuilderApi.kt, androidx/work/Tracer.kt, androidx/work/WorkerExceptionInfo.kt, androidx/work/WorkerParameters.kt, androidx/work/impl/UnfinishedWorkListener.kt, androidx/work/impl/background/systemjob/JobSchedulerExt.kt, androidx/work/impl/utils/WorkerExceptionUtils.kt)
+文本 SHA-256: 85d89e90bd56722f8d3a5386d12bacfc7eb6c0bb83e87d1f8e29d7f0ea871bf5
+原文同前：androidx.annotation:annotation-jvm:1.10.0 / 源码许可头 (jvmMain/androidx/annotation/ReplaceWith.jvm.kt)
+
+androidx.work:work-runtime:2.12.0 / 源码许可头 (androidx/work/ExperimentalEventsApi.kt, androidx/work/impl/utils/ListenerEventDispatch.kt, androidx/work/impl/utils/NetworkTypeCompat.kt)
+文本 SHA-256: 7f891628d7c09a66a2e09eaaa52288af969df930794cd47e1701353ad82f259b
+/*
+ * Copyright 2026 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+androidx.work:work-runtime:2.12.0 / 源码许可头 (androidx/work/OutOfQuotaPolicy.kt, androidx/work/WorkManagerInitializer.java, androidx/work/impl/constraints/controllers/ContraintControllers.kt, androidx/work/impl/utils/DurationApi26.kt, androidx/work/impl/utils/NetworkApi24.kt)
+文本 SHA-256: b698582c54bfdc53aace53dba7612f36ddbb0259cfddd6168604e1e0e56212ee
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/ComponentDialog.kt, androidx/activity/ViewTreeOnBackPressedDispatcherOwner.kt)
+
+androidx.work:work-runtime:2.12.0 / 源码许可头 (androidx/work/RunnableScheduler.java, androidx/work/WorkQuery.kt, androidx/work/impl/DefaultRunnableScheduler.java, androidx/work/impl/WorkRequestHolder.java, androidx/work/impl/diagnostics/DiagnosticsReceiver.java, androidx/work/impl/model/RawWorkInfoDao.kt, androidx/work/impl/utils/ProcessUtils.kt, androidx/work/impl/utils/RawQueries.kt, androidx/work/impl/utils/WorkForeground.kt, androidx/work/impl/workers/DiagnosticsWorker.kt, androidx/work/multiprocess/RemoteWorkContinuation.java, androidx/work/multiprocess/RemoteWorkManager.java)
+文本 SHA-256: 575ee5739171b0a546eb044c10ef188f605a1e8c975a728a6072f61ed2658e94
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/contextaware/ContextAware.kt, androidx/activity/contextaware/ContextAwareHelper.kt, androidx/activity/contextaware/OnContextAvailableListener.kt, androidx/activity/result/ActivityResult.java, androidx/activity/result/ActivityResultRegistryOwner.kt, androidx/activity/result/IntentSenderRequest.kt, androidx/activity/result/contract/ActivityResultContract.kt, androidx/activity/result/contract/ActivityResultContracts.kt)
+
+androidx.work:work-runtime:2.12.0 / 源码许可头 (androidx/work/impl/ExecutionListener.java, androidx/work/impl/Processor.java, androidx/work/impl/Scheduler.java, androidx/work/impl/WorkDatabase.kt, androidx/work/impl/WorkManagerImpl.java, androidx/work/impl/WorkerWrapper.kt, androidx/work/impl/background/systemjob/SystemJobInfoConverter.java, androidx/work/impl/background/systemjob/SystemJobScheduler.java, androidx/work/impl/background/systemjob/SystemJobService.java, androidx/work/impl/constraints/ConstraintListener.kt, androidx/work/impl/constraints/trackers/NetworkStateTracker.kt, androidx/work/impl/model/WorkTag.kt, androidx/work/impl/model/WorkTagDao.kt, androidx/work/impl/utils/CancelWorkRunnable.kt, androidx/work/impl/utils/IdGenerator.kt, androidx/work/impl/utils/LiveDataUtils.java, androidx/work/impl/utils/PackageManagerHelper.kt, androidx/work/impl/utils/taskexecutor/TaskExecutor.java, androidx/work/impl/utils/taskexecutor/WorkManagerTaskExecutor.java)
+文本 SHA-256: 0a482956cdefef7b857c207289fcf91b92f4c4003e79fdd0d6e5021d6ec60305
+原文同前：androidx.core:core:1.13.1 / 源码许可头 (androidx/core/graphics/TypefaceCompatApi28Impl.java)
+
+androidx.work:work-runtime:2.12.0 / 源码许可头 (androidx/work/impl/StartStopToken.kt, androidx/work/impl/WorkerUpdater.kt, androidx/work/impl/utils/EnqueueUtils.kt, androidx/work/impl/utils/taskexecutor/SerialExecutor.java)
+文本 SHA-256: 098ca21a7be9224c03b2c4966bbec5c1b3c7511f391545373c2b450fae6541e4
+原文同前：androidx.activity:activity:1.8.1 / 源码许可头 (androidx/activity/FullyDrawnReporter.kt, androidx/activity/FullyDrawnReporterOwner.kt, androidx/activity/ViewTreeFullyLoadedReporterOwner.kt, androidx/activity/result/PickVisualMediaRequest.kt)
+
+androidx.work:work-runtime:2.12.0 / 源码许可头 (androidx/work/impl/constraints/NetworkState.kt, androidx/work/impl/constraints/WorkConstraintsTracker.kt, androidx/work/impl/constraints/trackers/BatteryChargingTracker.kt, androidx/work/impl/constraints/trackers/BatteryNotLowTracker.kt, androidx/work/impl/constraints/trackers/BroadcastReceiverConstraintTracker.kt, androidx/work/impl/constraints/trackers/ConstraintTracker.kt, androidx/work/impl/constraints/trackers/StorageNotLowTracker.kt, androidx/work/impl/constraints/trackers/Trackers.kt, androidx/work/impl/model/Dependency.kt, androidx/work/impl/model/DependencyDao.kt, androidx/work/impl/model/WorkSpec.kt, androidx/work/impl/model/WorkSpecDao.kt)
+文本 SHA-256: 75dbadc0b3159a276c67a0bf4f5e7fb11b02fec4223eae12aa3a64e195a4fca6
+原文同前：androidx.annotation:annotation:1.10.0 / 源码许可头 (commonMain/androidx/annotation/ColorLong.kt, commonMain/androidx/annotation/GuardedBy.kt, commonMain/androidx/annotation/LongDef.kt)
+
+========================================================================
+com.getkeepsafe.relinker:relinker:1.4.5
+POM: https://repo.maven.apache.org/maven2/com/getkeepsafe/relinker/relinker/1.4.5/relinker-1.4.5.pom
+POM 许可: The Apache Software License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://repo.maven.apache.org/maven2/com/getkeepsafe/relinker/relinker/1.4.5/relinker-1.4.5-sources.jar
+归档 SHA-256: 917d8eb9d7f7f8758afdf9878942c221636adba31cdab657093f3f671a2eb944
+com.getkeepsafe.relinker:relinker:1.4.5 / 源码许可头 (com/getkeepsafe/relinker/MissingLibraryException.java, com/getkeepsafe/relinker/ReLinkerInstance.java)
+文本 SHA-256: b547829fb73cf6d7dd11e60d7bd8afc5b91c5a6118f65e0a8740fa66a7896086
+/*
+ * Copyright 2015 - 2016 KeepSafe Software, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+com.getkeepsafe.relinker:relinker:1.4.5 / 源码许可头 (com/getkeepsafe/relinker/ApkLibraryInstaller.java, com/getkeepsafe/relinker/ReLinker.java, com/getkeepsafe/relinker/SystemLibraryLoader.java, com/getkeepsafe/relinker/TextUtils.java)
+文本 SHA-256: 430bf2a05fb4a780a778ee7068fb25dc47ca4613c8fa9c55adc9dd8992d65051
+/*
+ * Copyright 2015 - 2016 KeepSafe Software, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+com.getkeepsafe.relinker:relinker:1.4.5 / 源码许可头 (com/getkeepsafe/relinker/elf/Dynamic32Structure.java, com/getkeepsafe/relinker/elf/Dynamic64Structure.java, com/getkeepsafe/relinker/elf/Elf.java, com/getkeepsafe/relinker/elf/Elf32Header.java, com/getkeepsafe/relinker/elf/Elf64Header.java, com/getkeepsafe/relinker/elf/ElfParser.java, com/getkeepsafe/relinker/elf/Program32Header.java, com/getkeepsafe/relinker/elf/Program64Header.java, com/getkeepsafe/relinker/elf/Section32Header.java, com/getkeepsafe/relinker/elf/Section64Header.java)
+文本 SHA-256: eb8396e589b30b7d83bd0d9a71100f3298f27c5172695190f4ba1ea39882ed4d
+/**
+ * Copyright 2015 - 2016 KeepSafe Software, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+========================================================================
+com.google.guava:listenablefuture:1.0
+POM: https://repo.maven.apache.org/maven2/com/google/guava/listenablefuture/1.0/listenablefuture-1.0.pom
+许可继承父 POM；Apache License 2.0。
+父 POM: https://repo.maven.apache.org/maven2/com/google/guava/guava-parent/26.0-android/guava-parent-26.0-android.pom
+固定源码归档: https://repo.maven.apache.org/maven2/com/google/guava/listenablefuture/1.0/listenablefuture-1.0-sources.jar
+归档 SHA-256: 3d1bd8d4a39b293612a40e547ec51d9ce34fa638d7adeae83871cdbe2923b161
+com.google.guava:listenablefuture:1.0 / 源码许可头 (com/google/common/util/concurrent/ListenableFuture.java)
+文本 SHA-256: 3401916a213ab1d1518c336719bf249bdf4d6554f681f0f8653dc576550c00f8
+/*
+ * Copyright (C) 2007 The Guava Authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+ * in compliance with the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License
+ * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
+ * or implied. See the License for the specific language governing permissions and limitations under
+ * the License.
+ */
+
+========================================================================
+org.jetbrains:annotations:23.0.0
+POM: https://repo.maven.apache.org/maven2/org/jetbrains/annotations/23.0.0/annotations-23.0.0.pom
+POM 许可: The Apache Software License, Version 2.0
+https://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://repo.maven.apache.org/maven2/org/jetbrains/annotations/23.0.0/annotations-23.0.0-sources.jar
+归档 SHA-256: ff2309b42f7584520497bb48bc609aca04c9886cf48708f14be83f00423ec144
+org.jetbrains:annotations:23.0.0 / 源码许可头 (org/intellij/lang/annotations/Flow.java, org/intellij/lang/annotations/Identifier.java, org/intellij/lang/annotations/JdkConstants.java, org/intellij/lang/annotations/Language.java, org/intellij/lang/annotations/MagicConstant.java, org/intellij/lang/annotations/Pattern.java, org/intellij/lang/annotations/PrintFormat.java, org/intellij/lang/annotations/RegExp.java, org/intellij/lang/annotations/Subst.java, org/jetbrains/annotations/ApiStatus.java, org/jetbrains/annotations/Async.java, org/jetbrains/annotations/Blocking.java, org/jetbrains/annotations/BlockingExecutor.java, org/jetbrains/annotations/Contract.java, org/jetbrains/annotations/Debug.java, org/jetbrains/annotations/MustBeInvokedByOverriders.java, org/jetbrains/annotations/Nls.java, org/jetbrains/annotations/NonBlocking.java, org/jetbrains/annotations/NonBlockingExecutor.java, org/jetbrains/annotations/NonNls.java, org/jetbrains/annotations/NotNull.java, org/jetbrains/annotations/Nullable.java, org/jetbrains/annotations/PropertyKey.java, org/jetbrains/annotations/Range.java, org/jetbrains/annotations/TestOnly.java, org/jetbrains/annotations/UnknownNullability.java, org/jetbrains/annotations/Unmodifiable.java, org/jetbrains/annotations/UnmodifiableView.java, org/jetbrains/annotations/VisibleForTesting.java)
+文本 SHA-256: ef2ef7bd49d5403b82fdf1d8dab5cae1fe3d8fa8e7394aa3ce3ce85616e2c235
+/*
+ * Copyright 2000-2021 JetBrains s.r.o.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+org.jetbrains:annotations:23.0.0 / 源码许可头 (META-INF/versions/9/module-info.java)
+文本 SHA-256: 8d1c5167d49a0e73f9e9afd77f7e27e2a89e335d00ef66ffe05340cb83289059
+/*
+ * Copyright 2000-2020 JetBrains s.r.o.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+========================================================================
+org.jetbrains.kotlin:kotlin-stdlib:2.4.0
+POM: https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/2.4.0/kotlin-stdlib-2.4.0.pom
+POM 许可: Apache-2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/2.4.0/kotlin-stdlib-2.4.0-sources.jar
+归档 SHA-256: bca27f834e278d08c1b85a40e636450867e8251c284fd4c24e9879bb99e301c5
+org.jetbrains.kotlin:kotlin-stdlib:2.4.0 / 源码许可头 (jvmMain/kotlin/reflect/KDeclarationContainer.kt, jvmMain/kotlin/reflect/KParameter.kt)
+文本 SHA-256: 3af858fc83088f11647ba3e0aa03e03edd30b3d6f3c4e7342764a5b739dceefe
+/*
+ * Copyright 2010-2015 JetBrains s.r.o.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+org.jetbrains.kotlin:kotlin-stdlib:2.4.0 / 源码许可头 (jvmMain/kotlin/reflect/KVisibility.kt)
+文本 SHA-256: 92fe2dd0e41b0844d2f9b5050342ed5188ca445a95dd8166650278a2d10ecf67
+/*
+ * Copyright 2010-2016 JetBrains s.r.o.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+org.jetbrains.kotlin:kotlin-stdlib:2.4.0 / 源码许可头 (jvmMain/jdk8/kotlin/collections/Collections.kt, jvmMain/jdk8/kotlin/internal/jdk8/JDK8PlatformImplementations.kt, jvmMain/jdk8/kotlin/streams/Streams.kt)
+文本 SHA-256: bf07db813d204a4f09e1738e9d2c4755ca6c6e00dcf8fe6df35166d6d12e02da
+/*
+ * Copyright 2010-2017 JetBrains s.r.o.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+========================================================================
+org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0
+POM: https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-android/1.9.0/kotlinx-coroutines-android-1.9.0.pom
+POM 许可: The Apache Software License, Version 2.0
+https://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-android/1.9.0/kotlinx-coroutines-android-1.9.0-sources.jar
+归档 SHA-256: dd4d70dbc424eb0492126446b4035821d40d255664a8a36091d357f11390bc50
+========================================================================
+org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.9.0
+POM: https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-bom/1.9.0/kotlinx-coroutines-bom-1.9.0.pom
+POM 许可: The Apache Software License, Version 2.0
+https://www.apache.org/licenses/LICENSE-2.0.txt
+POM packaging=pom；此坐标为元数据，无独立 sources.jar。
+========================================================================
+org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0
+POM: https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core/1.9.0/kotlinx-coroutines-core-1.9.0.pom
+POM 许可: The Apache Software License, Version 2.0
+https://www.apache.org/licenses/LICENSE-2.0.txt
+POM packaging=pom；此坐标为元数据，无独立 sources.jar。
+========================================================================
+org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.9.0
+POM: https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core-jvm/1.9.0/kotlinx-coroutines-core-jvm-1.9.0.pom
+POM 许可: The Apache Software License, Version 2.0
+https://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core-jvm/1.9.0/kotlinx-coroutines-core-jvm-1.9.0-sources.jar
+归档 SHA-256: 01e0f26a274d8f2f2ae702b161bc0980cea817bfcaf66ca4944434ea7b601771
+========================================================================
+org.jspecify:jspecify:1.0.0
+POM: https://repo.maven.apache.org/maven2/org/jspecify/jspecify/1.0.0/jspecify-1.0.0.pom
+POM 许可: The Apache License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0.txt
+固定源码归档: https://repo.maven.apache.org/maven2/org/jspecify/jspecify/1.0.0/jspecify-1.0.0-sources.jar
+归档 SHA-256: adf0898191d55937fb3192ba971826f4f294292c4a960740f3c27310e7b70296
+org.jspecify:jspecify:1.0.0 / 源码许可头 (org/jspecify/annotations/NonNull.java, org/jspecify/annotations/NullUnmarked.java, org/jspecify/annotations/package-info.java)
+文本 SHA-256: db5d10f53c6fd9c12264a7c75e0d5eddca0cff814c3fdde028949098124b4494
+/*
+ * Copyright 2022 The JSpecify Authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+org.jspecify:jspecify:1.0.0 / 源码许可头 (org/jspecify/annotations/NullMarked.java, org/jspecify/annotations/Nullable.java)
+文本 SHA-256: be83a8129312eda70e3583e5a12f7e2df601a7f435c7501274d46393d2770495
+/*
+ * Copyright 2018-2020 The JSpecify Authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */

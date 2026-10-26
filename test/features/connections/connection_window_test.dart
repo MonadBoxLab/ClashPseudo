@@ -1,40 +1,7 @@
-import 'package:clash_pseudo/features/connections/connection_window.dart';
-import 'package:clash_pseudo/features/strategies/strategy_snapshot.dart';
+import 'package:clash_pseudo/src/features/connections/connection_window.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-const core = CoreSnapshot(
-  generation: 7,
-  phase: 'READY',
-  purpose: 'VPN',
-  configId: 'one',
-  revision: 1,
-);
-
-Map<String, dynamic> row(String id, {int? upload = 10, int? download = 20}) => {
-  'id': id,
-  'start': '2026-10-16T10:00:00Z',
-  'upload': upload,
-  'download': download,
-};
-
-Map<String, dynamic> sample(
-  List<Map<String, dynamic>> rows,
-  int elapsed, {
-  Map<String, bool> presence = const {},
-  Map<String, dynamic>? detail,
-  bool limited = false,
-}) => {
-  'generation': 7,
-  'configId': 'one',
-  'revision': 1,
-  'complete': true,
-  'connections': rows,
-  'presence': presence,
-  'elapsedMs': elapsed,
-  'observedAt': 1792144800000 + elapsed,
-  'detail': detail,
-  'limited': limited,
-};
+import 'connection_window_fixtures.dart';
 
 void main() {
   late ConnectionWindow window;

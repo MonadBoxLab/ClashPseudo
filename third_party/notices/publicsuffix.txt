@@ -1,0 +1,23 @@
+Public Suffix List数据通知
+
+实现包：golang.org/x/net/publicsuffix，模块golang.org/x/net v0.35.0。
+Go实现采用BSD-3-Clause，内嵌Public Suffix List数据采用MPL-2.0。
+项目与维护来源：https://publicsuffix.org/ 和 https://github.com/publicsuffix/list
+
+table.go所记录的PSL提交：
+63cbc63d470d7b52c35266aa96c4c98c96ec499c（2023-08-03T10:01:25Z）
+对应的可编辑列表：
+https://raw.githubusercontent.com/publicsuffix/list/63cbc63d470d7b52c35266aa96c4c98c96ec499c/public_suffix_list.dat
+源文件：227027 bytes
+SHA-256：4dd388d5006a37c0748f17e1088ecd05c821da88eff36963bcc36297d7dea96e
+
+原始许可头：
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+本应用沿用该列表及x/net生成的查找表，并保留ICANN／PRIVATE分类与来源说明。
+MPL-2.0全文：third_party/data/certificates/MPL-2.0.txt
+https://www.mozilla.org/media/MPL/2.0/index.txt
+二进制分发保留本通知、MPL全文及取得该列表源文件的方式。
+完整对应源码同时包含所用x/net版本和该可编辑列表。

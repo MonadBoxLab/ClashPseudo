@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="system_control_surface">#222629</color>
+    <color name="system_control_outline">#394046</color>
+    <color name="system_control_text">#E5E8E6</color>
+    <color name="system_control_secondary">#ADB4B9</color>
+</resources>

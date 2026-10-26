@@ -16,6 +16,15 @@ import (
 
 const validConfig = "mode: rule\nfind-process-mode: off\nrules:\n  - MATCH,DIRECT\n"
 
+type signalTunnel struct {
+	closed chan struct{}
+}
+
+func (s signalTunnel) Close() error {
+	close(s.closed)
+	return nil
+}
+
 type rawSocket struct{}
 
 func (rawSocket) Control(f func(uintptr)) error  { f(42); return nil }
@@ -73,24 +82,6 @@ func TestProtectAndCancellation(t *testing.T) {
 	if err := dialer.DefaultSocketHook("tcp", "unused", rawSocket{}); !errors.Is(err, ErrStopped) {
 		t.Fatal(err)
 	}
-}
-
-func TestInvalidConfigDoesNotPreventNextStart(t *testing.T) {
-	var e Engine
-	home := t.TempDir()
-	for _, text := range []string{"[invalid yaml", "rules:\n  - UNKNOWN,invalid\n"} {
-		if err := e.Prepare(home, []byte(text), "rule", nil, func(int) bool { return true }); err == nil {
-			t.Fatalf("accepted %q", text)
-		}
-		if current.Load() != nil || e.owner != nil {
-			t.Fatal("failed prepare retained protector")
-		}
-		requireStop(t, &e)
-	}
-	if err := e.Prepare(home, []byte(validConfig), "rule", nil, func(int) bool { return true }); err != nil {
-		t.Fatal(err)
-	}
-	requireStop(t, &e)
 }
 
 func TestUnknownResourceCannotReportSuccessfulClose(t *testing.T) {

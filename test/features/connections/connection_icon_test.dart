@@ -1,5 +1,5 @@
-import 'package:clash_pseudo/features/connections/connection_snapshot.dart';
-import 'package:clash_pseudo/features/strategies/strategy_snapshot.dart';
+import 'package:clash_pseudo/src/features/connections/connection_snapshot.dart';
+import 'package:clash_pseudo/src/features/strategies/strategy_snapshot.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

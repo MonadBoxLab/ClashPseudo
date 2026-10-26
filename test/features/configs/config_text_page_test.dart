@@ -1,39 +1,22 @@
+import 'package:clash_pseudo/src/model/app_snapshot.dart';
+
 import 'dart:async';
 
-import 'package:clash_pseudo/app/app_controller.dart';
-import 'package:clash_pseudo/app/app_theme.dart';
-import 'package:clash_pseudo/features/configs/config_entry.dart';
-import 'package:clash_pseudo/features/configs/config_text.dart';
-import 'package:clash_pseudo/features/configs/config_text_page.dart';
-import 'package:clash_pseudo/platform/app_bridge.dart';
+import 'package:clash_pseudo/src/app/app_theme.dart';
+import 'package:clash_pseudo/src/features/configs/config_entry.dart';
+import 'package:clash_pseudo/src/features/configs/config_text.dart';
+import 'package:clash_pseudo/src/features/configs/config_text_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:clash_pseudo/src/l10n/app_localizations.dart';
+import 'package:clash_pseudo/src/l10n/messages.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:re_editor/re_editor.dart';
 
-class EditorApp extends AppController {
-  EditorApp() : super(AppBridge()) {
-    loading = false;
-    configsLoaded = true;
-    state = const AppSnapshot(phase: 'STOPPED');
-  }
-  final commands = <Map<String, Object?>>[];
-  Completer<AppSnapshot?>? pending;
-  AppSnapshot? outcome;
-
-  void updateState(AppSnapshot value) {
-    state = value;
-    notifyListeners();
-  }
-
-  @override
-  Future<AppSnapshot?> saveLocal(Map<String, Object?> command) async {
-    commands.add(command);
-    return pending == null ? outcome : pending!.future;
-  }
-}
+import 'editor_fakes.dart';
 
 void main() {
+  final zh = lookupAppLocalizations(const Locale('zh'));
   const local = ConfigEntry(
     id: 'local',
     name: 'Local',
@@ -43,6 +26,21 @@ void main() {
   );
   late EditorApp app;
 
+  // Inject the store projection independently from the operation's receipt.
+  void publishSavedBody() {
+    final entry = app.collection.entries.single;
+    app.collection = app.collection.replace(
+      ConfigEntry(
+        id: entry.id,
+        name: entry.name,
+        kind: entry.kind,
+        revision: 2,
+        body: app.commands.last['body']! as String,
+      ),
+    );
+    app.updateState(app.state);
+  }
+
   Future<void> show(
     WidgetTester tester, {
     ConfigEntry? entry = local,
@@ -50,10 +48,13 @@ void main() {
     ThemeData? theme,
     double scale = 1,
   }) async {
-    app = EditorApp();
+    app = EditorApp(entries: [?entry]);
     addTearDown(app.dispose);
     await tester.pumpWidget(
       MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('zh'),
         theme: theme ?? AppTheme.light,
         builder: (context, child) => MediaQuery(
           data: MediaQuery.of(context)
@@ -129,6 +130,7 @@ void main() {
     expect(editor.autocompleteSymbols, isFalse);
     app.outcome = const AppSnapshot(
       configStatus: 'saved',
+      resultSuccess: true,
       targetId: 'local',
       savedRevision: 1,
     );
@@ -143,6 +145,48 @@ void main() {
       '',
     );
   });
+
+  for (final modifier in [
+    LogicalKeyboardKey.controlLeft,
+    LogicalKeyboardKey.metaLeft,
+  ]) {
+    testWidgets('focused editor task shortcuts use $modifier', (tester) async {
+      await show(tester);
+      final editor = tester.widget<CodeEditor>(find.byType(CodeEditor));
+      editor.focusNode!.requestFocus();
+      await tester.pump();
+      Future<void> key(LogicalKeyboardKey key) async {
+        await tester.sendKeyDownEvent(modifier);
+        await tester.sendKeyEvent(key);
+        await tester.sendKeyUpEvent(modifier);
+        await tester.pumpAndSettle();
+      }
+
+      await key(LogicalKeyboardKey.keyF);
+      expect(find.byTooltip(zh.closeFind), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.byTooltip(zh.find), findsOneWidget);
+      editor.focusNode!.requestFocus();
+      await tester.pump();
+      app.pending = Completer<AppSnapshot?>();
+      await key(LogicalKeyboardKey.keyS);
+      expect(app.commands, hasLength(1));
+      expect(app.commands.single['body'], local.body);
+      await key(LogicalKeyboardKey.keyS);
+      expect(app.commands, hasLength(1));
+      app.pending!.complete(
+        const AppSnapshot(
+          configStatus: 'saved',
+          resultSuccess: true,
+          targetId: 'local',
+          savedRevision: 1,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(ConfigTextPage), findsNothing);
+    });
+  }
 
   testWidgets('dirty return can stay or discard once', (tester) async {
     await show(tester);
@@ -172,12 +216,13 @@ void main() {
     await tester.pump();
     expect(tester.widget<CodeEditor>(find.byType(CodeEditor)).readOnly, isTrue);
     expect(find.byType(ConfigTextPage), findsOneWidget);
+    publishSavedBody();
     app.pending!.complete(
       const AppSnapshot(
         configStatus: 'applyFailed',
         targetId: 'local',
         savedRevision: 2,
-        resultMessage: '新正文已保存，启动失败。',
+        resultMessage: AppMessage('configSavedApplyReleasePending'),
       ),
     );
     await tester.pumpAndSettle();
@@ -283,7 +328,7 @@ void main() {
     app.outcome = const AppSnapshot(
       configStatus: 'notSaved',
       targetId: 'local',
-      resultMessage: '写入失败',
+      resultMessage: AppMessage('configSaveFailed'),
     );
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
@@ -321,6 +366,171 @@ void main() {
     expect(find.byType(ConfigTextPage), findsNothing);
   });
 
+  for (final leave in [false, true]) {
+    testWidgets(
+      'save reply keeps the covering leave confirmation leave=$leave',
+      (tester) async {
+        await show(tester);
+        final editor = tester.widget<CodeEditor>(find.byType(CodeEditor));
+        editor.controller!.text = 'retained draft\n';
+        await tester.pump(const Duration(milliseconds: 200));
+        app.pending = Completer<AppSnapshot?>();
+        await tester.tap(find.text(zh.save));
+        await tester.pump();
+        await tester.tap(find.byType(BackButton));
+        await tester.pumpAndSettle();
+        expect(find.text(zh.leaveBodyTitle), findsOneWidget);
+        final confirmation = tester.element(find.byType(AlertDialog));
+        publishSavedBody();
+        app.pending!.complete(
+          const AppSnapshot(
+            configStatus: 'saved',
+            resultSuccess: true,
+            targetId: 'local',
+            savedRevision: 2,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsOneWidget);
+        expect(tester.element(find.byType(AlertDialog)), same(confirmation));
+        expect(editor.controller!.text, 'retained draft\n');
+        await tester.tap(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.text(leave ? zh.leave : zh.cancel),
+          ),
+        );
+        await tester.pumpAndSettle();
+        if (leave) {
+          expect(find.byType(ConfigTextPage), findsNothing);
+          expect(find.text('打开'), findsOneWidget);
+        } else {
+          expect(find.byType(ConfigTextPage), findsOneWidget);
+          expect(find.byType(AlertDialog), findsNothing);
+          app.pending = Completer<AppSnapshot?>();
+          await tester.tap(find.text(zh.save));
+          await tester.pump();
+          expect(app.commands.last['id'], 'local');
+          expect(app.commands.last['revision'], 2);
+          expect(app.commands.last['storageEpoch'], 0);
+          expect(app.commands.last['body'], '\u{feff}retained draft\r\n');
+          app.pending!.complete(const AppSnapshot(configStatus: 'notSaved'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text(zh.close));
+          await tester.pumpAndSettle();
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  for (final unknown in [false, true]) {
+    testWidgets(
+      'save reply waits for the leave decision before feedback unknown=$unknown',
+      (tester) async {
+        await show(tester);
+        final editor = tester.widget<CodeEditor>(find.byType(CodeEditor));
+        editor.controller!.text = 'retained draft\n';
+        await tester.pump(const Duration(milliseconds: 200));
+        app.pending = Completer<AppSnapshot?>();
+        await tester.tap(find.text(zh.save));
+        await tester.pump();
+        await tester.tap(find.byType(BackButton));
+        await tester.pumpAndSettle();
+        final confirmation = tester.element(find.byType(AlertDialog));
+        app.pending!.complete(
+          unknown
+              ? null
+              : const AppSnapshot(
+                  configStatus: 'notSaved',
+                  resultMessage: AppMessage('configSaveFailed'),
+                ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsOneWidget);
+        expect(tester.element(find.byType(AlertDialog)), same(confirmation));
+        expect(find.text(zh.leaveBodyTitle), findsOneWidget);
+        await tester.tap(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.text(zh.cancel),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsOneWidget);
+        expect(
+          tester.element(find.byType(AlertDialog)),
+          isNot(same(confirmation)),
+        );
+        expect(
+          find.text(unknown ? zh.saveUnconfirmed : zh.configSaveFailed),
+          findsOneWidget,
+        );
+        await tester.tap(find.text(zh.close));
+        await tester.pumpAndSettle();
+        expect(editor.controller!.text, 'retained draft\n');
+        expect(
+          tester.widget<CodeEditor>(find.byType(CodeEditor)).readOnly,
+          unknown,
+        );
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets(
+    'save reply during the editor exit animation cannot pop its successor',
+    (tester) async {
+      await show(tester);
+      final finder = find.byType(ConfigTextPage);
+      final editorState = tester.state(finder);
+      final navigator = Navigator.of(tester.element(finder));
+      final route = ModalRoute.of(tester.element(finder))!;
+      tester.widget<CodeEditor>(find.byType(CodeEditor)).controller!.text =
+          'retained\n';
+      await tester.pump(const Duration(milliseconds: 200));
+      app.pending = Completer<AppSnapshot?>();
+      await tester.tap(find.text(zh.save));
+      await tester.pump();
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text(zh.leave),
+        ),
+      );
+      await tester.pump();
+      expect(route.isActive, isFalse);
+      expect(
+        editorState.mounted,
+        isTrue,
+        reason: 'The reply must arrive before editor disposal, not after pumpAndSettle.',
+      );
+      final successor = MaterialPageRoute<void>(
+        builder: (_) => const Scaffold(body: Text('Successor route')),
+      );
+      unawaited(navigator.push(successor));
+      await tester.pump();
+      expect(editorState.mounted, isTrue);
+      app.pending!.complete(
+        const AppSnapshot(
+          configStatus: 'saved',
+          resultSuccess: true,
+          targetId: 'local',
+          savedRevision: 2,
+        ),
+      );
+      await tester.pump();
+      expect(successor.isActive, isTrue);
+      await tester.pumpAndSettle();
+      expect(find.text('Successor route'), findsOneWidget);
+      expect(navigator.canPop(), isTrue);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('late saved result after leaving does not pop another route', (
     tester,
   ) async {
@@ -335,6 +545,7 @@ void main() {
     app.pending!.complete(
       const AppSnapshot(
         configStatus: 'saved',
+        resultSuccess: true,
         targetId: 'local',
         savedRevision: 2,
       ),
@@ -366,11 +577,13 @@ void main() {
     editor.controller!.text = 'later\n';
     app.outcome = const AppSnapshot(
       configStatus: 'saved',
+      resultSuccess: true,
       targetId: 'local',
       savedRevision: 2,
     );
     await tester.tap(find.text('统一并保存'));
     await tester.pumpAndSettle();
+    publishSavedBody();
     expect(app.commands.single['body'], '\u{feff}submitted\r\n');
     expect(find.byType(ConfigTextPage), findsOneWidget);
     await tester.tap(find.text('关闭'));
@@ -579,12 +792,13 @@ void main() {
             app.updateState(AppSnapshot(phase: phase, configId: 'local'));
             await checkFrames();
           }
+          publishSavedBody();
           app.pending!.complete(
             const AppSnapshot(
               configStatus: 'applyFailed',
               targetId: 'local',
               savedRevision: 2,
-              resultMessage: '正文已保存，启动失败。',
+              resultMessage: AppMessage('configSavedApplyReleasePending'),
             ),
           );
           await tester.pumpAndSettle();
@@ -603,6 +817,7 @@ void main() {
           app.pending!.complete(
             const AppSnapshot(
               configStatus: 'applied',
+              resultSuccess: true,
               targetId: 'local',
               savedRevision: 2,
             ),

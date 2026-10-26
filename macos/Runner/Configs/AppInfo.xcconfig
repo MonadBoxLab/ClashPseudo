@@ -1,14 +1,6 @@
-// Application-level settings for the Runner target.
-//
-// This may be replaced with something auto-generated from metadata (e.g., pubspec.yaml) in the
-// future. If not, the values below would default to using the project name when this becomes a
-// 'flutter create' template.
-
-// The application's name. By default this is also the title of the Flutter window.
+// 应用名称与原生标识；版本由 Flutter 构建元数据提供。
 PRODUCT_NAME = Clash Pseudo
-
-// The application's bundle identifier
 PRODUCT_BUNDLE_IDENTIFIER = io.github.monadboxlab.clashpseudo
 
-// The copyright displayed in application information
+// 应用信息中的著作权声明。
 PRODUCT_COPYRIGHT = Copyright © 2026 MonadBox Lab. All rights reserved.

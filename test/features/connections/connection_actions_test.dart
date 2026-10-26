@@ -1,8 +1,10 @@
+import 'package:clash_pseudo/src/model/app_snapshot.dart';
+import 'package:clash_pseudo/src/model/core_snapshot.dart';
+
 import 'dart:async';
 
-import 'package:clash_pseudo/features/connections/connection_actions.dart';
-import 'package:clash_pseudo/features/strategies/strategy_snapshot.dart';
-import 'package:clash_pseudo/platform/app_bridge.dart';
+import 'package:clash_pseudo/src/features/connections/connection_actions.dart';
+import 'package:clash_pseudo/src/platform/app_bridge.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const core = CoreSnapshot(

@@ -1,23 +1,10 @@
 package engine
 
 import (
-	"errors"
-
 	"github.com/metacubex/mihomo/tunnel"
-)
 
-func parseMode(value string) (tunnel.TunnelMode, error) {
-	switch value {
-	case "rule":
-		return tunnel.Rule, nil
-	case "global":
-		return tunnel.Global, nil
-	case "direct":
-		return tunnel.Direct, nil
-	default:
-		return tunnel.Rule, errors.New("invalid tunnel mode")
-	}
-}
+	"clashpseudo/native/internal/configinput"
+)
 
 func (e *Engine) Mode() string {
 	e.mu.Lock()
@@ -29,7 +16,7 @@ func (e *Engine) Mode() string {
 }
 
 func (e *Engine) SetMode(value string) error {
-	mode, err := parseMode(value)
+	mode, err := configinput.ParseMode(value)
 	if err != nil {
 		return err
 	}
@@ -38,8 +25,8 @@ func (e *Engine) SetMode(value string) error {
 	if !e.available() {
 		return ErrStopped
 	}
-	// This lock orders our lifecycle calls, not upstream routing goroutines.
-	// v1.19.32's official SetMode still has unsynchronized traffic-side reads.
+	// This lock serializes application lifecycle calls. Upstream routing reads require
+	// their own synchronization.
 	tunnel.SetMode(mode)
 	e.cfg.General.Mode = mode
 	return nil

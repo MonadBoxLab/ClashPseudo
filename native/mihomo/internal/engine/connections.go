@@ -4,22 +4,28 @@ import (
 	"container/heap"
 	"encoding/json"
 	"errors"
+	"net/netip"
 	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"clashpseudo/native/internal/appcontract"
+
 	"github.com/gofrs/uuid/v5"
 	G "github.com/metacubex/mihomo/adapter/outboundgroup"
+	"github.com/metacubex/mihomo/component/resolver"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/tunnel/statistic"
+	"golang.org/x/net/idna"
+	"golang.org/x/net/publicsuffix"
 )
 
 const (
-	MaxConnectionRows     = 1000
-	MaxConnectionRequest  = 64 << 10
-	maxConnectionRowBytes = 4 << 10
-	maxConnectionResponse = 8 << 20
+	MaxConnectionRows     = appcontract.ConnectionActiveEntries
+	MaxConnectionRequest  = appcontract.ConnectionRequestBytes
+	maxConnectionRowBytes = appcontract.ConnectionRowBytes
+	maxConnectionResponse = appcontract.ConnectionResponseBytes
 )
 
 var errConnections = errors.New("connection query failed")
@@ -92,15 +98,84 @@ func (h *connectionHeap) Pop() any {
 	return last
 }
 
+type connectionRuleSuggestions struct {
+	ConnectionID string   `json:"connectionId"`
+	Host         *string  `json:"host"`
+	Suffixes     []string `json:"suffixes"`
+	IPCIDR       *string  `json:"ipCidr"`
+}
+
+// Build PSL scope suggestions from the complete current tracker metadata.
+func connectionSuggestions(id string, metadata *C.Metadata) *connectionRuleSuggestions {
+	value := &connectionRuleSuggestions{ConnectionID: id, Suffixes: []string{}}
+	if metadata == nil {
+		return value
+	}
+	observed := *metadata
+	if ip := observed.DstIP.Unmap(); ip.IsValid() && !ip.IsUnspecified() && ip.Zone() == "" && !resolver.IsFakeIP(ip) {
+		cidr := netip.PrefixFrom(ip, ip.BitLen()).String()
+		value.IPCIDR = &cidr
+	}
+	host := observed.Host
+	if host == "" || len(host) > 1024 || !utf8.ValidString(host) || strings.ContainsAny(host, ":/\\@?#%[]") {
+		return value
+	}
+	host, err := idna.Lookup.ToASCII(host)
+	if err != nil {
+		return value
+	}
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	if len(host) == 0 || len(host) > 253 {
+		return value
+	}
+	if _, err := netip.ParseAddr(host); err == nil {
+		return value
+	}
+	for _, label := range strings.Split(host, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return value
+		}
+		for _, c := range label {
+			if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+				return value
+			}
+		}
+	}
+	value.Host = &host
+	registrable, err := publicsuffix.EffectiveTLDPlusOne(host)
+	if err == nil {
+		for suffix := host; ; {
+			value.Suffixes = append(value.Suffixes, suffix)
+			if suffix == registrable {
+				break
+			}
+			_, next, ok := strings.Cut(suffix, ".")
+			if !ok {
+				break
+			}
+			suffix = next
+		}
+	}
+	// A 253-byte wire-valid host has at most 127 labels; return the complete suffix set
+	// within the 32KiB envelope.
+	if encoded, err := json.Marshal(value); err != nil || len(encoded) > 32<<10 {
+		return nil
+	}
+	return value
+}
+
 type connectionReply struct {
-	UploadTotal   int64             `json:"uploadTotal"`
-	DownloadTotal int64             `json:"downloadTotal"`
-	ActiveCount   int               `json:"activeCount"`
-	Connections   []json.RawMessage `json:"connections"`
-	Detail        json.RawMessage   `json:"detail,omitempty"`
-	Presence      map[string]bool   `json:"presence"`
-	Limited       bool              `json:"limited"`
-	Complete      bool              `json:"complete"`
+	UploadTotal     int64                      `json:"uploadTotal"`
+	DownloadTotal   int64                      `json:"downloadTotal"`
+	SessionUpload   *int64                     `json:"sessionUploadBytes"`
+	SessionDownload *int64                     `json:"sessionDownloadBytes"`
+	ActiveCount     int                        `json:"activeCount"`
+	Connections     []json.RawMessage          `json:"connections"`
+	Detail          json.RawMessage            `json:"detail,omitempty"`
+	RuleSuggestions *connectionRuleSuggestions `json:"ruleSuggestions"`
+	Presence        map[string]bool            `json:"presence"`
+	Limited         bool                       `json:"limited"`
+	Complete        bool                       `json:"complete"`
 }
 
 func (e *Engine) Connections(q ConnectionQuery) (string, error) {
@@ -112,10 +187,10 @@ func (e *Engine) Connections(q ConnectionQuery) (string, error) {
 	if !e.available() || e.tun == nil {
 		return "", ErrStopped
 	}
-	return queryConnections(statistic.DefaultManager, e.cfg.Proxies, q)
+	return queryConnections(statistic.DefaultManager, e.cfg.Proxies, q, e.traffic)
 }
 
-func queryConnections(source connectionSource, proxies map[string]C.Proxy, q ConnectionQuery) (string, error) {
+func queryConnections(source connectionSource, proxies map[string]C.Proxy, q ConnectionQuery, baseline ...*trafficBaseline) (string, error) {
 	if err := q.validate(); err != nil {
 		return "", err
 	}
@@ -157,7 +232,7 @@ func queryConnections(source connectionSource, proxies map[string]C.Proxy, q Con
 		return candidates[i].start.After(candidates[j].start)
 	})
 
-	// Reuse each Get result inside this response. Range/Get are not a transaction.
+	// Reuse each Get observation within this response.
 	checked := make(map[string]*statistic.TrackerInfo, q.Limit+len(q.PreviousActiveIDs)+1)
 	lookup := func(id string) *statistic.TrackerInfo {
 		if info, ok := checked[id]; ok {
@@ -198,6 +273,9 @@ func queryConnections(source connectionSource, proxies map[string]C.Proxy, q Con
 	if q.DetailID != "" {
 		info := lookup(q.DetailID)
 		response.Presence[q.DetailID] = info != nil
+		if info != nil {
+			response.RuleSuggestions = connectionSuggestions(q.DetailID, info.Metadata)
+		}
 		if info != nil && !selected[q.DetailID] {
 			row, err := projectConnection(proxies, q.DetailID, info)
 			if err != nil {
@@ -210,6 +288,9 @@ func queryConnections(source connectionSource, proxies map[string]C.Proxy, q Con
 		return "", scanError
 	}
 	response.UploadTotal, response.DownloadTotal = source.Total()
+	if len(baseline) > 0 {
+		response.SessionUpload, response.SessionDownload = baseline[0].totals(response.UploadTotal, response.DownloadTotal)
+	}
 	response.ActiveCount = count
 	body, err := json.Marshal(response)
 	if err != nil || len(body) > maxConnectionResponse {
@@ -234,6 +315,7 @@ type connectionStrategy struct {
 }
 
 type connectionRow struct {
+	RuleSuggestions *connectionRuleSuggestions `json:"ruleSuggestions,omitempty"`
 	Strategy    *connectionStrategy `json:"strategy,omitempty"`
 	ID          string              `json:"id"`
 	Start       time.Time           `json:"start"`
@@ -246,7 +328,7 @@ type connectionRow struct {
 	Truncated   bool                `json:"fieldsTruncated,omitempty"`
 }
 
-// Copy bounded text before encoding; a small substring must not retain a huge source string.
+// Copy bounded strings before encoding to release larger source backing storage.
 func connectionText(value string, limit int, truncated *bool) string {
 	if len(value) > limit {
 		*truncated = true
@@ -290,8 +372,9 @@ func projectConnection(proxies map[string]C.Proxy, id string, info *statistic.Tr
 			descriptor = &connectionStrategy{Type: "Reject"}
 		}
 	}
+	suggestions := connectionSuggestions(id, info.Metadata)
 	for scale := 1; scale <= 16; scale *= 2 {
-		row := connectionRow{ID: id, Start: info.Start, Strategy: descriptor,
+		row := connectionRow{ID: id, Start: info.Start, Strategy: descriptor, RuleSuggestions: suggestions,
 			Upload: info.UploadTotal.Load(), Download: info.DownloadTotal.Load(),
 			Chains: make([]string, 0, min(len(info.Chain), 16)), Truncated: len(info.Chain) > 16 || iconOmitted}
 		text := func(s string, n int) string { return connectionText(s, n/scale, &row.Truncated) }

@@ -1,12 +1,24 @@
-import 'package:clash_pseudo/app/app_shell.dart';
-import 'package:clash_pseudo/app/app_theme.dart';
-import 'package:clash_pseudo/features/strategies/strategy_snapshot.dart';
-import 'package:clash_pseudo/features/strategies/strategy_popup.dart';
-import 'package:clash_pseudo/platform/app_bridge.dart';
+import 'package:clash_pseudo/src/model/app_snapshot.dart';
+import 'package:clash_pseudo/src/model/core_snapshot.dart';
+import 'package:clash_pseudo/src/app/app_shell.dart';
+import 'package:clash_pseudo/src/app/app_theme.dart';
+import 'package:clash_pseudo/src/features/strategies/strategy_snapshot.dart';
+import 'package:clash_pseudo/src/features/strategies/strategy_popup.dart';
+import 'package:clash_pseudo/src/features/configs/config_entry.dart';
+import 'package:clash_pseudo/src/l10n/app_localizations.dart';
+import 'package:clash_pseudo/src/model/app_preferences.dart';
+import 'package:clash_pseudo/src/l10n/messages.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'strategy_fakes.dart';
+
+class _EpochPopupApp extends StrategyAppFake {
+  _EpochPopupApp(super.bridge);
+  int epoch = 1;
+  @override
+  int get storageEpoch => epoch;
+}
 
 void main() {
   late StrategyBridgeFake bridge;
@@ -22,10 +34,29 @@ void main() {
     bool dark = false,
     double scale = 1,
     bool animations = false,
+    Locale locale = const Locale('zh'),
+    BrandColor brand = BrandColor.cinnabar,
+    double? width,
   }) async {
+    if (width != null) {
+      tester.view.physicalSize = Size(width, 1100);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+    }
+    setMessageLanguage(
+      locale.languageCode == 'zh' ? AppLanguage.zh : AppLanguage.en,
+    );
+    addTearDown(() => setMessageLanguage(AppLanguage.system));
     await tester.pumpWidget(
       MaterialApp(
-        theme: dark ? AppTheme.dark : AppTheme.light,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: locale,
+        theme: AppTheme.forBrightness(
+          dark ? Brightness.dark : Brightness.light,
+          brand,
+        ),
         builder: (context, child) => MediaQuery(
           data: MediaQuery.of(context).copyWith(
             textScaler: TextScaler.linear(scale),
@@ -39,8 +70,37 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Finder destination(WidgetTester tester, int index) {
+    final bar = find.byType(NavigationBar);
+    if (bar.evaluate().isNotEmpty) {
+      return find
+          .byType(NavigationDestination)
+          .at(
+            index == 2
+                ? tester.widget<NavigationBar>(bar).destinations.length - 1
+                : index,
+          );
+    }
+    final rail = find.byType(NavigationRail);
+    final label =
+        tester
+                .widget<NavigationRail>(rail)
+                .destinations[index == 2
+                    ? tester.widget<NavigationRail>(rail).destinations.length -
+                          1
+                    : index]
+                .label
+            as Text;
+    return find
+        .ancestor(
+          of: find.descendant(of: rail, matching: find.text(label.data!)),
+          matching: find.byWidgetPredicate((widget) => widget is InkResponse),
+        )
+        .first;
+  }
+
   Future<void> strategies(WidgetTester tester) async {
-    await tester.tap(find.byType(NavigationDestination).at(1));
+    await tester.tap(destination(tester, 1));
     await tester.pumpAndSettle();
   }
 
@@ -61,34 +121,197 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  for (final dark in [false, true]) {
+  for (final reason in [
+    'group-missing',
+    'type-changed',
+    'not-selectable',
+    'member-missing',
+    'unknown-code',
+  ]) {
     testWidgets(
-      'navigation uses neutral tonal layers on both pages dark=$dark',
+      'unrestored reason $reason resolves in summary and retained popup',
       (tester) async {
-        await show(tester, dark: dark);
-        final palette = HomePalette(dark);
-        void check() {
-          final context = tester.element(find.byType(NavigationBar));
-          final theme = NavigationBarTheme.of(context);
-          expect(theme.backgroundColor, palette.surface);
-          expect(theme.backgroundColor, isNot(palette.background));
-          expect(theme.indicatorColor, palette.soft);
-          expect(theme.elevation, 0);
-          expect(theme.surfaceTintColor, Colors.transparent);
-          expect(
-            tester
-                .widget<Scaffold>(find.byType(Scaffold).first)
-                .bottomNavigationBar,
-            isA<NavigationBar>(),
-          );
-        }
-
-        check();
+        final original = strategyData();
+        bridge.data = StrategySnapshot(
+          generation: original.generation,
+          configId: original.configId,
+          revision: original.revision,
+          purpose: original.purpose,
+          composition: original.composition,
+          globalReferenced: original.globalReferenced,
+          unrestored: {'出口': reason},
+          groups: original.groups,
+        );
+        final locale = ValueNotifier(const Locale('en'));
+        addTearDown(locale.dispose);
+        await tester.pumpWidget(
+          ValueListenableBuilder<Locale>(
+            valueListenable: locale,
+            builder: (_, value, _) => MaterialApp(
+              locale: value,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context).copyWith(disableAnimations: true),
+                child: child!,
+              ),
+              home: AppShell(controller: app),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
         await strategies(tester);
-        check();
+        String label(AppLocalizations strings) => switch (reason) {
+          'group-missing' => strings.strategyGroupMissing,
+          'type-changed' => strings.strategyTypeChanged,
+          'not-selectable' => strings.strategyNotSelectable,
+          'member-missing' => strings.strategyMemberMissing,
+          _ => strings.resultUnconfirmed,
+        };
+        final en = lookupAppLocalizations(const Locale('en'));
+        await tester.tap(find.byTooltip(en.viewUnrestored));
+        await tester.pumpAndSettle();
+        expect(
+          find.textContaining(en.unrestoredLine('出口', label(en))),
+          findsOneWidget,
+        );
+        final summary = tester.element(find.byType(AlertDialog));
+        locale.value = const Locale('zh');
+        await tester.pumpAndSettle();
+        final zh = lookupAppLocalizations(const Locale('zh'));
+        expect(tester.element(find.byType(AlertDialog)), same(summary));
+        expect(
+          find.textContaining(zh.unrestoredLine('出口', label(zh))),
+          findsOneWidget,
+        );
+        await tester.tap(find.text(zh.close));
+        await tester.pumpAndSettle();
+        await open(tester, '出口');
+        final popup = tester.state(find.byType(StrategyPopup));
+        await tester.tap(find.text(zh.popupNotRestoredShort));
+        await tester.pumpAndSettle();
+        final detail = tester.element(find.byType(AlertDialog));
+        for (final strings in [zh, en, zh]) {
+          locale.value = Locale(strings.localeName);
+          await tester.pumpAndSettle();
+          expect(tester.state(find.byType(StrategyPopup)), same(popup));
+          expect(tester.element(find.byType(AlertDialog)), same(detail));
+          expect(
+            find.text(strings.popupNotRestored(label(strings))),
+            findsOneWidget,
+          );
+          expect(find.textContaining(reason), findsNothing);
+          expect(bridge.data.unrestored['出口'], reason);
+          expect(tester.takeException(), isNull);
+        }
         await tester.pumpWidget(const SizedBox());
       },
     );
+  }
+
+  for (final dark in [false, true]) {
+    for (final width in [320.0, 800.0]) {
+      for (final brand in BrandColor.values) {
+        testWidgets(
+          'navigation destinations rotate all brand roles dark=$dark brand=$brand width=$width',
+          (tester) async {
+            await show(tester, dark: dark, brand: brand, width: width);
+            final scheme = AppTheme.forBrightness(
+              dark ? Brightness.dark : Brightness.light,
+              brand,
+            ).colorScheme;
+            final colors = [scheme.primary, scheme.secondary, scheme.tertiary];
+            expect(colors.toSet(), hasLength(3));
+            final anchors = [
+              for (var i = 0; i < 3; i++)
+                tester.getRect(destination(tester, i)),
+            ];
+            for (final selected in [0, 1, 2, 0]) {
+              await tester.tap(destination(tester, selected));
+              for (final elapsed in [
+                Duration.zero,
+                const Duration(milliseconds: 16),
+                const Duration(milliseconds: 250),
+              ]) {
+                await tester.pump(elapsed);
+                final icons = find.byType(NavigationBar).evaluate().isNotEmpty
+                    ? tester
+                          .widget<NavigationBar>(find.byType(NavigationBar))
+                          .destinations
+                          .cast<NavigationDestination>()
+                          .map((item) => (item.icon, item.selectedIcon))
+                          .toList()
+                    : tester
+                          .widget<NavigationRail>(find.byType(NavigationRail))
+                          .destinations
+                          .map((item) => (item.icon, item.selectedIcon))
+                          .toList();
+                expect(icons.length, inInclusiveRange(3, 5));
+                final roles = [
+                  colors[0],
+                  colors[1],
+                  if (icons.length >= 4) colors[1],
+                  if (icons.length >= 5) colors[2],
+                  colors[2],
+                ];
+                for (var i = 0; i < icons.length; i++) {
+                  expect((icons[i].$1 as Icon).color, roles[i]);
+                  expect((icons[i].$2 as Icon).color, roles[i]);
+                }
+                for (var i = 0; i < anchors.length; i++) {
+                  expect(tester.getRect(destination(tester, i)), anchors[i]);
+                }
+              }
+              await tester.pumpAndSettle();
+            }
+            expect(tester.takeException(), isNull);
+            await tester.pumpWidget(const SizedBox());
+          },
+        );
+      }
+      testWidgets(
+        'navigation uses neutral tonal layers on both pages dark=$dark width=$width',
+        (tester) async {
+          await show(tester, dark: dark, width: width);
+          final palette = HomePalette(dark);
+          void check() {
+            if (width >= 600) {
+              final context = tester.element(find.byType(NavigationRail));
+              final theme = NavigationRailTheme.of(context);
+              expect(theme.backgroundColor, palette.surface);
+              expect(theme.backgroundColor, isNot(palette.background));
+              expect(theme.indicatorColor, palette.soft);
+              expect(theme.elevation, 0);
+              expect(
+                tester
+                    .widget<Scaffold>(find.byType(Scaffold).first)
+                    .bottomNavigationBar,
+                isNull,
+              );
+            } else {
+              final context = tester.element(find.byType(NavigationBar));
+              final theme = NavigationBarTheme.of(context);
+              expect(theme.backgroundColor, palette.surface);
+              expect(theme.backgroundColor, isNot(palette.background));
+              expect(theme.indicatorColor, palette.soft);
+              expect(theme.elevation, 0);
+              expect(theme.surfaceTintColor, Colors.transparent);
+              expect(
+                tester
+                    .widget<Scaffold>(find.byType(Scaffold).first)
+                    .bottomNavigationBar,
+                isA<NavigationBar>(),
+              );
+            }
+          }
+
+          check();
+          await strategies(tester);
+          check();
+          await tester.pumpWidget(const SizedBox());
+        },
+      );
+    }
   }
 
   testWidgets('unloaded strategy explains state without inventing failure', (
@@ -96,7 +319,7 @@ void main() {
   ) async {
     app.state = const AppSnapshot(phase: 'STOPPED');
     await show(tester);
-    await tester.tap(find.byType(NavigationDestination).at(1));
+    await tester.tap(destination(tester, 1));
     await tester.pump();
     expect(find.text('重试加载策略'), findsNothing);
     await tester.pumpAndSettle();
@@ -128,15 +351,18 @@ void main() {
           phase: 'EMPTY',
           configId: 'one',
           revision: 1,
-          error: '规则引用不存在',
+          error: AppMessage('androidErrorStrategyPrepare'),
         ),
       );
-      app.commandError = ' ';
+      app.commandErrorMessage = null;
       await show(tester);
       await strategies(tester);
       await tester.tap(find.byTooltip('查看策略错误'));
       await tester.pumpAndSettle();
-      expect(find.text('规则引用不存在'), findsOneWidget);
+      expect(
+        find.text(messages.androidErrorStrategyPrepare.text),
+        findsOneWidget,
+      );
       await tester.tap(find.text('关闭'));
       await tester.pumpAndSettle();
       expect(find.text('策略尚未加载。'), findsNothing);
@@ -172,10 +398,13 @@ void main() {
   });
 
   testWidgets(
-    'two destinations, lazy strategy reading and secondary configuration route',
+    'capacity navigation keeps lazy strategy reading and the configuration task',
     (tester) async {
       await show(tester);
-      expect(find.byType(NavigationDestination), findsNWidgets(2));
+      expect(
+        tester.widget<NavigationRail>(find.byType(NavigationRail)).destinations,
+        hasLength(5),
+      );
       expect(bridge.reads, 0);
       expect(app.commands, isEmpty);
       await strategies(tester);
@@ -184,24 +413,100 @@ void main() {
       expect(find.byKey(const ValueKey('strategy-group-GLOBAL')), findsNothing);
       expect(find.byTooltip('管理配置'), findsNothing);
       expect(find.byIcon(Icons.folder_open_outlined), findsNothing);
-      await tester.tap(find.byType(NavigationDestination).first);
+      await tester.tap(destination(tester, 0));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('配置管理'));
+      await tester.tap(find.text('配置管理').last);
       await tester.pumpAndSettle();
-      expect(find.byType(NavigationBar), findsNothing);
+      expect(find.byType(NavigationRail), findsOneWidget);
       await tester.pump(const Duration(seconds: 10));
       expect(bridge.reads, 1);
-      await tester.pageBack();
+      await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
-      expect(find.byType(NavigationBar), findsOneWidget);
+      expect(find.byType(NavigationRail), findsOneWidget);
       expect(bridge.reads, 1);
       await strategies(tester);
       expect(bridge.reads, 2);
-      await tester.tap(find.byType(NavigationDestination).first);
+      await tester.tap(destination(tester, 0));
       await tester.pumpAndSettle();
       await tester.pump(const Duration(seconds: 10));
       expect(bridge.reads, 2);
       await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'open strategy popup expires on epoch replacement even when all core identity fields match',
+    (tester) async {
+      app.dispose();
+      final epochApp = _EpochPopupApp(bridge);
+      app = epochApp;
+      tester.view.physicalSize = const Size(320, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await show(tester, scale: 2);
+      await strategies(tester);
+      await open(tester, '出口');
+      final popup = find.byKey(const ValueKey('strategy-popup-出口'));
+      final member = find.byKey(const ValueKey('strategy-member-1'));
+      final popupRect = tester.getRect(popup);
+      final memberRect = tester.getRect(member);
+      final oldTap = tester.widget<InkWell>(member).onTap!;
+      expect(
+        tester.widget<StrategyPopup>(find.byType(StrategyPopup)).storageEpoch,
+        1,
+      );
+      epochApp.epoch = 2;
+      app.collection = ConfigCollection(
+        entries: [
+          ConfigEntry(
+            id: strategyEntry.id,
+            name: strategyEntry.name,
+            source: strategyEntry.source,
+            revision: strategyEntry.revision,
+            body: 'restored same id and revision',
+          ),
+        ],
+        selectedId: strategyEntry.id,
+      );
+      app.changed();
+      oldTap(); // A callback already queued before the replacement frame is stale too.
+      for (final elapsed in [
+        Duration.zero,
+        const Duration(milliseconds: 16),
+        const Duration(milliseconds: 80),
+      ]) {
+        await tester.pump(elapsed);
+        expect(tester.getRect(popup), popupRect);
+        expect(tester.getRect(member), memberRect);
+        expect(tester.widget<InkWell>(member).onTap, isNull);
+      }
+      expect(find.text('已失效 · 请重新打开'), findsOneWidget);
+      expect(app.commands, isEmpty);
+      expect(bridge.data.find('出口')!.now, 'A');
+      await tester.tap(find.byTooltip('关闭策略浮窗'));
+      await tester.pumpAndSettle();
+      await open(tester, '出口');
+      expect(
+        tester.widget<StrategyPopup>(find.byType(StrategyPopup)).storageEpoch,
+        2,
+      );
+      await tester.ensureVisible(member);
+      await tester.tap(member);
+      await tester.pump();
+      expect(app.commands.single, {
+        'action': 'setStrategy',
+        'storageEpoch': 2,
+        'id': 'one',
+        'revision': 1,
+        'generation': 7,
+        'composition': '["one",1]',
+        'name': '出口',
+        'choice': {'type': 'select', 'member': 'B'},
+      });
+      expect(bridge.data.find('出口')!.now, 'A');
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
     },
   );
 
@@ -378,6 +683,7 @@ void main() {
           configId: 'one',
           revision: 1,
           purpose: 'PREVIEW',
+          composition: '["one",1]',
           globalReferenced: false,
           unrestored: {},
           groups: [
@@ -435,6 +741,37 @@ void main() {
     );
   }
 
+  testWidgets('hidden toggle persists across tabs and expires an old popup', (
+    tester,
+  ) async {
+    await show(tester);
+    await strategies(tester);
+    expect(find.byKey(const ValueKey('strategy-group-隐藏')), findsNothing);
+    await tester.tap(find.byTooltip('显示隐藏策略组'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('strategy-group-GLOBAL')), findsNothing);
+    await tester.tap(destination(tester, 0));
+    await tester.pumpAndSettle();
+    await strategies(tester);
+    expect(find.byTooltip('隐藏隐藏策略组'), findsOneWidget);
+    await open(tester, '隐藏');
+    final popup = tester.widget<StrategyPopup>(find.byType(StrategyPopup));
+    popup.controller.setShowHidden(false);
+    await tester.pumpAndSettle();
+    expect(find.text('已失效 · 请重新打开'), findsOneWidget);
+    popup.controller.setShowHidden(true);
+    await tester.pumpAndSettle();
+    expect(find.text('已失效 · 请重新打开'), findsOneWidget);
+    final member = find.byKey(const ValueKey('strategy-member-0'));
+    expect(tester.widget<InkWell>(member).onTap, isNull);
+    expect(app.commands, isEmpty);
+    await tester.tap(find.byTooltip('关闭策略浮窗'));
+    await tester.pumpAndSettle();
+    await open(tester, '隐藏');
+    expect(tester.widget<InkWell>(member).onTap, isNotNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('old popup cannot select a same-named replacement group', (
     tester,
   ) async {
@@ -445,6 +782,7 @@ void main() {
       generation: 8,
       phase: 'READY',
       purpose: 'PREVIEW',
+      composition: '["one",1]',
       configId: 'one',
       revision: 1,
     );
@@ -542,6 +880,7 @@ void main() {
         generation: 8,
         phase: 'READY',
         purpose: 'PREVIEW',
+        composition: '["one",1]',
         configId: 'one',
         revision: 1,
       );
@@ -581,6 +920,7 @@ void main() {
         configId: 'one',
         revision: 1,
         purpose: 'PREVIEW',
+        composition: '["one",1]',
         globalReferenced: false,
         unrestored: {},
         groups: [
@@ -676,6 +1016,7 @@ void main() {
       configId: 'one',
       revision: 1,
       purpose: 'PREVIEW',
+      composition: '["one",1]',
       globalReferenced: false,
       unrestored: {},
       groups: List.generate(
@@ -721,16 +1062,8 @@ void main() {
       expect(theme.navigationBarTheme.backgroundColor, palette.surface);
       expect(theme.navigationBarTheme.indicatorColor, palette.soft);
       expect(theme.colorScheme.surfaceContainerHighest, palette.soft);
-      expect(
-        theme.navigationBarTheme.iconTheme!.resolve({
-          WidgetState.selected,
-        })!.color,
-        palette.accent,
-      );
-      expect(
-        theme.navigationBarTheme.iconTheme!.resolve({})!.color,
-        palette.muted,
-      );
+      // The six rendered brand/brightness cases above check icon roles in both
+      // selection states; a global primary icon override would erase them.
     });
     testWidgets(
       'long names and unrestored warning remain scrollable dark=$dark',
@@ -746,6 +1079,7 @@ void main() {
           configId: 'one',
           revision: 1,
           purpose: 'PREVIEW',
+          composition: '["one",1]',
           globalReferenced: false,
           unrestored: {name: 'member-missing'},
           groups: [
@@ -812,6 +1146,562 @@ void main() {
           'type': 'url-test',
           'member': null,
         });
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
+  testWidgets('group and member delay tests report real results in place', (
+    tester,
+  ) async {
+    await show(tester);
+    await strategies(tester);
+    await open(tester, '出口');
+    final popup = find.byKey(const ValueKey('strategy-popup-出口'));
+    final before = tester.getRect(popup);
+    final status = find.byKey(const ValueKey('strategy-delay-group'));
+    await tester.tap(status);
+    await tester.pump();
+    expect(bridge.delayStarts, [
+      {'group': '出口'},
+    ]);
+    expect(find.text('已完成 0/2'), findsOneWidget);
+    expect(tester.getRect(popup), before);
+    bridge.finishDelay({'A': ('success', 42), 'B': ('timeout', null)});
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pump();
+    expect(find.text('42 ms'), findsOneWidget);
+    expect(find.text('超时'), findsOneWidget);
+    expect(find.text('测试完成'), findsOneWidget);
+    expect(
+      find.byTooltip(
+        '测试完成\n目标：https://www.gstatic.com/generate_204 · HTTP 延迟，非 ICMP',
+      ),
+      findsOneWidget,
+    );
+    expect(tester.getRect(popup), before);
+    await tester.tap(find.byKey(const ValueKey('strategy-popup-status')));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining(
+        '目标：https://www.gstatic.com/generate_204 · HTTP 延迟，非 ICMP',
+      ),
+      findsWidgets,
+    );
+    await tester.tap(find.text('关闭'));
+    await tester.pumpAndSettle();
+    expect(tester.getRect(popup), before);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('member delay test targets one member without choosing it', (
+    tester,
+  ) async {
+    await show(tester);
+    await strategies(tester);
+    await open(tester, '出口');
+    await tester.tap(find.byKey(const ValueKey('strategy-delay-0')));
+    await tester.pump();
+    expect(bridge.delayStarts, [
+      {
+        'group': '出口',
+        'members': ['A'],
+      },
+    ]);
+    expect(app.commands, isEmpty);
+    expect(find.text('测试中'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('closing and expiry cancel the batch without resurrecting it', (
+    tester,
+  ) async {
+    await show(tester);
+    await strategies(tester);
+    await open(tester, '出口');
+    await tester.tap(find.byKey(const ValueKey('strategy-delay-group')));
+    await tester.pump();
+    await tester.tap(find.byTooltip('关闭策略浮窗'));
+    await tester.pumpAndSettle();
+    expect(bridge.delayCancels, ['batch-1']);
+    await open(tester, '出口');
+    expect(find.text('已完成 0/2'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('failed start keeps a fixed result slot and allows retry', (
+    tester,
+  ) async {
+    bridge.failDelayStart = true;
+    await show(tester);
+    await strategies(tester);
+    await open(tester, '出口');
+    final popup = find.byKey(const ValueKey('strategy-popup-出口'));
+    final before = tester.getRect(popup);
+    await tester.tap(find.byKey(const ValueKey('strategy-delay-group')));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('无法启动延迟测试'), findsOneWidget);
+    expect(tester.getRect(popup), before);
+    bridge.failDelayStart = false;
+    await tester.tap(find.byKey(const ValueKey('strategy-delay-group')));
+    await tester.pump();
+    expect(find.text('已完成 0/2'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+    'ordinary busy state preserves a delay batch but background cancels it',
+    (tester) async {
+      await show(tester);
+      await strategies(tester);
+      await open(tester, '出口');
+      await tester.tap(find.byKey(const ValueKey('strategy-delay-group')));
+      await tester.pump();
+      app.dispatching = true;
+      app.changed();
+      await tester.pump();
+      expect(bridge.delayCancels, isEmpty);
+      app.dispatching = false;
+      app.changed();
+      await tester.pump();
+      expect(bridge.delayCancels, isEmpty);
+      // The app may stop producing frames in the background, or return before
+      // the next frame. Cancellation must happen synchronously in either case.
+      app.setForeground(false);
+      expect(bridge.delayCancels, ['batch-1']);
+      app.setForeground(true);
+      await tester.pump();
+      expect(bridge.delayStarts, hasLength(1));
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  for (final dark in [false, true]) {
+    for (final started in [false, true]) {
+      for (final memberOnly in [false, true]) {
+        testWidgets(
+          'same-source foreground permits a new manual delay dark=$dark started=$started member=$memberOnly',
+          (tester) async {
+            tester.view.physicalSize = const Size(320, 640);
+            tester.view.devicePixelRatio = 1;
+            addTearDown(tester.view.resetPhysicalSize);
+            addTearDown(tester.view.resetDevicePixelRatio);
+            await show(tester, dark: dark, scale: 2);
+            await strategies(tester);
+            await open(tester, '出口');
+            final keys = [
+              'strategy-popup-出口',
+              'strategy-delay-group',
+              'strategy-member-name-0',
+              'strategy-member-marks-0',
+              'strategy-delay-result-0',
+              'strategy-delay-0',
+            ];
+            final before = {
+              for (final key in keys)
+                key: tester.getRect(find.byKey(ValueKey(key))),
+            };
+            void stable() {
+              for (final key in keys) {
+                expect(tester.getRect(find.byKey(ValueKey(key))), before[key]);
+              }
+              expect(tester.takeException(), isNull);
+            }
+
+            final group = find.byKey(const ValueKey('strategy-delay-group'));
+            if (started) {
+              await tester.tap(group);
+              await tester.pump();
+              bridge.finishDelay({
+                'A': ('success', 12),
+                'B': ('running', null),
+              });
+              bridge.delayBatch!['state'] = 'running';
+              await tester.pump(const Duration(milliseconds: 700));
+              await tester.pump();
+              expect(find.text('12 ms'), findsOneWidget);
+              stable();
+            }
+            final count = bridge.delayStarts.length;
+            app.setForeground(false);
+            await tester.pump();
+            stable();
+            expect(bridge.delayCancels, started ? ['batch-1'] : isEmpty);
+            expect(find.text('12 ms'), findsNothing);
+            expect(tester.widget<IconButton>(group).onPressed, isNull);
+            app.setForeground(true);
+            await tester.pump();
+            stable();
+            await tester.pump(const Duration(milliseconds: 16));
+            stable();
+            await tester.pump(const Duration(seconds: 3));
+            stable();
+            expect(bridge.delayStarts, hasLength(count));
+            expect(find.text('12 ms'), findsNothing);
+            final action = memberOnly
+                ? find.byKey(const ValueKey('strategy-delay-0'))
+                : group;
+            expect(tester.widget<IconButton>(action).onPressed, isNotNull);
+            await tester.tap(action);
+            await tester.pump();
+            stable();
+            expect(bridge.delayStarts, hasLength(count + 1));
+            expect(bridge.delayStarts.last, {
+              'group': '出口',
+              if (memberOnly) 'members': ['A'],
+            });
+            expect(app.commands, isEmpty);
+            expect(find.text('12 ms'), findsNothing);
+            bridge.finishDelay({
+              'A': ('success', 24),
+              if (!memberOnly) 'B': ('timeout', null),
+            });
+            await tester.pump(const Duration(milliseconds: 700));
+            await tester.pump();
+            stable();
+            expect(find.text('24 ms'), findsOneWidget);
+            await tester.pumpWidget(const SizedBox());
+          },
+        );
+      }
+    }
+  }
+
+  testWidgets(
+    'cancellation preserves a settled delay and expiry clears it in place',
+    (tester) async {
+      await show(tester);
+      await strategies(tester);
+      await open(tester, '出口');
+      final popup = find.byKey(const ValueKey('strategy-popup-出口'));
+      final member = find.byKey(const ValueKey('strategy-member-0'));
+      final before = tester.getRect(popup);
+      final memberBefore = tester.getRect(member);
+      await tester.tap(find.byKey(const ValueKey('strategy-delay-group')));
+      await tester.pump();
+      bridge.finishDelay({'A': ('success', 12), 'B': ('cancelled', null)});
+      bridge.delayBatch!['state'] = 'cancelled';
+      await tester.pump(const Duration(milliseconds: 700));
+      await tester.pump();
+      final strings = AppLocalizations.of(tester.element(popup));
+      expect(find.text('12 ms'), findsOneWidget);
+      expect(find.text(strings.delayCancelled), findsNWidgets(2));
+      expect(tester.getRect(popup), before);
+      expect(tester.getRect(member), memberBefore);
+      await tester.tap(find.byKey(const ValueKey('strategy-delay-group')));
+      await tester.pump();
+      bridge.finishDelay({'A': ('success', 12), 'B': ('success', 18)});
+      await tester.pump(const Duration(milliseconds: 700));
+      await tester.pump();
+      bridge.finishDelay({'A': ('expired', null), 'B': ('expired', null)});
+      bridge.delayBatch!['state'] = 'expired';
+      await tester.pump(const Duration(milliseconds: 700));
+      await tester.pump();
+      expect(find.text('12 ms'), findsNothing);
+      expect(find.text(strings.delayExpired), findsNWidgets(3));
+      expect(tester.getRect(popup), before);
+      expect(tester.getRect(member), memberBefore);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  for (final dark in [false, true]) {
+    for (final language in ['zh', 'en']) {
+      for (final narrow in [false, true]) {
+        testWidgets(
+          'strategy toolbar and trailing slots stay stable dark=$dark language=$language narrow=$narrow',
+          (tester) async {
+            tester.view.physicalSize = narrow
+                ? const Size(320, 640)
+                : const Size(480, 800);
+            tester.view.devicePixelRatio = 1;
+            addTearDown(tester.view.resetPhysicalSize);
+            addTearDown(tester.view.resetDevicePixelRatio);
+            final groupName = language == 'zh'
+                ? '很长的自动策略组名称🌐保持完整标题'
+                : 'A long automatic strategy group 🌐 title';
+            final nodeName = language == 'zh'
+                ? '很长的真实节点名称🌐用于检查等待与结果'
+                : 'A long real member name 🌐 that remains readable';
+            StrategySnapshot data({
+              String fixed = '',
+              String? now,
+              CoreSnapshot core = previewCore,
+            }) => StrategySnapshot(
+              generation: core.generation,
+              configId: core.configId!,
+              revision: core.revision!,
+              purpose: core.purpose!,
+              composition: core.composition,
+              globalReferenced: false,
+              unrestored: {},
+              groups: [
+                StrategyGroup(
+                  name: groupName,
+                  rawType: 'url-test',
+                  hidden: false,
+                  now: now ?? nodeName,
+                  fixed: fixed,
+                  members: [
+                    StrategyMember(name: nodeName, type: 'Socks5'),
+                    const StrategyMember(name: 'DIRECT', type: 'Direct'),
+                  ],
+                ),
+              ],
+            );
+            bridge.data = data();
+            await show(
+              tester,
+              dark: dark,
+              scale: narrow ? 2 : 1,
+              locale: Locale(language),
+            );
+            await strategies(tester);
+            final cardName = find.byKey(ValueKey('strategy-name-$groupName'));
+            final current = find.byKey(ValueKey('strategy-current-$groupName'));
+            final pin = find.byKey(ValueKey('strategy-pin-$groupName'));
+            expect(
+              tester.getTopLeft(current).dx,
+              tester.getTopLeft(cardName).dx,
+            );
+            final beforeCurrent = tester.getRect(current);
+            final beforePin = tester.getRect(pin);
+            bridge.data = data(fixed: nodeName);
+            app.state = const AppSnapshot(
+              phase: 'STOPPED',
+              core: previewCore,
+              resultId: 'fixed',
+              resultSuccess: true,
+            );
+            app.changed();
+            await tester.pump();
+            await tester.pump();
+            expect(tester.getRect(current), beforeCurrent);
+            expect(tester.getRect(pin), beforePin);
+            expect(
+              tester.getTopLeft(pin).dx,
+              greaterThan(tester.getTopLeft(current).dx),
+            );
+            bridge.data = data();
+            app.state = const AppSnapshot(
+              phase: 'STOPPED',
+              core: previewCore,
+              resultId: 'unfixed',
+              resultSuccess: true,
+            );
+            app.changed();
+            await tester.pump();
+            expect(tester.getRect(current), beforeCurrent);
+            expect(tester.getRect(pin), beforePin);
+            bridge.data = data(fixed: nodeName);
+            app.state = const AppSnapshot(
+              phase: 'STOPPED',
+              core: previewCore,
+              resultId: 'fixed-again',
+              resultSuccess: true,
+            );
+            app.changed();
+            await tester.pump();
+            expect(tester.getRect(current), beforeCurrent);
+            expect(tester.getRect(pin), beforePin);
+            await open(tester, groupName);
+            final popup = find.byKey(ValueKey('strategy-popup-$groupName'));
+            final strings = AppLocalizations.of(tester.element(popup));
+            final groupAction = find.byKey(
+              const ValueKey('strategy-delay-group'),
+            );
+            final close = find.ancestor(
+              of: find.byTooltip(strings.closeStrategyPopup),
+              matching: find.byType(IconButton),
+            );
+            expect(
+              tester.widget<IconButton>(groupAction).tooltip,
+              strings.delayTestGroup,
+            );
+            expect(
+              find.widgetWithText(TextButton, strings.delayTestGroup),
+              findsNothing,
+            );
+            expect(tester.getRect(groupAction).top, tester.getRect(close).top);
+            expect(
+              tester.getRect(groupAction).right,
+              lessThanOrEqualTo(tester.getRect(close).left),
+            );
+            final member = find.byKey(const ValueKey('strategy-member-0'));
+            await tester.scrollUntilVisible(
+              member,
+              150,
+              scrollable: find
+                  .descendant(of: popup, matching: find.byType(Scrollable))
+                  .first,
+            );
+            await tester.pumpAndSettle();
+            final name = find.byKey(const ValueKey('strategy-member-name-0'));
+            final result = find.byKey(
+              const ValueKey('strategy-delay-result-0'),
+            );
+            final test = find.byKey(const ValueKey('strategy-delay-0'));
+            final surface = find.byKey(
+              const ValueKey('strategy-member-surface-0'),
+            );
+            final marks = find.byKey(const ValueKey('strategy-member-marks-0'));
+            final beforeMarks = tester.getRect(marks);
+            final beforePopup = tester.getRect(popup);
+            final beforeGroupAction = tester.getRect(groupAction);
+            final beforeClose = tester.getRect(close);
+            final beforeName = tester.getRect(name);
+            final beforeResult = tester.getRect(result);
+            final beforeTest = tester.getRect(test);
+            final beforeSurface = tester.getRect(surface);
+            expect(beforeSurface.contains(beforeTest.center), isTrue);
+            expect(
+              tester.widget<Material>(surface).color,
+              Theme.of(tester.element(surface))
+                  .colorScheme
+                  .surfaceContainerHighest,
+            );
+            void stable() {
+              expect(tester.getRect(popup), beforePopup);
+              expect(tester.getRect(groupAction), beforeGroupAction);
+              expect(tester.getRect(close), beforeClose);
+              expect(tester.getRect(marks), beforeMarks);
+              expect(tester.getRect(name), beforeName);
+              expect(tester.getRect(result), beforeResult);
+              expect(tester.getRect(test), beforeTest);
+              expect(tester.getRect(surface), beforeSurface);
+              expect(tester.takeException(), isNull);
+            }
+
+            await tester.tap(test);
+            await tester.pump();
+            stable();
+            expect(app.commands, isEmpty);
+            expect(bridge.delayStarts.single['members'], [nodeName]);
+            await tester.pump(const Duration(milliseconds: 16));
+            stable();
+            bridge.finishDelay({nodeName: ('success', 42)});
+            await tester.pump(const Duration(milliseconds: 700));
+            await tester.pump();
+            stable();
+            expect(find.text('42 ms'), findsOneWidget);
+            await tester.tap(groupAction);
+            await tester.pump();
+            stable();
+            bridge.finishDelay({
+              nodeName: ('failed', null),
+              'DIRECT': ('timeout', null),
+            });
+            await tester.pump(const Duration(milliseconds: 700));
+            await tester.pump();
+            stable();
+            expect(
+              find.descendant(
+                of: result,
+                matching: find.text(strings.delayFailed),
+              ),
+              findsOneWidget,
+            );
+            bridge.failDelayStart = true;
+            await tester.tap(groupAction);
+            await tester.pump();
+            stable();
+            bridge.failDelayStart = false;
+            await tester.tap(test);
+            await tester.pump();
+            stable();
+            bridge.delayBatch!['state'] = 'cancelled';
+            bridge.delayBatch!['members'] = [
+              {'name': nodeName, 'type': 'Socks5', 'status': 'cancelled'},
+            ];
+            await tester.pump(const Duration(milliseconds: 700));
+            await tester.pump();
+            stable();
+            expect(
+              find.descendant(
+                of: result,
+                matching: find.text(strings.delayCancelled),
+              ),
+              findsOneWidget,
+            );
+            await tester.tap(test);
+            await tester.pump();
+            stable();
+            bridge.delayBatch!['state'] = 'expired';
+            bridge.delayBatch!['members'] = [
+              {'name': nodeName, 'type': 'Socks5', 'status': 'expired'},
+            ];
+            await tester.pump(const Duration(milliseconds: 700));
+            await tester.pump();
+            stable();
+            expect(
+              find.descendant(
+                of: result,
+                matching: find.text(strings.delayExpired),
+              ),
+              findsOneWidget,
+            );
+            bridge.data = data(fixed: 'DIRECT', now: 'DIRECT');
+            app.state = const AppSnapshot(
+              phase: 'STOPPED',
+              core: previewCore,
+              resultId: 'changed',
+              resultSuccess: true,
+            );
+            app.changed();
+            await tester.pump();
+            stable();
+            await tester.pump(const Duration(milliseconds: 16));
+            stable();
+            const replacement = CoreSnapshot(
+              generation: 8,
+              phase: 'READY',
+              purpose: 'PREVIEW',
+              composition: '["one",1]',
+              configId: 'one',
+              revision: 1,
+            );
+            bridge.data = data(core: replacement);
+            app.state = const AppSnapshot(phase: 'STOPPED', core: replacement);
+            app.changed();
+            await tester.pump();
+            stable();
+            expect(tester.widget<IconButton>(groupAction).onPressed, isNull);
+            await tester.pump(const Duration(milliseconds: 16));
+            stable();
+            await tester.pumpWidget(const SizedBox());
+          },
+        );
+      }
+    }
+  }
+
+  for (final dark in [false, true]) {
+    testWidgets(
+      'delay actions stay reachable at 320 wide double text dark=$dark',
+      (tester) async {
+        tester.view.physicalSize = const Size(320, 600);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        await show(tester, dark: dark, scale: 2);
+        await strategies(tester);
+        await open(tester, '出口');
+        final popup = find.byKey(const ValueKey('strategy-popup-出口'));
+        expect(tester.takeException(), isNull);
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('strategy-delay-group')),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.byKey(const ValueKey('strategy-delay-group')));
+        await tester.pump();
+        expect(find.text('已完成 0/2'), findsOneWidget);
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('strategy-delay-0')),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(tester.getRect(popup).width, lessThanOrEqualTo(420));
         await tester.pumpWidget(const SizedBox());
       },
     );

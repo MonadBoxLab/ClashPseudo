@@ -1,10 +1,14 @@
-import 'package:clash_pseudo/app/app_controller.dart';
-import 'package:clash_pseudo/app/app_theme.dart';
-import 'package:clash_pseudo/features/configs/config_entry.dart';
-import 'package:clash_pseudo/features/configs/widgets/confirm_action.dart';
-import 'package:clash_pseudo/features/configs/widgets/import_dialog.dart';
-import 'package:clash_pseudo/platform/app_bridge.dart';
+import 'dart:convert';
+
+import 'package:clash_pseudo/src/model/app_snapshot.dart';
+import 'package:clash_pseudo/src/app/app_controller.dart';
+import 'package:clash_pseudo/src/app/app_theme.dart';
+import 'package:clash_pseudo/src/features/configs/config_entry.dart';
+import 'package:clash_pseudo/src/features/configs/widgets/confirm_action.dart';
+import 'package:clash_pseudo/src/features/configs/widgets/import_dialog.dart';
+import 'package:clash_pseudo/src/platform/app_bridge.dart';
 import 'package:flutter/material.dart';
+import 'package:clash_pseudo/src/l10n/app_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _ImportApp extends AppController {
@@ -48,7 +52,7 @@ void main() {
     (
       const AppSnapshot(phase: 'RUNNING', configId: 'target'),
       'other',
-      '将停止此配置的接管；更新成功后重新启动。',
+      '更新成功后，若运行内容改变，将重新连接此配置的接管。',
     ),
     (
       const AppSnapshot(phase: 'RUNNING', configId: 'other'),
@@ -56,7 +60,7 @@ void main() {
       '不会切换或停止其他配置的接管。',
     ),
     (const AppSnapshot(phase: 'STOPPED'), 'target', '更新后不会自动启动接管。'),
-    (const AppSnapshot(), 'target', '接管状态尚未确认，请先核实运行状态。'),
+    (const AppSnapshot(), 'target', '连接状态尚未确认；更新将按实际运行状态处理。'),
   ]) {
     testWidgets(
       'duplicate consequence follows actual identity ${scenario.$3}',
@@ -65,6 +69,9 @@ void main() {
         addTearDown(app.dispose);
         await tester.pumpWidget(
           MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('zh'),
             theme: AppTheme.light,
             home: Builder(
               builder: (context) => Scaffold(
@@ -87,11 +94,25 @@ void main() {
         expect(find.text('覆盖更新配置？'), findsOneWidget);
         expect(find.text('包含中文与 English 的长配置名称'), findsOneWidget);
         expect(find.textContaining(scenario.$3), findsOneWidget);
-        expect(find.textContaining('下载失败后也不能再次启动'), findsOneWidget);
+        expect(find.textContaining('下载失败将保留原正文与连接。'), findsOneWidget);
         expect(app.commands, isEmpty);
-        await tester.tap(find.text('取消'));
+        await tester.tap(find.text('取消').hitTestable());
         await tester.pumpAndSettle();
         expect(app.commands, isEmpty);
+        expect(find.byType(ImportDialog), findsOneWidget);
+        expect(
+          tester
+              .widget<TextField>(find.byType(TextField).first)
+              .controller!
+              .text,
+          'https://fixture.test/config',
+        );
+        expect(
+          tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+          isNotNull,
+        );
+        await tester.tap(find.text('取消').hitTestable());
+        await tester.pumpAndSettle();
       },
     );
   }
@@ -109,6 +130,9 @@ void main() {
         bool? accepted;
         await tester.pumpWidget(
           MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('zh'),
             theme: dark ? AppTheme.dark : AppTheme.light,
             builder: (context, child) => MediaQuery(
               data: MediaQuery.of(context).copyWith(
@@ -123,12 +147,12 @@ void main() {
                   onPressed: () async {
                     accepted = await confirmAction(
                       context,
-                      title: '覆盖更新配置？',
+                      title: (strings) => strings.overwriteConfigTitle,
                       subject: subject,
-                      message:
-                          '此来源已保存，将更新该条目，不新增配置。'
-                          '\n\n旧正文将失效，下载失败后也不能再次启动。',
-                      confirmLabel: '覆盖更新',
+                      message: (strings) =>
+                          '${strings.overwriteConfigMessage}'
+                          '\n\n${strings.overwriteKeepsOnFailure}',
+                      confirmLabel: (strings) => strings.overwrite,
                     );
                   },
                   child: const Text('打开'),
@@ -161,23 +185,107 @@ void main() {
     }
   }
 
+  for (final language in ['en', 'zh']) {
+    for (final scale in [1.0, 2.0]) {
+      testWidgets('import validation preserves anchors $language/$scale', (
+        tester,
+      ) async {
+        tester.view.physicalSize = const Size(320, 900);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final strings = lookupAppLocalizations(Locale(language));
+        await tester.pumpWidget(
+          MaterialApp(
+            locale: Locale(language),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: TextScaler.linear(scale)),
+              child: child!,
+            ),
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: TextButton(
+                  onPressed: () => showDialog<Map<String, Object?>>(
+                    context: context,
+                    builder: (_) => const ImportDialog(),
+                  ),
+                  child: const Text('Open'),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('Open'));
+        await tester.pumpAndSettle();
+        final source = find.byType(TextField).first;
+        await tester.enterText(source, 'ftp://fixture.test/config');
+        await tester.pumpAndSettle();
+        final anchors = [
+          find.text(strings.importFullConfig),
+          source,
+          find.byType(TextField).last,
+          find.widgetWithText(FilledButton, strings.downloadAndSave),
+          find.widgetWithText(TextButton, strings.cancel),
+        ];
+        final rects = anchors.map(tester.getRect).toList();
+        Future<void> expectStableFrames() async {
+          for (var frame = 0; frame < 16; frame++) {
+            await tester.pump(const Duration(milliseconds: 16));
+            for (var i = 0; i < anchors.length; i++) {
+              expect(tester.getRect(anchors[i]), rects[i]);
+            }
+            expect(tester.takeException(), isNull);
+          }
+        }
+
+        await tester.tap(anchors[3]);
+        await expectStableFrames();
+        expect(find.byType(ImportDialog), findsOneWidget);
+        expect(
+          tester.widget<TextField>(source).controller!.text,
+          'ftp://fixture.test/config',
+        );
+        await tester.enterText(source, 'http://fixture.test/config');
+        await expectStableFrames();
+        await tester.tap(find.byTooltip(strings.showUrl));
+        await expectStableFrames();
+        expect(tester.widget<TextField>(source).obscureText, isFalse);
+        await tester.tap(anchors.last);
+        await tester.pumpAndSettle();
+      });
+    }
+  }
+
   testWidgets('optional import name uses business length without truncation', (
     tester,
   ) async {
     await tester.pumpWidget(
-      MaterialApp(home: const Scaffold(body: ImportDialog())),
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const Scaffold(body: ImportDialog()),
+      ),
     );
     final field = find.byType(TextField).last;
-    final boundary = '${'👨‍👩‍👧‍👦' * 11}abc';
-    for (final name in [boundary, '$boundary🌐', '']) {
+    final boundary = '${'👨‍👩‍👧‍👦' * 3}abcde';
+    expect(utf8.encode(boundary).length, 80);
+    for (final name in [
+      boundary,
+      '$boundary🌐',
+      '${'👨‍👩‍👧‍👦' * 11}abc',
+      '',
+    ]) {
       await tester.enterText(field, name);
       await tester.pump();
       expect(tester.widget<TextField>(field).controller!.text, name);
-      expect(find.text('${name.runes.length}/80'), findsOneWidget);
+      expect(find.text('${utf8.encode(name).length}/80 B'), findsOneWidget);
       expect(
         tester.widget<FilledButton>(find.byType(FilledButton)).onPressed !=
             null,
-        name.runes.length <= 80,
+        utf8.encode(name).length <= 80,
       );
     }
   });

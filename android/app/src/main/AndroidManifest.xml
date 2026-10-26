@@ -1,13 +1,21 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Local per-app VPN selection uses the installed-package inventory. -->
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
     <application
         android:label="Clash Pseudo"
         android:name=".app.PseudoApplication"
         android:allowBackup="true"
+        android:backupAgent=".app.PseudoBackupAgent"
+        android:fullBackupOnly="true"
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:usesCleartextTraffic="true"
@@ -21,6 +29,7 @@
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
+            <layout android:minWidth="280dp" android:minHeight="360dp" />
             <!-- Specifies an Android theme to apply to this Activity as soon as
                  the Android process has started. This theme is visible to the user
                  while the Flutter UI initializes. After that, this theme continues
@@ -33,22 +42,63 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
+        <!-- ShortcutManager supplies the publisher identity for these private control aliases. -->
+        <activity-alias
+            android:name="${applicationId}.StartVpnShortcut"
+            android:targetActivity=".MainActivity"
+            android:exported="false"
+            android:label="@string/system_control_connect"
+            android:icon="@drawable/ic_control_connect" />
+        <activity-alias
+            android:name="${applicationId}.StopVpnShortcut"
+            android:targetActivity=".MainActivity"
+            android:exported="false"
+            android:label="@string/system_control_disconnect"
+            android:icon="@drawable/ic_control_disconnect" />
+        <service
+            android:name=".app.VpnTileService"
+            android:exported="true"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:label="@string/system_control_title"
+            android:icon="@drawable/ic_vpn_notification">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="true" />
+            <meta-data android:name="android.service.quicksettings.TOGGLEABLE_TILE" android:value="true" />
+        </service>
+        <receiver
+            android:name=".app.VpnWidgetProvider"
+            android:exported="false"
+            android:label="@string/system_control_title">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/vpn_widget_info" />
+        </receiver>
         <service
             android:name=".app.AppWorkService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <!-- App-controlled starts check VpnService.prepare for the VPN grant.
+             systemExempted admits VPNs; lint only models the alarm alternatives. -->
         <service
             android:name=".vpn.PseudoVpnService"
             android:exported="true"
             android:permission="android.permission.BIND_VPN_SERVICE"
-            android:foregroundServiceType="systemExempted">
+            android:foregroundServiceType="systemExempted"
+            tools:ignore="ForegroundServicePermission">
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>
             <meta-data
                 android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON"
-                android:value="false" />
+                android:value="true" />
         </service>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

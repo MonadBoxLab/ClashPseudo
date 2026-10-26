@@ -2,8 +2,12 @@
 <data-extraction-rules>
     <cloud-backup disableIfNoEncryptionCapabilities="true">
         <include domain="file" path="configurations/configurations.json" />
+        <include domain="file" path="configurations/preferences.json" />
+        <include domain="file" path="configurations/overrides.json" />
     </cloud-backup>
     <device-transfer>
         <include domain="file" path="configurations/configurations.json" />
+        <include domain="file" path="configurations/preferences.json" />
+        <include domain="file" path="configurations/overrides.json" />
     </device-transfer>
 </data-extraction-rules>

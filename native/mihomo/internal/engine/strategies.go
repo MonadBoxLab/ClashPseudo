@@ -6,7 +6,12 @@ import (
 	"sort"
 
 	G "github.com/metacubex/mihomo/adapter/outboundgroup"
+	"github.com/metacubex/mihomo/component/profile"
+	"github.com/metacubex/mihomo/component/profile/cachefile"
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/mihomo/tunnel"
+
+	"clashpseudo/native/internal/configinput"
 )
 
 type Choice struct {
@@ -52,13 +57,15 @@ type StrategyMember struct {
 }
 
 type Strategy struct {
-	Name    string           `json:"name"`
-	Type    string           `json:"type"`
-	Hidden  bool             `json:"hidden"`
-	Icon    string           `json:"icon"`
-	Now     string           `json:"now"`
-	Fixed   string           `json:"fixed"`
-	Members []StrategyMember `json:"members"`
+	Name            string                            `json:"name"`
+	Type            string                            `json:"type"`
+	Hidden          bool                              `json:"hidden"`
+	Icon            string                            `json:"icon"`
+	Now             string                            `json:"now"`
+	CurrentIdentity string                            `json:"currentIdentity"`
+	Fixed           string                            `json:"fixed"`
+	Provenance      *configinput.DefinitionProvenance `json:"provenance,omitempty"`
+	Members         []StrategyMember                  `json:"members"`
 }
 
 type UnrestoredChoice struct {
@@ -67,6 +74,7 @@ type UnrestoredChoice struct {
 }
 
 type Strategies struct {
+	Mode             string             `json:"mode"`
 	Groups           []Strategy         `json:"groups"`
 	GlobalReferenced bool               `json:"globalReferenced"`
 	Unrestored       []UnrestoredChoice `json:"unrestored"`
@@ -99,8 +107,7 @@ func strategyState(group G.ProxyGroup) (Strategy, error) {
 	case C.Selector:
 		state.Now = group.Now()
 	case C.URLTest, C.Fallback:
-		// The adapter exposes fixed through JSON, not a public getter. Do not
-		// marshal its proxy wrapper, which also probes protocol capabilities.
+		// Read the adapter's fixed field through its own JSON projection.
 		data, err := group.MarshalJSON()
 		if err != nil {
 			return Strategy{}, err
@@ -123,7 +130,7 @@ func (e *Engine) Strategies() (string, error) {
 	if !e.available() {
 		return "", ErrStopped
 	}
-	result := Strategies{Groups: make([]Strategy, 0), Unrestored: append([]UnrestoredChoice{}, e.unrestored...)}
+	result := Strategies{Mode: tunnel.Mode().String(), Groups: make([]Strategy, 0), Unrestored: append([]UnrestoredChoice{}, e.unrestored...)}
 	seen := make(map[string]bool)
 	appendGroup := func(proxy C.Proxy) error {
 		group, ok := proxy.Adapter().(G.ProxyGroup)
@@ -133,6 +140,15 @@ func (e *Engine) Strategies() (string, error) {
 		state, err := strategyState(group)
 		if err != nil {
 			return err
+		}
+		state.Provenance = e.provenance.Definition("proxy-groups", group.Name())
+		if state.Now != "" {
+			for _, member := range group.Proxies() {
+				if member.Name() == state.Now {
+					state.CurrentIdentity = delayMemberIdentity(delaySourceIdentity(proxy), member)
+					break
+				}
+			}
 		}
 		seen[group.Name()] = true
 		result.Groups = append(result.Groups, state)
@@ -200,6 +216,34 @@ func (e *Engine) choiceTarget(name string, choice Choice) (G.ProxyGroup, string)
 	return group, ""
 }
 
+func (e *Engine) restoreCoreCache() {
+	profile.StoreSelected.Store(e.cfg.Profile.StoreSelected)
+	if !e.cfg.Profile.StoreSelected {
+		return
+	}
+	for name, member := range cachefile.Cache().SelectedMap() {
+		proxy := e.cfg.Proxies[name]
+		if proxy == nil {
+			continue
+		}
+		group, ok := proxy.Adapter().(G.ProxyGroup)
+		if !ok {
+			continue
+		}
+		typeName := strategyType(group.Type())
+		choice := Choice{Type: typeName}
+		if member != "" {
+			choice.Member = &member
+		}
+		if !choice.valid() {
+			continue
+		}
+		if target, reason := e.choiceTarget(name, choice); reason == "" {
+			target.(G.SelectAble).ForceSet(member)
+		}
+	}
+}
+
 func (e *Engine) restoreChoices(choices map[string]Choice) {
 	e.unrestored = nil
 	names := make([]string, 0, len(choices))
@@ -218,7 +262,7 @@ func (e *Engine) restoreChoices(choices map[string]Choice) {
 		if choice.Member != nil {
 			member = *choice.Member
 		}
-		// Restoration must not invoke Fallback.Set's implicit URL test.
+		// Restore selection through the path that preserves Fallback's health-test state.
 		group.(G.SelectAble).ForceSet(member)
 	}
 }
@@ -237,7 +281,7 @@ func (e *Engine) SetStrategy(name string, choice Choice) error {
 		return errors.New(reason)
 	}
 	selector := group.(G.SelectAble)
-	// Serializes our calls, not upstream's unsynchronized traffic-side reads.
+	// Serialize application API calls; upstream routing synchronization remains separate.
 	if choice.Member == nil {
 		selector.ForceSet("")
 	} else if err := selector.Set(*choice.Member); err != nil {
@@ -265,5 +309,9 @@ func (e *Engine) SetStrategy(name string, choice Choice) error {
 		}
 	}
 	e.unrestored = remaining
+	// Write the upstream group-name cache only after a confirmed explicit operation.
+	if e.cfg.Profile.StoreSelected {
+		cachefile.Cache().SetSelected(name, wanted)
+	}
 	return nil
 }

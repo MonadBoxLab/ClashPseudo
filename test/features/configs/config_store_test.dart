@@ -1,9 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:clash_pseudo/features/configs/config_entry.dart';
-import 'package:clash_pseudo/features/configs/config_store.dart';
-import 'package:clash_pseudo/features/strategies/strategy_choice.dart';
+import 'package:clash_pseudo/src/features/configs/config_entry.dart';
+import 'package:clash_pseudo/src/features/configs/config_store.dart';
+import 'package:clash_pseudo/src/features/strategies/strategy_choice.dart';
+import 'package:clash_pseudo/src/l10n/messages.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -74,7 +75,10 @@ void main() {
     expect(restored.selected!.choices['自动']!.member, isNull);
     expect(first.revision, entry.revision);
     expect(first.body, entry.body);
-    final invalidated = first.withContent(null, error: '更新未完成');
+    final invalidated = first.withContent(
+      first.body,
+      error: messages.downloadFailed,
+    );
     expect(invalidated.choices['出口']!.member, '节点🌐');
     expect(invalidated.withContent('new body').choices['出口']!.member, '节点🌐');
     expect(entry.choices, isEmpty);
@@ -196,21 +200,35 @@ void main() {
       expect(restored.entries.map((e) => e.id), ['one', 'a', 'b']);
       expect(restored.selected!.updatedAt, time);
       expect(restored.selected!.body, '');
-      expect(restored.selected!.displaySource, '本地配置');
+      expect(restored.selected!.displaySource, localizedMessages.localConfig);
     },
   );
 
-  test('invalidated content stays unavailable after reopening', () async {
-    await store.save(
-      ConfigCollection(
-        entries: [entry.withContent(null, error: '更新未完成')],
-        selectedId: entry.id,
-      ),
-    );
-    final restored = await ConfigStore(directory).read();
-    expect(restored.selected!.body, isNull);
-    expect(restored.selected!.source, entry.source);
-  });
+  test(
+    'missing and null bodies are corruption for local and remote entries',
+    () async {
+      final file = File('${directory.path}/configurations.json');
+      for (final kind in ConfigKind.values) {
+        for (final missing in [false, true]) {
+          final record = <String, Object?>{
+            ...entry.toJson(),
+            'kind': kind.name,
+            'source': kind == ConfigKind.local ? null : entry.source,
+            'body': null,
+          };
+          if (missing) record.remove('body');
+          final original = jsonEncode({
+            'mode': 'rule',
+            'entries': [record],
+            'selectedId': entry.id,
+          });
+          await file.writeAsString(original);
+          await expectLater(store.read(), throwsA(isA<ConfigFailure>()));
+          expect(await file.readAsString(), original);
+        }
+      }
+    },
+  );
 
   test(
     'damaged store is reported without replacing it with an empty list',

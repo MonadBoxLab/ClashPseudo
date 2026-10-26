@@ -1,7 +1,7 @@
 import 'dart:ui' as ui;
 
-import 'package:clash_pseudo/features/overview/traffic_window.dart';
-import 'package:clash_pseudo/features/overview/widgets/traffic_panel.dart';
+import 'package:clash_pseudo/src/features/overview/traffic_window.dart';
+import 'package:clash_pseudo/src/features/overview/widgets/traffic_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -239,7 +239,7 @@ void main() {
       expect(dot(), interrupted.endpoint);
       await tester.pump(const Duration(milliseconds: 500));
       final pending = frame();
-      // Re-reading the same sample must not restart its transition.
+      // Retain the current transition when the same sample is read again.
       await tester.pumpWidget(chart(next));
       expect(frame().endpoint, pending.endpoint);
       await tester.pump(const Duration(milliseconds: 500));

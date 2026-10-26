@@ -46,5 +46,6 @@ app.*.map.json
 # Widget Preview related
 .widget_preview/
 
-# Local AI assistant settings
+# Local AI assistant settings and code index
 /.claude/settings.local.json
+/.codegraph/

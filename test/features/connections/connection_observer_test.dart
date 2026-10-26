@@ -1,12 +1,13 @@
+import 'package:clash_pseudo/src/model/core_snapshot.dart';
+
 import 'dart:async';
 
-import 'package:clash_pseudo/features/connections/connection_observer.dart';
-import 'package:clash_pseudo/features/connections/connection_window.dart';
-import 'package:clash_pseudo/features/strategies/strategy_snapshot.dart';
-import 'package:clash_pseudo/platform/app_bridge.dart';
+import 'package:clash_pseudo/src/features/connections/connection_observer.dart';
+import 'package:clash_pseudo/src/features/connections/connection_window.dart';
+import 'package:clash_pseudo/src/platform/app_bridge.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'connection_window_test.dart' as fixtures;
+import 'connection_window_fixtures.dart' as fixtures;
 
 class ObservationBridge extends AppBridge {
   int now = 0;
@@ -14,6 +15,11 @@ class ObservationBridge extends AppBridge {
   int reads = 0;
   bool running = true;
   bool fail = false;
+  int? sessionUploadBytes = 5000;
+  int? sessionDownloadBytes = 9000;
+  String composition = 'one';
+  String trackerId = 'a';
+  Map<String, dynamic>? ruleSuggestions;
   final retained = <bool>[];
   final requests = <Map<String, Object?>>[];
   Completer<Map<String, dynamic>>? pending;
@@ -29,6 +35,7 @@ class ObservationBridge extends AppBridge {
       'purpose': running ? 'VPN' : null,
       'configId': 'one',
       'revision': 1,
+      'composition': composition,
     },
   };
 
@@ -51,21 +58,219 @@ class ObservationBridge extends AppBridge {
     return pending?.future ??
         {
           ...fixtures.sample(
-            [fixtures.row('a', upload: now, download: now * 2)],
+            [fixtures.row(trackerId, upload: now, download: now * 2)],
             now,
             presence: {
               for (final id in query['previousActiveIds'] as List<String>)
                 id: true,
+              if (query['detailId'] case final String id) id: true,
             },
           ),
           'uploadTotal': now * 10,
           'downloadTotal': now * 20,
           'activeCount': 2000,
+          'sessionUploadBytes': sessionUploadBytes,
+          'sessionDownloadBytes': sessionDownloadBytes,
+          'composition': composition,
+          'purpose': 'VPN',
+          'ruleSuggestions': query['detailId'] == trackerId
+              ? ruleSuggestions
+              : null,
         };
   }
 }
 
 void main() {
+  testWidgets(
+    'trusted rule helper is detail-only, fresh and cleared on close/failure/session changes',
+    (tester) async {
+      const id = '00000000-0000-4000-8000-000000000001';
+      final bridge = ObservationBridge()
+        ..trackerId = id
+        ..ruleSuggestions = {
+          'connectionId': id,
+          'host': 'a.private.github.io',
+          'suffixes': ['a.private.github.io', 'private.github.io'],
+          'ipCidr': '192.0.2.1/32',
+        };
+      final observer = ConnectionObserver(bridge);
+      Map<String, Object?> detail() => {
+        'generation': 7,
+        'configId': 'one',
+        'revision': 1,
+        'composition': bridge.composition,
+        'purpose': 'VPN',
+        'id': id,
+      };
+      observer.snapshot(bridge.state, detail());
+      await tester.pump(Duration.zero);
+      var value = observer.snapshot(bridge.state, detail());
+      expect(value['ruleSuggestions'], bridge.ruleSuggestions);
+      expect(value['composition'], 'one');
+      expect(value['purpose'], 'VPN');
+      expect(observer.snapshot(bridge.state, null)['ruleSuggestions'], isNull);
+      expect(
+        observer.snapshot(bridge.state, detail())['ruleSuggestions'],
+        isNotNull,
+      );
+      bridge.fail = true;
+      bridge.now = 1000;
+      await tester.pump(const Duration(seconds: 1));
+      expect(
+        observer.snapshot(bridge.state, detail())['ruleSuggestions'],
+        isNull,
+      );
+      bridge.fail = false;
+      bridge.now = 2000;
+      await tester.pump(const Duration(seconds: 1));
+      expect(
+        observer.snapshot(bridge.state, detail())['ruleSuggestions'],
+        isNotNull,
+      );
+      bridge.now = 7001;
+      expect(
+        observer.snapshot(bridge.state, detail())['ruleSuggestions'],
+        isNull,
+      );
+      bridge.now = 8000;
+      await tester.pump(const Duration(seconds: 1));
+      expect(
+        observer.snapshot(bridge.state, detail())['ruleSuggestions'],
+        isNotNull,
+      );
+      observer.closed(
+        CoreSnapshot.fromMap(
+          Map<String, dynamic>.from(bridge.state['core'] as Map),
+        ),
+        id,
+      );
+      expect(
+        observer.snapshot(bridge.state, detail())['ruleSuggestions'],
+        isNull,
+      );
+      bridge.ruleSuggestions = null;
+      bridge.now = 9000;
+      await tester.pump(const Duration(seconds: 1));
+      expect(
+        observer.snapshot(bridge.state, detail())['ruleSuggestions'],
+        isNull,
+      );
+      bridge.running = false;
+      observer.updateState(bridge.state);
+      expect(
+        observer.snapshot(bridge.state, detail())['ruleSuggestions'],
+        isNull,
+      );
+      bridge.running = true;
+      bridge.session++;
+      bridge.now = 10000;
+      observer.updateState(bridge.state);
+      expect(
+        observer.snapshot(bridge.state, detail())['ruleSuggestions'],
+        isNull,
+      );
+      observer.dispose();
+    },
+  );
+
+  testWidgets(
+    'rule helper cannot be attached to a different requested detail or native identity',
+    (tester) async {
+      const id = '00000000-0000-4000-8000-000000000001';
+      const otherId = '00000000-0000-4000-8000-000000000002';
+      final bridge = ObservationBridge()
+        ..trackerId = id
+        ..ruleSuggestions = {
+          'connectionId': otherId,
+          'host': 'wrong.example',
+          'suffixes': ['wrong.example'],
+          'ipCidr': null,
+        };
+      final observer = ConnectionObserver(bridge);
+      final detail = {
+        'generation': 7,
+        'configId': 'one',
+        'revision': 1,
+        'composition': 'one',
+        'purpose': 'VPN',
+        'id': id,
+      };
+      observer.snapshot(bridge.state, detail);
+      await tester.pump(Duration.zero);
+      final result = observer.snapshot(bridge.state, detail);
+      expect(result['failed'], isTrue);
+      expect(result['ruleSuggestions'], isNull);
+      expect(observer.window.records, isEmpty);
+      observer.dispose();
+    },
+  );
+
+  testWidgets(
+    'native lease totals survive sampling loss and close, not a new lease or composition',
+    (tester) async {
+      final bridge = ObservationBridge();
+      final observer = ConnectionObserver(bridge)..updateState(bridge.state);
+      await tester.pump(Duration.zero);
+      var value = observer.trafficSnapshot(bridge.state);
+      expect(value['sessionUploadBytes'], 5000);
+      expect(value['sessionDownloadBytes'], 9000);
+      expect(value['upload'], isNull);
+      expect(value['composition'], 'one');
+      // Preserve session totals after a visible record closes.
+      observer.closed(fixtures.core, 'a');
+      expect(
+        observer.trafficSnapshot(bridge.state)['sessionUploadBytes'],
+        5000,
+      );
+      bridge.fail = true;
+      bridge.now = 1000;
+      await tester.pump(const Duration(seconds: 1));
+      expect(
+        observer.trafficSnapshot(bridge.state)['sessionUploadBytes'],
+        isNull,
+      );
+      bridge.fail = false;
+      bridge.sessionUploadBytes = 8000;
+      bridge.now = 2000;
+      await tester.pump(const Duration(seconds: 1));
+      expect(
+        observer.trafficSnapshot(bridge.state)['sessionUploadBytes'],
+        8000,
+      );
+      bridge.running = false;
+      observer.updateState(bridge.state);
+      expect(
+        observer.trafficSnapshot(bridge.state)['sessionUploadBytes'],
+        isNull,
+      );
+      bridge.running = true;
+      bridge.session++;
+      bridge.sessionUploadBytes = 11;
+      bridge.sessionDownloadBytes = 12;
+      bridge.now = 3000;
+      observer.updateState(bridge.state);
+      expect(
+        observer.trafficSnapshot(bridge.state)['sessionUploadBytes'],
+        isNull,
+      );
+      await tester.pump(Duration.zero);
+      expect(observer.trafficSnapshot(bridge.state)['sessionUploadBytes'], 11);
+      bridge.composition = 'replacement';
+      bridge.now = 4000;
+      observer.updateState(bridge.state);
+      expect(
+        observer.trafficSnapshot(bridge.state)['sessionUploadBytes'],
+        isNull,
+      );
+      await tester.pump(Duration.zero);
+      value = observer.trafficSnapshot(bridge.state);
+      expect(value['composition'], 'replacement');
+      expect(value['sessionUploadBytes'], 11);
+      expect(bridge.reads, 5);
+      observer.dispose();
+    },
+  );
+
   testWidgets('snapshot carries existing sample age without renewing it', (
     tester,
   ) async {

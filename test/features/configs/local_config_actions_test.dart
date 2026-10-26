@@ -1,10 +1,13 @@
+import 'package:clash_pseudo/src/model/app_snapshot.dart';
+import 'package:clash_pseudo/src/model/core_snapshot.dart';
+
 import 'dart:io';
 
-import 'package:clash_pseudo/features/configs/config_actions.dart';
-import 'package:clash_pseudo/features/configs/config_entry.dart';
-import 'package:clash_pseudo/features/configs/config_store.dart';
-import 'package:clash_pseudo/features/strategies/strategy_snapshot.dart';
-import 'package:clash_pseudo/platform/app_bridge.dart';
+import 'package:clash_pseudo/src/features/configs/config_actions.dart';
+import 'package:clash_pseudo/src/features/configs/config_entry.dart';
+import 'package:clash_pseudo/src/features/configs/config_store.dart';
+import 'package:clash_pseudo/src/l10n/messages.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'action_fakes.dart';
@@ -36,7 +39,8 @@ void main() {
   setUp(() async {
     directory = await Directory.systemTemp.createTemp('pseudo-local-actions-');
     store = ConfigStore(directory);
-    platform = _LocalPlatform();
+    platform = _LocalPlatform()
+      ..input = File('${directory.path}/work/input.yaml');
     actions = ConfigActions(
       store,
       DownloadFake(),
@@ -49,15 +53,11 @@ void main() {
   Future<void> seed({bool running = false}) async {
     await store.save(ConfigCollection(entries: [local], selectedId: local.id));
     if (running) {
-      platform.state = const AppSnapshot(
-        phase: 'RUNNING',
-        configId: 'local',
-        revision: 1,
-      );
+      platform.load(local);
     }
   }
 
-  Future<String> save([String body = 'new']) => actions.execute({
+  Future<AppMessage?> save([String body = 'new']) => actions.execute({
     'action': 'saveLocal',
     'id': local.id,
     'revision': 1,
@@ -112,10 +112,7 @@ void main() {
           'savedRevision': 2,
           'success': false,
         });
-        expect(
-          platform.events,
-          stopFails ? ['stop'] : ['stop', 'authorize', 'start:local'],
-        );
+        expect(platform.events, stopFails ? ['stop'] : ['stop', 'start:local']);
       },
     );
   }
@@ -125,7 +122,7 @@ void main() {
     await save();
     expect(actions.result['configStatus'], 'applied');
     expect(platform.state.revision, 2);
-    expect(platform.events, ['stop', 'authorize', 'start:local']);
+    expect(platform.events, ['stop', 'start:local']);
   });
 
   test(
@@ -155,6 +152,32 @@ void main() {
       await actions.execute({'action': 'delete', 'id': local.id});
       await expectLater(save(), throwsA(isA<ConfigFailure>()));
       expect((await store.read()).entries, isEmpty);
+    },
+  );
+
+  test(
+    'delete releases obsolete preview even when schedule cancellation fails',
+    () async {
+      await seed();
+      platform.state = const AppSnapshot(
+        phase: 'STOPPED',
+        core: CoreSnapshot(
+          phase: 'READY',
+          purpose: 'PREVIEW',
+          generation: 3,
+          configId: 'local',
+          revision: 1,
+        ),
+      );
+      platform.failSchedules = true;
+      await expectLater(
+        actions.execute({'action': 'delete', 'id': local.id}),
+        throwsA(isA<PlatformException>()),
+      );
+      expect((await store.read()).entries, isEmpty);
+      expect(platform.events, ['releasePreview']);
+      expect(actions.result['configStatus'], 'saved');
+      expect(actions.result['scheduleStatus'], 'failed');
     },
   );
 

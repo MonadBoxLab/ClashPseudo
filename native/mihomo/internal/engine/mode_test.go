@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/metacubex/mihomo/tunnel"
+
+	"clashpseudo/native/internal/configinput"
 )
 
 type countedCloser struct{ calls int }
@@ -18,7 +20,7 @@ func (c *countedCloser) Close() error { c.calls++; return nil }
 func TestModeOverrideAndLifecycle(t *testing.T) {
 	for _, body := range []string{validConfig, strings.ReplaceAll(validConfig, "mode: rule\n", ""), strings.ReplaceAll(validConfig, "mode: rule", "mode: direct")} {
 		var e Engine
-		if err := e.Prepare(t.TempDir(), []byte(body), "global", nil, func(int) bool { return true }); err != nil {
+		if err := e.PrepareWithOptions(t.TempDir(), []byte(body), "", nil, func(int) bool { return true }, PrepareOptions{Purpose: "PREVIEW", RoutingOverride: "global"}); err != nil {
 			t.Fatal(err)
 		}
 		closer := &countedCloser{}
@@ -41,7 +43,7 @@ func TestModeOverrideAndLifecycle(t *testing.T) {
 		if closer.calls != 0 || e.cfg != cfg || e.owner != owner {
 			t.Fatal("mode change replaced session")
 		}
-		// Reading the live tunnel, not an application-side target cache.
+		// Read mode directly from the live tunnel.
 		tunnel.SetMode(tunnel.Direct)
 		if e.Mode() != "direct" {
 			t.Fatal("cached mode returned")
@@ -57,6 +59,39 @@ func TestModeOverrideAndLifecycle(t *testing.T) {
 	}
 }
 
+func TestModePriorityIncludesComposedExplicitFallbackAndCurrentOperation(t *testing.T) {
+	for _, tc := range []struct{ name, body, fallback, operation, override, want string }{
+		{"explicit", "mode: direct\n", "global", "", "", "direct"},
+		{"saved-fallback", "{}\n", "global", "", "", "global"},
+		{"no-fallback", "{}\n", "", "", "", "rule"},
+		{"explicit-rule-is-not-missing", "mode: rule\n", "direct", "", "", "rule"},
+		{"current-operation", "mode: direct\n", "rule", "global", "", "global"},
+		{"plugin-explicit", "mode: direct\n", "rule", "", "mode: global\n", "global"},
+		{"operation-over-plugin", "mode: direct\n", "rule", "direct", "mode: global\n", "direct"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var e Engine
+			var overrides []configinput.Override
+			if tc.override != "" {
+				overrides = []configinput.Override{{ID: "fragment", Revision: 1, Mode: "replace", Body: tc.override}}
+			}
+			if err := e.PrepareWithOptions(t.TempDir(), []byte(tc.body), tc.fallback, nil, func(int) bool { return true }, PrepareOptions{Purpose: "PREVIEW", RoutingOverride: tc.operation}, overrides...); err != nil {
+				t.Fatal(err)
+			}
+			defer requireStop(t, &e)
+			if e.Mode() != tc.want || e.cfg.General.Mode.String() != tc.want || readStrategies(t, &e).Mode != tc.want {
+				t.Fatalf("effective/strategy mode mismatch: %s %+v", e.Mode(), readStrategies(t, &e))
+			}
+			if err := e.SetMode("global"); err != nil {
+				t.Fatal(err)
+			}
+			if readStrategies(t, &e).Mode != "global" {
+				t.Fatal("strategy snapshot used raw/fallback mode instead of actual mode")
+			}
+		})
+	}
+}
+
 func TestInvalidPrepareModeDoesNotClaimSession(t *testing.T) {
 	var e Engine
 	if err := e.Prepare(t.TempDir(), []byte(validConfig), "follow", nil, func(int) bool { return true }); err == nil {
@@ -67,9 +102,8 @@ func TestInvalidPrepareModeDoesNotClaimSession(t *testing.T) {
 	}
 }
 
-// This regression intentionally exposes v1.19.32's upstream mode race under
-// -race. DNSDialer with RULES exercises the shared resolveMetadata route path;
-// it is not used as a production client API. All sockets remain on loopback.
+// Expose the selected upstream mode race under -race using DNSDialer with RULES on
+// loopback.
 func TestModeConcurrentRouting(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

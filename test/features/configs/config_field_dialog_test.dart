@@ -1,6 +1,9 @@
-import 'package:clash_pseudo/app/app_theme.dart';
-import 'package:clash_pseudo/features/configs/widgets/config_field_dialog.dart';
+import 'dart:convert';
+
+import 'package:clash_pseudo/src/app/app_theme.dart';
+import 'package:clash_pseudo/src/features/configs/widgets/config_field_dialog.dart';
 import 'package:flutter/material.dart';
+import 'package:clash_pseudo/src/l10n/app_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -18,6 +21,10 @@ void main() {
               String? result;
               await tester.pumpWidget(
                 MaterialApp(
+                  localizationsDelegates:
+                      AppLocalizations.localizationsDelegates,
+                  supportedLocales: AppLocalizations.supportedLocales,
+                  locale: const Locale('zh'),
                   theme: dark ? AppTheme.dark : AppTheme.light,
                   builder: (context, child) => MediaQuery(
                     data: MediaQuery.of(context)
@@ -56,8 +63,10 @@ void main() {
               final cancelRect = tester.getRect(find.text('取消'));
               final title = find.text(source ? '修改配置来源' : '重命名配置');
               final titleRect = tester.getRect(title);
-              final boundary = '${'👨‍👩‍👧‍👦' * 11}abc';
-              expect(boundary.runes.length, 80);
+              final originalLong = '${'👨‍👩‍👧‍👦' * 11}abc';
+              expect(originalLong.runes.length, 80);
+              final boundary = '${'👨‍👩‍👧‍👦' * 3}abcde';
+              expect(utf8.encode(boundary).length, 80);
               final values = source
                   ? [
                       '',
@@ -69,10 +78,23 @@ void main() {
                       'closeout-remote-final-renamed',
                       boundary,
                       '$boundary🌐',
+                      originalLong,
+                      '${'中' * 26}ab',
+                      '中' * 27,
                       boundary,
                     ];
               for (final value in values) {
                 await tester.enterText(field, value);
+                if (source && value.isEmpty) {
+                  await tester.tap(button);
+                  await tester.pump();
+                  expect(result, isNull);
+                  expect(find.byType(ConfigFieldDialog), findsOneWidget);
+                  expect(
+                    tester.widget<TextField>(field).controller!.text,
+                    value,
+                  );
+                }
                 for (var frame = 0; frame < 14; frame++) {
                   await tester.pump(const Duration(milliseconds: 16));
                   expect(tester.getRect(button), rect);
@@ -81,8 +103,8 @@ void main() {
                   expect(tester.getRect(title), titleRect);
                   expect(tester.takeException(), isNull);
                 }
-                final length = value.trim().runes.length;
-                if (!source) expect(find.text('$length/80'), findsOneWidget);
+                final length = utf8.encode(value.trim()).length;
+                if (!source) expect(find.text('$length/80 B'), findsOneWidget);
                 expect(tester.widget<TextField>(field).controller!.text, value);
                 expect(
                   tester.widget<TextButton>(button).onPressed != null,
