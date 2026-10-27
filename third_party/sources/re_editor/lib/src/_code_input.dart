@@ -133,8 +133,6 @@ class _CodeInputController extends ChangeNotifier implements DeltaTextInputClien
 
   @override
   void updateEditingValueWithDeltas(List<TextEditingDelta> textEditingDeltas) {
-    final int? startedAt = CodeEditorObservation.enabled ? developer.Timeline.now : null;
-    final CodeLineEditingValue? previous = CodeEditorObservation.enabled ? value : null;
     if (_updateCausedByFloatingCursor) {
       _updateCausedByFloatingCursor = false;
       _resyncInputValue();
@@ -211,9 +209,6 @@ class _CodeInputController extends ChangeNotifier implements DeltaTextInputClien
       }
     } else {
       _controller.edit(prefixRemoved ? candidate : candidate.removePrefixIfNecessary());
-    }
-    if (CodeEditorObservation.enabled && !identical(previous!.codeLines, codeLines)) {
-      CodeEditorObservation.onInput?.call(startedAt!, previous, value);
     }
     _updateRemoteEditingValueIfNeeded();
     _updateRemoteComposingIfNeeded();

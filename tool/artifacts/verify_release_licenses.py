@@ -249,6 +249,8 @@ def verify(args):
     output = args.output_dir.resolve()
     require(output.is_dir() and not any(output.iterdir()), "Output directory must exist and be empty")
     modules = go_modules(args.go_modules)
+    abis = tuple(getattr(args, "abis", None) or ABIS)
+    require(len(set(abis)) == len(abis) and set(abis) <= ABIS.keys(), "Invalid target ABI selection")
     selected = android_coordinates(args.android_dependencies.read_text(encoding="utf-8"))
     android_notice = (root / "third_party/notices/android.txt").read_text(encoding="utf-8")
     notice_coordinates = set(re.findall(r"^([\w.-]+:[\w.-]+:[^\s:]+)$", android_notice, re.M))
@@ -281,8 +283,10 @@ def verify(args):
         emit("NOTICES", bytes=len(notices), sha256=digest(notices))
         check_platform_assets(archive, root)
         libraries = sorted(n for n in names if n.startswith("lib/") and n.endswith("/libmihomo_bridge.so"))
-        require(libraries == sorted("lib/" + abi + "/libmihomo_bridge.so" for abi in ABIS),
-                "Expected exactly armeabi-v7a, arm64-v8a and x86_64 native bridge libraries")
+        require(libraries == sorted("lib/" + abi + "/libmihomo_bridge.so" for abi in abis),
+                "Expected exactly the selected native bridge ABIs: " + ", ".join(abis))
+        packaged_abis = {name.split("/")[1] for name in names if name.startswith("lib/") and len(name.split("/")) >= 3}
+        require(packaged_abis == set(abis), "Packaged native ABIs differ from selected targets")
         graphs = []
         for name in libraries:
             abi = name.split("/")[1]
@@ -309,7 +313,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", required=True, type=Path, help="Trusted project root")
     parser.add_argument("--apk", required=True, type=Path, help="APK to inspect (never executed)")
-    parser.add_argument("--notices", required=True, type=Path, help="Reviewed decoded NOTICES.Z snapshot")
+    parser.add_argument("--notices", required=True, type=Path, help="Decoded NOTICES.Z from an independent source build")
+    parser.add_argument("--abi", dest="abis", action="append", choices=tuple(ABIS),
+                        help="Expected APK ABI; repeat for universal, default: all three")
     parser.add_argument("--go-modules", required=True, type=Path, help="go list -m -json all output")
     parser.add_argument("--android-dependencies", required=True, type=Path,
                         help="Gradle releaseRuntimeClasspath dependencies output")

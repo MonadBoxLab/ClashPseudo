@@ -44,9 +44,14 @@ const _core = CoreSnapshot(
 Map<String, dynamic> _suggestions({
   String id = _id,
   String? host = 'a.private.github.io',
-  List<String> suffixes = const ['a.private.github.io', 'private.github.io'],
+  String? boundary = 'private.github.io',
   String? ip = '192.0.2.1/32',
-}) => {'connectionId': id, 'host': host, 'suffixes': suffixes, 'ipCidr': ip};
+}) => {
+  'connectionId': id,
+  'host': host,
+  'suffixBoundary': boundary,
+  'ipCidr': ip,
+};
 
 Map<String, dynamic> _row({
   String id = _id,
@@ -89,8 +94,9 @@ Map<String, dynamic> _sample({
   'sessionGeneration': session,
   'fresh': true,
   'sampleAgeMs': age,
-  'connections': [_row(id: id, active: active)],
-  'ruleSuggestions': suggestions,
+  'connections': [
+    {..._row(id: id, active: active), 'ruleSuggestions': suggestions},
+  ],
 };
 
 StrategySnapshot _targets(CoreSnapshot core) => StrategySnapshot(
@@ -150,7 +156,7 @@ class _RuleBridge extends AppBridge {
               id: trackerId,
               active: trackerActive,
               age: age,
-              suggestions: detail?['id'] == trackerId ? suggestions : null,
+              suggestions: suggestions,
             ),
           ),
         );
@@ -369,33 +375,69 @@ void main() {
     }
   });
 
+  test('compact boundary expands every suffix and serialization preserves the observed source', () {
+    final host = List.filled(127, 'a').join('.');
+    expect(host.length, 253);
+    final record = ConnectionSnapshot.fromMap(
+      _sample(
+        suggestions: _suggestions(host: host, boundary: 'a.a', ip: null),
+      ),
+    ).records.single;
+    final rules = record.ruleMetadata!;
+    expect(rules.host, host);
+    expect(rules.suffixes, hasLength(126));
+    expect(rules.suffixes.first, host);
+    expect(rules.suffixes[1], host.substring(2));
+    expect(rules.suffixes.last, 'a.a');
+    expect(rules.candidates, hasLength(127));
+    const replacement = CoreSnapshot(
+      generation: 8,
+      phase: 'READY',
+      purpose: 'VPN',
+      configId: 'one',
+      revision: 1,
+      composition: 'replacement',
+    );
+    final restored = ConnectionSnapshot.fromMap({
+      ..._sample(source: replacement),
+      'connections': [record.observed(active: false).toMap()],
+    }).records.single;
+    expect(restored.active, isFalse);
+    expect(restored.ruleMetadata!.source.identity, _core.identity);
+    expect(restored.ruleMetadata!.candidates, rules.candidates);
+    expect(restored.ruleMetadata!.matches(replacement), isFalse);
+  });
+
   test('trusted helper controls candidates, never cropped display host or displayed IP', () {
     final result = ConnectionSnapshot.fromMap(
       _sample(suggestions: _suggestions()),
     );
     expect(result.records.single.host, 'display-is-not-authoritative.example');
     expect(result.records.single.destinationIP, '198.18.0.99');
-    expect(result.ruleSuggestions!.candidates, [
+    expect(result.records.single.ruleMetadata!.candidates, [
       (type: 'DOMAIN', value: 'a.private.github.io'),
       (type: 'DOMAIN-SUFFIX', value: 'a.private.github.io'),
       (type: 'DOMAIN-SUFFIX', value: 'private.github.io'),
       (type: 'IP-CIDR', value: '192.0.2.1/32'),
     ]);
-    expect(result.ruleSuggestions!.matches(_core), isTrue);
-    expect(ConnectionSnapshot.fromMap(_sample()).ruleSuggestions, isNull);
+    expect(result.records.single.ruleMetadata!.matches(_core), isTrue);
+    expect(
+      ConnectionSnapshot.fromMap(_sample()).records.single.ruleMetadata,
+      isNull,
+    );
   });
 
   test('exact-only internal/public suffix names and IP-only results are not invented', () {
     for (final host in ['localhost', 'co.uk']) {
       final value = ConnectionRuleSuggestions.fromValue(
-        _suggestions(host: host, suffixes: [], ip: null),
+        _suggestions(host: host, boundary: null, ip: null),
         _core,
       )!;
       expect(value.candidates, [(type: 'DOMAIN', value: host)]);
     }
     for (final ip in ['192.0.2.1/32', '2001:db8::1/128']) {
       final value = ConnectionRuleSuggestions.fromValue(
-        _suggestions(host: null, suffixes: [], ip: ip),
+        _suggestions(host: null, boundary: null, ip: ip),
         _core,
       )!;
       expect(value.host, isNull);
@@ -414,9 +456,12 @@ void main() {
       _suggestions(host: 'bad.example.'),
       _suggestions(host: 'https://example.test'),
       _suggestions(host: null),
-      _suggestions(suffixes: ['github.io']),
-      _suggestions(suffixes: ['a.private.github.io', 'unrelated.example']),
-      _suggestions(suffixes: ['a.private.github.io', 'a.private.github.io']),
+      _suggestions(boundary: 'unrelated.example'),
+      _suggestions(boundary: 'cropped…'),
+      {
+        ..._suggestions(),
+        'suffixBoundary': ['private.github.io'],
+      },
       _suggestions(ip: '192.0.2.0/24'),
       _suggestions(ip: '::/128'),
       _suggestions(ip: '0.0.0.0/32'),
@@ -447,12 +492,11 @@ void main() {
       ),
       throwsFormatException,
     );
-    expect(
-      () => ConnectionSnapshot.fromMap(
-        _sample(suggestions: _suggestions(), active: false),
-      ),
-      throwsFormatException,
-    );
+    final inactive = ConnectionSnapshot.fromMap(
+      _sample(suggestions: _suggestions(), active: false),
+    ).records.single;
+    expect(inactive.active, isFalse);
+    expect(inactive.ruleMetadata!.matches(_core), isTrue);
   });
 
   testWidgets(
@@ -463,7 +507,7 @@ void main() {
       final controller = ConnectionController(app)..setVisible(true);
       await tester.pump();
       controller.openDetail(controller.data!.records.single);
-      expect(controller.canCreateRule, isFalse);
+      expect(controller.canCreateRule, isTrue);
       await tester.pump(const Duration(seconds: 1));
       expect(bridge.targetReads, 0);
       expect(bridge.detailRequests.last, {
@@ -511,7 +555,7 @@ void main() {
     'stop',
   ]) {
     testWidgets(
-      'rule source is not reusable after $reason; retained display data is insufficient',
+      'rule source retention follows $reason and its original identity',
       (tester) async {
         final bridge = _RuleBridge();
         final app = _RuleApp(bridge);
@@ -554,15 +598,21 @@ void main() {
           case 'stop':
             app.publish(phase: 'STOPPED', source: const CoreSnapshot());
         }
-        expect(controller.canCreateRule, isFalse);
+        final reusable = const [
+          'closed',
+          'stale',
+          'network-read-failure',
+        ].contains(reason);
+        expect(controller.canCreateRule, reusable);
         expect(
           controller.isRuleSourceCurrent(
             source,
             0,
             candidate: source.candidates.first,
           ),
-          isFalse,
+          reusable,
         );
+        if (reusable) expect(controller.canClose, isFalse);
         expect(controller.detail, isNotNull);
         expect(bridge.targetReads, 0);
         controller.dispose();
@@ -663,13 +713,7 @@ void main() {
     },
   );
 
-  for (final reason in [
-    'closed',
-    'epoch',
-    'composition',
-    'background',
-    'read-failure',
-  ]) {
+  for (final reason in ['epoch', 'composition', 'background']) {
     testWidgets(
       'opened form retains input and rejects expired $reason before submitting',
       (tester) async {
@@ -690,10 +734,6 @@ void main() {
           find.byKey(const ValueKey('definition-save:rule')),
         );
         switch (reason) {
-          case 'closed':
-            bridge.trackerActive = false;
-            bridge.suggestions = null;
-            await tester.pump(const Duration(seconds: 1));
           case 'epoch':
             app.publish(epoch: 1);
           case 'composition':
@@ -709,9 +749,6 @@ void main() {
             );
           case 'background':
             app.setForeground(false);
-          case 'read-failure':
-            bridge.sampleFails = true;
-            await tester.pump(const Duration(seconds: 1));
         }
         for (final ms in [0, 16, 100, 200]) {
           await tester.pump(Duration(milliseconds: ms));
@@ -752,7 +789,7 @@ void main() {
       final bridge = _RuleBridge()
         ..suggestions = _suggestions(
           host: host,
-          suffixes: [host, host.substring(64)],
+          boundary: host.substring(64),
           ip: null,
         );
       final app = _RuleApp(bridge);
@@ -829,7 +866,7 @@ void main() {
       final bridge = _RuleBridge()
         ..suggestions = _suggestions(
           host: null,
-          suffixes: [],
+          boundary: null,
           ip: '2001:db8::2/128',
         );
       final app = _RuleApp(bridge);
@@ -1137,73 +1174,83 @@ void main() {
     );
   }
 
-  testWidgets(
-    'real form save uses the unique role writer and accepts its own reconnect result',
-    (tester) async {
-      final directory = Directory.systemTemp.createTempSync(
-        'controlled-connection-rule-',
-      );
-      addTearDown(() => directory.deleteSync(recursive: true));
-      final store = _Overrides(directory);
-      final bridge = _BusinessBridge(store, File('${directory.path}/run.json'));
-      final app = AppController(
-        bridge,
-        store: _Configs(),
-        overrideStore: store,
-        preferencesStore: MemoryPreferencesStore(),
-      );
-      await app.refresh();
-      await _host(tester, app);
-      await _tapRule(tester);
-      await tester.pumpAndSettle();
-      final target = tester
-          .widget<RuleFormPage>(find.byType(RuleFormPage))
-          .targets
-          .first;
-      // A native group, including hidden, is chosen through the real read-only field.
-      await tester.ensureVisible(_field('rule/target'));
-      await tester.tap(
-        find.byKey(const ValueKey('definition-suggestions:rule/target')),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.text(target).last);
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('definition-save:rule')));
-      await tester.pump();
-      expect(bridge.commands, hasLength(1));
-      expect(bridge.commands.single['action'], 'saveLocalDefinition');
-      expect(bridge.commands.single['section'], 'rules');
-      expect(
-        bridge.commands.single['rule'],
-        'DOMAIN,a.private.github.io,Hidden group',
-      );
-      expect(bridge.commands.single['storageEpoch'], 0);
-      final original = bridge.source;
-      await tester.runAsync(() async {
-        await bridge.finish();
+  for (final endedBeforeDetail in [true, false]) {
+    testWidgets(
+      'inactive rule saves through the unique writer, ended before detail: $endedBeforeDetail',
+      (tester) async {
+        final directory = Directory.systemTemp.createTempSync(
+          'controlled-connection-rule-',
+        );
+        addTearDown(() => directory.deleteSync(recursive: true));
+        final store = _Overrides(directory);
+        final bridge = _BusinessBridge(
+          store,
+          File('${directory.path}/run.json'),
+        )..trackerActive = !endedBeforeDetail;
+        final app = AppController(
+          bridge,
+          store: _Configs(),
+          overrideStore: store,
+          preferencesStore: MemoryPreferencesStore(),
+        );
         await app.refresh();
-      });
-      await tester.pumpAndSettle();
-      expect(store.entries, hasLength(1));
-      expect(store.entries.single.role, OverrideRole.localCustom);
-      expect(
-        LocalYamlEdit(store.entries.single.body)
-            .definitions(LocalYamlSection.rules)
-            .single
-            .value,
-        'DOMAIN,a.private.github.io,Hidden group',
-      );
-      expect(bridge.native.events, contains('stop'));
-      expect(
-        bridge.native.events.where((event) => event.startsWith('start:')),
-        hasLength(1),
-      );
-      expect(bridge.source.matchesIdentity(original), isFalse);
-      expect(find.byType(RuleFormPage), findsNothing);
-      expect(app.hasLocalFeedbackOwner, isFalse);
-      expect(find.byType(AlertDialog), findsNothing);
-      await tester.pumpWidget(const SizedBox());
-      app.dispose();
-    },
-  );
+        await _host(tester, app);
+        await _tapRule(tester);
+        await tester.pumpAndSettle();
+        if (!endedBeforeDetail) {
+          bridge.trackerActive = false;
+          bridge.suggestions = null;
+          await tester.pump(const Duration(seconds: 1));
+        }
+        final target = tester
+            .widget<RuleFormPage>(find.byType(RuleFormPage))
+            .targets
+            .first;
+        // A native group, including hidden, is chosen through the real read-only field.
+        await tester.ensureVisible(_field('rule/target'));
+        await tester.tap(
+          find.byKey(const ValueKey('definition-suggestions:rule/target')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(target).last);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('definition-save:rule')));
+        await tester.pump();
+        expect(bridge.commands, hasLength(1));
+        expect(bridge.commands.single['action'], 'saveLocalDefinition');
+        expect(bridge.commands.single['section'], 'rules');
+        expect(
+          bridge.commands.single['rule'],
+          'DOMAIN,a.private.github.io,Hidden group',
+        );
+        expect(bridge.commands.single['storageEpoch'], 0);
+        final original = bridge.source;
+        await tester.runAsync(() async {
+          await bridge.finish();
+          await app.refresh();
+        });
+        await tester.pumpAndSettle();
+        expect(store.entries, hasLength(1));
+        expect(store.entries.single.role, OverrideRole.localCustom);
+        expect(
+          LocalYamlEdit(store.entries.single.body)
+              .definitions(LocalYamlSection.rules)
+              .single
+              .value,
+          'DOMAIN,a.private.github.io,Hidden group',
+        );
+        expect(bridge.native.events, contains('stop'));
+        expect(
+          bridge.native.events.where((event) => event.startsWith('start:')),
+          hasLength(1),
+        );
+        expect(bridge.source.matchesIdentity(original), isFalse);
+        expect(find.byType(RuleFormPage), findsNothing);
+        expect(app.hasLocalFeedbackOwner, isFalse);
+        expect(find.byType(AlertDialog), findsNothing);
+        await tester.pumpWidget(const SizedBox());
+        app.dispose();
+      },
+    );
+  }
 }

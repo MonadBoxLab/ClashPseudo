@@ -11,7 +11,7 @@
 | 上游仓库 | https://github.com/reqable/re-editor |
 | 许可 | MIT，Copyright (c) 2024 Reqable，原文见[LICENSE](LICENSE) |
 
-本目录取自上述归档，保留lib、pubspec.yaml、LICENSE和CHANGELOG.md。应用修改涉及九个原Dart文件和一个新增观测文件，范围如下；其余保留文件与归档相同，pubspec.yaml、LICENSE和CHANGELOG.md保持原字节。
+本目录取自上述归档，保留lib、pubspec.yaml、LICENSE和CHANGELOG.md。应用修改涉及七个原Dart文件，范围如下；其余保留文件与归档相同，pubspec.yaml、LICENSE和CHANGELOG.md保持原字节。
 
 ## 修改文件
 
@@ -22,10 +22,7 @@
 | [lib/src/code_editor.dart](lib/src/code_editor.dart) | 移动端共享快捷键／Actions及KeyEvent处理 |
 | [lib/src/_code_shortcuts.dart](lib/src/_code_shortcuts.dart) | Android显式编辑动作先提交现有composing |
 | [lib/src/code_line.dart](lib/src/code_line.dart)、[lib/src/_code_line.dart](lib/src/_code_line.dart) | 可选候选准入、接受后历史移动、异步粘贴身份及最终输入窗口映射 |
-| [lib/src/_code_input.dart](lib/src/_code_input.dart) | 整批delta连续性／范围检查、一次发布、拒绝回同步和输入观测 |
-| [lib/src/_code_field.dart](lib/src/_code_field.dart) | 正文draw后的观测回调 |
-| [lib/src/re_editor.dart](lib/src/re_editor.dart) | Timeline import与新增part接线 |
-| [lib/src/debug/input_observation.dart](lib/src/debug/input_observation.dart) | 默认关闭的两个测试观测回调 |
+| [lib/src/_code_input.dart](lib/src/_code_input.dart) | 整批delta连续性／范围检查、一次发布和拒绝回同步 |
 
 ## 生命周期
 
@@ -47,14 +44,8 @@ CodeLineValueAcceptance为可选同步回调，默认null沿上游接受行为�
 
 移动端保留原Focus、选择手柄和IME通道，普通Backspace／Enter通过KeyDown／KeyRepeat各处理一次；带Control／Meta／Alt的组合交由快捷键匹配，只读时保持正文。Android回归明确选择移动平台并检查实际移动Focus处理器，覆盖复制、剪切、粘贴、撤销重做、只读、重复按键及页面动作，见[移动快捷键测试](../../../test/features/configs/editor_android_shortcuts_test.dart)。
 
-## 测试观测
-
-RE_EDITOR_OBSERVATION=true编译启用CodeEditorObservation两个回调。delta入口在处理前取Timeline.now，接受正文变更后发旧／新值引用；_drawText在实际paragraph.draw后提供文档、段落、viewport及frameData.frameNumber。默认构建编译掉调用点。
-
-采集仅记录标量ID、长度、范围、版本、帧号和时间，模型与span内容保持私密。实际修改矩形和同帧rasterFinish用于输入延迟配对，完整方法及校准见[编辑器与输入性能](../../../doc/development/verification.md#编辑器与输入性能)。
-
 ## 回归入口
 
-[生命周期测试](../../../test/features/configs/editor_cursor_lifecycle_test.dart)、[拖拽测试](../../../test/features/configs/editor_drag_lifecycle_test.dart)、[页面测试](../../../test/features/configs/config_text_lifecycle_test.dart)覆盖取消与销毁；[值准入](../../../test/features/configs/editor_value_admission_test.dart)、[IME准入](../../../test/features/configs/editor_ime_admission_test.dart)、[观测测试](../../../test/features/configs/editor_observation_test.dart)覆盖发布、输入同步与帧身份。应用侧限额、草稿身份、查找及反馈测试位于同一[配置测试目录](../../../test/features/configs)。
+[生命周期测试](../../../test/features/configs/editor_cursor_lifecycle_test.dart)、[拖拽测试](../../../test/features/configs/editor_drag_lifecycle_test.dart)、[页面测试](../../../test/features/configs/config_text_lifecycle_test.dart)覆盖取消与销毁；[值准入](../../../test/features/configs/editor_value_admission_test.dart)与[IME准入](../../../test/features/configs/editor_ime_admission_test.dart)覆盖发布、批次连续性及输入回同步。应用侧限额、草稿身份、查找及反馈测试位于同一[配置测试目录](../../../test/features/configs)。
 
-运行命令见[自动化测试](../../../doc/development/build-and-test.md#自动化测试)，区分性样本和真实设备测量分别见[验证方法](../../../doc/development/verification.md#编辑器与输入性能)。
+运行命令见[自动化测试](../../../doc/development/build-and-test.md#自动化测试)，行为与设备检查见[编辑器与输入](../../../doc/development/verification.md#编辑器与输入)。

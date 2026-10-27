@@ -1,6 +1,6 @@
 # 构建、自动化测试与验证工具
 
-本文提供维护者可重复使用的构建和测试入口。行为与接口判据见[验证与测量](verification.md)，业务和平台职责见[应用架构](../architecture/overview.md)。命令在项目根目录执行，参数中的输入路径按实际工具链与测试材料提供。
+本文提供维护者可重复使用的构建和测试入口。行为与接口判据见[验证与覆盖率](verification.md)，业务和平台职责见[应用架构](../architecture/overview.md)。命令在项目根目录执行，参数中的输入路径按实际工具链与测试材料提供。
 
 ## 工具链与构建
 
@@ -14,6 +14,85 @@ flutter build apk --release
 ```
 
 Gradle按abiFilters及原生任务输入生成libmihomo_bridge.so，生产标签为cmfa,with_gvisor。JNI入口与保护回调由Keep声明保留；版本、ABI和编译选项采用实际构建输入。
+
+## 依赖更新与应用版本
+
+[依赖入口](../../tool/dependencies/update.py)默认检查 mihomo 的最新正式 GitHub Release。`--check` 查询可用版本，保持工作树文件原状；`--apply` 在系统临时副本中解析并更新依赖及法律材料，完成后写回限定输入，保留其他已有改动与 Git 索引。命令失败时报告具体原因。Go 使用现有本机工具链，Pub 使用当前 Flutter SDK，Android 库保持现有 Gradle／AGP／SDK 配置。
+
+```sh
+python3 -I tool/dependencies/update.py --check
+python3 -I tool/dependencies/update.py --apply
+python3 -I tool/dependencies/update.py --apply --mihomo-tag v1.19.33
+python3 -I tool/dependencies/update.py --check --pub yaml --pub yaml_edit
+python3 -I tool/dependencies/update.py --apply --go-module github.com/miekg/dns
+python3 -I tool/dependencies/update.py --apply --android androidx.work:work-runtime
+```
+
+显式选择 Go、hosted 直接包或 Android 库时更新所选范围及必要传递依赖；SDK 包和本地 re_editor 保持原来源。Go 的 protobuf replace 与许可依赖要求由现有 go.mod 承接，变化材料按[许可升级规范](../legal/dependencies.md#内核与依赖升级复核)自动收集。工具使用的固定版本 Google licenseclassifier 通过 Go 模块运行，属于维护工具，应用模块的依赖图保持独立。
+
+### 应用版本
+
+[pubspec.yaml](../../pubspec.yaml)是应用版本的唯一来源，采用 x.y.z+N，独立于内核版本。正式稳定发布前使用 **0.y.z 开发版本**：功能新增或不兼容调整递增 y 并将 z 归零，缺陷、安全及常规依赖维护递增 z。开发阶段不承诺稳定兼容性，自动更新不会跨入 1.x。
+
+首次稳定发布须由用户明确决定，通过 `--bump stable` 将 0.y.z 提升为 **1.0.0**；不沿用开发阶段的 y。稳定期按一次完整交付的变化确定增量：
+
+- **x，主版本**：需要用户调整或处理的不兼容变化，例如配置／备份格式的不兼容变化、重要能力移除或核心使用流程变化。递增 x 后，y、z 归零。
+- **y，次版本**：向后兼容的应用功能新增。递增 y 后，z 归零。
+- **z，补丁版本**：保持既有使用契约的维护更新，包括缺陷修复、安全更新、性能改善及常规依赖升级。
+
+常规 mihomo 正式版更新默认递增 z；同次发布的内核升级次数不单独叠加应用版本。版本在构建前确定，不由每次 commit、测试、覆盖采集或内部里程碑递增。Flutter 的 x.y.z+N 中，x.y.z 对应 Android versionName，N 对应 versionCode；每个新的 Android 分发版本递增 N，同次发布的失败重试、续跑与缺失资产补齐复用已经确定的版本。即使订正显示版本阶段，N 也不回退；当前开发版本 0.1.0+3 的 N 高于历史本地试用产物 1.1.0+2，旧产物及材料保持原版本与字节。
+
+```sh
+# 开发期功能新增／不兼容调整，或稳定期兼容功能新增。
+python3 -I tool/dependencies/update.py --apply --bump minor
+# 仅在用户明确决定首次稳定发布时执行；不自动触发。
+python3 -I tool/dependencies/update.py --apply --version-only --bump stable
+# 稳定期不兼容变化使用 major；开发期 major 会拒绝，不能隐式转为稳定版。
+python3 -I tool/dependencies/update.py --apply --version-only --bump major
+# 同一次尚未分发的发布中补充依赖更新，沿用已经确定的应用版本。
+python3 -I tool/dependencies/update.py --apply --reuse-version
+```
+
+源码、Git tag、APK 和对应源码包使用同一版本。无依赖更新时，普通 `--apply` 保持应用版本；单独的应用发布使用 `--version-only`。`--reuse-version`用于同一次待发布交付，新的分发版本通过正常增量准备。GitHub Actions 的常规内核更新使用默认 patch 策略，发布状态与已有 tag 用于识别续跑；0.y.z 的 GitHub Release 始终标记为 prerelease，首次稳定提升只接受明确的手动选择。APK 的 release 构建模式仅表示构建性质，不表示应用已进入稳定发布阶段。
+
+### 独立产物核验输入
+
+`--apply --evidence '<新目录>'`从实际 Go 模块解析、Android releaseRuntimeClasspath 及独立的 Flutter release bundle 构建生成 go-modules.json、android-dependencies.txt 和 decoded NOTICES。输入目录在命令前保持不存在，Flutter SDK 的正常生成文件仍使用构建输出目录。产物核验将这些输入与待检 APK 比较，调用见[许可核验工具](#备份与许可核验工具)。
+
+## Android 分发与 GitHub Actions
+
+每次发布提供四个正常 release APK，应用身份为 `io.github.monadboxlab.clashpseudo`。四包共享 pubspec.yaml 中的 versionName、versionCode、mihomo 版本和分发签名。构建配置通过 Flutter 的 `force-version-code-ignoring-abi` 开关保持分架构包的 versionCode；架构包数量与构建重试保持该次已确定版本。
+
+| 文件名，其中版本为 x.y.z+N | 适用范围 |
+| --- | --- |
+| clash-pseudo-x.y.z+N-universal.apk | **Android 通用版（推荐）**，包含 armeabi-v7a、arm64-v8a、x86_64，下载体积较大 |
+| clash-pseudo-x.y.z+N-arm64-v8a.apk | 运行 64 位 Android 的大多数现代手机和平板 |
+| clash-pseudo-x.y.z+N-armeabi-v7a.apk | 使用 32 位 Android 系统的设备 |
+| clash-pseudo-x.y.z+N-x86_64.apk | 相应设备和模拟器 |
+
+本地构建复用 Flutter、Gradle 和原生入口，通用构建与分架构构建各执行一次，相关功能检查按同一份源码执行。分架构输出位于 build/app/outputs/flutter-apk/app-ABI-release.apk，通用输出为 app-release.apk。各包按实际目标 ABI 检查原生库、buildinfo、生产 tags、16KiB 对齐、版本、签名和法律材料。
+
+```sh
+flutter build apk --release --no-pub --target-platform android-arm,android-arm64,android-x64
+flutter build apk --release --no-pub --target-platform android-arm,android-arm64,android-x64 --split-per-abi
+python3 -I tool/artifacts/package_sources.py --evidence '<核验输入目录>' \
+  --output '<版本对应源码.tar.gz>'
+```
+
+四包共享覆盖实际源码和依赖的 sources.tar.gz 与 licenses.tar.gz。SHA256SUMS 包含全部四个 APK、对应源码包及许可包。对应源码入口默认包含当前工作树中的正式输入；`--commit '<提交>'`用于与已核验提交一致的固定源码。SDK 本机位置与签名材料保持在源码包之外。
+
+[自动工作流](../../.github/workflows/update-dependencies.yml)每日检查 mihomo 正式 Release，也接受手动触发。新内核维护发布默认递增 patch；手动触发可选择完整交付所需的 minor、稳定期 major，或明确选择 stable 准备首次 1.0.0 稳定发布；定时任务不能执行 stable 提升。publish_current 用于准备一次独立应用发布。pubspec.yaml 已准备新版本时复用该版本；首次稳定选择必须实际提升开发版本，不能被未建 tag 的版本复用逻辑跳过。已有未完成发布按原 tag 与开发／稳定性质续跑，保留已成功资产，按校验文件或原始 Actions 归档恢复缺失材料，完成核验后补齐远程资产。
+
+GitHub Release 的创建、资产上传与正式发布统一由该 GitHub Actions 工作流执行。[CI 准备入口](../../tool/dependencies/release.py)生成已核验发布输入，并在独立 CI 工作区中提交限定变更及原子推送应用 tag 与源码；[Actions 发布步骤](../../.github/scripts/publish-release.cjs)核对远程 tag、版本归属和全部资产摘要，先建立 draft，资产完整后正式发布。本地使用依赖更新、正常构建、核验和源码打包入口。
+
+启用时先确认远程默认分支及 GITHUB_TOKEN 的正常提交／tag 推送策略，为仓库配置以下 Secrets：
+
+- `ANDROID_KEYSTORE_BASE64`：用户控制的固定 Android 分发密钥文件的 Base64 内容。
+- `ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`：对应密钥信息。
+
+按确定的首次公开发布时点将仓库变量 `AUTOMATIC_RELEASES_ENABLED` 设为 `true`。工作流在仓库外临时位置恢复密钥，要求完整签名配置，并在结束后删除自有临时密钥。job 使用 contents: write 和 actions: read，保持同仓库发布串行执行。已有调试签名安装与固定分发签名之间的数据衔接通过应用备份／恢复处理。
+
+本地使用固定签名时向 Gradle 提供 `CLASH_SIGNING_STORE_FILE`、`CLASH_SIGNING_STORE_PASSWORD`、`CLASH_SIGNING_KEY_ALIAS`、`CLASH_SIGNING_KEY_PASSWORD` 环境变量。`CLASH_REQUIRE_DISTRIBUTION_SIGNING=true`要求固定分发签名；普通本地试用构建沿既有开发签名。密钥与密码由用户控制，CI 日志、构建归档和对应源码只保留公开证书摘要与正常分发材料。
 
 ## 共同静态契约
 
@@ -76,19 +155,6 @@ adb -s "$SERIAL" shell am instrument -w -r \
 
 SERIAL显式指定目标，nonce、配置ID／revision／epoch、独立期望摘要及屏障参数由所选测试声明。runner报告与业务断言共同决定结果，UI进程和业务数据的恢复要求按测试实际副作用确定。
 
-## 正文编辑测量包
-
-[测量入口](../../tool/editor_observation.dart)调用正式应用入口和同名后台入口，复用[输入样本关联器](../../test/support/editor_input_samples.dart)，将已接受输入、实际文字绘制和同帧raster完成关联。通过显式构建开关启用，实验标识为8..48个小写字母、数字或连字符：
-
-```sh
-flutter build apk --release --target tool/editor_observation.dart \
-  --dart-define=RE_EDITOR_OBSERVATION=true \
-  --dart-define=EDITOR_INPUT_RUN=editor-validation \
-  --dart-define=EDITOR_INPUT_NEGATIVE_CONTROL=true
-```
-
-负对照开关对本进程前五次已接受的正文变化各延迟150ms；后续输入沿原处理路径测量。日志前缀为EDITOR_INPUT_OBSERVATION，字段限于实验／进程、文档及输入身份、时间、修改范围、viewport、帧号和关联状态。进入后台时结算待关联样本并记录结束；负对照和正式样本分别统计。正常release采用默认应用入口，测量后恢复正常包，判据与采集顺序见[编辑器验证](verification.md#编辑器与输入性能)。
-
 ## SDK观察器
 
 [SystemEntryInstrumentation](../../android/app/src/androidTest/java/io/github/monadboxlab/clashpseudo/validation/SystemEntryInstrumentation.java)使用API24起的公开SDK，在自己的test包进程读取公开窗口和执行指定动作，采用self-target；它与主应用target的AndroidJUnitRunner是不同运行关系。
@@ -140,13 +206,13 @@ python3 -I tool/artifacts/verify_backup.py '<正式导出.zip>'
 python3 -I tool/artifacts/verify_backup.py '<受保护原件.zip>' --compare '<重新导出.zip>'
 ```
 
-[verify_release_licenses.py](../../tool/artifacts/verify_release_licenses.py)核查法律资产、独立审核的decoded NOTICES、项目配置ABI的Go buildinfo、模块Version／Sum／Replace／tags、固定CA／Geo／PSL及对应材料，输出参数为已存在的空目录：
+[verify_release_licenses.py](../../tool/artifacts/verify_release_licenses.py)核查法律资产、独立来源的 decoded NOTICES、项目配置 ABI 的 Go buildinfo、模块 Version／Sum／Replace／tags、固定 CA／Geo／PSL 及对应材料。预期输入通过[依赖入口](#独立产物核验输入)生成，核验输出参数为已存在的空目录：
 
 ```sh
 python3 -I tool/artifacts/verify_release_licenses.py \
   --project "$PWD" --apk '<release APK>' \
-  --notices '<审核后的decoded NOTICES>' --go-modules '<Go模块图JSON>' \
-  --android-dependencies '<releaseRuntimeClasspath报告>' \
+  --notices '<核验输入目录>/NOTICES' --go-modules '<核验输入目录>/go-modules.json' \
+  --android-dependencies '<核验输入目录>/android-dependencies.txt' \
   --output-dir "$OUT/license-report"
 ```
 
@@ -154,10 +220,9 @@ python3 -I tool/artifacts/verify_release_licenses.py \
 
 ## 覆盖率入口
 
-Dart使用[采集工具](../../tool/coverage/flutter.dart)先validate校准再collect；输出位于仓库外系统临时目录中，父目录已存在、目标为新绝对路径。校准复用正式测试输入，全库loader及根hook执行副本由工具置于独立系统临时目录，退出时清理：
+Dart使用[采集工具](../../tool/coverage/flutter.dart)的collect入口；输出位于仓库外系统临时目录，父目录已存在，目标为新绝对路径。全库loader及根hook执行副本由工具置于独立系统临时目录，退出时清理：
 
 ```sh
-dart run tool/coverage/flutter.dart validate "$OUT/coverage-validation"
 dart run tool/coverage/flutter.dart collect "$OUT/coverage-run"
 dart run tool/coverage/summary.dart "$OUT/coverage-run/application.info"
 ```
@@ -169,7 +234,7 @@ Android显式validationCoverage启用debug JVM／设备计数，报告要求同�
 ```sh
 ./android/gradlew -p android -PvalidationCoverage=true \
   -PvalidationCoverageDirectory='<设备覆盖数据绝对目录>' \
-  :app:validationCoverageProbeReport
+  :app:validationDebugCoverageReport
 ```
 
 JNI再显式validationNativeCoverage启用Clang source coverage、atomic与MC/DC，使用配套未剥离库和profraw处理。采集、分母、工具语义及正常release排除检查见[覆盖率方法](verification.md#覆盖率)。

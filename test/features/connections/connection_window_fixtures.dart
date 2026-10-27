@@ -6,6 +6,7 @@ const core = CoreSnapshot(
   purpose: 'VPN',
   configId: 'one',
   revision: 1,
+  composition: 'one',
 );
 
 Map<String, dynamic> row(String id, {int? upload = 10, int? download = 20}) => {
@@ -25,6 +26,8 @@ Map<String, dynamic> sample(
   'generation': 7,
   'configId': 'one',
   'revision': 1,
+  'composition': 'one',
+  'purpose': 'VPN',
   'complete': true,
   'connections': rows,
   'presence': presence,

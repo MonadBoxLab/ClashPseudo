@@ -117,7 +117,7 @@ func (e *Engine) attach(fd int, revision uint64, factories tunFactories) (err er
 	}()
 	// VpnService.Builder materializes AutoRoute and filters; the external descriptor
 	// supplies the selected public stack.
-	deviceOptions := tun.Options{FileDescriptor: fd, MTU: options.MTU, Inet4Address: options.Inet4Address,
+	deviceOptions := tun.Options{FileDescriptor: fd, DNSMode: options.DNSMode, MTU: options.MTU, Inet4Address: options.Inet4Address,
 		Inet6Address: options.Inet6Address, EXP_RecvMsgX: options.RecvMsgX, EXP_SendMsgX: options.SendMsgX,
 		EXP_ProcessorsPerChannel: options.ProcessorsPerChannel}
 	stackName := strings.ToLower(options.Stack.String())

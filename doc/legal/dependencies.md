@@ -65,7 +65,7 @@ go-lzo v0.0.0-20261012164727-ad21c35a1111的上游README明确声明GPL-2.0-or-l
 
 yaml和yaml_edit通过hosted声明接入，应用使用公开API实现span／SourceEdit适配。版权及许可由Flutter构建流程合入NOTICES.Z，产物核对检查包名和原文。
 
-所核查re_editor官方0.10.0源码位于[third_party/sources/re_editor](../../third_party/sources/re_editor)，包含生命周期、提交前准入／IME和默认关闭的测试观测修改。MIT原文、官方归档SHA、补丁及上游PR #118关系见[PATCHES](../../third_party/sources/re_editor/PATCHES.md)与[LICENSE](../../third_party/sources/re_editor/LICENSE)。原LICENSE SHA-256为5d37eaa3f35293d2141f08ffeb897040380eeb25016a5a17f71200a56bf44767，应用法律页显示原许可，修改说明随源码保留。后续版本具备等价能力时复核hosted替换及维护成本，保持单编辑系统；依赖使用批准规则归[开发规则](../../.claude/rules/development.md)。
+所核查re_editor官方0.10.0源码位于[third_party/sources/re_editor](../../third_party/sources/re_editor)，包含生命周期、提交前准入／IME和默认关闭的测试观测修改。MIT原文、官方归档SHA、补丁及上游PR #118关系见[PATCHES](../../third_party/sources/re_editor/PATCHES.md)与[LICENSE](../../third_party/sources/re_editor/LICENSE)。原LICENSE SHA-256为5d37eaa3f35293d2141f08ffeb897040380eeb25016a5a17f71200a56bf44767，应用法律页显示原许可，修改说明随源码保留。后续版本具备等价能力时复核hosted替换及维护成本，保持单编辑系统。
 
 ## Dart覆盖率开发依赖
 
@@ -121,11 +121,15 @@ x/net v0.35.0的publicsuffix/table.go记录PSL提交63cbc63d470d7b52c35266aa96c4
 
 ## 内核与依赖升级复核
 
-1. 根据依赖声明、锁文件、解析图及replace确定当前版本与更新范围，按实际变化审查mihomo及其依赖。
-2. 比较发生变化的模块、源码、数据及许可。必要版本要求继续通过显式约束维护，新归档的授权结论以其实际原文为依据。
-3. 复用仍然适用的来源记录，核对变化归档及链接图；对许可、来源或replace变化，查阅具体上游声明与文件。
-4. 同步Go／Dart／Gradle的版本声明、锁文件、通知及对应源码材料，同时核对应用显示版本与buildinfo。
-5. 执行受影响的测试、vet及各目标ABI构建，逐项检查APK资产、NOTICES.Z、数据、依赖版本和对应源码。
+[本地更新入口](../../tool/dependencies/update.py)与 GitHub Actions 复用同一套依赖解析和材料同步。常规 mihomo 正式版更新自动完成，其他 Go、Pub 与 Android 库由显式选择触发。应用版本按[完整交付的版本策略](../development/build-and-test.md#应用版本)确定，独立的内核维护更新默认递增补丁版本。
+
+1. 以声明、锁文件及版本化 replace 确定更新范围；临时副本中的官方包管理器解析新版本。保留现有工具链、protobuf replace 和 go-lzo／chacha 显式许可要求。
+2. 按 Android 三个目标架构及生产 tags 的 Go 包解析集合收集模块，复用版本未变化的通知区块；变化模块读取固定模块缓存中的 LICENSE／COPYING、NOTICE、版权、AUTHORS／PATENTS 及必要来源声明。通知保存原文、SHA-256、模块 Sum／GoModSum 和归档摘要，mihomo 根许可与可编辑 PSL 列表同步维护。
+3. 相同许可字节复用既有依据；新许可文本使用固定版本 Google licenseclassifier 识别，并按当前 GPL-3.0-only 组合条件检查。go-lzo 的 GPLv2 正文连同 README 中明确的 GPL-2.0-or-later 声明保留。版权年份和许可文本变化进入自动处理；缺失原文先从固定上游提交补齐，授权缺失、实际冲突或未知许可报告具体材料与摘要，由 AI 按已有授权分析处理。
+4. Pub 更新由当前 SDK 的 resolvable 版本与 hosted 直接依赖选择驱动，保留 SDK／path 来源。Android 通知按实际 releaseRuntimeClasspath 更新，读取固定 Maven POM、运行归档、嵌套 JAR、sources.jar 与原始许可头；未变化坐标复用现有材料。
+5. 更新声明、锁文件与通知后按完整交付确定应用版本，在构建前写入 pubspec.yaml。测试与构建核实实际接口和平台兼容性，最终逐 ABI 核对 buildinfo、包内法律资产、独立 Flutter 许可预期及对应源码。实际技术失败由自动化诊断和 AI 维护处理，维护者参与凭据、授权与产品取舍。
+
+独立核验输入由 `--apply --evidence`从 Go 解析、Gradle 依赖图及独立 Flutter 资产构建自动取得，来源独立于待检 APK。通用版与三个分架构 APK 各按实际 ABI 核验，共享覆盖实际版本、补丁和构建输入的对应源码包与许可材料；SHA256SUMS 覆盖全部分发资产。GitHub Release 的创建、上传与正式发布由 GitHub Actions 执行，入口及签名配置见[Android 分发](../development/build-and-test.md#android-分发与-github-actions)。原始许可与随附通知保持其来源身份。
 
 解析与归档的常用命令：
 
@@ -137,4 +141,4 @@ GOTOOLCHAIN=local go -C native/mihomo version -m '<libmihomo_bridge.so>'
 
 解析图用于比较版本选择，download JSON提供Version／Sum／GoModSum／Zip／Dir。归档比较先去除module@version根目录，再按相对路径核对文件集合及字节，并计算许可原文和zip的SHA-256。
 
-最终逐ABI比buildinfo和包内法律资产，decoded NOTICES取独立审核材料，实际数据及源码交付按[NOTICE](../../NOTICE.md#二进制分发与对应源码)和[产物方法](../development/verification.md#最终产物与许可)核对。
+最终逐 ABI 比较 buildinfo 和包内法律资产，decoded NOTICES 取独立的 Flutter 资产构建输入，实际数据及源码交付按[NOTICE](../../NOTICE.md#二进制分发与对应源码)和[产物方法](../development/verification.md#最终产物与许可)核对。

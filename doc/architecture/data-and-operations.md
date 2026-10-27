@@ -93,7 +93,7 @@ IME按整批检查oldText连续性、范围及原子性，保留U+200B前缀和c
 
 查找沿公开控制器合并最新查询，顺序推进偏移并核查正文／查询身份；输入formatter、程序赋值及选区预填均整次预检。长字面查询用有界SDK正则片段按必需偏移求交，保留大小写、UTF-16与非重叠语义。
 
-re_editor适配包含生命周期、候选准入、IME同步、移动快捷键及测试观测，来源见[PATCHES](../../third_party/sources/re_editor/PATCHES.md)。移动端KeyEvent处理普通Backspace／Enter并执行只读检查；其他编辑快捷键复用原Actions，查找、保存与Escape交由页面任务动作。选区与composing变化更新当前历史节点，实际正文修改建立新分支。正文页持有同一选择菜单控制器，来源失效和退出时关闭所属浮层。测量见[编辑器验证](../development/verification.md#编辑器与输入性能)。
+re_editor适配包含生命周期、候选准入、IME同步及移动快捷键，来源见[PATCHES](../../third_party/sources/re_editor/PATCHES.md)。移动端KeyEvent处理普通Backspace／Enter并执行只读检查；其他编辑快捷键复用原Actions，查找、保存与Escape交由页面任务动作。选区与composing变化更新当前历史节点，实际正文修改建立新分支。正文页持有同一选择菜单控制器，来源失效和退出时关闭所属浮层。检查方法见[编辑器与输入](../development/verification.md#编辑器与输入)。
 
 ## 归档格式与准入
 

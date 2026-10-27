@@ -99,15 +99,15 @@ func (h *connectionHeap) Pop() any {
 }
 
 type connectionRuleSuggestions struct {
-	ConnectionID string   `json:"connectionId"`
-	Host         *string  `json:"host"`
-	Suffixes     []string `json:"suffixes"`
-	IPCIDR       *string  `json:"ipCidr"`
+	ConnectionID   string  `json:"connectionId"`
+	Host           *string `json:"host"`
+	SuffixBoundary *string `json:"suffixBoundary"`
+	IPCIDR         *string `json:"ipCidr"`
 }
 
 // Build PSL scope suggestions from the complete current tracker metadata.
 func connectionSuggestions(id string, metadata *C.Metadata) *connectionRuleSuggestions {
-	value := &connectionRuleSuggestions{ConnectionID: id, Suffixes: []string{}}
+	value := &connectionRuleSuggestions{ConnectionID: id}
 	if metadata == nil {
 		return value
 	}
@@ -144,38 +144,22 @@ func connectionSuggestions(id string, metadata *C.Metadata) *connectionRuleSugge
 	value.Host = &host
 	registrable, err := publicsuffix.EffectiveTLDPlusOne(host)
 	if err == nil {
-		for suffix := host; ; {
-			value.Suffixes = append(value.Suffixes, suffix)
-			if suffix == registrable {
-				break
-			}
-			_, next, ok := strings.Cut(suffix, ".")
-			if !ok {
-				break
-			}
-			suffix = next
-		}
-	}
-	// A 253-byte wire-valid host has at most 127 labels; return the complete suffix set
-	// within the 32KiB envelope.
-	if encoded, err := json.Marshal(value); err != nil || len(encoded) > 32<<10 {
-		return nil
+		value.SuffixBoundary = &registrable
 	}
 	return value
 }
 
 type connectionReply struct {
-	UploadTotal     int64                      `json:"uploadTotal"`
-	DownloadTotal   int64                      `json:"downloadTotal"`
-	SessionUpload   *int64                     `json:"sessionUploadBytes"`
-	SessionDownload *int64                     `json:"sessionDownloadBytes"`
-	ActiveCount     int                        `json:"activeCount"`
-	Connections     []json.RawMessage          `json:"connections"`
-	Detail          json.RawMessage            `json:"detail,omitempty"`
-	RuleSuggestions *connectionRuleSuggestions `json:"ruleSuggestions"`
-	Presence        map[string]bool            `json:"presence"`
-	Limited         bool                       `json:"limited"`
-	Complete        bool                       `json:"complete"`
+	UploadTotal     int64             `json:"uploadTotal"`
+	DownloadTotal   int64             `json:"downloadTotal"`
+	SessionUpload   *int64            `json:"sessionUploadBytes"`
+	SessionDownload *int64            `json:"sessionDownloadBytes"`
+	ActiveCount     int               `json:"activeCount"`
+	Connections     []json.RawMessage `json:"connections"`
+	Detail          json.RawMessage   `json:"detail,omitempty"`
+	Presence        map[string]bool   `json:"presence"`
+	Limited         bool              `json:"limited"`
+	Complete        bool              `json:"complete"`
 }
 
 func (e *Engine) Connections(q ConnectionQuery) (string, error) {
@@ -273,9 +257,6 @@ func queryConnections(source connectionSource, proxies map[string]C.Proxy, q Con
 	if q.DetailID != "" {
 		info := lookup(q.DetailID)
 		response.Presence[q.DetailID] = info != nil
-		if info != nil {
-			response.RuleSuggestions = connectionSuggestions(q.DetailID, info.Metadata)
-		}
 		if info != nil && !selected[q.DetailID] {
 			row, err := projectConnection(proxies, q.DetailID, info)
 			if err != nil {
@@ -316,16 +297,16 @@ type connectionStrategy struct {
 
 type connectionRow struct {
 	RuleSuggestions *connectionRuleSuggestions `json:"ruleSuggestions,omitempty"`
-	Strategy    *connectionStrategy `json:"strategy,omitempty"`
-	ID          string              `json:"id"`
-	Start       time.Time           `json:"start"`
-	Upload      int64               `json:"upload"`
-	Download    int64               `json:"download"`
-	Chains      []string            `json:"chains"`
-	Rule        string              `json:"rule"`
-	RulePayload string              `json:"rulePayload"`
-	Metadata    *connectionMetadata `json:"metadata,omitempty"`
-	Truncated   bool                `json:"fieldsTruncated,omitempty"`
+	Strategy        *connectionStrategy        `json:"strategy,omitempty"`
+	ID              string                     `json:"id"`
+	Start           time.Time                  `json:"start"`
+	Upload          int64                      `json:"upload"`
+	Download        int64                      `json:"download"`
+	Chains          []string                   `json:"chains"`
+	Rule            string                     `json:"rule"`
+	RulePayload     string                     `json:"rulePayload"`
+	Metadata        *connectionMetadata        `json:"metadata,omitempty"`
+	Truncated       bool                       `json:"fieldsTruncated,omitempty"`
 }
 
 // Copy bounded strings before encoding to release larger source backing storage.

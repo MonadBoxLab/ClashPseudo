@@ -51,7 +51,9 @@ android {
         targetSdk = flutter.targetSdkVersion
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
-            abiFilters += nativeAbis
+            if (!providers.gradleProperty("split-per-abi").map(String::toBoolean).getOrElse(false)) {
+                abiFilters += nativeAbis
+            }
         }
         // 版本沿Flutter构建元数据。
         versionCode = flutter.versionCode
@@ -62,14 +64,34 @@ android {
         jacocoVersion = "0.8.14"
     }
 
+    val distributionSigning = listOf(
+        "CLASH_SIGNING_STORE_FILE", "CLASH_SIGNING_STORE_PASSWORD",
+        "CLASH_SIGNING_KEY_ALIAS", "CLASH_SIGNING_KEY_PASSWORD",
+    ).associateWith { providers.environmentVariable(it).orNull }
+    require(distributionSigning.values.all { it.isNullOrEmpty() } ||
+        distributionSigning.values.all { !it.isNullOrEmpty() }) {
+        "Distribution signing requires all four CLASH_SIGNING environment variables"
+    }
+    val hasDistributionSigning = distributionSigning.values.all { !it.isNullOrEmpty() }
+    require(providers.environmentVariable("CLASH_REQUIRE_DISTRIBUTION_SIGNING").orNull != "true" ||
+        hasDistributionSigning) { "This build requires the configured distribution signing key" }
+    if (hasDistributionSigning) {
+        signingConfigs.create("distribution") {
+            storeFile = file(distributionSigning.getValue("CLASH_SIGNING_STORE_FILE")!!)
+            require(storeFile!!.isFile) { "Distribution keystore does not exist" }
+            storePassword = distributionSigning.getValue("CLASH_SIGNING_STORE_PASSWORD")
+            keyAlias = distributionSigning.getValue("CLASH_SIGNING_KEY_ALIAS")
+            keyPassword = distributionSigning.getValue("CLASH_SIGNING_KEY_PASSWORD")
+        }
+    }
+
     buildTypes {
         debug {
             enableUnitTestCoverage = validationCoverage
             enableAndroidTestCoverage = validationCoverage
         }
         release {
-            // 开发期构建使用本地调试签名。
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (hasDistributionSigning) "distribution" else "debug")
         }
     }
 }

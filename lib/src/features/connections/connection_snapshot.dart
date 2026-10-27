@@ -1,51 +1,63 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:clash_pseudo/src/model/core_snapshot.dart';
+import '../../model/application_contract.dart';
+import '../../model/core_snapshot.dart';
 
 import '../../l10n/messages.dart';
 
 class ConnectionRecord {
   ConnectionRecord.fromMap(
     Map<String, dynamic> value, {
-    Object? ruleMetadata,
-  })
-    : ruleMetadata = value['ruleSuggestions'] is Map
-          ? Map<String, dynamic>.unmodifiable(value['ruleSuggestions'] as Map)
-          : ruleMetadata is Map
-          ? Map<String, dynamic>.unmodifiable(ruleMetadata)
-          : null,
-      id = value['id'] as String,
-      start = value['startMicros'] is int
-          ? DateTime.fromMicrosecondsSinceEpoch(value['startMicros'] as int)
-          : DateTime.tryParse(value['start'] as String? ?? '')?.toLocal(),
-      upload = _count(value['upload']),
-      download = _count(value['download']),
-      chains = List<String>.unmodifiable(value['chains'] as List? ?? const []),
-      strategyType = _strategyText(value['strategy'], 'type'),
-      strategyIcon = _strategyText(value['strategy'], 'icon'),
-      rule = value['rule'] as String? ?? '',
-      rulePayload = value['rulePayload'] as String? ?? '',
-      host = (value['metadata'] as Map?)?['host'] as String? ?? '',
-      destinationIP =
-          (value['metadata'] as Map?)?['destinationIP'] as String? ?? '',
-      destinationPort =
-          (value['metadata'] as Map?)?['destinationPort']?.toString() ?? '',
-      sourceIP = (value['metadata'] as Map?)?['sourceIP'] as String? ?? '',
-      sourcePort = (value['metadata'] as Map?)?['sourcePort']?.toString() ?? '',
-      network = (value['metadata'] as Map?)?['network'] as String? ?? '',
-      type = (value['metadata'] as Map?)?['type'] as String? ?? '',
-      active = value['active'] != false,
-      fieldsTruncated = value['fieldsTruncated'] == true,
-      observedAt = value['observedAt'] is int
-          ? DateTime.fromMillisecondsSinceEpoch(value['observedAt'] as int)
-          : null,
-      uploadSpeed = _rate(value['uploadSpeed']),
-      downloadSpeed = _rate(value['downloadSpeed']) {
+    CoreSnapshot source = const CoreSnapshot(),
+  }) : ruleMetadata = _rules(value, source),
+       id = value['id'] as String,
+       start = value['startMicros'] is int
+           ? DateTime.fromMicrosecondsSinceEpoch(value['startMicros'] as int)
+           : DateTime.tryParse(value['start'] as String? ?? '')?.toLocal(),
+       upload = _count(value['upload']),
+       download = _count(value['download']),
+       chains = List<String>.unmodifiable(value['chains'] as List? ?? const []),
+       strategyType = _strategyText(value['strategy'], 'type'),
+       strategyIcon = _strategyText(value['strategy'], 'icon'),
+       rule = value['rule'] as String? ?? '',
+       rulePayload = value['rulePayload'] as String? ?? '',
+       host = (value['metadata'] as Map?)?['host'] as String? ?? '',
+       destinationIP =
+           (value['metadata'] as Map?)?['destinationIP'] as String? ?? '',
+       destinationPort =
+           (value['metadata'] as Map?)?['destinationPort']?.toString() ?? '',
+       sourceIP = (value['metadata'] as Map?)?['sourceIP'] as String? ?? '',
+       sourcePort =
+           (value['metadata'] as Map?)?['sourcePort']?.toString() ?? '',
+       network = (value['metadata'] as Map?)?['network'] as String? ?? '',
+       type = (value['metadata'] as Map?)?['type'] as String? ?? '',
+       active = value['active'] != false,
+       fieldsTruncated = value['fieldsTruncated'] == true,
+       observedAt = value['observedAt'] is int
+           ? DateTime.fromMillisecondsSinceEpoch(value['observedAt'] as int)
+           : null,
+       uploadSpeed = _rate(value['uploadSpeed']),
+       downloadSpeed = _rate(value['downloadSpeed']) {
     if (id.isEmpty) throw const FormatException('Missing connection identity');
   }
 
-  final Map<String, dynamic>? ruleMetadata;
+  final ConnectionRuleSuggestions? ruleMetadata;
+
+  static ConnectionRuleSuggestions? _rules(
+    Map<String, dynamic> value,
+    CoreSnapshot source,
+  ) {
+    final rules = ConnectionRuleSuggestions.fromValue(
+      value['ruleSuggestions'],
+      source,
+    );
+    if (rules != null && rules.connectionId != value['id']) {
+      throw const FormatException('Connection rule identity changed');
+    }
+    return rules?.candidates.isNotEmpty == true ? rules : null;
+  }
+
   final String id;
   final DateTime? start;
   final int? upload;
@@ -72,7 +84,7 @@ class ConnectionRecord {
   final double? downloadSpeed;
 
   Map<String, Object?> toMap() => {
-    if (ruleMetadata != null) 'ruleSuggestions': ruleMetadata,
+    if (ruleMetadata != null) 'ruleSuggestions': ruleMetadata!.toMap(),
     'id': id,
     'startMicros': start?.microsecondsSinceEpoch,
     'upload': upload,
@@ -103,7 +115,8 @@ class ConnectionRecord {
     required this.observedAt,
     required this.uploadSpeed,
     required this.downloadSpeed,
-  }) : ruleMetadata = source.ruleMetadata,
+    ConnectionRuleSuggestions? ruleMetadata,
+  }) : ruleMetadata = source.ruleMetadata ?? ruleMetadata,
        id = source.id,
        start = source.start,
        upload = source.upload,
@@ -134,6 +147,20 @@ class ConnectionRecord {
     uploadSpeed: _rate(uploadSpeed),
     downloadSpeed: _rate(downloadSpeed),
   );
+
+  ConnectionRecord retainingRulesFrom(ConnectionRecord? previous) =>
+      ruleMetadata != null ||
+          previous?.id != id ||
+          previous?.ruleMetadata == null
+      ? this
+      : ConnectionRecord._observed(
+          this,
+          active: active,
+          observedAt: observedAt,
+          uploadSpeed: uploadSpeed,
+          downloadSpeed: downloadSpeed,
+          ruleMetadata: previous!.ruleMetadata,
+        );
 
   static double? _rate(Object? value) =>
       value is num && value.isFinite && value >= 0 ? value.toDouble() : null;
@@ -196,14 +223,21 @@ class ConnectionRuleSuggestions {
   ) {
     if (raw == null) return null;
     if (raw is! Map ||
-        !source.matchesIdentity(source) ||
-        source.purpose != 'VPN' ||
-        utf8.encode(jsonEncode(raw)).length > 32 * 1024) {
+        utf8.encode(jsonEncode(raw)).length >
+            ApplicationContract.connectionRowBytes) {
+      throw const FormatException('Invalid connection rule source');
+    }
+    if (raw['source'] case final Map observedSource) {
+      source = CoreSnapshot.fromMap(Map<String, dynamic>.from(observedSource));
+    } else if (raw['source'] != null) {
+      throw const FormatException('Invalid observed connection rule source');
+    }
+    if (!source.hasIdentity || source.purpose != 'VPN') {
       throw const FormatException('Invalid connection rule source');
     }
     final id = raw['connectionId'];
     final host = raw['host'];
-    final suffixes = raw['suffixes'];
+    final boundary = raw['suffixBoundary'];
     final ipCidr = raw['ipCidr'];
     if (id is! String ||
         !RegExp(
@@ -211,26 +245,22 @@ class ConnectionRuleSuggestions {
         ).hasMatch(id) ||
         id == '00000000-0000-0000-0000-000000000000' ||
         host != null && (host is! String || !_domain(host)) ||
-        suffixes is! List ||
-        suffixes.length > 127 ||
+        boundary != null &&
+            (boundary is! String ||
+                !_domain(boundary) ||
+                host is! String ||
+                boundary != host && !host.endsWith('.$boundary')) ||
         ipCidr != null && ipCidr is! String) {
       throw const FormatException('Invalid connection rule suggestions');
     }
     final domains = <String>[];
-    for (final suffix in suffixes) {
-      if (suffix is! String ||
-          !_domain(suffix) ||
-          host is! String ||
-          (suffix != host && !host.endsWith('.$suffix')) ||
-          domains.contains(suffix) ||
-          (domains.isNotEmpty && !domains.last.endsWith('.$suffix'))) {
-        throw const FormatException('Invalid suggested domain suffix');
+    if (boundary is String && host is String) {
+      var suffix = host;
+      while (true) {
+        domains.add(suffix);
+        if (suffix == boundary) break;
+        suffix = suffix.substring(suffix.indexOf('.') + 1);
       }
-      domains.add(suffix);
-    }
-    if (domains.isNotEmpty && domains.first != host ||
-        host == null && domains.isNotEmpty) {
-      throw const FormatException('Invalid suggested suffix boundary');
     }
     final candidates = <ConnectionRuleCandidate>[
       if (host is String) (type: 'DOMAIN', value: host),
@@ -268,20 +298,23 @@ class ConnectionRuleSuggestions {
   Map<String, Object?> toMap() => {
     'connectionId': connectionId,
     'host': host,
-    'suffixes': suffixes,
+    'suffixBoundary': suffixes.lastOrNull,
     'ipCidr': ipCidr,
+    'source': {
+      'phase': source.phase,
+      'generation': source.generation,
+      'configId': source.configId,
+      'revision': source.revision,
+      'composition': source.composition,
+      'purpose': source.purpose,
+    },
   };
 }
 
 class ConnectionSnapshot {
-  ConnectionSnapshot.fromMap(Map<String, dynamic> value)
-    : generation = value['generation'] as int,
-      configId = value['configId'] as String,
-      revision = value['revision'] as int,
-      composition = value['composition'] as String?,
-      purpose = value['purpose'] as String?,
-      ruleSuggestions = ConnectionRuleSuggestions.fromValue(
-        value['ruleSuggestions'],
+  factory ConnectionSnapshot.fromMap(Map<String, dynamic> value) =>
+      ConnectionSnapshot._(
+        value,
         CoreSnapshot(
           phase: 'READY',
           generation: value['generation'] as int,
@@ -290,8 +323,10 @@ class ConnectionSnapshot {
           composition: value['composition'] as String?,
           purpose: value['purpose'] as String?,
         ),
-      ),
-      phase = value['phase'] as String? ?? 'RUNNING',
+      );
+
+  ConnectionSnapshot._(Map<String, dynamic> value, this.source)
+    : phase = value['phase'] as String? ?? 'RUNNING',
       fresh = value['fresh'] != false,
       sampleAgeMs = ConnectionRecord._count(value['sampleAgeMs']),
       failed = value['failed'] == true,
@@ -304,7 +339,7 @@ class ConnectionSnapshot {
       detail = value['detail'] is Map
           ? ConnectionRecord.fromMap(
               Map<String, dynamic>.from(value['detail'] as Map),
-              ruleMetadata: value['ruleSuggestions'],
+              source: source,
             )
           : null,
       records = List.unmodifiable(
@@ -312,10 +347,7 @@ class ConnectionSnapshot {
             .map(
               (row) => ConnectionRecord.fromMap(
                 Map<String, dynamic>.from(row as Map),
-                ruleMetadata: value['ruleSuggestions'] is Map &&
-                        (value['ruleSuggestions'] as Map)['connectionId'] == row['id']
-                    ? value['ruleSuggestions']
-                    : null,
+                source: source,
               ),
             )
             .where((record) => record.type != 'Inner'),
@@ -323,23 +355,14 @@ class ConnectionSnapshot {
     if (records.map((record) => record.id).toSet().length != records.length) {
       throw const FormatException('Duplicate connection identity');
     }
-    final suggestions = ruleSuggestions;
-    if (suggestions != null) {
-      final record =
-          find(suggestions.connectionId) ??
-          (detail?.id == suggestions.connectionId ? detail : null);
-      if (record?.active != true) {
-        throw const FormatException('Suggested connection is not current');
-      }
-    }
   }
 
-  final int generation;
-  final String configId;
-  final int revision;
-  final String? composition;
-  final String? purpose;
-  final ConnectionRuleSuggestions? ruleSuggestions;
+  final CoreSnapshot source;
+  int get generation => source.generation;
+  String get configId => source.configId!;
+  int get revision => source.revision!;
+  String? get composition => source.composition;
+  String? get purpose => source.purpose;
   final List<ConnectionRecord> records;
   final String phase;
   final bool fresh;
@@ -357,7 +380,7 @@ class ConnectionSnapshot {
       revision == core.revision;
 
   bool matches(CoreSnapshot core) =>
-      core.ready && core.purpose == 'VPN' && sameIdentity(core);
+      core.ready && core.purpose == 'VPN' && source.matchesIdentity(core);
   ConnectionRecord? find(String id) =>
       records.where((record) => record.id == id).firstOrNull;
 }

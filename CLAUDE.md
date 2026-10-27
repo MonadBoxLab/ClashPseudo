@@ -1,23 +1,26 @@
-# AI 协作约定
+# 项目开发信息
 
-项目与开发说明见 [README.md](README.md)，产品规则见 [需求文档](docs/product-requirements.md)。续接时核对实际工作区与已确认需求，不从现有实现推定已批准的技术选型。
+## 架构与目录
 
-开发、验证与提交遵循[项目开发规则](.claude/rules/development.md)。界面工作遵循[通用设计原则](docs/product-requirements.md#通用设计原则)，具体页面依据见[应用页面设计](docs/home-design.md)；职责变更先核对[当前 Android 接入](docs/android-native-integration.md#职责与调用顺序)，不将平台实现事实当成跨平台架构批准。
+应用采用Flutter／Dart界面与业务层、Kotlin Android宿主、JNI与Go内核接入。AppRuntime是唯一Dart业务执行者和三Store写者，Go承载进程内单内核上下文。职责与生命周期见[应用架构](doc/architecture/overview.md)。
 
-## 依赖许可
+- [lib/src/](lib/src/)：Flutter应用、业务与功能实现。
+- [android/app/src/main/](android/app/src/main/)：Android宿主及平台接入。
+- [native/mihomo/](native/mihomo/)：Go模块与mihomo自有接入。
+- [test/](test/)：Flutter／Dart与工具回归；Android和Go测试沿各自源码目录组织。
 
-许可处理结论及 mihomo／依赖升级复核要求见[依赖许可处理依据](docs/dependency-licenses.md)，分发与对应源码要求见 [NOTICE](NOTICE.md)。升级前核对实际解析版本与固定证据，不把已解决的历史疑点重复当成阻塞，也不将当前结论自动套用到新版本。
+## 事实来源与开发约定
 
-## 当前发布阶段与兼容边界
+- 跨语言常量以[contracts/application.json](contracts/application.json)为来源，由[生成器](tool/contracts/generate.py)生成Dart／Kotlin／Go／C定义；生成一致性使用其 `--check` 入口。
+- 依赖版本以声明、锁文件和实际解析为准：Flutter见[pubspec.yaml](pubspec.yaml)／[pubspec.lock](pubspec.lock)，Go见[go.mod](native/mihomo/go.mod)／[go.sum](native/mihomo/go.sum)。Go生产tags为 `cmfa,with_gvisor`。
+- re_editor使用[本地适配](third_party/sources/re_editor/)，来源与修改见[PATCHES](third_party/sources/re_editor/PATCHES.md)。
+- 自有文档使用中文，第三方原文和原始输出保持来源身份。README面向应用用户，doc面向产品与维护者。
+- 应用采用GPL-3.0-only；依赖更新、通知及对应源码按[许可与升级规范](doc/legal/dependencies.md)维护。
+- 提交标题采用简短英文 `type(scope): subject`，正文署名 `Assisted by AI`。
 
-- 项目尚未公开发布，仅在本地 AVD 安装测试；当前不要求兼容旧开发版本的数据格式或内部协议，不预建迁移、兼容分支或双版本实现。
-- 公开发布由用户明确通知，届时重新确定兼容与迁移要求；release 构建、版本号、Git 提交或本地安装不代表公开发布。
-- 开发数据重置按具体授权执行，不自动清空或覆盖。当前格式完整性、异步身份及资源生命周期校验不因此省略。
+## 开发入口
 
-## 请求与授权
-
-- 问题、反馈和新增信息默认进入讨论或只读调查，不直接修改文件。
-- 简单且明确的修改可直接实施；功能、结构、依赖或平台行为变化，先说明范围、方案和验收条件，获得批准后实施。
-- 同意方向不等于授权全部相关修改。验证代码、测试通过和已有文档不构成正式架构或选型批准。
-- 未经要求不提交、推送或发布；权限拒绝后不换工具或方法绕过。
-- 技术事实需有可核对依据，不把推断或候选方案写成既定事实。
+- 产品与交互：[产品概览](doc/product/overview.md)、[通用交互](doc/product/interaction.md)及所属功能规范。
+- 数据与接入：[数据与操作](doc/architecture/data-and-operations.md)、[Android接入](doc/architecture/android.md)、[Go／mihomo接入](doc/architecture/core-integration.md)。
+- 构建与验证：[构建和测试命令](doc/development/build-and-test.md)、[验证方法](doc/development/verification.md)。
+- 用户入口与分发：[README](README.md)、[NOTICE](NOTICE.md)。

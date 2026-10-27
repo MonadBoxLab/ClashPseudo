@@ -119,7 +119,7 @@ class ReleaseLicenseTest(unittest.TestCase):
         )
         return subprocess.CompletedProcess(command, 0, text, "")
 
-    def run_verifier(self, response=None):
+    def run_verifier(self, response=None, abis=()):
         stream = io.StringIO()
         with redirect_stdout(stream), mock.patch.object(
                 verifier.subprocess, "run", side_effect=response or self.buildinfo) as process:
@@ -129,6 +129,7 @@ class ReleaseLicenseTest(unittest.TestCase):
                 "--go-modules", str(self.inputs / "go.json"),
                 "--android-dependencies", str(self.inputs / "android.txt"),
                 "--output-dir", str(self.output), "--go", "/trusted/go",
+                *(argument for abi in abis for argument in ("--abi", abi)),
             ])
         return result, stream.getvalue(), process
 
@@ -154,6 +155,42 @@ class ReleaseLicenseTest(unittest.TestCase):
             "exit_code": 0,
             "scope": "license/data bytes and resolved dependency graphs",
         })
+
+    def test_each_split_checks_only_its_selected_abi(self):
+        original = dict(self.entries)
+        for abi in ("armeabi-v7a", "arm64-v8a", "x86_64"):
+            with self.subTest(abi=abi):
+                self.entries = {name: value for name, value in original.items()
+                                if not name.startswith("lib/") or name.startswith("lib/" + abi + "/")}
+                self.write_archive()
+                self.output = self.base / ("output-" + abi)
+                self.output.mkdir()
+                result, output, process = self.run_verifier(abis=(abi,))
+                self.assertEqual(result, 0, output)
+                self.assertEqual(process.call_count, 1)
+                self.assertEqual([path.name for path in self.output.iterdir()], [abi])
+
+    def test_split_rejects_extra_or_missing_bridge_abi(self):
+        result, output, process = self.run_verifier(abis=("arm64-v8a",))
+        self.assertEqual(result, 1, output)
+        self.assertIn("Expected exactly", output)
+        process.assert_not_called()
+
+    def test_split_rejects_foreign_abi_in_other_native_libraries(self):
+        self.entries = {name: value for name, value in self.entries.items()
+                        if not name.startswith("lib/") or name.startswith("lib/arm64-v8a/")}
+        self.entries["lib/x86_64/libflutter.so"] = b"unexpected architecture"
+        self.write_archive()
+        result, output, process = self.run_verifier(abis=("arm64-v8a",))
+        self.assertEqual(result, 1, output)
+        self.assertIn("Packaged native ABIs differ", output)
+        process.assert_not_called()
+
+    def test_duplicate_target_abi_is_rejected(self):
+        result, output, process = self.run_verifier(abis=("arm64-v8a", "arm64-v8a"))
+        self.assertEqual(result, 1, output)
+        self.assertIn("Invalid target ABI selection", output)
+        process.assert_not_called()
 
     def test_all_declared_legal_assets_are_checked(self):
         pubspec = Path(__file__).resolve().parents[2] / "pubspec.yaml"

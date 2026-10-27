@@ -375,6 +375,8 @@ void main() {
       'generation': 7,
       'configId': 'one',
       'revision': 1,
+      'composition': 'one',
+      'purpose': 'VPN',
       'connections': [],
       'sampleAgeMs': 0,
       'missingDetailId': 'one',

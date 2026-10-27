@@ -1107,13 +1107,6 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
       paragraph.draw(canvas, drawOffset);
       _drawChunkIndicatorIfNeeded(canvas, paragraph, drawOffset);
     }
-    if (CodeEditorObservation.enabled) {
-      CodeEditorObservation.onPaint?.call(
-        _codes, ui.PlatformDispatcher.instance.frameData.frameNumber,
-        Rect.fromLTWH(paintOffset.dx, paintOffset.dy, size.width, size.height),
-        _displayParagraphs,
-      );
-    }
     canvas.restore();
   }
 

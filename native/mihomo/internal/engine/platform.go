@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/metacubex/mihomo/config"
 	C "github.com/metacubex/mihomo/constant"
+	tun "github.com/metacubex/sing-tun"
 
 	"clashpseudo/native/internal/configinput"
 )
@@ -109,6 +111,11 @@ func platformRuntime(r *config.RawConfig, p configinput.Presence) error {
 	unsupported := func(field, reason string) error { return &PlatformError{Field: field, Reason: reason} }
 	if !r.Tun.Enable {
 		return unsupported("tun.enable", "tunDisabled")
+	}
+	switch r.Tun.DNSMode {
+	case "", tun.DNSModeDisabled, tun.DNSModeNative, tun.DNSModeHijack:
+	default:
+		return errors.New("invalid tun.dns-mode")
 	}
 	if r.Tun.MTU == 0 || r.Tun.MTU > 65535 {
 		return unsupported("tun.mtu", "invalidMtu")

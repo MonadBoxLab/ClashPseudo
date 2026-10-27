@@ -165,12 +165,14 @@ class ConnectionWindow {
         ? (value - before) * 1000 / interval
         : null;
     return _ObservedConnection(
-      record.observed(
-        active: true,
-        at: at,
-        uploadSpeed: speed(record.upload, old?.record.upload),
-        downloadSpeed: speed(record.download, old?.record.download),
-      ),
+      record
+          .retainingRulesFrom(old?.record)
+          .observed(
+            active: true,
+            at: at,
+            uploadSpeed: speed(record.upload, old?.record.upload),
+            downloadSpeed: speed(record.download, old?.record.download),
+          ),
       elapsed,
     );
   }

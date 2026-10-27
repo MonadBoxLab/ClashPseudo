@@ -1,7 +1,9 @@
 package engine
 
 import (
+	"context"
 	"flag"
+	"net/netip"
 	"os"
 	"os/exec"
 	"runtime"
@@ -9,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	C "github.com/metacubex/mihomo/constant"
 )
 
 func wireguardWorkers() int {
@@ -52,8 +56,6 @@ rules:
 		t.Fatal("invalid rule was accepted")
 	}
 	stopErr := e.Stop()
-	// Allow both newly scheduled workers and asynchronous shutdown to settle.
-	time.Sleep(2 * time.Second)
 	if got := wireguardWorkers(); got != baseline {
 		t.Fatalf("parse failure leaked WireGuard workers = %d, baseline = %d; Stop = %v", got, baseline, stopErr)
 	}
@@ -81,35 +83,42 @@ rules:
 	baseline := wireguardWorkers()
 	var e Engine
 	t.Cleanup(func() { requireStop(t, &e) })
-	for round := 0; round < 3; round++ {
-		if err := e.Prepare(t.TempDir(), []byte(body), "rule", nil, func(int) bool { return true }); err != nil {
-			t.Fatal(err)
-		}
-		nodes := e.cfg.Providers["wg"].Proxies()
-		if len(nodes) != 1 {
-			t.Fatal("missing provider node")
-		}
-		// Retain the node through the explicit-close assertion, then release it on both
-		// success and failure.
-		t.Cleanup(func() { _ = nodes[0].Close() })
-		deadline := time.Now().Add(2 * time.Second)
-		for wireguardWorkers() <= baseline && time.Now().Before(deadline) {
-			time.Sleep(10 * time.Millisecond)
-		}
-		if wireguardWorkers() <= baseline {
-			t.Fatal("provider worker never started")
-		}
-		requireStop(t, &e)
-		requireStop(t, &e)
-		deadline = time.Now().Add(2 * time.Second)
-		for wireguardWorkers() > baseline && time.Now().Before(deadline) {
-			time.Sleep(10 * time.Millisecond)
-		}
-		if got := wireguardWorkers(); got != baseline {
-			t.Fatalf("round %d: workers after Stop = %d, baseline = %d", round, got, baseline)
-		}
-		runtime.KeepAlive(nodes)
+	if err := e.Prepare(t.TempDir(), []byte(body), "rule", nil, func(int) bool { return true }); err != nil {
+		t.Fatal(err)
 	}
+	nodes := e.cfg.Providers["wg"].Proxies()
+	if len(nodes) != 1 {
+		t.Fatal("missing provider node")
+	}
+	// Retain the node through the explicit-close assertion, then release it on both
+	// success and failure.
+	t.Cleanup(func() { _ = nodes[0].Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	packet, err := nodes[0].ListenPacketContext(ctx, &C.Metadata{
+		NetWork: C.UDP, DstIP: netip.MustParseAddr("192.0.2.1"), DstPort: 53,
+	})
+	cancel()
+	if err != nil {
+		t.Fatal("initialize provider through public UDP use:", err)
+	}
+	t.Cleanup(func() { _ = packet.Close() })
+	deadline := time.Now().Add(2 * time.Second)
+	for wireguardWorkers() <= baseline && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if wireguardWorkers() <= baseline {
+		t.Fatal("provider worker never started")
+	}
+	requireStop(t, &e)
+	requireStop(t, &e)
+	deadline = time.Now().Add(2 * time.Second)
+	for wireguardWorkers() > baseline && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := wireguardWorkers(); got != baseline {
+		t.Fatalf("workers after Stop = %d, baseline = %d", got, baseline)
+	}
+	runtime.KeepAlive(nodes)
 }
 
 func TestInlineRuleProviderStopsAndCanPrepareAgain(t *testing.T) {

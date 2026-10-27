@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -85,19 +84,25 @@ func decodeConnections(t *testing.T, body string, err error) connectionReply {
 
 func TestConnectionRuleSuggestionsUseIDNAAndPublicSuffixPrivateBoundaries(t *testing.T) {
 	for _, test := range []struct {
-		host, want string
-		suffixes   []string
+		host, want, boundary string
 	}{
-		{"a.b.example.co.uk", "a.b.example.co.uk", []string{"a.b.example.co.uk", "b.example.co.uk", "example.co.uk"}},
-		{"a.tenant.github.io", "a.tenant.github.io", []string{"a.tenant.github.io", "tenant.github.io"}},
-		{"a.tenant.blogspot.com", "a.tenant.blogspot.com", []string{"a.tenant.blogspot.com", "tenant.blogspot.com"}},
-		{"a.www.ck", "a.www.ck", []string{"a.www.ck", "www.ck"}},
-		{"WWW.例子.测试。", "www.xn--fsqu00a.xn--0zwm56d", []string{"www.xn--fsqu00a.xn--0zwm56d", "xn--fsqu00a.xn--0zwm56d"}},
-		{"co.uk", "co.uk", []string{}}, {"LOCALHOST", "localhost", []string{}},
+		{"a.b.example.co.uk", "a.b.example.co.uk", "example.co.uk"},
+		{"a.tenant.github.io", "a.tenant.github.io", "tenant.github.io"},
+		{"a.tenant.blogspot.com", "a.tenant.blogspot.com", "tenant.blogspot.com"},
+		{"a.www.ck", "a.www.ck", "www.ck"},
+		{"WWW.例子.测试。", "www.xn--fsqu00a.xn--0zwm56d", "xn--fsqu00a.xn--0zwm56d"},
+		{"co.uk", "co.uk", ""}, {"LOCALHOST", "localhost", ""},
 	} {
 		value := connectionSuggestions("observed", &C.Metadata{Host: test.host})
-		if value == nil || value.Host == nil || *value.Host != test.want || !reflect.DeepEqual(value.Suffixes, test.suffixes) {
+		if value == nil || value.Host == nil || *value.Host != test.want {
 			t.Fatalf("%s: %+v", test.host, value)
+		}
+		if test.boundary == "" {
+			if value.SuffixBoundary != nil {
+				t.Fatal("exact-only name acquired a suffix boundary", value)
+			}
+		} else if value.SuffixBoundary == nil || *value.SuffixBoundary != test.boundary {
+			t.Fatal("wrong PSL boundary", test.host, value)
 		}
 		if value.IPCIDR != nil {
 			t.Fatal("a host suggestion invented an address")
@@ -105,17 +110,28 @@ func TestConnectionRuleSuggestionsUseIDNAAndPublicSuffixPrivateBoundaries(t *tes
 	}
 	for _, host := range []string{"", ".", "a..test", "a.test..", "https://example.test", "example.test:443", "a.test/path", "a\n.test", "a\x00.test", "_srv._tcp.test", "192.0.2.7", "2001:db8::7", "a." + strings.Repeat("x", 64), strings.Repeat("x", 1025), "-bad.test"} {
 		value := connectionSuggestions("observed", &C.Metadata{Host: host})
-		if value == nil || value.Host != nil || len(value.Suffixes) != 0 {
+		if value == nil || value.Host != nil || value.SuffixBoundary != nil {
 			t.Fatalf("invalid/incomplete/literal host suggested a rule: %q %+v", host, value)
 		}
 	}
-	long := strings.Repeat("a.", 126) + "a"
-	value := connectionSuggestions("observed", &C.Metadata{Host: long})
-	if value == nil || value.Host == nil || *value.Host != long || len(value.Suffixes) != 126 {
-		t.Fatal("wire-valid long domain was truncated", value)
+}
+
+func TestConnectionRuleSuggestionsFitLongestDomainInRowBudget(t *testing.T) {
+	row := fixtureConnection(1)
+	host := strings.Repeat("a.", 126) + "a"
+	row.info.Metadata.Host = host
+	row.info.Metadata.DstIP = netip.MustParseAddr("2001:db8::7")
+	body, err := projectConnection(nil, row.ID(), row.info)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if body, err := json.Marshal(value); err != nil || len(body) > 32<<10 {
-		t.Fatal("suggestions exceeded bounded envelope", err, len(body))
+	var projected connectionRow
+	if err := json.Unmarshal(body, &projected); err != nil {
+		t.Fatal(err)
+	}
+	value := projected.RuleSuggestions
+	if len(body) > maxConnectionRowBytes || value == nil || value.Host == nil || *value.Host != host || value.SuffixBoundary == nil || *value.SuffixBoundary != "a.a" || value.IPCIDR == nil || *value.IPCIDR != "2001:db8::7/128" {
+		t.Fatal("complete domain and PSL boundary must fit the existing row budget", string(body))
 	}
 }
 
@@ -153,42 +169,50 @@ func TestConnectionRuleSuggestionsUseOnlyObservedIPAndPublicFakeIPDetection(t *t
 	}
 }
 
-func TestConnectionRuleSuggestionsAreComputedOnlyForCurrentRequestedDetail(t *testing.T) {
+func TestConnectionRuleSuggestionsFollowEachObservedRowAndDetail(t *testing.T) {
 	first, latest := fixtureConnection(1), fixtureConnection(2)
 	first.info.Metadata.Host = "a.tenant.github.io"
 	first.info.Metadata.DstIP = netip.MustParseAddr("192.0.2.7")
 	latest.info.Metadata.Host = "unrelated.example.test"
 	source := &connectionFixtures{rows: []*connectionFixture{first, latest}, missing: map[string]bool{}}
 	body, err := queryConnections(source, nil, ConnectionQuery{Limit: 1})
-	if value := decodeConnections(t, body, err); value.RuleSuggestions != nil {
-		t.Fatal("ordinary 1000-row sampling calculated rule suggestions")
+	value := decodeConnections(t, body, err)
+	var row connectionRow
+	if err := json.Unmarshal(value.Connections[0], &row); err != nil {
+		t.Fatal(err)
+	}
+	if row.RuleSuggestions == nil || row.RuleSuggestions.Host == nil || *row.RuleSuggestions.Host != "unrelated.example.test" || row.RuleSuggestions.ConnectionID != latest.ID() {
+		t.Fatal("ordinary observation lost its complete rule metadata", row)
 	}
 	body, err = queryConnections(source, nil, ConnectionQuery{Limit: 1, DetailID: first.ID()})
-	value := decodeConnections(t, body, err)
-	if value.Detail == nil || value.RuleSuggestions == nil || value.RuleSuggestions.Host == nil || value.RuleSuggestions.IPCIDR == nil || value.RuleSuggestions.ConnectionID != first.ID() || *value.RuleSuggestions.Host != "a.tenant.github.io" || *value.RuleSuggestions.IPCIDR != "192.0.2.7/32" {
-		t.Fatal("suggestions came from another/display-selected tracker", value.RuleSuggestions)
+	value = decodeConnections(t, body, err)
+	if err := json.Unmarshal(value.Detail, &row); err != nil {
+		t.Fatal(err)
+	}
+	suggestions := row.RuleSuggestions
+	if suggestions == nil || suggestions.Host == nil || suggestions.IPCIDR == nil || suggestions.ConnectionID != first.ID() || *suggestions.Host != "a.tenant.github.io" || *suggestions.IPCIDR != "192.0.2.7/32" {
+		t.Fatal("detail suggestions came from another tracker", suggestions)
 	}
 	source.missing[first.ID()] = true
 	body, err = queryConnections(source, nil, ConnectionQuery{Limit: 1, DetailID: first.ID()})
-	if value := decodeConnections(t, body, err); value.RuleSuggestions != nil || value.Presence[first.ID()] {
-		t.Fatal("closed tracker retained old rule suggestions")
+	if value := decodeConnections(t, body, err); value.Detail != nil || value.Presence[first.ID()] {
+		t.Fatal("closed tracker was observed as current")
 	}
 	delete(source.missing, first.ID())
 	first.info.Metadata.Type = C.INNER
 	body, err = queryConnections(source, nil, ConnectionQuery{Limit: 1, DetailID: first.ID()})
-	if value := decodeConnections(t, body, err); value.RuleSuggestions != nil {
+	if value := decodeConnections(t, body, err); value.Detail != nil || value.Presence[first.ID()] {
 		t.Fatal("internal tracker offered a rule")
 	}
 	first.info.Metadata.Type = C.TUN
 	first.info.Metadata.Host = strings.Repeat("a.", 600) + "example.test"
 	body, err = queryConnections(source, nil, ConnectionQuery{Limit: 1, DetailID: first.ID()})
 	value = decodeConnections(t, body, err)
-	var row connectionRow
 	if err := json.Unmarshal(value.Detail, &row); err != nil {
 		t.Fatal(err)
 	}
-	if !row.Truncated || row.Metadata.Host == "" || value.RuleSuggestions == nil || value.RuleSuggestions.Host != nil || len(value.RuleSuggestions.Suffixes) != 0 {
-		t.Fatal("truncated display host was used as a trustworthy complete name", value.RuleSuggestions)
+	if !row.Truncated || row.Metadata.Host == "" || row.RuleSuggestions == nil || row.RuleSuggestions.Host != nil || row.RuleSuggestions.SuffixBoundary != nil {
+		t.Fatal("truncated display host was used as a complete rule name", row.RuleSuggestions)
 	}
 }
 

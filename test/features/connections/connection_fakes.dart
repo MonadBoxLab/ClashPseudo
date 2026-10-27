@@ -13,6 +13,7 @@ const core = CoreSnapshot(
   purpose: 'VPN',
   configId: 'one',
   revision: 1,
+  composition: 'one',
 );
 Map<String, dynamic> row(
   String id, {
@@ -48,6 +49,8 @@ ConnectionSnapshot snapshot(
   'generation': generation,
   'configId': 'one',
   'revision': 1,
+  'composition': 'one',
+  'purpose': 'VPN',
   'sessionGeneration': sessionGeneration,
   'sampleAgeMs': sampleAgeMs,
   'detail': detail,

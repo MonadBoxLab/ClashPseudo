@@ -16,6 +16,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -27,7 +28,7 @@ import (
 	D "github.com/miekg/dns"
 )
 
-func ingressPort(t *testing.T) int {
+func ingressPort(t *testing.T, excluded ...int) int {
 	t.Helper()
 	for i := 0; i < 20; i++ {
 		tcp, err := net.Listen("tcp4", "127.0.0.1:0")
@@ -35,6 +36,10 @@ func ingressPort(t *testing.T) int {
 			t.Fatal(err)
 		}
 		port := tcp.Addr().(*net.TCPAddr).Port
+		if slices.Contains(excluded, port) {
+			_ = tcp.Close()
+			continue
+		}
 		udp, err := net.ListenPacket("udp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 		_ = tcp.Close()
 		if err == nil {
@@ -109,7 +114,11 @@ func ingressCertificate(t *testing.T, home string) (*x509.CertPool, string, stri
 func TestIngressPreviewDoesNotBindAndAttachedListenersServeTLSAndDNSAndReleasePorts(t *testing.T) {
 	home := t.TempDir()
 	roots, certificate, privateKey := ingressCertificate(t, home)
-	httpPort, socksPort, mixedPort, tlsPort, tunnelPort, dnsPort := ingressPort(t), ingressPort(t), ingressPort(t), ingressPort(t), ingressPort(t), ingressPort(t)
+	ports := make([]int, 6)
+	for i := range ports {
+		ports[i] = ingressPort(t, ports[:i]...)
+	}
+	httpPort, socksPort, mixedPort, tlsPort, tunnelPort, dnsPort := ports[0], ports[1], ports[2], ports[3], ports[4], ports[5]
 	body := fmt.Sprintf(`ipv6: false
 port: %d
 socks-port: %d
@@ -122,7 +131,6 @@ tunnels:
   - {network: [tcp, udp], address: '127.0.0.1:%d', target: '127.0.0.1:9', proxy: DIRECT}
 rules: ['MATCH,DIRECT']
 `, httpPort, socksPort, mixedPort, dnsPort, tlsPort, certificate, privateKey, tunnelPort)
-	ports := []int{httpPort, socksPort, mixedPort, tlsPort, tunnelPort, dnsPort}
 	var e Engine
 	if err := e.Prepare(home, []byte(body), "", nil, func(int) bool { return true }); err != nil {
 		t.Fatal(err)
@@ -170,7 +178,8 @@ rules: ['MATCH,DIRECT']
 }
 
 func TestIngressBindFailureRollsBackEarlierListenersAndTUN(t *testing.T) {
-	first, second := ingressPort(t), ingressPort(t)
+	first := ingressPort(t)
+	second := ingressPort(t, first)
 	occupied, err := net.ListenPacket("udp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(second)))
 	if err != nil {
 		t.Fatal(err)

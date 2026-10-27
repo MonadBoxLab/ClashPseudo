@@ -104,9 +104,23 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('Android wide shell routes clipboard keys to the focused body', (
-    tester,
+  Future<void> settleFind(
+    WidgetTester tester,
+    CodeFindController controller,
   ) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 15));
+    while (controller.value?.searching == true &&
+        DateTime.now().isBefore(deadline)) {
+      await tester.pump(const Duration(milliseconds: 20));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+    }
+    await tester.pumpAndSettle();
+    expect(controller.value?.searching, isFalse);
+  }
+
+  Future<CodeEditor> showWideShell(WidgetTester tester) async {
     tester.view.devicePixelRatio = 2;
     tester.view.physicalSize = const Size(3408, 2272);
     addTearDown(tester.view.resetPhysicalSize);
@@ -145,11 +159,18 @@ void main() {
     await tester.pumpAndSettle();
     final editor = tester.widget<CodeEditor>(find.byType(CodeEditor));
     expect(editor.readOnly, isFalse);
+    return editor;
+  }
+
+  testWidgets('Android wide shell routes clipboard keys to the focused body', (
+    tester,
+  ) async {
+    final editor = await showWideShell(tester);
     editor.focusNode!.requestFocus();
     await tester.pump();
     await key(tester, LogicalKeyboardKey.keyF);
     await tester.enterText(find.byType(TextField), 'a');
-    await tester.pumpAndSettle();
+    await settleFind(tester, editor.findController!);
     expect(find.text('1/1'), findsOneWidget);
     editor.focusNode!.requestFocus();
     editor.controller!.selection = const CodeLineSelection(
@@ -161,6 +182,7 @@ void main() {
     await tester.pump();
     await key(tester, LogicalKeyboardKey.keyX);
     expect(editor.controller!.text, '\nb\n');
+    await settleFind(tester, editor.findController!);
     expect(find.text('0/0'), findsOneWidget);
     await key(tester, LogicalKeyboardKey.keyV);
     expect(editor.controller!.text, 'a\nb\n');
@@ -169,6 +191,61 @@ void main() {
     await key(tester, LogicalKeyboardKey.keyZ, shift: true);
     expect(editor.controller!.text, 'a\nb\n');
   }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+
+  testWidgets(
+    'Android system back closes find then guards the owning shell editor',
+    (tester) async {
+      final editor = await showWideShell(tester);
+      final strings = AppLocalizations.of(
+        tester.element(find.byType(ConfigTextPage)),
+      );
+      editor.controller!.text = 'retained draft';
+      editor.focusNode!.requestFocus();
+      await tester.pump();
+      await key(tester, LogicalKeyboardKey.keyF);
+      expect(find.byTooltip(strings.closeFind), findsOneWidget);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byTooltip(strings.closeFind), findsNothing);
+      expect(find.byType(ConfigTextPage), findsOneWidget);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(editor.controller!.text, 'retained draft');
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+      await tester.tap(find.text(strings.continueEditing));
+      await tester.pumpAndSettle();
+      expect(find.byType(ConfigTextPage), findsOneWidget);
+      expect(editor.controller!.text, 'retained draft');
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+      await tester.tap(find.text(strings.discard));
+      await tester.pumpAndSettle();
+      expect(find.byType(ConfigTextPage), findsNothing);
+      expect(find.byType(AppShell), findsOneWidget);
+      expect(app.commands, isEmpty);
+      final rail = tester.widget<NavigationRail>(find.byType(NavigationRail));
+      expect(
+        (rail.destinations[rail.selectedIndex!].label as Text).data,
+        'Configs',
+      );
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      final overview = tester.widget<NavigationRail>(
+        find.byType(NavigationRail),
+      );
+      expect(
+        (overview.destinations[overview.selectedIndex!].label as Text).data,
+        strings.overview,
+      );
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
 
   test('selection and composing retain text history until an actual edit', () {
     final controller = CodeLineEditingController.fromText('one');

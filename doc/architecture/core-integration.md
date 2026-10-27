@@ -14,7 +14,7 @@
 
 合成后按字段存在性补运行必需缺省，再调用正式parser和[平台检查](../../native/mihomo/internal/engine/platform.go)。false、0、空值保留显式含义；必要缺省包括tun.enable、mips栈、MTU1500、auto-route、dns.enable、profile.store-selected=false，模式沿[偏好规则](data-and-operations.md#模式与策略偏好)。
 
-TUN／DNS／sniffer由正文决定，显式tun.enable=false可保存／预览，连接时在FD建立前拒绝。mips／gvisor／mixed／system按显式选择使用，工作副本只负责各资源的一次创建，对外投影保留实际配置。
+TUN／DNS／sniffer由正文决定，显式tun.enable=false可保存／预览，连接时在FD建立前拒绝。mips／gvisor／mixed／system按显式选择使用，工作副本只负责各资源的一次创建，对外投影保留实际配置。tun.dns-mode接受空值、disabled、native、hijack，并透传至外部FD的TunOptions；Android系统DNS由同一VPNSpec与VpnService.Builder承载，实际劫持目标沿tun.dns-hijack投影。
 
 显式DNS、sniffer、profile及普通监听按公开能力接入，包括HTTP／SOCKS／mixed、SS／VMess／TUIC、listeners、tunnels、认证与TLS；端口0保持0。NTP作用于应用进程时钟，活动external-controller在VPN前按平台范围检查，预览保留配置及实际启动状态。
 
@@ -56,7 +56,7 @@ StrategyCalls读／选／准备等待为3／10／45秒，迟到完成通知重�
 
 平台在受理、worker执行和结果交付时校验完整core identity与RUNNING状态。读取和关闭分别占用真实在途槽，平台等待3秒、Dart等待5秒；槽位在执行结束后释放。Get缺项记为absent，Close成功记为closed，错误记为failed，结果按原调用结算。
 
-辅助规则使用同次详情的完整host及真实DstIP，地址须通过fake-IP校验。idna／publicsuffix处理private边界，候选组集合按实际有效目标取得；身份规则见[辅助规则](../product/connections.md#从连接新增规则)。
+辅助规则在每行投影截短前读取完整host及真实DstIP，地址通过公开fake-IP校验。idna／publicsuffix确定含private规则的注册域边界；行内仅传完整host、suffixBoundary与单地址CIDR，Dart按边界展开全部后缀，保持4KiB行预算。窗口保留候选与观察时的完整core identity，后续缺少有效候选时沿用原记录；列表与额外详情使用同一投影。候选及来源随窗口序列化，历史记录保持原身份，规则目标沿当前有效快照读取。身份与保存规则见[辅助规则](../product/connections.md#从连接新增规则)。
 
 Total／activeCount沿同次连接采样返回，TrafficWindow保留30秒／31点。新lease开放前捕获Total基线，热切换保留、完整重连重建；差分倒退或身份失效为不可用。速度取同源elapsedRealtime，样本年龄计往返与本地耗时，按5秒有效期核对。
 
@@ -91,7 +91,7 @@ Dart显式SecurityContext与Go标准fallback池使用同源根材料。Go进程�
 以下列出已核查公开接口的资源与并发特征，版本变化时复核对应实现；应用为自身受理工作维护明确的结束屏障。
 
 - 活动external-controller字段在运行接入校验中被拒绝。配置写入和Builder操作由应用统一业务链管理，相关原生接口的异步启动及生命周期按所用版本复核。
-- ParseRawConfig可能分配WireGuard节点后返回nil／error，调用者仅取得错误。[解析失败回归](../../native/mihomo/internal/engine/provider_cleanup_test.go)保留TestParseFailureClosesAllocatedNodes资源断言；[失败状态](../../native/mihomo/internal/engine/parse_failure_state_test.go)将应用复用门关闭。固定[WireGuard构造路径](https://github.com/MetaCubeX/mihomo/blob/88dcbf7f1614a67c3b36b848ee3592dfa92ada36/adapter/outbound/wireguard.go#L467-L507)按资源实际分配分别复核。
+- WireGuard通过首次公开DialContext／ListenPacketContext延迟创建device，Stop关闭已经启动的节点。ParseRawConfig失败时调用者仅取得nil／error，其他解析分配仍按实际拥有权核查；[解析失败回归](../../native/mihomo/internal/engine/provider_cleanup_test.go)检查零worker泄漏并通过真实UDP使用验证Stop释放，[失败状态](../../native/mihomo/internal/engine/parse_failure_state_test.go)关闭未确认解析状态的复用门。当前[WireGuard初始化路径](https://github.com/MetaCubeX/mihomo/blob/v1.19.33/adapter/outbound/wireguard.go#L520-L605)在实际使用时登记并释放资源。
 - provider Close、已派发listener／tunnel、DNS singleflight／Background刷新及NTP各有退出语义，公开返回值与应用登记屏障分别记录；gVisor初始化和部分共享监听状态另核查race。
 - rule-provider自动writer可能与回调中的Strategy读取并发，TestRouteSetRealUpdatesOnlyRefreshChangedEffectiveRoutesAndInvalidateRevert覆盖strategy替换／读取，callback锁只保护其自身访问。
 - fake-IP Pool.Lookup／LookBack使用私有mux，FlushFakeIP对offset／cycle的写入采用另一调用路径；分配、反查与清理的真实race由对应并发测试观察。DNS工作副本和私有filter各按其可取得接口核验。

@@ -92,9 +92,9 @@ class ConnectionController extends ChangeNotifier {
       detailActive && !closing && !app.busy && app.platformError == null;
 
   ConnectionRuleSuggestions? get ruleSuggestions {
-    final value = data?.ruleSuggestions;
+    final value = _detail?.ruleMetadata;
     if (!active ||
-        !detailActive ||
+        !available ||
         value == null ||
         value.connectionId != _detail?.id ||
         _detailSession != data?.sessionGeneration ||
@@ -275,7 +275,7 @@ class ConnectionController extends ChangeNotifier {
             result.find(_detail!.id) ??
             (result.detail?.id == _detail!.id ? result.detail : null);
         if (found != null) {
-          _detail = found;
+          _detail = found.retainingRulesFrom(_detail);
         } else if (result.missingDetailId == _detail!.id) {
           _detail = _detail!.observed(active: false);
         }
@@ -318,14 +318,7 @@ class ConnectionController extends ChangeNotifier {
     final source = data!;
     _detailEpoch++;
     _detailIdentity = (source.generation, source.configId, source.revision);
-    _detailSource = CoreSnapshot(
-      phase: 'READY',
-      generation: source.generation,
-      configId: source.configId,
-      revision: source.revision,
-      composition: source.composition,
-      purpose: source.purpose,
-    );
+    _detailSource = source.source;
     _detailStorageEpoch = app.storageEpoch;
     _detailSession = source.sessionGeneration;
     _detail = source.find(record.id) ?? record;

@@ -1,7 +1,7 @@
 name: clash_pseudo
 description: "Clash Pseudo, a cross-platform network routing app by MonadBox Lab."
 publish_to: 'none'
-version: 1.0.0+1
+version: 0.1.0+3
 
 environment:
   sdk: ^3.13.5

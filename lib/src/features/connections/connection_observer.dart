@@ -5,7 +5,6 @@ import 'dart:async';
 
 import '../../platform/app_bridge.dart';
 import '../overview/traffic_window.dart';
-import 'connection_snapshot.dart';
 import 'connection_window.dart';
 
 class ConnectionObserver {
@@ -14,7 +13,6 @@ class ConnectionObserver {
   final window = ConnectionWindow();
   final traffic = TrafficWindow();
   CoreSnapshot _core = const CoreSnapshot();
-  ConnectionRuleSuggestions? _ruleSuggestions;
   String _phase = 'STOPPED';
   int _session = 0;
   int _now = 0;
@@ -61,7 +59,6 @@ class ConnectionObserver {
     if (running) _core = state.core;
     if (changed) {
       traffic.clear();
-      _ruleSuggestions = null;
       _token++;
       _sampledAt = null;
       _failures = 0;
@@ -109,13 +106,6 @@ class ConnectionObserver {
       'missingDetailId': window.missingDetailId,
       'composition': _core.composition,
       'purpose': _core.purpose,
-      'ruleSuggestions':
-          fresh &&
-              same &&
-              _ruleSuggestions?.connectionId == detail['id'] &&
-              _ruleSuggestions?.matches(_core) == true
-          ? _ruleSuggestions?.toMap()
-          : null,
     };
   }
 
@@ -134,13 +124,8 @@ class ConnectionObserver {
   }
 
   void closed(CoreSnapshot core, String id) {
-    if (_core.generation != core.generation ||
-        _core.configId != core.configId ||
-        _core.revision != core.revision) {
-      return;
-    }
+    if (!_core.matchesIdentity(core)) return;
     window.end(id, _now);
-    if (_ruleSuggestions?.connectionId == id) _ruleSuggestions = null;
     // Discard any native sample begun before this acknowledged close.
     _token++;
     _retain();
@@ -162,19 +147,8 @@ class ConnectionObserver {
           .sampleConnections(core, parameters)
           .timeout(const Duration(seconds: 5));
       if (_disposed || token != _token || !_running) return;
-      final suggestions = ConnectionRuleSuggestions.fromValue(
-        sample['ruleSuggestions'],
-        core,
-      );
-      if (suggestions != null &&
-          (sample['composition'] != core.composition ||
-              sample['purpose'] != core.purpose ||
-              suggestions.connectionId != parameters['detailId'])) {
-        throw const FormatException('Connection rule context changed');
-      }
       window.accept(sample, core, parameters);
       traffic.accept(sample);
-      _ruleSuggestions = suggestions;
       _now = sample['elapsedMs'] as int;
       _sampledAt = _now;
       _failures = 0;
@@ -182,7 +156,6 @@ class ConnectionObserver {
       if (!_disposed && token == _token) {
         _failures++;
         _sampledAt = null;
-        _ruleSuggestions = null;
         window.invalidate();
         traffic.invalidate();
       }
