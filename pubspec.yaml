@@ -1,7 +1,7 @@
 name: clash_pseudo
 description: "Clash Pseudo, a cross-platform network routing app by MonadBox Lab."
 publish_to: 'none'
-version: 0.1.0+3
+version: 0.2.0+4
 
 environment:
   sdk: ^3.13.5
@@ -12,8 +12,8 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   intl: 0.20.3
-  flutter_svg: 2.3.0
-  vector_graphics_compiler: 1.3.2
+  flutter_svg: 2.3.2
+  vector_graphics_compiler: 1.3.4
   file_selector: 1.1.0
   re_editor:
     path: third_party/sources/re_editor
@@ -36,10 +36,10 @@ flutter:
     - third_party/notices/android.txt
     - third_party/notices/material-icons.txt
     - third_party/sources/re_editor/LICENSE
-    - third_party/data/certificates/NOTICE.txt
-    - third_party/data/certificates/MPL-2.0.txt
+    - build/generated/bundled/legal/certificates/NOTICE.txt
+    - build/generated/bundled/legal/certificates/MPL-2.0.txt
     - third_party/notices/publicsuffix.txt
-    - third_party/data/geodata/NOTICE.txt
-    - third_party/data/geodata/CC-BY-SA-4.0.txt
-    - third_party/data/geodata/GeoSite-MIT.txt
-    - third_party/data/geodata/CC-BY-4.0.txt
+    - build/generated/bundled/legal/geodata/NOTICE.txt
+    - build/generated/bundled/legal/geodata/CC-BY-SA-4.0.txt
+    - build/generated/bundled/legal/geodata/GeoSite-MIT.txt
+    - build/generated/bundled/legal/geodata/CC-BY-4.0.txt

@@ -24,6 +24,8 @@ async function fixture(t, version = '0.1.0+3') {
   const plan = { version, kernel: 'v1.19.33', tag: `v${version}`, commit: 'a'.repeat(40),
     body: `## Android 通用版（推荐）\n\n${metadata.join('\n')}`, assets };
   process.env.GITHUB_ACTIONS = 'true';
+  delete process.env.ACT;
+  delete process.env.CLASH_LOCAL_EXECUTION;
   process.env.CLASH_AUTOMATIC_RELEASES_ENABLED = 'true';
   process.env.RELEASE_PLAN = path.join(directory, 'release.json');
   await fs.writeFile(process.env.RELEASE_PLAN, JSON.stringify(plan));
@@ -81,7 +83,7 @@ async function fixture(t, version = '0.1.0+3') {
   return { args, state, plan, existing };
 }
 
-test('Actions creates a draft and publishes only after all seven verified assets', async t => {
+test('Actions先创建草稿，核对全部七项附件后发布', async t => {
   const { args, state, plan } = await fixture(t);
   await publish(args);
   assert.equal(state.creates, 1);
@@ -92,14 +94,14 @@ test('Actions creates a draft and publishes only after all seven verified assets
   assert.equal(state.release.prerelease, true);
 });
 
-test('an explicitly prepared stable version is published without the prerelease flag', async t => {
+test('显式准备的稳定版本发布时不设置prerelease标记', async t => {
   const { args, state } = await fixture(t, '1.0.0+4');
   await publish(args);
   assert.equal(state.release.draft, false);
   assert.equal(state.release.prerelease, false);
 });
 
-test('retry repairs a development Release flag without rebuilding or replacing its assets', async t => {
+test('重新运行时修正开发版本的Release标记并保留已有附件', async t => {
   const { args, state, existing } = await fixture(t);
   existing();
   state.release.draft = false;
@@ -111,7 +113,7 @@ test('retry repairs a development Release flag without rebuilding or replacing i
   assert.deepEqual(state.deleted, []);
 });
 
-test('retry uploads a recovered missing file and preserves successful remote assets', async t => {
+test('重新运行时上传恢复的缺失文件并保留已上传附件', async t => {
   const { args, state, existing } = await fixture(t);
   existing();
   state.assets.shift();
@@ -122,7 +124,7 @@ test('retry uploads a recovered missing file and preserves successful remote ass
   assert.equal(state.publishes, 1);
 });
 
-test('an interrupted starter upload can be replaced, successful assets remain intact', async t => {
+test('重新上传未完成的starter附件并保留已上传附件', async t => {
   const { args, state, existing } = await fixture(t);
   existing();
   state.assets[0].state = 'starter';
@@ -131,45 +133,203 @@ test('an interrupted starter upload can be replaced, successful assets remain in
   assert.deepEqual(state.uploads, ['universal.apk']);
 });
 
-test('a mismatched remote asset stops publication without clobbering it', async t => {
+test('远程附件内容不符时停止发布并保留该附件', async t => {
   const { args, state, existing } = await fixture(t);
   existing();
   state.assets[0].digest = `sha256:${'0'.repeat(64)}`;
-  await assert.rejects(publish(args), /远程资产摘要不同/);
+  await assert.rejects(publish(args), /远程附件的 SHA-256 与本地记录不一致/);
   assert.equal(state.publishes, 0);
   assert.deepEqual(state.uploads, []);
   assert.deepEqual(state.deleted, []);
 });
 
-test('old assets without server digest are downloaded and hashed', async t => {
+test('部分上传失败后保留草稿，重新运行时复用已上传附件', async t => {
+  const { args, state, plan } = await fixture(t);
+  const upload = args.github.rest.repos.uploadReleaseAsset;
+  const failure = new Error('synthetic upload failure');
+  args.github.rest.repos.uploadReleaseAsset = async input => {
+    if (input.name === plan.assets[2].name) throw failure;
+    return upload(input);
+  };
+  await assert.rejects(publish(args), error => error === failure);
+  assert.equal(state.creates, 1);
+  assert.equal(state.release.draft, true);
+  assert.equal(state.publishes, 0);
+  assert.deepEqual(state.uploads, plan.assets.slice(0, 2).map(asset => asset.name));
+  assert.deepEqual(state.deleted, []);
+
+  args.github.rest.repos.uploadReleaseAsset = upload;
+  await publish(args);
+  assert.equal(state.creates, 1);
+  assert.equal(state.release.draft, false);
+  assert.equal(state.publishes, 1);
+  assert.deepEqual(state.uploads, plan.assets.map(asset => asset.name));
+  assert.deepEqual(state.deleted, []);
+});
+
+test('上传后tag指向变化时保留草稿，重新运行时复用已校验附件', async t => {
+  const { args, state, plan } = await fixture(t);
+  const getRef = args.github.rest.git.getRef;
+  args.github.rest.git.getRef = async input => {
+    const result = await getRef(input);
+    if (state.getTagCalls === 1) state.tag = 'b'.repeat(40);
+    return result;
+  };
+  await assert.rejects(publish(args), /远程 tag/);
+  assert.equal(state.creates, 1);
+  assert.equal(state.release.draft, true);
+  assert.equal(state.publishes, 0);
+  assert.deepEqual(state.uploads, plan.assets.map(asset => asset.name));
+  assert.deepEqual(state.deleted, []);
+
+  state.tag = plan.commit;
+  await publish(args);
+  assert.equal(state.creates, 1);
+  assert.equal(state.release.draft, false);
+  assert.equal(state.publishes, 1);
+  assert.deepEqual(state.uploads, plan.assets.map(asset => asset.name));
+  assert.deepEqual(state.deleted, []);
+});
+
+test('上传后Release版本或源码信息变化时停止发布草稿', async t => {
+  const { args, state, plan } = await fixture(t);
+  args.github.rest.repos.getRelease = async () => ({
+    data: { ...state.release, body: `${plan.body}\nSource: another` },
+  });
+  await assert.rejects(publish(args), /Release版本与源码信息在发布前发生变化/);
+  assert.equal(state.release.draft, true);
+  assert.equal(state.publishes, 0);
+  assert.deepEqual(state.uploads, plan.assets.map(asset => asset.name));
+  assert.deepEqual(state.deleted, []);
+});
+
+test('下载未提供服务端摘要的旧附件并计算摘要', async t => {
   const { args, state, existing } = await fixture(t);
   existing();
   delete state.assets[0].digest;
   await publish(args);
-  assert.equal(state.downloaded, 1);
+  assert.equal(state.downloaded, 2); // 初次核对及发布前重新核对。
   assert.deepEqual(state.uploads, []);
 });
 
-test('a moved tag or foreign Release stops before remote writes', async t => {
+test('tag指向变化或Release源码身份不符时，在写入前停止', async t => {
   const { args, state, plan, existing } = await fixture(t);
   state.tag = 'b'.repeat(40);
   await assert.rejects(publish(args), /远程 tag/);
   state.tag = plan.commit;
   existing();
   state.release.body += '\nSource: another';
-  await assert.rejects(publish(args), /源码归属不同/);
+  await assert.rejects(publish(args), /现有 Release 的版本、内核版本或源码提交与本次发布不一致/);
   assert.equal(state.creates, 0);
   assert.equal(state.publishes, 0);
   assert.deepEqual(state.uploads, []);
 });
 
-test('local invocation and changed local files cannot perform Release writes', async t => {
+test('ACT、本地模式和工作树发布计划在调用API前被拒绝', async t => {
+  const { args, state, plan } = await fixture(t);
+  let calls = 0;
+  args.github.rest.git.getRef = async () => { calls++; throw new Error('API forbidden'); };
+  for (const value of ['true', 'false']) {
+    process.env.ACT = value;
+    await assert.rejects(publish(args), /仅由已启用的 GitHub Actions/);
+  }
+  delete process.env.ACT;
+  process.env.CLASH_LOCAL_EXECUTION = 'true';
+  await assert.rejects(publish(args), /仅由已启用的 GitHub Actions/);
+  delete process.env.CLASH_LOCAL_EXECUTION;
+  for (const key of ['local', 'workingTree']) {
+    await fs.writeFile(process.env.RELEASE_PLAN, JSON.stringify({ ...plan, [key]: true }));
+    await assert.rejects(publish(args), /本地工作树材料/);
+  }
+  assert.equal(calls, 0);
+  assert.equal(state.creates, 0);
+});
+
+test('并发创建的草稿通过版本和源码身份校验后复用', async t => {
+  const { args, state, existing } = await fixture(t);
+  args.github.rest.repos.createRelease = async () => {
+    existing();
+    throw Object.assign(new Error('already exists'), { status: 422 });
+  };
+  await publish(args);
+  assert.equal(state.publishes, 1);
+  assert.deepEqual(state.uploads, []);
+  state.release = null;
+  args.github.rest.repos.createRelease = async () => {
+    existing();
+    state.release.body += '\nSource: foreign';
+    throw Object.assign(new Error('already exists'), { status: 422 });
+  };
+  await assert.rejects(publish(args), /另一任务创建的 Release 的版本、内核版本或源码提交与本次发布不一致/);
+  assert.equal(state.publishes, 1);
+});
+
+test('并发上传冲突时保留并校验已完成的远程附件', async t => {
+  const { args, state, existing } = await fixture(t);
+  existing();
+  state.assets.shift();
+  const upload = args.github.rest.repos.uploadReleaseAsset;
+  args.github.rest.repos.uploadReleaseAsset = async input => {
+    await upload(input);
+    throw Object.assign(new Error('already exists'), { status: 422 });
+  };
+  await publish(args);
+  assert.equal(state.publishes, 1);
+  assert.deepEqual(state.uploads, ['universal.apk']);
+  assert.deepEqual(state.deleted, []);
+});
+
+test('并发附件摘要不符或发布前附件消失时停止发布', async t => {
+  const { args, state, existing } = await fixture(t);
+  existing();
+  state.assets.shift();
+  const upload = args.github.rest.repos.uploadReleaseAsset;
+  args.github.rest.repos.uploadReleaseAsset = async input => {
+    await upload(input);
+    state.assets.at(-1).digest = `sha256:${'0'.repeat(64)}`;
+    throw Object.assign(new Error('already exists'), { status: 422 });
+  };
+  await assert.rejects(publish(args), /远程附件的 SHA-256 与本地记录不一致/);
+  assert.equal(state.publishes, 0);
+  assert.deepEqual(state.deleted, []);
+  existing();
+  let lists = 0;
+  args.github.paginate = async () => (++lists === 2 ? state.assets.slice(1) : state.assets);
+  await assert.rejects(publish(args), /发布前缺少附件/);
+  assert.equal(state.publishes, 0);
+});
+
+test('并发完成的starter附件经校验后复用', async t => {
+  const { args, state, existing } = await fixture(t);
+  existing();
+  state.assets[0].state = 'starter';
+  let lists = 0;
+  args.github.paginate = async () => {
+    if (++lists === 2) state.assets[0].state = 'uploaded';
+    return state.assets;
+  };
+  await publish(args);
+  assert.equal(state.publishes, 1);
+  assert.deepEqual(state.deleted, []);
+  assert.deepEqual(state.uploads, []);
+});
+
+test('远程附件名称重复时停止发布', async t => {
+  const { args, state, existing } = await fixture(t);
+  existing();
+  state.assets.push({ ...state.assets[0], id: 99 });
+  await assert.rejects(publish(args), /远程 Release 包含同名附件/);
+  assert.equal(state.publishes, 0);
+  assert.deepEqual(state.deleted, []);
+});
+
+test('本地调用或本地文件变化时停止写入Release', async t => {
   const { args, state, plan } = await fixture(t);
   process.env.GITHUB_ACTIONS = 'false';
   await assert.rejects(publish(args), /仅由已启用的 GitHub Actions/);
   process.env.GITHUB_ACTIONS = 'true';
   await fs.writeFile(plan.assets[0].path, 'changed');
-  await assert.rejects(publish(args), /待上传资产与核验结果不同/);
+  await assert.rejects(publish(args), /待上传附件的大小或摘要与核验记录不一致/);
   assert.equal(state.creates, 0);
   assert.equal(state.publishes, 0);
 });

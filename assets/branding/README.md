@@ -26,7 +26,7 @@
 | `values/styles.xml`、`values-night/styles.xml` | 旧启动主题及 Flutter 正常窗口底色 |
 | `values-v31/styles.xml`、`values-night-v31/styles.xml` | API 31+ 显式设置系统 SplashScreen 的静态图标和底色；窗口背景只显示底色 |
 | `values/colors.xml`、`values-night/colors.xml` | 启动及正常窗口底色：浅色 `#F8F6F1`、深色 `#191C1F`，与应用默认表面衔接 |
-| [`drawable/ic_vpn_notification.xml`](../../android/app/src/main/res/drawable/ic_vpn_notification.xml) | 24dp 单色矢量，原图猫形轮廓及眼鼻负形，图形高 20dp；VPN／后台工作通知共用的使用同一资源名，也可供磁贴使用 |
+| [`drawable/ic_vpn_notification.xml`](../../android/app/src/main/res/drawable/ic_vpn_notification.xml) | 24dp单色矢量，使用原图的猫形轮廓，并留出眼鼻孔洞，图形高20dp；VPN与后台工作通知使用同一图标，也可供快捷设置磁贴使用 |
 
 Manifest使用 `@mipmap/ic_launcher`、`@style/LaunchTheme` 和Flutter `NormalTheme`。API24及后续版本的小组件统一使用独立的48dp圆形 `widget_logo`。品牌图表达应用身份，连接、失败和路由模式使用各自状态图形；快捷菜单分别提供连接和断开的动作图。系统入口的布局、刷新与动作由对应平台实现负责。
 
@@ -43,13 +43,13 @@ Manifest使用 `@mipmap/ic_launcher`、`@style/LaunchTheme` 和Flutter `NormalTh
 
 ## 导出检查
 
-导出后核查PNG解码往返、各密度尺寸、透明边缘、背景Alpha值、独立单色层、XML引用／限定符与资源名，再核查源文件摘要。使用SDK aapt2 compile/link检查资源合法性。
+导出后重新解码PNG，检查像素与导出前一致，并核查各密度尺寸、透明边缘、背景Alpha值、独立单色层、XML引用与资源限定符、资源名和源文件摘要。使用SDK的aapt2 compile/link检查资源合法性。
 
 在圆形、圆角方形、squircle、teardrop以及浅深底、小尺寸预览中，目视检查耳尖、胡须、底边、眼鼻负形与边缘。Launcher mask、主题图标、启动至Flutter首帧过渡、通知／Tile和小组件的集成检查见[界面验证](../../doc/development/verification.md#界面与自适应)。
 
-## 输入身份
+## 源图校验
 
-源文件身份以当前文件和Git版本为准，导出前可在项目根目录取得实际摘要：
+源图由Git管理，导出前可在项目根目录计算文件摘要：
 
 ```sh
 sha256sum assets/branding/icon.png assets/branding/foreground.png assets/branding/background.png

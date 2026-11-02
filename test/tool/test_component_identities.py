@@ -1,4 +1,4 @@
-"""职责归位不得改变 Android 持久组件、JNI 及两 Engine 的入口身份。"""
+"""检查目录和职责调整后，Android 组件类名、后台任务标识、JNI 入口及 FlutterEngine 入口名称保持不变。"""
 import importlib.util
 from pathlib import Path
 import re
@@ -19,7 +19,8 @@ class ComponentIdentitiesTest(unittest.TestCase):
         self.assertEqual(app.get(ANDROID + "backupAgent"), ".app.PseudoBackupAgent")
         expected = {
             "activity": {".MainActivity"},
-            "service": {".app.AppWorkService", ".app.VpnTileService", ".vpn.PseudoVpnService"},
+            "service": {".app.AppWorkService", ".app.VpnTileService", ".vpn.PseudoVpnService",
+                        ".logic.AppRuntimeService", ".nativecore.CoreService"},
             "receiver": {".app.VpnWidgetProvider"},
         }
         names = {".app.PseudoApplication", ".app.PseudoBackupAgent"}
@@ -33,6 +34,21 @@ class ComponentIdentitiesTest(unittest.TestCase):
                 parent, _, simple = (PACKAGE + name).rpartition(".")
                 self.assertRegex(source, rf"(?m)^package {re.escape(parent)}$")
                 self.assertRegex(source, rf"\bclass {simple}\b")
+        services = {node.get(ANDROID + "name"): node for node in app.findall("service")}
+        for name in (".nativecore.CoreService", ".vpn.PseudoVpnService"):
+            self.assertEqual(services[name].get(ANDROID + "process"), ":core")
+        for name in (".logic.AppRuntimeService", ".app.AppWorkService", ".app.VpnTileService"):
+            self.assertIsNone(services[name].get(ANDROID + "process"))
+        for name in (".nativecore.CoreService", ".logic.AppRuntimeService", ".app.AppWorkService"):
+            self.assertEqual(services[name].get(ANDROID + "exported"), "false")
+        self.assertEqual(services[".vpn.PseudoVpnService"].get(ANDROID + "permission"),
+                         "android.permission.BIND_VPN_SERVICE")
+        self.assertEqual(services[".nativecore.CoreService"].get(ANDROID + "foregroundServiceType"),
+                         "connectedDevice")
+        self.assertEqual(services[".app.AppWorkService"].get(ANDROID + "foregroundServiceType"),
+                         "dataSync")
+        self.assertEqual(services[".vpn.PseudoVpnService"].get(ANDROID + "foregroundServiceType"),
+                         "systemExempted")
 
     def test_sdk_witness_is_a_self_target_test_entry_not_a_production_component(self):
         runner = PACKAGE + ".validation.SystemEntryInstrumentation"
@@ -74,16 +90,17 @@ class ComponentIdentitiesTest(unittest.TestCase):
         bridge = (ROOT / "native/mihomo/bridge_android.c").read_text()
         self.assertIn("package " + PACKAGE + ".nativecore", native)
         self.assertIn("object NativeCore", native)
-        self.assertIn(
-            "#define METHOD(name) Java_io_github_monadboxlab_clashpseudo_nativecore_NativeCore_##name",
-            bridge,
-        )
+        methods = re.findall(r"\bexternal\s+fun\s+(\w+)\s*\(", native)
+        self.assertEqual(methods, ["invoke"])
+        prefix = "Java_" + PACKAGE.replace(".", "_") + "_nativecore_NativeCore_"
+        exports = re.findall(rf"\b{re.escape(prefix)}(\w+)\s*\(", bridge)
+        self.assertEqual(exports, methods)
 
     def test_background_entry_is_aot_retained_and_uses_the_same_channel(self):
         main = (ROOT / "lib/main.dart").read_text()
         host = (KOTLIN / "logic/LogicEngineHost.kt").read_text()
         native = (KOTLIN / "bridge/AppBridge.kt").read_text()
-        dart = (ROOT / "lib/src/platform/app_bridge.dart").read_text()
+        dart = (ROOT / "lib/src/platform/channel/app_bridge.dart").read_text()
         self.assertIn("@pragma('vm:entry-point')\nvoid appBackgroundMain()", main)
         self.assertIn('"appBackgroundMain"', host)
         channel = "io.github.monadboxlab.clashpseudo/app"

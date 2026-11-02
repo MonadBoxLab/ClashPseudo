@@ -1,0 +1,574 @@
+{
+  "application": "0.2.0+4",
+  "dependencies": {
+    "android": {
+      "androidx.test:runner": {
+        "excluded": [],
+        "latest": "1.7.0",
+        "previous": "1.7.0",
+        "selected": "1.7.0"
+      },
+      "androidx.work:work-runtime": {
+        "excluded": [],
+        "latest": "2.12.0",
+        "previous": "2.12.0",
+        "selected": "2.12.0"
+      },
+      "junit:junit": {
+        "excluded": [],
+        "latest": "4.13.2",
+        "previous": "4.13.2",
+        "selected": "4.13.2"
+      }
+    },
+    "go": {
+      "github.com/gofrs/uuid/v5": {
+        "previous": "v5.4.0",
+        "selected": "v5.5.1"
+      },
+      "github.com/metacubex/gopacket": {
+        "previous": "v1.1.20-0.20230608035415-7e2f98a3e759",
+        "selected": "v1.1.20-0.20230608035415-7e2f98a3e759"
+      },
+      "github.com/metacubex/gvisor": {
+        "previous": "v0.0.0-20260922041103-e2cbcd6e7400",
+        "selected": "v0.0.0-20260922041103-e2cbcd6e7400"
+      },
+      "github.com/metacubex/mihomo": {
+        "previous": "v1.19.33",
+        "selected": "v1.19.33"
+      },
+      "github.com/metacubex/quic-go": {
+        "previous": "v0.61.1-0.20260727080200-2548683b76f4",
+        "selected": "v0.61.1-0.20260727080200-2548683b76f4"
+      },
+      "github.com/metacubex/sing-tun": {
+        "previous": "v0.4.28",
+        "selected": "v0.4.28"
+      },
+      "github.com/metacubex/tls": {
+        "previous": "v0.1.9",
+        "selected": "v0.1.9"
+      },
+      "github.com/miekg/dns": {
+        "previous": "v1.1.63",
+        "selected": "v1.1.73"
+      },
+      "github.com/oschwald/maxminddb-golang": {
+        "previous": "v1.12.0",
+        "selected": "v1.13.1"
+      },
+      "github.com/sirupsen/logrus": {
+        "previous": "v1.9.4",
+        "selected": "v1.10.2"
+      },
+      "go.yaml.in/yaml/v3": {
+        "previous": "v3.0.5",
+        "selected": "v3.0.5"
+      },
+      "go4.org/netipx": {
+        "previous": "v0.0.0-20260823151212-3075585bcbeb",
+        "selected": "v0.0.0-20260823151212-3075585bcbeb"
+      },
+      "golang.org/x/net": {
+        "previous": "v0.35.0",
+        "selected": "v0.62.0"
+      },
+      "golang.org/x/sys": {
+        "previous": "v0.30.0",
+        "selected": "v0.49.0"
+      },
+      "google.golang.org/protobuf": {
+        "previous": "v1.34.2",
+        "selected": "v1.36.12"
+      }
+    },
+    "pub": {
+      "coverage": {
+        "current": {
+          "version": "1.16.0"
+        },
+        "kind": "dev",
+        "latest": {
+          "version": "1.16.0"
+        },
+        "selected": "1.16.0"
+      },
+      "file_selector": {
+        "current": {
+          "version": "1.1.0"
+        },
+        "kind": "direct",
+        "latest": {
+          "version": "1.1.0"
+        },
+        "selected": "1.1.0"
+      },
+      "flutter_lints": {
+        "current": {
+          "version": "6.0.0"
+        },
+        "kind": "dev",
+        "latest": {
+          "version": "6.0.0"
+        },
+        "selected": "6.0.0"
+      },
+      "flutter_svg": {
+        "current": {
+          "version": "2.3.0"
+        },
+        "kind": "direct",
+        "latest": {
+          "version": "2.3.2"
+        },
+        "selected": "2.3.2"
+      },
+      "intl": {
+        "current": {
+          "version": "0.20.3"
+        },
+        "kind": "direct",
+        "latest": {
+          "version": "0.20.3"
+        },
+        "selected": "0.20.3"
+      },
+      "vector_graphics_compiler": {
+        "current": {
+          "version": "1.3.2"
+        },
+        "kind": "direct",
+        "latest": {
+          "version": "1.3.4"
+        },
+        "selected": "1.3.4"
+      },
+      "yaml": {
+        "current": {
+          "version": "3.1.4"
+        },
+        "kind": "direct",
+        "latest": {
+          "version": "3.1.4"
+        },
+        "selected": "3.1.4"
+      },
+      "yaml_edit": {
+        "current": {
+          "version": "2.2.4"
+        },
+        "kind": "direct",
+        "latest": {
+          "version": "2.2.4"
+        },
+        "selected": "2.2.4"
+      }
+    }
+  },
+  "format": "clash-pseudo-release-resources",
+  "licenses": {
+    "third_party/data/certificates/MPL-2.0.txt": {
+      "bytes": 16726,
+      "sha256": "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04"
+    },
+    "third_party/data/geodata/CC-BY-4.0.txt": {
+      "bytes": 17023,
+      "sha256": "d557539df68e771cc1eedcc91d13f70fca930e508d11eedcafa4b15db49e3744"
+    },
+    "third_party/data/geodata/CC-BY-SA-4.0.txt": {
+      "bytes": 20137,
+      "sha256": "5e436ff8ffbb77d8607220e9bce20c8915d860010feeb6c1ebef5a85688e9b39"
+    },
+    "third_party/data/geodata/GeoSite-MIT.txt": {
+      "bytes": 1067,
+      "sha256": "b9d84a22870d3f21c91a4c6e410c9cc51d00902f5233ad0c84011479244bf7d2"
+    }
+  },
+  "resources": {
+    "asn": {
+      "encoding": "gzip",
+      "installedBytes": 9566363,
+      "installedSha256": "4384bfcfb594391bc4e0ab37751f44661eaf7cadbeee28a90a6b82dc935fec4c",
+      "kind": "asn",
+      "sourcePage": "https://db-ip.com/db/download/ip-to-asn-lite",
+      "sourceUrl": "https://download.db-ip.com/free/dbip-asn-lite-2026-10.mmdb.gz",
+      "storedBytes": 5186202,
+      "storedSha256": "6cdde02baa8c1bd619ab84c2e505ecd91d45288b5a87faadf1b7c41525a17a94",
+      "version": "2026-10"
+    },
+    "ca": {
+      "certificateRoots": 118,
+      "checksumUrl": "https://curl.se/ca/cacert-2026-10-20.pem.sha256",
+      "encoding": "identity",
+      "installedBytes": 200116,
+      "installedSha256": "796f1389bfea13c0ed78f663b765baaff54a508e5483786bd6ece73c5e3e3cbe",
+      "kind": "ca",
+      "sourceUrl": "https://curl.se/ca/cacert-2026-10-20.pem",
+      "storedBytes": 200116,
+      "storedSha256": "796f1389bfea13c0ed78f663b765baaff54a508e5483786bd6ece73c5e3e3cbe",
+      "version": "2026-10-20"
+    },
+    "geoip": {
+      "encoding": "identity",
+      "installedBytes": 23258601,
+      "installedSha256": "4ff4b2ec242a9e87b296ba27ddb85f8311e8d3e071eaebac5be9231c60e408dd",
+      "kind": "geoip",
+      "licenseSha256": "5e436ff8ffbb77d8607220e9bce20c8915d860010feeb6c1ebef5a85688e9b39",
+      "sourceCommit": "fd96fbac6cffc06ab9a10d6ee8fad61afe9b771c",
+      "sourceInputs": [
+        {
+          "description": "release 202610050438 构建提交中的 text/*.txt 补充输入",
+          "sourceCommit": "a746d384303c341dd1fb6db6169df175a729e297"
+        }
+      ],
+      "sourceUrl": "https://github.com/v2fly/geoip/releases/download/202610050438/geoip.dat",
+      "storedBytes": 23258601,
+      "storedSha256": "4ff4b2ec242a9e87b296ba27ddb85f8311e8d3e071eaebac5be9231c60e408dd",
+      "version": "202610050438"
+    },
+    "geosite": {
+      "encoding": "identity",
+      "installedBytes": 2403150,
+      "installedSha256": "f1ab5cebf0466706550be0642d04391188785ffc99b55c57eddafc92fba48bd2",
+      "kind": "geosite",
+      "licenseSha256": "b9d84a22870d3f21c91a4c6e410c9cc51d00902f5233ad0c84011479244bf7d2",
+      "sourceCommit": "1daade8c4bb957d21d1f5c09c2b050d699e8e96c",
+      "sourceUrl": "https://github.com/v2fly/domain-list-community/releases/download/20261030132534/dlc.dat",
+      "storedBytes": 2403150,
+      "storedSha256": "f1ab5cebf0466706550be0642d04391188785ffc99b55c57eddafc92fba48bd2",
+      "version": "20261030132534"
+    },
+    "mmdb": {
+      "encoding": "gzip",
+      "installedBytes": 8348509,
+      "installedSha256": "dbd70ccfa2a13627eaf4913d19920a1a229f1b3c5439ac01c509995b6364202a",
+      "kind": "mmdb",
+      "sourcePage": "https://db-ip.com/db/download/ip-to-country-lite",
+      "sourceUrl": "https://download.db-ip.com/free/dbip-country-lite-2026-10.mmdb.gz",
+      "storedBytes": 4123384,
+      "storedSha256": "4cd44536ddfd40fec7eca94a233f7d19f38d470e6522e653cb8d27001f5fe177",
+      "version": "2026-10"
+    }
+  },
+  "sourceInputs": {
+    "format": "clash-pseudo-resource-sources",
+    "sources": [
+      {
+        "bytes": 26464,
+        "file": "geoip-fd96fbac6cffc06ab9a10d6ee8fad61afe9b771c.tar.gz",
+        "inputs": [
+          {
+            "bytes": 14090898,
+            "description": "release 202610050438 构建提交中的 text/*.txt 补充输入",
+            "file": "geoip-a746d384303c341dd1fb6db6169df175a729e297.tar.gz",
+            "sha256": "203b0cf04f4c3a513011117ed19358dc550af517b609fe2ba432df541236f968",
+            "sourceCommit": "a746d384303c341dd1fb6db6169df175a729e297",
+            "sourceUrl": "https://github.com/v2fly/geoip/archive/a746d384303c341dd1fb6db6169df175a729e297.tar.gz"
+          }
+        ],
+        "kind": "geoip",
+        "processing": "V2Fly geoip 官方构建使用同一仓库 release 数据提交中的 text/*.txt 及转换器 config.json，合并 DB-IP Lite Country MMDB、内置 private 与 test 列表后生成所分发的 GeoIP.dat。",
+        "sha256": "b9e16410eb699c69396243c41ebf1c6e55a94898be3363fa0e8dde567a2285cb",
+        "sourceCommit": "fd96fbac6cffc06ab9a10d6ee8fad61afe9b771c",
+        "sourceUrl": "https://github.com/v2fly/geoip/archive/fd96fbac6cffc06ab9a10d6ee8fad61afe9b771c.tar.gz"
+      },
+      {
+        "bytes": 351133,
+        "file": "domain-list-community-1daade8c4bb957d21d1f5c09c2b050d699e8e96c.tar.gz",
+        "inputs": [],
+        "kind": "geosite",
+        "sha256": "bee50c36c3866890387d6d0ffef5f559c0156d22dbbfa9896f0d0c8c631493a7",
+        "sourceCommit": "1daade8c4bb957d21d1f5c09c2b050d699e8e96c",
+        "sourceUrl": "https://github.com/v2fly/domain-list-community/archive/1daade8c4bb957d21d1f5c09c2b050d699e8e96c.tar.gz"
+      }
+    ],
+    "version": 1
+  },
+  "toolchains": {
+    "androidLicenseInputs": {
+      "android-sdk-license": {
+        "acceptanceSha1": "24333f8a63b6825ea9c5514f83c2829b004d1fee",
+        "bytes": 16962,
+        "sha256": "1f8729233617b193fd619213792ae16a41b95d2bbbf525dfe66998252ba68b16"
+      },
+      "android-sdk-preview-license": {
+        "acceptanceSha1": "84831b9409646a918e30573bab4c9c91346d8abd",
+        "bytes": 17257,
+        "sha256": "4812a1e9b8aedc1abc00cfbd39a2b7f40a4e60080dd5de8f717eee2fdc3d686b"
+      }
+    },
+    "androidLicenses": {
+      "android-sdk-license": "Terms and Conditions\n\nThis is the Android Software Development Kit License Agreement\n\n1. Introduction\n\n1.1 The Android Software Development Kit (referred to in the License Agreement as the \"SDK\" and specifically including the Android system files, packaged APIs, and Google APIs add-ons) is licensed to you subject to the terms of the License Agreement. The License Agreement forms a legally binding contract between you and Google in relation to your use of the SDK.\n\n1.2 \"Android\" means the Android software stack for devices, as made available under the Android Open Source Project, which is located at the following URL: http://source.android.com/, as updated from time to time.\n\n1.3 A \"compatible implementation\" means any Android device that (i) complies with the Android Compatibility Definition document, which can be found at the Android compatibility website (http://source.android.com/compatibility) and which may be updated from time to time; and (ii) successfully passes the Android Compatibility Test Suite (CTS).\n\n1.4 \"Google\" means Google Inc., a Delaware corporation with principal place of business at 1600 Amphitheatre Parkway, Mountain View, CA 94043, United States.\n\n\n2. Accepting the License Agreement\n\n2.1 In order to use the SDK, you must first agree to the License Agreement. You may not use the SDK if you do not accept the License Agreement.\n\n2.2 By clicking to accept, you hereby agree to the terms of the License Agreement.\n\n2.3 You may not use the SDK and may not accept the License Agreement if you are a person barred from receiving the SDK under the laws of the United States or other countries, including the country in which you are resident or from which you use the SDK.\n\n2.4 If you are agreeing to be bound by the License Agreement on behalf of your employer or other entity, you represent and warrant that you have full legal authority to bind your employer or such entity to the License Agreement. If you do not have the requisite authority, you may not accept the License Agreement or use the SDK on behalf of your employer or other entity.\n\n\n3. SDK License from Google\n\n3.1 Subject to the terms of the License Agreement, Google grants you a limited, worldwide, royalty-free, non-assignable, non-exclusive, and non-sublicensable license to use the SDK solely to develop applications for compatible implementations of Android.\n\n3.2 You may not use this SDK to develop applications for other platforms (including non-compatible implementations of Android) or to develop another SDK. You are of course free to develop applications for other platforms, including non-compatible implementations of Android, provided that this SDK is not used for that purpose.\n\n3.3 You agree that Google or third parties own all legal right, title and interest in and to the SDK, including any Intellectual Property Rights that subsist in the SDK. \"Intellectual Property Rights\" means any and all rights under patent law, copyright law, trade secret law, trademark law, and any and all other proprietary rights. Google reserves all rights not expressly granted to you.\n\n3.4 You may not use the SDK for any purpose not expressly permitted by the License Agreement.  Except to the extent required by applicable third party licenses, you may not copy (except for backup purposes), modify, adapt, redistribute, decompile, reverse engineer, disassemble, or create derivative works of the SDK or any part of the SDK.\n\n3.5 Use, reproduction and distribution of components of the SDK licensed under an open source software license are governed solely by the terms of that open source software license and not the License Agreement.\n\n3.6 You agree that the form and nature of the SDK that Google provides may change without prior notice to you and that future versions of the SDK may be incompatible with applications developed on previous versions of the SDK. You agree that Google may stop (permanently or temporarily) providing the SDK (or any features within the SDK) to you or to users generally at Google's sole discretion, without prior notice to you.\n\n3.7 Nothing in the License Agreement gives you a right to use any of Google's trade names, trademarks, service marks, logos, domain names, or other distinctive brand features.\n\n3.8 You agree that you will not remove, obscure, or alter any proprietary rights notices (including copyright and trademark notices) that may be affixed to or contained within the SDK.\n\n\n4. Use of the SDK by You\n\n4.1 Google agrees that it obtains no right, title or interest from you (or your licensors) under the License Agreement in or to any software applications that you develop using the SDK, including any intellectual property rights that subsist in those applications.\n\n4.2 You agree to use the SDK and write applications only for purposes that are permitted by (a) the License Agreement and (b) any applicable law, regulation or generally accepted practices or guidelines in the relevant jurisdictions (including any laws regarding the export of data or software to and from the United States or other relevant countries).\n\n4.3 You agree that if you use the SDK to develop applications for general public users, you will protect the privacy and legal rights of those users. If the users provide you with user names, passwords, or other login information or personal information, you must make the users aware that the information will be available to your application, and you must provide legally adequate privacy notice and protection for those users. If your application stores personal or sensitive information provided by users, it must do so securely. If the user provides your application with Google Account information, your application may only use that information to access the user's Google Account when, and for the limited purposes for which, the user has given you permission to do so.\n\n4.4 You agree that you will not engage in any activity with the SDK, including the development or distribution of an application, that interferes with, disrupts, damages, or accesses in an unauthorized manner the servers, networks, or other properties or services of any third party including, but not limited to, Google or any mobile communications carrier.\n\n4.5 You agree that you are solely responsible for (and that Google has no responsibility to you or to any third party for) any data, content, or resources that you create, transmit or display through Android and/or applications for Android, and for the consequences of your actions (including any loss or damage which Google may suffer) by doing so.\n\n4.6 You agree that you are solely responsible for (and that Google has no responsibility to you or to any third party for) any breach of your obligations under the License Agreement, any applicable third party contract or Terms of Service, or any applicable law or regulation, and for the consequences (including any loss or damage which Google or any third party may suffer) of any such breach.\n\n5. Your Developer Credentials\n\n5.1 You agree that you are responsible for maintaining the confidentiality of any developer credentials that may be issued to you by Google or which you may choose yourself and that you will be solely responsible for all applications that are developed under your developer credentials.\n\n6. Privacy and Information\n\n6.1 In order to continually innovate and improve the SDK, Google may collect certain usage statistics from the software including but not limited to a unique identifier, associated IP address, version number of the software, and information on which tools and/or services in the SDK are being used and how they are being used. Before any of this information is collected, the SDK will notify you and seek your consent. If you withhold consent, the information will not be collected.\n\n6.2 The data collected is examined in the aggregate to improve the SDK and is maintained in accordance with Google's Privacy Policy.\n\n\n7. Third Party Applications\n\n7.1 If you use the SDK to run applications developed by a third party or that access data, content or resources provided by a third party, you agree that Google is not responsible for those applications, data, content, or resources. You understand that all data, content or resources which you may access through such third party applications are the sole responsibility of the person from which they originated and that Google is not liable for any loss or damage that you may experience as a result of the use or access of any of those third party applications, data, content, or resources.\n\n7.2 You should be aware the data, content, and resources presented to you through such a third party application may be protected by intellectual property rights which are owned by the providers (or by other persons or companies on their behalf). You may not modify, rent, lease, loan, sell, distribute or create derivative works based on these data, content, or resources (either in whole or in part) unless you have been specifically given permission to do so by the relevant owners.\n\n7.3 You acknowledge that your use of such third party applications, data, content, or resources may be subject to separate terms between you and the relevant third party. In that case, the License Agreement does not affect your legal relationship with these third parties.\n\n\n8. Using Android APIs\n\n8.1 Google Data APIs\n\n8.1.1 If you use any API to retrieve data from Google, you acknowledge that the data may be protected by intellectual property rights which are owned by Google or those parties that provide the data (or by other persons or companies on their behalf). Your use of any such API may be subject to additional Terms of Service. You may not modify, rent, lease, loan, sell, distribute or create derivative works based on this data (either in whole or in part) unless allowed by the relevant Terms of Service.\n\n8.1.2 If you use any API to retrieve a user's data from Google, you acknowledge and agree that you shall retrieve data only with the user's explicit consent and only when, and for the limited purposes for which, the user has given you permission to do so. If you use the Android Recognition Service API, documented at the following URL: https://developer.android.com/reference/android/speech/RecognitionService, as updated from time to time, you acknowledge that the use of the API is subject to the Data Processing Addendum for Products where Google is a Data Processor, which is located at the following URL: https://privacy.google.com/businesses/gdprprocessorterms/, as updated from time to time. By clicking to accept, you hereby agree to the terms of the Data Processing Addendum for Products where Google is a Data Processor.\n\n\n9. Terminating the License Agreement\n\n9.1 The License Agreement will continue to apply until terminated by either you or Google as set out below.\n\n9.2 If you want to terminate the License Agreement, you may do so by ceasing your use of the SDK and any relevant developer credentials.\n\n9.3 Google may at any time, terminate the License Agreement with you if:\n(A) you have breached any provision of the License Agreement; or\n(B) Google is required to do so by law; or\n(C) the partner with whom Google offered certain parts of SDK (such as APIs) to you has terminated its relationship with Google or ceased to offer certain parts of the SDK to you; or\n(D) Google decides to no longer provide the SDK or certain parts of the SDK to users in the country in which you are resident or from which you use the service, or the provision of the SDK or certain SDK services to you by Google is, in Google's sole discretion, no longer commercially viable.\n\n9.4 When the License Agreement comes to an end, all of the legal rights, obligations and liabilities that you and Google have benefited from, been subject to (or which have accrued over time whilst the License Agreement has been in force) or which are expressed to continue indefinitely, shall be unaffected by this cessation, and the provisions of paragraph 14.7 shall continue to apply to such rights, obligations and liabilities indefinitely.\n\n\n10. DISCLAIMER OF WARRANTIES\n\n10.1 YOU EXPRESSLY UNDERSTAND AND AGREE THAT YOUR USE OF THE SDK IS AT YOUR SOLE RISK AND THAT THE SDK IS PROVIDED \"AS IS\" AND \"AS AVAILABLE\" WITHOUT WARRANTY OF ANY KIND FROM GOOGLE.\n\n10.2 YOUR USE OF THE SDK AND ANY MATERIAL DOWNLOADED OR OTHERWISE OBTAINED THROUGH THE USE OF THE SDK IS AT YOUR OWN DISCRETION AND RISK AND YOU ARE SOLELY RESPONSIBLE FOR ANY DAMAGE TO YOUR COMPUTER SYSTEM OR OTHER DEVICE OR LOSS OF DATA THAT RESULTS FROM SUCH USE.\n\n10.3 GOOGLE FURTHER EXPRESSLY DISCLAIMS ALL WARRANTIES AND CONDITIONS OF ANY KIND, WHETHER EXPRESS OR IMPLIED, INCLUDING, BUT NOT LIMITED TO THE IMPLIED WARRANTIES AND CONDITIONS OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.\n\n\n11. LIMITATION OF LIABILITY\n\n11.1 YOU EXPRESSLY UNDERSTAND AND AGREE THAT GOOGLE, ITS SUBSIDIARIES AND AFFILIATES, AND ITS LICENSORS SHALL NOT BE LIABLE TO YOU UNDER ANY THEORY OF LIABILITY FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL OR EXEMPLARY DAMAGES THAT MAY BE INCURRED BY YOU, INCLUDING ANY LOSS OF DATA, WHETHER OR NOT GOOGLE OR ITS REPRESENTATIVES HAVE BEEN ADVISED OF OR SHOULD HAVE BEEN AWARE OF THE POSSIBILITY OF ANY SUCH LOSSES ARISING.\n\n\n12. Indemnification\n\n12.1 To the maximum extent permitted by law, you agree to defend, indemnify and hold harmless Google, its affiliates and their respective directors, officers, employees and agents from and against any and all claims, actions, suits or proceedings, as well as any and all losses, liabilities, damages, costs and expenses (including reasonable attorneys fees) arising out of or accruing from (a) your use of the SDK, (b) any application you develop on the SDK that infringes any copyright, trademark, trade secret, trade dress, patent or other intellectual property right of any person or defames any person or violates their rights of publicity or privacy, and (c) any non-compliance by you with the License Agreement.\n\n\n13. Changes to the License Agreement\n\n13.1 Google may make changes to the License Agreement as it distributes new versions of the SDK. When these changes are made, Google will make a new version of the License Agreement available on the website where the SDK is made available.\n\n\n14. General Legal Terms\n\n14.1 The License Agreement constitutes the whole legal agreement between you and Google and governs your use of the SDK (excluding any services which Google may provide to you under a separate written agreement), and completely replaces any prior agreements between you and Google in relation to the SDK.\n\n14.2 You agree that if Google does not exercise or enforce any legal right or remedy which is contained in the License Agreement (or which Google has the benefit of under any applicable law), this will not be taken to be a formal waiver of Google's rights and that those rights or remedies will still be available to Google.\n\n14.3 If any court of law, having the jurisdiction to decide on this matter, rules that any provision of the License Agreement is invalid, then that provision will be removed from the License Agreement without affecting the rest of the License Agreement. The remaining provisions of the License Agreement will continue to be valid and enforceable.\n\n14.4 You acknowledge and agree that each member of the group of companies of which Google is the parent shall be third party beneficiaries to the License Agreement and that such other companies shall be entitled to directly enforce, and rely upon, any provision of the License Agreement that confers a benefit on (or rights in favor of) them. Other than this, no other person or company shall be third party beneficiaries to the License Agreement.\n\n14.5 EXPORT RESTRICTIONS. THE SDK IS SUBJECT TO UNITED STATES EXPORT LAWS AND REGULATIONS. YOU MUST COMPLY WITH ALL DOMESTIC AND INTERNATIONAL EXPORT LAWS AND REGULATIONS THAT APPLY TO THE SDK. THESE LAWS INCLUDE RESTRICTIONS ON DESTINATIONS, END USERS AND END USE.\n\n14.6 The rights granted in the License Agreement may not be assigned or transferred by either you or Google without the prior written approval of the other party. Neither you nor Google shall be permitted to delegate their responsibilities or obligations under the License Agreement without the prior written approval of the other party.\n\n14.7 The License Agreement, and your relationship with Google under the License Agreement, shall be governed by the laws of the State of California without regard to its conflict of laws provisions. You and Google agree to submit to the exclusive jurisdiction of the courts located within the county of Santa Clara, California to resolve any legal matter arising from the License Agreement. Notwithstanding this, you agree that Google shall still be allowed to apply for injunctive remedies (or an equivalent type of urgent legal relief) in any jurisdiction.\n\n\nJanuary 16, 2019\n",
+      "android-sdk-preview-license": "To get started with the Android SDK Preview, you must agree to the following terms and conditions.\nAs described below, please note that this is a preview version of the Android SDK, subject to change, that you use at your own risk.  The Android SDK Preview is not a stable release, and may contain errors and defects that can result in serious damage to your computer systems, devices and data.\n\nThis is the Android SDK Preview License Agreement (the \"License Agreement\").\n\n1. Introduction\n\n1.1 The Android SDK Preview (referred to in the License Agreement as the “Preview” and specifically including the Android system files, packaged APIs, and Preview library files, if and when they are made available) is licensed to you subject to the terms of the License Agreement. The License Agreement forms a legally binding contract between you and Google in relation to your use of the Preview.\n\n1.2 \"Android\" means the Android software stack for devices, as made available under the Android Open Source Project, which is located at the following URL: http://source.android.com/, as updated from time to time.\n\n1.3 \"Google\" means Google Inc., a Delaware corporation with principal place of business at 1600 Amphitheatre Parkway, Mountain View, CA 94043, United States.\n\n2. Accepting the License Agreement\n\n2.1 In order to use the Preview, you must first agree to the License Agreement. You may not use the Preview if you do not accept the License Agreement.\n\n2.2 By clicking to accept and/or using the Preview, you hereby agree to the terms of the License Agreement.\n\n2.3 You may not use the Preview and may not accept the License Agreement if you are a person barred from receiving the Preview under the laws of the United States or other countries including the country in which you are resident or from which you use the Preview.\n\n2.4 If you will use the Preview internally within your company or organization you agree to be bound by the License Agreement on behalf of your employer or other entity, and you represent and warrant that you have full legal authority to bind your employer or such entity to the License Agreement. If you do not have the requisite authority, you may not accept the License Agreement or use the Preview on behalf of your employer or other entity.\n\n3. Preview License from Google\n\n3.1 Subject to the terms of the License Agreement, Google grants you a royalty-free, non-assignable, non-exclusive, non-sublicensable, limited, revocable license to use the Preview, personally or internally within your company or organization, solely to develop applications to run on the Android platform.\n\n3.2 You agree that Google or third parties owns all legal right, title and interest in and to the Preview, including any Intellectual Property Rights that subsist in the Preview. \"Intellectual Property Rights\" means any and all rights under patent law, copyright law, trade secret law, trademark law, and any and all other proprietary rights. Google reserves all rights not expressly granted to you.\n\n3.3 You may not use the Preview for any purpose not expressly permitted by the License Agreement. Except to the extent required by applicable third party licenses, you may not: (a) copy (except for backup purposes), modify, adapt, redistribute, decompile, reverse engineer, disassemble, or create derivative works of the Preview or any part of the Preview; or (b) load any part of the Preview onto a mobile handset or any other hardware device except a personal computer, combine any part of the Preview with other software, or distribute any software or device incorporating a part of the Preview.\n\n3.4 You agree that you will not take any actions that may cause or result in the fragmentation of Android, including but not limited to distributing, participating in the creation of, or promoting in any way a software development kit derived from the Preview.\n\n3.5 Use, reproduction and distribution of components of the Preview licensed under an open source software license are governed solely by the terms of that open source software license and not the License Agreement. You agree to remain a licensee in good standing in regard to such open source software licenses under all the rights granted and to refrain from any actions that may terminate, suspend, or breach such rights.\n\n3.6 You agree that the form and nature of the Preview that Google provides may change without prior notice to you and that future versions of the Preview may be incompatible with applications developed on previous versions of the Preview. You agree that Google may stop (permanently or temporarily) providing the Preview (or any features within the Preview) to you or to users generally at Google's sole discretion, without prior notice to you.\n\n3.7 Nothing in the License Agreement gives you a right to use any of Google's trade names, trademarks, service marks, logos, domain names, or other distinctive brand features.\n\n3.8 You agree that you will not remove, obscure, or alter any proprietary rights notices (including copyright and trademark notices) that may be affixed to or contained within the Preview.\n\n4. Use of the Preview by You\n\n4.1 Google agrees that nothing in the License Agreement gives Google any right, title or interest from you (or your licensors) under the License Agreement in or to any software applications that you develop using the Preview, including any intellectual property rights that subsist in those applications.\n\n4.2 You agree to use the Preview and write applications only for purposes that are permitted by (a) the License Agreement, and (b) any applicable law, regulation or generally accepted practices or guidelines in the relevant jurisdictions (including any laws regarding the export of data or software to and from the United States or other relevant countries).\n\n4.3 You agree that if you use the Preview to develop applications, you will protect the privacy and legal rights of users. If users provide you with user names, passwords, or other login information or personal information, you must make the users aware that the information will be available to your application, and you must provide legally adequate privacy notice and protection for those users. If your application stores personal or sensitive information provided by users, it must do so securely. If users provide you with Google Account information, your application may only use that information to access the user's Google Account when, and for the limited purposes for which, each user has given you permission to do so.\n\n4.4 You agree that you will not engage in any activity with the Preview, including the development or distribution of an application, that interferes with, disrupts, damages, or accesses in an unauthorized manner the servers, networks, or other properties or services of Google or any third party.\n\n4.5 You agree that you are solely responsible for (and that Google has no responsibility to you or to any third party for) any data, content, or resources that you create, transmit or display through Android and/or applications for Android, and for the consequences of your actions (including any loss or damage which Google may suffer) by doing so.\n\n4.6 You agree that you are solely responsible for (and that Google has no responsibility to you or to any third party for) any breach of your obligations under the License Agreement, any applicable third party contract or Terms of Service, or any applicable law or regulation, and for the consequences (including any loss or damage which Google or any third party may suffer) of any such breach.\n\n4.7 The Preview is in development, and your testing and feedback are an important part of the development process. By using the Preview, you acknowledge that implementation of some features are still under development and that you should not rely on the Preview having the full functionality of a stable release. You agree not to publicly distribute or ship any application using this Preview as this Preview will no longer be supported after the official Android SDK is released.\n\n5. Your Developer Credentials\n\n5.1 You agree that you are responsible for maintaining the confidentiality of any developer credentials that may be issued to you by Google or which you may choose yourself and that you will be solely responsible for all applications that are developed under your developer credentials.\n\n6. Privacy and Information\n\n6.1 In order to continually innovate and improve the Preview, Google may collect certain usage statistics from the software including but not limited to a unique identifier, associated IP address, version number of the software, and information on which tools and/or services in the Preview are being used and how they are being used. Before any of this information is collected, the Preview will notify you and seek your consent. If you withhold consent, the information will not be collected.\n\n6.2 The data collected is examined in the aggregate to improve the Preview and is maintained in accordance with Google's Privacy Policy located at http://www.google.com/policies/privacy/.\n\n7. Third Party Applications\n\n7.1 If you use the Preview to run applications developed by a third party or that access data, content or resources provided by a third party, you agree that Google is not responsible for those applications, data, content, or resources. You understand that all data, content or resources which you may access through such third party applications are the sole responsibility of the person from which they originated and that Google is not liable for any loss or damage that you may experience as a result of the use or access of any of those third party applications, data, content, or resources.\n\n7.2 You should be aware the data, content, and resources presented to you through such a third party application may be protected by intellectual property rights which are owned by the providers (or by other persons or companies on their behalf). You may not modify, rent, lease, loan, sell, distribute or create derivative works based on these data, content, or resources (either in whole or in part) unless you have been specifically given permission to do so by the relevant owners.\n\n7.3 You acknowledge that your use of such third party applications, data, content, or resources may be subject to separate terms between you and the relevant third party.\n\n8. Using Google APIs\n\n8.1 Google APIs\n\n8.1.1 If you use any API to retrieve data from Google, you acknowledge that the data may be protected by intellectual property rights which are owned by Google or those parties that provide the data (or by other persons or companies on their behalf). Your use of any such API may be subject to additional Terms of Service. You may not modify, rent, lease, loan, sell, distribute or create derivative works based on this data (either in whole or in part) unless allowed by the relevant Terms of Service.\n\n8.1.2 If you use any API to retrieve a user's data from Google, you acknowledge and agree that you shall retrieve data only with the user's explicit consent and only when, and for the limited purposes for which, the user has given you permission to do so.\n\n9. Terminating the License Agreement\n\n9.1 the License Agreement will continue to apply until terminated by either you or Google as set out below.\n\n9.2 If you want to terminate the License Agreement, you may do so by ceasing your use of the Preview and any relevant developer credentials.\n\n9.3 Google may at any time, terminate the License Agreement, with or without cause, upon notice to you.\n\n9.4 The License Agreement will automatically terminate without notice or other action upon the earlier of:\n(A) when Google ceases to provide the Preview or certain parts of the Preview to users in the country in which you are resident or from which you use the service; and\n(B) Google issues a final release version of the Android SDK.\n\n9.5 When the License Agreement is terminated, the license granted to you in the License Agreement will terminate, you will immediately cease all use of the Preview, and the provisions of paragraphs 10, 11, 12 and 14 shall survive indefinitely.\n\n10. DISCLAIMERS\n\n10.1 YOU EXPRESSLY UNDERSTAND AND AGREE THAT YOUR USE OF THE PREVIEW IS AT YOUR SOLE RISK AND THAT THE PREVIEW IS PROVIDED \"AS IS\" AND \"AS AVAILABLE\" WITHOUT WARRANTY OF ANY KIND FROM GOOGLE.\n\n10.2 YOUR USE OF THE PREVIEW AND ANY MATERIAL DOWNLOADED OR OTHERWISE OBTAINED THROUGH THE USE OF THE PREVIEW IS AT YOUR OWN DISCRETION AND RISK AND YOU ARE SOLELY RESPONSIBLE FOR ANY DAMAGE TO YOUR COMPUTER SYSTEM OR OTHER DEVICE OR LOSS OF DATA THAT RESULTS FROM SUCH USE. WITHOUT LIMITING THE FOREGOING, YOU UNDERSTAND THAT THE PREVIEW IS NOT A STABLE RELEASE AND MAY CONTAIN ERRORS, DEFECTS AND SECURITY VULNERABILITIES THAT CAN RESULT IN SIGNIFICANT DAMAGE, INCLUDING THE COMPLETE, IRRECOVERABLE LOSS OF USE OF YOUR COMPUTER SYSTEM OR OTHER DEVICE.\n\n10.3 GOOGLE FURTHER EXPRESSLY DISCLAIMS ALL WARRANTIES AND CONDITIONS OF ANY KIND, WHETHER EXPRESS OR IMPLIED, INCLUDING, BUT NOT LIMITED TO THE IMPLIED WARRANTIES AND CONDITIONS OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.\n\n11. LIMITATION OF LIABILITY\n\n11.1 YOU EXPRESSLY UNDERSTAND AND AGREE THAT GOOGLE, ITS SUBSIDIARIES AND AFFILIATES, AND ITS LICENSORS SHALL NOT BE LIABLE TO YOU UNDER ANY THEORY OF LIABILITY FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL OR EXEMPLARY DAMAGES THAT MAY BE INCURRED BY YOU, INCLUDING ANY LOSS OF DATA, WHETHER OR NOT GOOGLE OR ITS REPRESENTATIVES HAVE BEEN ADVISED OF OR SHOULD HAVE BEEN AWARE OF THE POSSIBILITY OF ANY SUCH LOSSES ARISING.\n\n12. Indemnification\n\n12.1 To the maximum extent permitted by law, you agree to defend, indemnify and hold harmless Google, its affiliates and their respective directors, officers, employees and agents from and against any and all claims, actions, suits or proceedings, as well as any and all losses, liabilities, damages, costs and expenses (including reasonable attorneys’ fees) arising out of or accruing from (a) your use of the Preview, (b) any application you develop on the Preview that infringes any Intellectual Property Rights of any person or defames any person or violates their rights of publicity or privacy, and (c) any non-compliance by you of the License Agreement.\n\n13. Changes to the License Agreement\n\n13.1 Google may make changes to the License Agreement as it distributes new versions of the Preview. When these changes are made, Google will make a new version of the License Agreement available on the website where the Preview is made available.\n\n14. General Legal Terms\n\n14.1 the License Agreement constitutes the whole legal agreement between you and Google and governs your use of the Preview (excluding any services which Google may provide to you under a separate written agreement), and completely replaces any prior agreements between you and Google in relation to the Preview.\n\n14.2 You agree that if Google does not exercise or enforce any legal right or remedy which is contained in the License Agreement (or which Google has the benefit of under any applicable law), this will not be taken to be a formal waiver of Google's rights and that those rights or remedies will still be available to Google.\n\n14.3 If any court of law, having the jurisdiction to decide on this matter, rules that any provision of the License Agreement is invalid, then that provision will be removed from the License Agreement without affecting the rest of the License Agreement. The remaining provisions of the License Agreement will continue to be valid and enforceable.\n\n14.4 You acknowledge and agree that each member of the group of companies of which Google is the parent shall be third party beneficiaries to the License Agreement and that such other companies shall be entitled to directly enforce, and rely upon, any provision of the License Agreement that confers a benefit on (or rights in favor of) them. Other than this, no other person or company shall be third party beneficiaries to the License Agreement.\n\n14.5 EXPORT RESTRICTIONS. THE PREVIEW IS SUBJECT TO UNITED STATES EXPORT LAWS AND REGULATIONS. YOU MUST COMPLY WITH ALL DOMESTIC AND INTERNATIONAL EXPORT LAWS AND REGULATIONS THAT APPLY TO THE PREVIEW. THESE LAWS INCLUDE RESTRICTIONS ON DESTINATIONS, END USERS AND END USE.\n\n14.6 The License Agreement may not be assigned or transferred by you without the prior written approval of Google, and any attempted assignment without such approval will be void. You shall not delegate your responsibilities or obligations under the License Agreement without the prior written approval of Google.\n\n14.7 The License Agreement, and your relationship with Google under the License Agreement, shall be governed by the laws of the State of California without regard to its conflict of laws provisions. You and Google agree to submit to the exclusive jurisdiction of the courts located within the county of Santa Clara, California to resolve any legal matter arising from the License Agreement. Notwithstanding this, you agree that Google shall still be allowed to apply for injunctive remedies (or an equivalent type of urgent legal relief) in any jurisdiction.\n\nJune 2014.\n"
+    },
+    "documents": [
+      {
+        "bytes": 271621,
+        "sha256": "84df943324618c804ca1b6591ad6bf92750b01035394ca444a534fa6eee08ee1",
+        "sourceUrl": "https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json"
+      },
+      {
+        "bytes": 22898,
+        "sha256": "e0324e8717deaa8ba77ec05b672086e755e57d816c052d3b25d36d5533c3160e",
+        "sourceUrl": "https://go.dev/dl/?mode=json"
+      },
+      {
+        "bytes": 25267,
+        "sha256": "6d619fa4cc875c12e78e1b9d7a5f1c0ce93f57914143165211488b99abd60663",
+        "sourceUrl": "https://dl.google.com/dl/android/maven2/com/android/tools/build/gradle/maven-metadata.xml"
+      },
+      {
+        "bytes": 10696,
+        "sha256": "ba4f1c16c09ff41f45d7c92879ac58b31a5c5f0fe472e60d0b85091ebc2d6d63",
+        "sourceUrl": "https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-gradle-plugin/maven-metadata.xml"
+      },
+      {
+        "bytes": 430428,
+        "sha256": "8d50ffecf70b4f91ac391cf09a2baec635d5db8cd3a209dfa138976df80f2215",
+        "sourceUrl": "https://services.gradle.org/versions/all"
+      },
+      {
+        "bytes": 87964,
+        "sha256": "16413d3a3a9fcc60c585a8a558beb4152442811f3848a6843ac60f2f0fe4d083",
+        "sourceUrl": "https://kotlinlang.org/docs/gradle-configure-project.html"
+      },
+      {
+        "bytes": 291893,
+        "sha256": "c50bb8d171129d55ca74ea0e2593ea3386159fb0b67792bdeea9d54c32a9cd34",
+        "sourceUrl": "https://developer.android.com/build/releases/agp-9-5-0-release-notes"
+      },
+      {
+        "bytes": 279587,
+        "sha256": "c34a5605ac6b89fd899893dba53f96eb93867d5954dee85095db0df92890ad3d",
+        "sourceUrl": "https://developer.android.com/build/releases/agp-9-4-0-release-notes"
+      },
+      {
+        "bytes": 279591,
+        "sha256": "1a41d2f7acbebf68b8a950efc03c7fe515e2f246e362dc7d8715e5a12c593582",
+        "sourceUrl": "https://developer.android.com/build/releases/agp-9-4-0-release-notes"
+      },
+      {
+        "bytes": 299060,
+        "sha256": "627d4db898359af1db86e98c8791f1b4113e53952231d0883d22097439f0b12e",
+        "sourceUrl": "https://developer.android.com/build/releases/agp-9-3-0-release-notes"
+      },
+      {
+        "bytes": 299060,
+        "sha256": "34531f9fae0edf79ea586d646cfa906c4534861e664cb7098e55b0830860a26a",
+        "sourceUrl": "https://developer.android.com/build/releases/agp-9-3-0-release-notes"
+      },
+      {
+        "bytes": 299060,
+        "sha256": "eb6f7dbd7a09751a21fd4b90f59d9d4182bf3da9deda97f663f17e5a546af527",
+        "sourceUrl": "https://developer.android.com/build/releases/agp-9-3-0-release-notes"
+      },
+      {
+        "bytes": 64,
+        "sha256": "28659beaa4474218701175d8795f3dfdee9e212fa93be64c3c4de8691d3397af",
+        "sourceUrl": "https://services.gradle.org/distributions/gradle-9.7.0-bin.zip.sha256"
+      },
+      {
+        "bytes": 179172,
+        "sha256": "6137a756a769cf76931d4c98dfea25dd804b367dac5413ef6676410c47f2950c",
+        "sourceUrl": "https://docs.gradle.org/current/userguide/compatibility.html"
+      },
+      {
+        "bytes": 428,
+        "sha256": "e980cb29aee790fb6c131e96eacf6c8f6c4822ad7486bd8ae05fe2e5a2e4e295",
+        "sourceUrl": "https://api.adoptium.net/v3/info/available_releases"
+      },
+      {
+        "bytes": 1763,
+        "sha256": "f20a16c3c35799be095302c45343e39227494ef2d2c8bb9e9d3f0e66fc4368da",
+        "sourceUrl": "https://api.adoptium.net/v3/assets/latest/26/hotspot?architecture=x64&image_type=jdk&os=linux&vendor=eclipse"
+      },
+      {
+        "bytes": 426356,
+        "sha256": "fb1bd2fcd70b6116519563f1ff96cc578381e4e29237ab05ec8920f0864a7955",
+        "sourceUrl": "https://dl.google.com/android/repository/repository2-3.xml"
+      },
+      {
+        "bytes": 299060,
+        "sha256": "30938839d4a26fe0aabd934616b0ddb472cdef210ff57bb8a10edddd92e14cc4",
+        "sourceUrl": "https://developer.android.com/build/releases/agp-9-3-0-release-notes"
+      },
+      {
+        "bytes": 426356,
+        "purpose": "AGP默认Build Tools兼容包与原始license",
+        "sha256": "fb1bd2fcd70b6116519563f1ff96cc578381e4e29237ab05ec8920f0864a7955",
+        "sourceUrl": "https://dl.google.com/android/repository/repository2-3.xml"
+      }
+    ],
+    "excluded": [
+      {
+        "component": "agp",
+        "reason": "没有同时满足官方 KGP 与 Gradle 范围的组合",
+        "version": "9.5.0"
+      },
+      {
+        "component": "agp",
+        "reason": "没有同时满足官方 KGP 与 Gradle 范围的组合",
+        "version": "9.4.1"
+      },
+      {
+        "component": "agp",
+        "reason": "没有同时满足官方 KGP 与 Gradle 范围的组合",
+        "version": "9.4.0"
+      },
+      {
+        "component": "agp",
+        "reason": "没有同时满足官方 KGP 与 Gradle 范围的组合",
+        "version": "9.3.3"
+      },
+      {
+        "component": "agp",
+        "reason": "没有同时满足官方 KGP 与 Gradle 范围的组合",
+        "version": "9.3.2"
+      },
+      {
+        "agp": "9.3.1",
+        "component": "gradle",
+        "kotlin": "2.4.21",
+        "reason": "不满足 AGP 最低版本或 KGP 官方 Gradle 范围",
+        "version": "9.8.2"
+      },
+      {
+        "agp": "9.3.1",
+        "component": "gradle",
+        "kotlin": "2.4.21",
+        "reason": "不满足 AGP 最低版本或 KGP 官方 Gradle 范围",
+        "version": "9.8.1"
+      },
+      {
+        "agp": "9.3.1",
+        "component": "gradle",
+        "kotlin": "2.4.21",
+        "reason": "不满足 AGP 最低版本或 KGP 官方 Gradle 范围",
+        "version": "9.8.0"
+      },
+      {
+        "agp": "9.3.1",
+        "component": "gradle",
+        "kotlin": "2.4.21",
+        "reason": "不满足 AGP 最低版本或 KGP 官方 Gradle 范围",
+        "version": "9.7.1"
+      },
+      {
+        "component": "java",
+        "reason": "所选 Gradle 低于该 Java 的最低支持版本",
+        "version": "27"
+      }
+    ],
+    "format": "clash-pseudo-toolchains",
+    "latest": {
+      "agp": "9.5.0",
+      "gradle": "9.8.2",
+      "java": "27",
+      "kotlin": "2.4.21"
+    },
+    "minSdk": 24,
+    "selected": {
+      "actions": {
+        "actions/checkout": {
+          "commit": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "version": "v7.0.1"
+        },
+        "actions/github-script": {
+          "commit": "3a2844b7e9c422d3c10d287c895573f7108da1b3",
+          "version": "v9.0.0"
+        },
+        "actions/upload-artifact": {
+          "commit": "cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+          "version": "v7.0.2"
+        }
+      },
+      "agp": {
+        "compatibilityUrl": "https://developer.android.com/build/releases/agp-9-3-0-release-notes",
+        "version": "9.3.1"
+      },
+      "android": {
+        "buildTools": {
+          "bytes": 66135704,
+          "officialSha1": "70954e99f4c3d9d46ee70fa32624672fe7cd6ebe",
+          "package": "build-tools;37.0.0",
+          "revision": "37.0.0",
+          "sha256": "01af179347cbcd9c208b7f8171f7b21f6dd1d2f85bcd15e88caa51d5d7b86060",
+          "sourceUrl": "https://dl.google.com/android/repository/build-tools_r37_linux.zip"
+        },
+        "commandTools": {
+          "bytes": 181052239,
+          "officialSha1": "e025545c62a8e64c7559119566a569fb1dec5f60",
+          "package": "cmdline-tools;23.0",
+          "revision": "23.0.0",
+          "sha256": "0877a1d048fe4a24efe2eff536ca4223f7adeb58648bb81909d33c446918cfa8",
+          "sourceUrl": "https://dl.google.com/android/repository/commandlinetools-linux-16111833_latest.zip"
+        },
+        "compatibilityBuildTools": {
+          "bytes": 63737259,
+          "officialSha1": "b0b6376977657e8ad9b969bacf4093601da2c6fb",
+          "package": "build-tools;36.0.0",
+          "revision": "36.0.0",
+          "sha256": "5d9ac77fb6ff43d9da518a337b4fcf8f9097113df531d99ccefe80ef7ce8250b",
+          "sourceUrl": "https://dl.google.com/android/repository/build-tools_r36_linux.zip"
+        },
+        "ndk": {
+          "bytes": 738633529,
+          "officialSha1": "5107f898313790e449e87eee2183d9a20602dee9",
+          "package": "ndk;30.0.16248370",
+          "revision": "30.0.16248370",
+          "sha256": "753611f410d002cfcd3f3dc2ef49aad532089d3180b436c060a90bf0fcb64df2",
+          "sourceUrl": "https://dl.google.com/android/repository/android-ndk-r30-linux.zip"
+        },
+        "platform": {
+          "bytes": 65878410,
+          "officialSha1": "2c1a80dd4d9f7d0e6dd336ec603d9b5c55a6f576",
+          "package": "platforms;android-36",
+          "revision": "2.0.0",
+          "sha256": "37607369a28c5b640b3a7998868d45898ebcb777565a0e85f9acf36f29631d2e",
+          "sourceUrl": "https://dl.google.com/android/repository/platform-36_r02.zip"
+        },
+        "platformTools": {
+          "bytes": 9054187,
+          "officialSha1": "477254aa5f903c15cf51001717bdf347fb6b53e0",
+          "package": "platform-tools",
+          "revision": "37.0.1",
+          "sha256": "d230f13842f60f782a8645f9c813f8f845bf36089ea7289f28c48f17979313f1",
+          "sourceUrl": "https://dl.google.com/android/repository/platform-tools_r37.0.1-linux.zip"
+        }
+      },
+      "flutter": {
+        "bytes": 1582752184,
+        "commit": "c197ca5199e9ee5661e865596c9c07294dfab51c",
+        "dart": "3.13.7",
+        "sha256": "25ed8c3c29d51a7353f2a944310b478af8214920639524b19c50a19e6c044c5a",
+        "sourceUrl": "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.47.9-stable.tar.xz",
+        "version": "3.47.9"
+      },
+      "go": {
+        "bytes": 70588678,
+        "sha256": "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40",
+        "sourceUrl": "https://go.dev/dl/go1.27.3.linux-amd64.tar.gz",
+        "version": "go1.27.3"
+      },
+      "gradle": {
+        "bytes": 150308896,
+        "sha256": "84fbba45c7f4c64abc77460e1c00f541e9f960e3c7ed2538f1ede19eacd873ae",
+        "sourceUrl": "https://services.gradle.org/distributions/gradle-9.7.0-bin.zip",
+        "version": "9.7.0"
+      },
+      "java": {
+        "bytes": 144463785,
+        "sha256": "451c12e68747bcfa2fb5a2c16b00483fedb9fa6d77bc962d30957f76ac17044d",
+        "sourceUrl": "https://github.com/adoptium/temurin26-binaries/releases/download/jdk-26.0.2.1%2B1/OpenJDK26U-jdk_x64_linux_hotspot_26.0.2.1_1.tar.gz",
+        "version": "26.0.2+101"
+      },
+      "kotlin": {
+        "compatibilityUrl": "https://kotlinlang.org/docs/gradle-configure-project.html",
+        "version": "2.4.21"
+      }
+    },
+    "version": 1
+  },
+  "version": 1
+}

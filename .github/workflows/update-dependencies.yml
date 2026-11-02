@@ -1,21 +1,17 @@
-name: Update dependencies and release
+name: 更新依赖并发布
 
 on:
   schedule:
     - cron: '17 5 * * *'
   workflow_dispatch:
     inputs:
-      mihomo_tag:
-        description: '目标 mihomo 正式 tag；留空使用最新正式版'
-        type: string
-        default: ''
       version_bump:
-        description: 'patch：维护；minor：功能；major：稳定期不兼容；stable：明确首次稳定发布'
+        description: 'patch：维护更新；minor：新增功能；major：稳定版的不兼容更改；stable：首次发布稳定版'
         type: choice
         options: [patch, minor, major, stable]
         default: patch
       publish_current:
-        description: '同时发布当前尚未确定新版本的应用交付'
+        description: '即使没有新的依赖版本，也为当前应用准备新版本并发布'
         type: boolean
         default: false
 
@@ -28,83 +24,69 @@ concurrency:
 
 jobs:
   release:
-    if: vars.AUTOMATIC_RELEASES_ENABLED == 'true'
-    runs-on: ubuntu-24.04
+    if: github.event_name == 'workflow_dispatch' || vars.AUTOMATIC_RELEASES_ENABLED == 'true'
+    runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
       contents: write
       actions: read
     env:
-      FLUTTER_VERSION: '3.47.8'
-      ANDROID_BUILD_TOOLS: '36.0.0'
       GOTOOLCHAIN: local
-      GH_TOKEN: ${{ github.token }}
       RELEASE_BRANCH: ${{ github.event.repository.default_branch }}
-      CLASH_AUTOMATIC_RELEASES_ENABLED: ${{ vars.AUTOMATIC_RELEASES_ENABLED }}
+      CLASH_AUTOMATIC_RELEASES_ENABLED: ${{ github.event_name == 'workflow_dispatch' && 'true' || vars.AUTOMATIC_RELEASES_ENABLED }}
       CLASH_REQUIRE_DISTRIBUTION_SIGNING: 'true'
-      CLASH_SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-      CLASH_SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-      CLASH_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      CLASH_PSEUDO_ANDROID_KEYSTORE_BASE64: ${{ secrets.CLASH_PSEUDO_ANDROID_KEYSTORE_BASE64 }}
+      CLASH_PSEUDO_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.CLASH_PSEUDO_ANDROID_KEYSTORE_PASSWORD }}
+      CLASH_PSEUDO_ANDROID_KEY_ALIAS: ${{ secrets.CLASH_PSEUDO_ANDROID_KEY_ALIAS }}
+      CLASH_PSEUDO_ANDROID_KEY_PASSWORD: ${{ secrets.CLASH_PSEUDO_ANDROID_KEY_PASSWORD }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ !env.ACT && env.CLASH_LOCAL_EXECUTION != 'true' }}
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: native/mihomo/go.mod
-          cache-dependency-path: native/mihomo/go.sum
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
-      - uses: android-actions/setup-android@v3
-      - name: Prepare Android build tools
+      - name: 核对容器 workspace 与固定输入
+        if: ${{ env.ACT || env.CLASH_LOCAL_EXECUTION == 'true' }}
         shell: bash
         run: |
-          sdkmanager "build-tools;$ANDROID_BUILD_TOOLS"
-          set +o pipefail
-          yes | sdkmanager --licenses > /dev/null
-      - name: Prepare signing key
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          cd "$GITHUB_WORKSPACE"
+          test -f native/mihomo/go.mod
+          test -f pubspec.yaml
+          python3 -I -B tool/dependencies/release.py --verify-local-input --output "$RUNNER_TEMP/clash-release"
+      - name: 准备本地固定工具链
+        if: ${{ env.ACT || env.CLASH_LOCAL_EXECUTION == 'true' }}
+        shell: bash
         run: |
-          python3 -I - <<'PY'
-          import base64
-          import os
-          from pathlib import Path
-          import tempfile
-          required = ('ANDROID_KEYSTORE_BASE64', 'CLASH_SIGNING_STORE_PASSWORD',
-                      'CLASH_SIGNING_KEY_ALIAS', 'CLASH_SIGNING_KEY_PASSWORD')
-          if not all(os.environ.get(name) for name in required):
-              raise SystemExit('Android distribution signing Secrets are incomplete')
-          descriptor, name = tempfile.mkstemp(prefix='clash-signing-', suffix='.jks', dir=os.environ['RUNNER_TEMP'])
-          with os.fdopen(descriptor, 'wb') as stream:
-              stream.write(base64.b64decode(os.environ['ANDROID_KEYSTORE_BASE64'], validate=True))
-          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as stream:
-              stream.write('CLASH_SIGNING_STORE_FILE=' + name + '\n')
-          PY
-      - name: Prepare update and verified distribution materials
+          cd "$GITHUB_WORKSPACE"
+          python3 -I -B tool/dependencies/toolchains.py --environment "$RUNNER_TEMP/clash-toolchain-environment.json"
+      - name: 在本地运行交付工具测试
+        if: ${{ env.ACT || env.CLASH_LOCAL_EXECUTION == 'true' }}
+        shell: bash
+        run: |
+          python3 -I -B -m unittest discover -s test/tool -v
+          node --test test/tool/dependency_release_action.test.cjs
+      - name: 准备本地分发材料
+        if: ${{ env.ACT || env.CLASH_LOCAL_EXECUTION == 'true' }}
+        id: local_release
+        shell: bash
+        run: |
+          python3 -I -B tool/dependencies/release.py --local --output "$RUNNER_TEMP/clash-release"
+      - name: 准备依赖更新与分发材料
+        if: ${{ !env.ACT && env.CLASH_LOCAL_EXECUTION != 'true' }}
         id: release
         env:
-          INPUT_MIHOMO_TAG: ${{ inputs.mihomo_tag }}
+          GH_TOKEN: ${{ github.token }}
           INPUT_VERSION_BUMP: ${{ inputs.version_bump || 'patch' }}
           INPUT_PUBLISH_CURRENT: ${{ inputs.publish_current }}
         shell: bash
         run: |
           arguments=(--output "$RUNNER_TEMP/clash-release" --bump "$INPUT_VERSION_BUMP")
-          if [[ -n "$INPUT_MIHOMO_TAG" ]]; then arguments+=(--mihomo-tag "$INPUT_MIHOMO_TAG"); fi
           if [[ "$INPUT_PUBLISH_CURRENT" == true ]]; then arguments+=(--publish-current); fi
           cp .github/scripts/publish-release.cjs "$RUNNER_TEMP/clash-publish-release.cjs"
           python3 -I tool/dependencies/release.py "${arguments[@]}"
-      - name: Publish through GitHub Actions
-        if: success() && steps.release.outputs.plan != ''
-        uses: actions/github-script@v7
+      - name: 通过GitHub Actions发布
+        if: ${{ success() && !env.ACT && env.CLASH_LOCAL_EXECUTION != 'true' && steps.release.outputs.plan != '' }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           RELEASE_PLAN: ${{ steps.release.outputs.plan }}
         with:
@@ -112,22 +94,19 @@ jobs:
             const path = require('node:path');
             const publish = require(path.join(process.env.RUNNER_TEMP, 'clash-publish-release.cjs'));
             await publish({ github, context, core });
-      - name: Preserve release materials and diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: 保存本地发布材料与诊断输出
+        if: ${{ always() && (env.ACT || env.CLASH_LOCAL_EXECUTION == 'true') }}
+        shell: bash
+        run: |
+          if [[ -d "$RUNNER_TEMP/clash-release" ]]; then
+            output="$GITHUB_WORKSPACE/.local/release-materials"
+            mkdir "$output"
+            cp -a "$RUNNER_TEMP/clash-release/." "$output/"
+          fi
+      - name: 保存发布材料与诊断输出
+        if: ${{ always() && !env.ACT && env.CLASH_LOCAL_EXECUTION != 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: release-materials-${{ steps.release.outputs.version || 'preparation' }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: release-materials-${{ steps.release.outputs.version || steps.local_release.outputs.version || 'preparation' }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/clash-release
           if-no-files-found: ignore
-      - name: Remove temporary signing key
-        if: always()
-        run: |
-          python3 -I - <<'PY'
-          import os
-          from pathlib import Path
-          name = os.environ.get('CLASH_SIGNING_STORE_FILE')
-          if name:
-              path = Path(name)
-              if path.parent == Path(os.environ['RUNNER_TEMP']) and path.name.startswith('clash-signing-'):
-                  path.unlink(missing_ok=True)
-          PY

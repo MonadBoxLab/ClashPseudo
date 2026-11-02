@@ -49,3 +49,10 @@ app.*.map.json
 # Local AI assistant settings and code index
 /.claude/settings.local.json
 /.codegraph/
+
+# release 资源由 third_party/data/resources.json 固定来源，payload 只进入 generated。
+/android/app/src/main/assets/certificates/*.pem
+/android/app/src/main/assets/geodata/GeoIP.dat
+/android/app/src/main/assets/geodata/GeoSite.dat
+/android/app/src/main/assets/geodata/dbip-country-lite.mmdb.gzip
+/android/app/src/main/assets/geodata/dbip-asn-lite.mmdb.gzip

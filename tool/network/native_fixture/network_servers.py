@@ -53,7 +53,7 @@ class TCPServer(AcceptedTCP, socketserver.ThreadingTCPServer):
 
 
 class UDPServer(socketserver.ThreadingUDPServer):
-    allow_reuse_address = True
+    allow_reuse_address = False
     daemon_threads = False
 
 

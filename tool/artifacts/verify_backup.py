@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""流式只读核验正式SAF ZIP，并逐字节比较三个业务文件。"""
+"""核对SAF备份ZIP的manifest和三个业务文件；--compare比较两份备份的业务正文。"""
 import argparse
 from contextlib import contextmanager
 import hashlib
@@ -40,7 +40,7 @@ def fingerprint(stream, limit):
 def inspect_parts(archive):
     entries = archive.infolist()
     if len(entries) != 4 or {item.filename for item in entries} != set(LIMITS):
-        raise ValueError("备份必须恰含 manifest 和三个固定业务文件")
+        raise ValueError("备份须包含manifest.json和三个指定业务文件，且文件集合须完全一致")
     if sum(item.file_size for item in entries) > 256 * MIB:
         raise ValueError("备份展开字节超限")
     for item in entries:
@@ -57,7 +57,7 @@ def inspect_parts(archive):
             type(manifest.get("version")) is not int or manifest["version"] != 1 or
             type(manifest.get("createdAtMillis")) is not int or manifest["createdAtMillis"] < 0 or
             not isinstance(manifest.get("files"), dict) or set(manifest["files"]) != set(PARTS)):
-        raise ValueError("不是受支持的正式备份 manifest")
+        raise ValueError("备份manifest的格式、版本或字段无效")
     result = {}
     for name in PARTS:
         expected = manifest["files"][name]
@@ -66,7 +66,7 @@ def inspect_parts(archive):
                 not isinstance(expected.get("sha256"), str) or
                 not re.fullmatch(r"[0-9a-f]{64}", expected["sha256"])):
             raise ValueError("manifest 文件摘要格式无效")
-        # Reading to EOF verifies the SDK ZIP stream CRC as well as actual size/hash.
+        # 读取至文件末尾，使ZIP读取器同时校验CRC，并计算实际大小和SHA-256。
         with archive.open(name) as stream:
             actual = fingerprint(stream, LIMITS[name])
         if actual != expected:
@@ -133,12 +133,12 @@ def compare_archives(first, second):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("archive", type=Path)
-    parser.add_argument("--compare", type=Path, help="另一份独立正式导出；不比较 ZIP 时间戳")
+    parser.add_argument("--compare", type=Path, help="第二份SAF导出ZIP，逐字节比较configurations.json、overrides.json和preferences.json")
     args = parser.parse_args()
     try:
         result = compare_archives(args.archive, args.compare) if args.compare else inspect_archive(args.archive)
     except KeyboardInterrupt:
-        print(json.dumps({"status": "cancelled", "scope": "只读核验已退出；不改变任何备份或设备"}, ensure_ascii=False))
+        print(json.dumps({"status": "cancelled", "scope": "备份核验已取消"}, ensure_ascii=False))
         return 130
     except (OSError, ValueError, RuntimeError, zipfile.BadZipFile) as error:
         print(json.dumps({"status": "failed", "error": str(error)}, ensure_ascii=False), file=sys.stderr)

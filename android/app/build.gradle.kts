@@ -1,7 +1,13 @@
+import groovy.json.JsonSlurper
 import com.android.build.api.artifact.ScopedArtifact
 import com.android.build.api.variant.ScopedArtifacts
 import org.gradle.testing.jacoco.plugins.JacocoPluginExtension
 import org.gradle.testing.jacoco.tasks.JacocoReport
+import java.util.Base64
+import java.util.Properties
+import java.nio.file.Files
+import java.nio.file.FileSystems
+import java.nio.file.attribute.PosixFilePermissions
 
 plugins {
     id("com.android.application")
@@ -34,11 +40,28 @@ val nativeAbis = providers.gradleProperty("target-platform")
     .split(",").map { platform ->
         requireNotNull(nativePlatforms[platform]) { "Unsupported target platform: $platform" }
     }.distinct()
+val mihomoVersion = providers.exec {
+    environment("GOTOOLCHAIN", "local")
+    commandLine("go", "-C", rootProject.projectDir.resolve("../native/mihomo"),
+        "list", "-mod=readonly", "-m", "-f", "{{.Version}}", "github.com/metacubex/mihomo")
+}.standardOutput.asText.map { output ->
+    output.trim().also { version ->
+        require(Regex("v[0-9][0-9A-Za-z.+-]*").matches(version)) {
+            "Resolved mihomo version is missing or invalid"
+        }
+    }
+}
 
 android {
+    buildToolsVersion = "37.0.0"
     namespace = "io.github.monadboxlab.clashpseudo"
-    compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    compileSdk = 36
+    ndkVersion = "30.0.16248370"
+
+    buildFeatures {
+        aidl = true
+        buildConfig = true
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -47,41 +70,97 @@ android {
 
     defaultConfig {
         applicationId = "io.github.monadboxlab.clashpseudo"
-        minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        minSdk = 24
+        targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             if (!providers.gradleProperty("split-per-abi").map(String::toBoolean).getOrElse(false)) {
+                abiFilters.clear()
                 abiFilters += nativeAbis
             }
         }
         // 版本沿Flutter构建元数据。
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        buildConfigField("String", "MIHOMO_VERSION", "\"${mihomoVersion.get()}\"")
+        buildConfigField("boolean", "VALIDATION_NATIVE_COVERAGE", "false")
     }
 
     testCoverage {
         jacocoVersion = "0.8.14"
     }
 
-    val distributionSigning = listOf(
-        "CLASH_SIGNING_STORE_FILE", "CLASH_SIGNING_STORE_PASSWORD",
-        "CLASH_SIGNING_KEY_ALIAS", "CLASH_SIGNING_KEY_PASSWORD",
-    ).associateWith { providers.environmentVariable(it).orNull }
-    require(distributionSigning.values.all { it.isNullOrEmpty() } ||
-        distributionSigning.values.all { !it.isNullOrEmpty() }) {
-        "Distribution signing requires all four CLASH_SIGNING environment variables"
+    val signingNames = listOf(
+        "CLASH_PSEUDO_ANDROID_KEYSTORE_BASE64", "CLASH_PSEUDO_ANDROID_KEYSTORE_PASSWORD",
+        "CLASH_PSEUDO_ANDROID_KEY_ALIAS", "CLASH_PSEUDO_ANDROID_KEY_PASSWORD",
+    )
+    val environmentSigning = signingNames.map { providers.environmentVariable(it) }
+    val hasEnvironmentSigning = environmentSigning.any { it.isPresent }
+    require(!hasEnvironmentSigning || environmentSigning.all { !it.orNull.isNullOrEmpty() }) {
+        "Signing requires all four CLASH_PSEUDO_ANDROID environment variables"
     }
-    val hasDistributionSigning = distributionSigning.values.all { !it.isNullOrEmpty() }
+    require(!hasEnvironmentSigning || environmentSigning.all { '\u0000' !in it.get() }) {
+        "Signing environment values must not contain NUL"
+    }
     require(providers.environmentVariable("CLASH_REQUIRE_DISTRIBUTION_SIGNING").orNull != "true" ||
-        hasDistributionSigning) { "This build requires the configured distribution signing key" }
-    if (hasDistributionSigning) {
+        hasEnvironmentSigning) { "Distribution builds require the four signing environment variables" }
+    val localSigningFile = rootProject.file("key.properties")
+    val localSigning = Properties()
+    if (!hasEnvironmentSigning && localSigningFile.exists()) {
+        localSigningFile.reader(Charsets.UTF_8).use(localSigning::load)
+        require(listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+            .all { !localSigning.getProperty(it).isNullOrEmpty() }) { "Incomplete android/key.properties" }
+        require(listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+            .all { '\u0000' !in localSigning.getProperty(it) }) { "android/key.properties values must not contain NUL" }
+    }
+    val hasSigning = hasEnvironmentSigning || localSigningFile.exists()
+    if (hasSigning) {
+        val key = if (hasEnvironmentSigning) {
+            val bytes = Base64.getDecoder().decode(environmentSigning[0].get())
+            try {
+                require(bytes.isNotEmpty()) { "Signing keystore is empty" }
+                // POSIX 显式限为 0600；其他平台沿用 JVM 临时文件的限权默认值。
+                val permissions = if (FileSystems.getDefault().supportedFileAttributeViews().contains("posix")) {
+                    arrayOf(PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")))
+                } else emptyArray()
+                val temporary = Files.createTempFile("clash-pseudo-signing-", ".jks", *permissions)
+                try {
+                    temporary.toFile().deleteOnExit()
+                    gradle.buildFinished {
+                        val buildFailure = failure
+                        try {
+                            Files.deleteIfExists(temporary)
+                        } catch (cleanup: Throwable) {
+                            if (buildFailure == null) throw cleanup
+                            buildFailure.addSuppressed(cleanup)
+                        }
+                    }
+                    Files.write(temporary, bytes)
+                    temporary.toFile()
+                } catch (failure: Throwable) {
+                    try {
+                        Files.deleteIfExists(temporary)
+                    } catch (cleanup: Throwable) {
+                        failure.addSuppressed(cleanup)
+                    }
+                    throw failure
+                }
+            } finally {
+                // 限权属性或临时文件创建失败同样擦除已解码材料。
+                bytes.fill(0)
+            }
+        } else localSigningFile.parentFile.resolve(localSigning.getProperty("storeFile"))
+        require(key.isFile) { "Signing keystore does not exist" }
         signingConfigs.create("distribution") {
-            storeFile = file(distributionSigning.getValue("CLASH_SIGNING_STORE_FILE")!!)
-            require(storeFile!!.isFile) { "Distribution keystore does not exist" }
-            storePassword = distributionSigning.getValue("CLASH_SIGNING_STORE_PASSWORD")
-            keyAlias = distributionSigning.getValue("CLASH_SIGNING_KEY_ALIAS")
-            keyPassword = distributionSigning.getValue("CLASH_SIGNING_KEY_PASSWORD")
+            storeFile = key
+            storePassword = if (hasEnvironmentSigning) environmentSigning[1].get() else localSigning.getProperty("storePassword")
+            keyAlias = if (hasEnvironmentSigning) environmentSigning[2].get() else localSigning.getProperty("keyAlias")
+            keyPassword = if (hasEnvironmentSigning) environmentSigning[3].get() else localSigning.getProperty("keyPassword")
+        }
+    }
+    gradle.taskGraph.whenReady {
+        require(hasSigning || allTasks.none { it.project == project && it.name.contains("Release") }) {
+            "Release builds require signing environment variables or android/key.properties"
         }
     }
 
@@ -89,11 +168,13 @@ android {
         debug {
             enableUnitTestCoverage = validationCoverage
             enableAndroidTestCoverage = validationCoverage
+            buildConfigField("boolean", "VALIDATION_NATIVE_COVERAGE", validationNativeCoverage.toString())
         }
         release {
-            signingConfig = signingConfigs.getByName(if (hasDistributionSigning) "distribution" else "debug")
+            signingConfig = if (hasSigning) signingConfigs.getByName("distribution") else null
         }
     }
+    sourceSets.maybeCreate("profile").java.srcDir("src/release/kotlin")
 }
 
 kotlin {
@@ -117,8 +198,6 @@ val buildNativeCore by tasks.registering(Exec::class) {
     inputs.file(nativeScript)
     inputs.file(rootProject.projectDir.resolve("../contracts/application.json"))
     inputs.file(rootProject.projectDir.resolve("../tool/contracts/generate.py"))
-    inputs.file("src/main/assets/geodata/manifest.json")
-    inputs.file(rootProject.projectDir.resolve("../third_party/data/certificates/manifest.json"))
     for (name in listOf("CGO_CFLAGS", "CGO_CPPFLAGS", "CGO_CXXFLAGS", "CGO_LDFLAGS",
         "GOFLAGS", "GOEXPERIMENT", "GOAMD64", "GOARM64")) {
         inputs.property("environment.$name", providers.environmentVariable(name).orElse(""))
@@ -128,32 +207,56 @@ val buildNativeCore by tasks.registering(Exec::class) {
         inputs.file("src/androidTest/cpp/coverage_probe.c")
     }
     inputs.file(ndkPath.resolve("source.properties"))
-    inputs.property("api", flutter.minSdkVersion)
+    inputs.property("api", 24)
     inputs.property("abis", nativeAbis.joinToString(","))
     inputs.property("goVersion", providers.exec {
         environment("GOTOOLCHAIN", "local")
         commandLine("go", "version")
     }.standardOutput.asText)
     outputs.dir(nativeOutput)
-    commandLine("bash", nativeScript, ndkPath, flutter.minSdkVersion,
+    commandLine("bash", nativeScript, ndkPath, 24,
         nativeOutput.get().asFile, nativeAbis.joinToString(","))
     if (validationNativeCoverage) args("coverage")
 }
 android.sourceSets.getByName("main").jniLibs.srcDir(nativeOutput.get().asFile)
 
-val bundledLegalOutput = layout.buildDirectory.dir("generated/bundledLegal/assets")
-val prepareBundledLegalAssets by tasks.registering(Sync::class) {
-    val source = rootProject.projectDir.resolve("../third_party/data/geodata")
-    from(source.resolve("NOTICE.txt")) { into("geodata") }
-    from(source) {
-        include("*.txt")
-        exclude("NOTICE.txt")
-        into("geodata/licenses")
-    }
-    into(bundledLegalOutput)
+val bundledOutput = rootProject.projectDir.resolve("../build/generated/bundled")
+val prepareBundledLegalAssets by tasks.registering(Exec::class) {
+    val sourceRoot = rootProject.projectDir.resolve("..")
+    inputs.file(sourceRoot.resolve("third_party/data/resources.json"))
+    inputs.files(fileTree(sourceRoot.resolve("tool/dependencies")) { include("*.py") })
+    inputs.file(sourceRoot.resolve("tool/contracts/generate.py"))
+    inputs.files(fileTree(sourceRoot.resolve("third_party/data/certificates")) { include("MPL-2.0.txt") })
+    inputs.files(fileTree(sourceRoot.resolve("third_party/data/geodata")) { include("*.txt"); exclude("NOTICE.txt") })
+    outputs.dir(bundledOutput)
+    commandLine("python3", "-I", "-B", sourceRoot.resolve("tool/dependencies/update.py"),
+        "--project", sourceRoot, "--prepare-build")
 }
-android.sourceSets.getByName("main").assets.srcDir(bundledLegalOutput.get().asFile)
+// 源码目录的旧 payload 不参与构建；所有变体消费同一 release 记录。
+android.sourceSets.getByName("main").assets.setSrcDirs(listOf(bundledOutput.resolve("assets")))
+android.sourceSets.getByName("main").java.srcDir(bundledOutput.resolve("kotlin"))
+tasks.configureEach {
+    if (name.startsWith("compileFlutterBuild") || name.startsWith("compile") && name.endsWith("Kotlin")) {
+        dependsOn(prepareBundledLegalAssets)
+    }
+}
 tasks.named("preBuild") { dependsOn(buildNativeCore, prepareBundledLegalAssets) }
+tasks.withType<Test>().configureEach {
+    dependsOn(prepareBundledLegalAssets)
+    inputs.file(rootProject.projectDir.resolve("../third_party/data/resources.json"))
+    doFirst {
+        val record = JsonSlurper().parse(rootProject.projectDir.resolve("../third_party/data/resources.json")) as Map<*, *>
+        val resources = record["resources"] as Map<*, *>
+        systemProperty("certificates.assets", bundledOutput.resolve("assets").absolutePath)
+        systemProperty("geodata.assets", bundledOutput.resolve("assets/geodata").absolutePath)
+        for (kind in listOf("geoip", "geosite", "mmdb", "asn")) {
+            val spec = resources[kind] as Map<*, *>
+            for (field in listOf("storedBytes", "storedSha256", "installedBytes", "installedSha256")) {
+                systemProperty("geodata.$kind.$field", requireNotNull(spec[field]).toString())
+            }
+        }
+    }
+}
 
 if (validationCoverage) {
     apply(plugin = "jacoco")

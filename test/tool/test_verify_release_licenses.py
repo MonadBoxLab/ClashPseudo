@@ -1,7 +1,9 @@
-"""Synthetic archives only; never compile or execute APK/native-library code."""
+"""使用合成归档，测试APK中的许可、数据资产和原生依赖校验。"""
 
 from contextlib import redirect_stdout
+import base64
 import gzip
+import hashlib
 import importlib.util
 import io
 import json
@@ -55,36 +57,19 @@ class ReleaseLicenseTest(unittest.TestCase):
         }
         self.entries["assets/flutter_assets/NOTICES.Z"] = gzip.compress(
             (self.inputs / "NOTICES").read_bytes())
-        self.platform_assets = self.project / "android/app/src/main/assets"
-        certificate = "certificates/controlled.pem"
-        material = b"reviewed certificate material"
-        (self.platform_assets / certificate).parent.mkdir(parents=True)
-        (self.platform_assets / certificate).write_bytes(material)
-        self.entries["assets/" + certificate] = material
-        self.certificate_manifest = self.project / "third_party/data/certificates/manifest.json"
-        self.certificate_manifest.write_text(json.dumps({
-            "asset": certificate, "bytes": len(material), "sha256": verifier.digest(material),
-        }))
-        self.geo_manifest = {"format": "clash-pseudo-bundled-geodata", "version": 1, "files": []}
-        for kind in ("geoip", "geosite", "mmdb", "asn"):
-            installed = (kind + " controlled data").encode()
-            compressed = kind in ("mmdb", "asn")
-            stored = gzip.compress(installed) if compressed else installed
-            name = kind + (".mmdb.gzip" if compressed else ".dat")
-            path = self.platform_assets / "geodata" / name
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(stored)
-            self.entries["assets/geodata/" + name] = stored
-            self.geo_manifest["files"].append({
-                "kind": kind, "asset": name, "encoding": "gzip" if compressed else "identity",
-                "storedBytes": len(stored), "storedSha256": verifier.digest(stored),
-                "installedBytes": len(installed), "installedSha256": verifier.digest(installed),
-            })
-        legal = (self.project / "third_party/data/geodata/GeoSite-MIT.txt").read_bytes()
-        self.geo_manifest["legalMaterials"] = [{
-            "file": "licenses/GeoSite-MIT.txt", "bytes": len(legal), "sha256": verifier.digest(legal),
-        }]
-        self.entries["assets/geodata/licenses/GeoSite-MIT.txt"] = legal
+        from frozen_resource_fixture import frozen_resources
+        specification = importlib.util.spec_from_file_location("verifier_fixture_update", SCRIPT.parents[1] / "dependencies/update.py")
+        update = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(update)
+        self.release_record, generated = frozen_resources(self.project, update)
+        self.platform_assets = generated / "assets"
+        self.certificate_manifest = generated / "certificates.json"
+        self.geo_manifest = json.loads((self.platform_assets / "geodata/manifest.json").read_bytes())
+        for path in self.platform_assets.rglob("*"):
+            if path.is_file():
+                self.entries["assets/" + path.relative_to(self.platform_assets).as_posix()] = path.read_bytes()
+        for relative in verifier.ASSETS:
+            self.entries["assets/flutter_assets/" + relative] = (self.project / relative).read_bytes()
         self.write_geo_manifest()
         for abi in verifier.ABIS:
             self.entries["lib/" + abi + "/libmihomo_bridge.so"] = b"synthetic library"
@@ -93,7 +78,7 @@ class ReleaseLicenseTest(unittest.TestCase):
     def write_geo_manifest(self):
         self.geo_manifest["storedDataTotalBytes"] = sum(row["storedBytes"] for row in self.geo_manifest["files"])
         self.geo_manifest["installedTotalBytes"] = sum(row["installedBytes"] for row in self.geo_manifest["files"])
-        data = json.dumps(self.geo_manifest).encode()
+        data = (json.dumps(self.geo_manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode()
         (self.platform_assets / "geodata/manifest.json").write_bytes(data)
         self.entries["assets/geodata/manifest.json"] = data
 
@@ -119,7 +104,7 @@ class ReleaseLicenseTest(unittest.TestCase):
         )
         return subprocess.CompletedProcess(command, 0, text, "")
 
-    def run_verifier(self, response=None, abis=()):
+    def run_verifier(self, response=None, abis=(), xnet_source=None):
         stream = io.StringIO()
         with redirect_stdout(stream), mock.patch.object(
                 verifier.subprocess, "run", side_effect=response or self.buildinfo) as process:
@@ -130,6 +115,7 @@ class ReleaseLicenseTest(unittest.TestCase):
                 "--android-dependencies", str(self.inputs / "android.txt"),
                 "--output-dir", str(self.output), "--go", "/trusted/go",
                 *(argument for abi in abis for argument in ("--abi", abi)),
+                *(["--xnet-source", str(xnet_source)] if xnet_source is not None else []),
             ])
         return result, stream.getvalue(), process
 
@@ -153,7 +139,7 @@ class ReleaseLicenseTest(unittest.TestCase):
         self.assertTrue(final.startswith("FINAL "), output)
         self.assertEqual(json.loads(final.removeprefix("FINAL ")), {
             "exit_code": 0,
-            "scope": "license/data bytes and resolved dependency graphs",
+            "scope": "许可与数据资产字节、各ABI的Go buildinfo及所选依赖图",
         })
 
     def test_each_split_checks_only_its_selected_abi(self):
@@ -217,13 +203,168 @@ class ReleaseLicenseTest(unittest.TestCase):
         self.assert_failure("production tags mismatch", old_tags)
 
     def test_packaging_cannot_expand_or_rename_the_geo_gzip_asset(self):
-        name = "assets/geodata/mmdb.mmdb.gzip"
+        name = "assets/geodata/dbip-country-lite.mmdb.gzip"
         self.entries[name.removesuffix(".gzip")] = gzip.decompress(self.entries.pop(name))
         self.write_archive()
-        self.assert_failure("mmdb.mmdb.gzip")
+        self.assert_failure("dbip-country-lite.mmdb.gzip")
+
+    def test_ca_and_geo_report_fixed_source_and_installed_byte_mapping(self):
+        result, output, _ = self.run_verifier()
+        self.assertEqual(result, 0, output)
+        records = [json.loads(line.partition(" ")[2]) for line in output.splitlines()
+                   if line.startswith("GEODATA_ASSET ")]
+        self.assertEqual(len(records), 4)
+        self.assertEqual({row["work_name"] for row in records}, {"GeoIP.dat", "GeoSite.dat", "Country.mmdb", "ASN.mmdb"})
+        for row, expected in zip(records, self.geo_manifest["files"]):
+            self.assertEqual(row["installed_sha256"], expected["installedSha256"])
+            self.assertEqual(row["sha256"], expected["storedSha256"])
+            self.assertEqual(row["source_url"], expected["sourceUrl"])
+        self.assertIn("https://curl.se/ca/cacert-2026-10-20.pem", output)
+
+    def test_extra_stale_ca_bundle_is_not_silently_packaged(self):
+        self.entries["assets/certificates/old.pem"] = b"stale public certificate fixture"
+        self.write_archive()
+        self.assert_failure("Unexpected certificate assets")
+
+    def test_manifest_duplicate_keys_and_boolean_format_are_rejected(self):
+        self.geo_manifest["version"] = True
+        self.write_geo_manifest()
+        self.write_archive()
+        self.assert_failure("Unsupported Geo manifest")
+
+    def test_duplicate_ca_manifest_key_is_not_overwritten(self):
+        text = self.certificate_manifest.read_text()
+        self.certificate_manifest.write_text(text.rstrip()[:-1] + ', "bytes": 1}')
+        self.assert_failure("Duplicate manifest key")
+
+    def test_unfixed_geo_origin_is_rejected_without_install_or_network(self):
+        self.geo_manifest["files"][0]["sourceUrl"] = "https://example.org/releases/latest/geoip.dat"
+        self.write_geo_manifest()
+        self.write_archive()
+        self.assert_failure("Invalid fixed resource URL")
+
+    def test_geo_source_revision_install_target_and_legal_provenance_are_required(self):
+        original = json.loads(json.dumps(self.geo_manifest))
+        for field, value, message in (("sourceCommit", "tag-not-commit", "fixed V2Fly source commit"),
+                                      ("workName", "other.dat", "Invalid Geo install target"),
+                                      ("attribution", "", "Missing Geo legal provenance"),
+                                      ("licenses", ["MIT"], "Missing Geo source license attribution")):
+            self.geo_manifest = json.loads(json.dumps(original))
+            self.geo_manifest["files"][0][field] = value
+            self.write_geo_manifest()
+            self.write_archive()
+            with self.subTest(field=field):
+                self.assert_failure(message)
+
+    def psl_source(self, replacement=False):
+        revision = "6" * 40
+        version = "v0.35.0"
+        prefix = "golang.org/x/net@" + version + "/"
+        entries = {
+            prefix + "publicsuffix/table.go": ("// generated from git revision " + revision + "\npackage publicsuffix\n").encode(),
+            prefix + "go.mod": b"module golang.org/x/net\n",
+        }
+        source = self.inputs / "xnet.zip"
+        with zipfile.ZipFile(source, "w") as archive:
+            for name, data in entries.items():
+                archive.writestr(name, data)
+        summary = "".join(hashlib.sha256(data).hexdigest() + "  " + name + "\n"
+                          for name, data in sorted(entries.items()))
+        checksum = "h1:" + base64.b64encode(hashlib.sha256(summary.encode()).digest()).decode()
+        effective = {"Path": "golang.org/x/net", "Version": version, "Sum": checksum}
+        module = ({"Path": "golang.org/x/net", "Version": "v0.1.0", "Sum": "h1:original", "Replace": effective}
+                  if replacement else effective)
+        self.modules.append(module)
+        self.write_modules()
+        editable = self.project / "third_party/data/publicsuffix/public_suffix_list.dat"
+        editable.parent.mkdir(parents=True)
+        editable.write_bytes(b"// Mozilla Public License, v. 2.0.\ncom\n")
+        notice = self.project / "third_party/notices/publicsuffix.txt"
+        notice.write_text("x/net " + version + "\nPSL " + revision + "\nSHA-256 " + verifier.digest(editable.read_bytes()))
+        self.entries["assets/flutter_assets/third_party/notices/publicsuffix.txt"] = notice.read_bytes()
+        self.write_archive()
+        return source, module, revision
+
+    def test_absent_psl_source_input_is_explicitly_unverified(self):
+        result, output, _ = self.run_verifier()
+        self.assertEqual(result, 0, output)
+        self.assertIn('"verified": false', output)
+        self.assertIn("填写--xnet-source参数，指定实际所选x/net模块的原始zip路径，然后重新运行PSL来源核验", output)
+
+    def test_selected_xnet_zip_sum_table_revision_and_editable_psl_are_checked(self):
+        source, _, revision = self.psl_source()
+        result, output, _ = self.run_verifier(xnet_source=source)
+        self.assertEqual(result, 0, output)
+        self.assertIn('"revision": "' + revision + '"', output)
+        self.assertIn('"verified": true', output)
+        self.assertNotIn('"verified": false', output)
+
+    def test_psl_uses_effective_versioned_replacement(self):
+        source, module, _ = self.psl_source(replacement=True)
+        with redirect_stdout(io.StringIO()):
+            result = verifier.check_public_suffix(self.project, module, source)
+        self.assertEqual(result["version"], module["Replace"]["Version"])
+        self.assertEqual(result["sum"], module["Replace"]["Sum"])
+
+    def test_changed_xnet_source_bytes_fail_even_when_zip_crc_is_valid(self):
+        source, _, _ = self.psl_source()
+        with zipfile.ZipFile(source) as archive:
+            entries = {name: archive.read(name) for name in archive.namelist()}
+        with zipfile.ZipFile(source, "w") as archive:
+            for name, data in entries.items():
+                archive.writestr(name, data + b"\nchanged")
+        result, output, process = self.run_verifier(xnet_source=source)
+        self.assertEqual(result, 1, output)
+        self.assertIn("x/net source archive Sum mismatch", output)
+        process.assert_not_called()
+
+    def test_psl_notice_cannot_substitute_a_newer_revision_for_compiled_table(self):
+        source, module, revision = self.psl_source()
+        notice = self.project / "third_party/notices/publicsuffix.txt"
+        notice.write_text(notice.read_text().replace(revision, "7" * 40))
+        with self.assertRaisesRegex(ValueError, "PSL notice differs"):
+            verifier.check_public_suffix(self.project, module, source)
+
+    def test_psl_editable_source_drift_is_rejected(self):
+        source, module, _ = self.psl_source()
+        editable = self.project / "third_party/data/publicsuffix/public_suffix_list.dat"
+        editable.write_bytes(editable.read_bytes() + b"different.example\n")
+        with self.assertRaisesRegex(ValueError, "PSL notice differs"):
+            verifier.check_public_suffix(self.project, module, source)
+
+    def test_psl_archive_duplicate_and_outside_paths_are_not_extracted(self):
+        source, module, _ = self.psl_source()
+        with zipfile.ZipFile(source, "a") as archive:
+            archive.writestr("../json.py", b"raise RuntimeError('must not run')")
+        with self.assertRaisesRegex(ValueError, "Invalid selected x/net source archive path"):
+            verifier.check_public_suffix(self.project, module, source)
+        self.assertFalse((self.base / "json.py").exists())
+
+    def test_psl_duplicate_archive_member_is_rejected_before_sum_verification(self):
+        source, module, _ = self.psl_source()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            with zipfile.ZipFile(source, "a") as archive:
+                archive.writestr("golang.org/x/net@v0.35.0/go.mod", b"duplicate")
+        with self.assertRaisesRegex(ValueError, "Duplicate x/net source archive names"):
+            verifier.check_public_suffix(self.project, module, source)
+
+    def test_psl_source_reads_are_bounded_without_extracting_zip_contents(self):
+        source, module, _ = self.psl_source()
+        with mock.patch.object(verifier, "TEXT_LIMIT", 8), self.assertRaisesRegex(ValueError, "size limit"):
+            verifier.check_public_suffix(self.project, module, source)
+        with mock.patch.object(verifier, "LIBRARY_LIMIT", 8), self.assertRaisesRegex(ValueError, "size limit"):
+            verifier.check_public_suffix(self.project, module, source)
+        self.assertFalse((self.output / "publicsuffix").exists())
+
+    def test_psl_source_cli_rejects_graph_without_selected_xnet(self):
+        result, output, process = self.run_verifier(xnet_source=self.inputs / "unused.zip")
+        self.assertEqual(result, 1, output)
+        self.assertIn("Selected graph has no x/net module", output)
+        process.assert_not_called()
 
     def test_packaged_ca_material_must_match_the_reviewed_source(self):
-        self.entries["assets/certificates/controlled.pem"] += b"changed"
+        self.entries["assets/certificates/cacert.pem"] += b"changed"
         self.write_archive()
         self.assert_failure("Platform asset bytes differ")
 
@@ -292,7 +433,7 @@ class ReleaseLicenseTest(unittest.TestCase):
         self.entries["assets/flutter_assets/NOTICES.Z"] = gzip.compress(
             b"Extra preamble\n" + (self.inputs / "NOTICES").read_bytes())
         self.write_archive()
-        self.assert_failure("NOTICES.Z differs")
+        self.assert_failure("NOTICES.Z解压后的内容与指定的NOTICES文件不同")
 
     def test_corrupt_notices_gzip(self):
         self.entries["assets/flutter_assets/NOTICES.Z"] = b"not gzip"
@@ -300,10 +441,10 @@ class ReleaseLicenseTest(unittest.TestCase):
         self.assert_failure("Not a gzipped file")
 
     def test_bounded_gzip_decompression(self):
-        with mock.patch.object(verifier, "TEXT_LIMIT", 200):
-            self.entries["assets/flutter_assets/NOTICES.Z"] = gzip.compress(b"x" * 10000)
+        with mock.patch.object(verifier, "TEXT_LIMIT", 8192):
+            self.entries["assets/flutter_assets/NOTICES.Z"] = gzip.compress(b"x" * 100000)
             self.write_archive()
-            self.assert_failure("NOTICES.Z differs")
+            self.assert_failure("NOTICES.Z解压后的内容与指定的NOTICES文件不同")
 
     def test_bounded_archive_entry(self):
         with mock.patch.object(verifier, "TEXT_LIMIT", 10):
@@ -349,6 +490,8 @@ class ReleaseLicenseTest(unittest.TestCase):
             "+--- project :file_selector_android\n"
             "|    \\--- a:b:1 -> 2\n"
             "+--- project :nested:plugin (*)\n"
+            "+--- project ':file_selector_android'\n"
+            "+--- project ':nested:plugin' (*)\n"
             "+--- a:b:1 -> 2\n"
             "+--- c:d -> 3\n"
             "+--- e:f:1 -> g:h:4 (*)\n"

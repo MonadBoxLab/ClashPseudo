@@ -1,4 +1,5 @@
 """受控服务必须关闭已接收的真实 socket 并等待处理线程退出。"""
+import errno
 import importlib.util
 from pathlib import Path
 import socket
@@ -90,6 +91,167 @@ class NativeFixtureTest(unittest.TestCase):
                 self.assertEqual(struct.unpack("!H", response[2:4])[0] & 15, 3)
         finally:
             fixture.close()
+
+    def test_dns_dynamic_udp_does_not_reuse_an_existing_tcp_listener_port(self):
+        package = sys.modules["native_fixture"]
+        http, udp = package.HTTPServer, package.UDPServer
+        created = []
+
+        def bind_http(*arguments):
+            server = http(*arguments)
+            created.append(server)
+            return server
+
+        def bind_udp(address, handler):
+            if handler is package.DNS and address[1] == 0:
+                address = created[0].server_address
+            return udp(address, handler)
+
+        with mock.patch.object(package, "HTTPServer", bind_http), mock.patch.object(package, "UDPServer", bind_udp):
+            fixture = ENTRY.Fixture("127.0.0.1", 0)
+        try:
+            self.assertNotEqual(fixture.dns_port, fixture.port)
+            dns = [server for server in fixture.servers
+                   if server.RequestHandlerClass in (package.DNS, package.DNSTCP)]
+            self.assertEqual(len(dns), 2)
+            self.assertTrue(all(server.server_address[1] == fixture.dns_port for server in dns))
+        finally:
+            fixture.close()
+        self.assertTrue(all(server.socket.fileno() == -1 for server in fixture.servers))
+
+    def test_dns_pair_reserves_both_protocols_before_later_tcp_listeners(self):
+        package = sys.modules["native_fixture"]
+        tcp, udp = package.TCPServer, package.UDPServer
+        dns = []
+
+        def bind_tcp(address, handler):
+            if handler is package.DNSTCP:
+                self.assertEqual(address[1], 0)
+            else:
+                self.assertEqual(len(dns), 2)
+                self.assertEqual(dns[0].server_address, dns[1].server_address)
+            server = tcp(address, handler)
+            if handler is package.DNSTCP:
+                dns.append(server)
+            return server
+
+        def bind_udp(address, handler):
+            if handler is package.DNS:
+                self.assertEqual(len(dns), 1)
+                self.assertEqual(address, dns[0].server_address)
+            server = udp(address, handler)
+            if handler is package.DNS:
+                dns.append(server)
+            return server
+
+        with mock.patch.object(package, "TCPServer", bind_tcp), mock.patch.object(package, "UDPServer", bind_udp):
+            fixture = ENTRY.Fixture("127.0.0.1", 0)
+        try:
+            self.assertEqual(len(fixture.servers), 6)
+            self.assertEqual(fixture.dns_port, dns[0].server_address[1])
+            self.assertEqual(len({fixture.port, fixture.dns_port, fixture.socks_port, fixture.reject_port}), 4)
+            self.assertTrue(all(server.socket.fileno() >= 0 for server in fixture.servers))
+        finally:
+            fixture.close()
+        self.assertTrue(all(server.socket.fileno() == -1 for server in fixture.servers))
+
+    def test_udp_listeners_do_not_share_another_reusable_socket(self):
+        fixture = ENTRY.Fixture("127.0.0.1", 0)
+        try:
+            for server in fixture.servers:
+                if isinstance(server, NETWORK.UDPServer):
+                    with self.subTest(address=server.server_address), socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as other:
+                        self.assertEqual(server.socket.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR), 0)
+                        other.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                        with self.assertRaises(OSError) as failure:
+                            other.bind(server.server_address)
+                        self.assertEqual(failure.exception.errno, errno.EADDRINUSE)
+        finally:
+            fixture.close()
+
+    def test_dns_pair_conflicts_close_candidates_and_keep_the_exhausted_bind_error(self):
+        package = sys.modules["native_fixture"]
+        tcp, udp, http = package.TCPServer, package.UDPServer, package.HTTPServer
+        for conflicts in (1, 16):
+            with self.subTest(conflicts=conflicts), socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as occupied:
+                occupied.bind(("127.0.0.1", 0))
+                blocked = occupied.getsockname()
+                created, candidates, failures = [], [], []
+
+                def bind_http(*arguments):
+                    server = http(*arguments)
+                    created.append(server)
+                    return server
+
+                def bind_tcp(address, handler):
+                    if handler is package.DNSTCP and len(candidates) < conflicts:
+                        address = blocked
+                    server = tcp(address, handler)
+                    created.append(server)
+                    if handler is package.DNSTCP:
+                        candidates.append(server)
+                    return server
+
+                def bind_udp(address, handler):
+                    try:
+                        server = udp(address, handler)
+                    except OSError as error:
+                        failures.append(error)
+                        raise
+                    created.append(server)
+                    return server
+
+                fixture = None
+                try:
+                    with mock.patch.object(package, "HTTPServer", bind_http), \
+                            mock.patch.object(package, "TCPServer", bind_tcp), mock.patch.object(package, "UDPServer", bind_udp):
+                        if conflicts == 16:
+                            with self.assertRaises(OSError) as failure:
+                                fixture = ENTRY.Fixture("127.0.0.1", 0)
+                            self.assertIs(failure.exception, failures[-1])
+                            self.assertEqual(failure.exception.errno, errno.EADDRINUSE)
+                            self.assertEqual(len(candidates), 16)
+                            self.assertTrue(all(server.socket.fileno() == -1 for server in created))
+                        else:
+                            fixture = ENTRY.Fixture("127.0.0.1", 0)
+                            self.assertGreaterEqual(len(candidates), 2)
+                            self.assertLessEqual(len(candidates), 16)
+                            self.assertTrue(all(server.socket.fileno() == -1 for server in candidates[:-1]))
+                            self.assertEqual(fixture.dns_port, candidates[-1].server_address[1])
+                            self.assertNotEqual(fixture.dns_port, blocked[1])
+                            self.assertTrue(all(server.socket.fileno() >= 0 for server in fixture.servers))
+                    self.assertEqual(len(failures), len(candidates) - (fixture is not None))
+                    self.assertTrue(all(error.errno == errno.EADDRINUSE for error in failures))
+                    self.assertEqual(occupied.getsockname(), blocked)
+                finally:
+                    if fixture is not None:
+                        fixture.close()
+                self.assertTrue(all(server.socket.fileno() == -1 for server in created))
+
+    def test_dns_pair_other_bind_errors_and_cancellation_close_the_tcp_candidate(self):
+        package = sys.modules["native_fixture"]
+        tcp, udp, http = package.TCPServer, package.UDPServer, package.HTTPServer
+        for error in (OSError(errno.EACCES, "injected DNS UDP bind failure"), KeyboardInterrupt()):
+            with self.subTest(error=type(error).__name__):
+                created = []
+
+                def capture(server_type):
+                    def bind(address, handler):
+                        if handler is package.DNS:
+                            raise error
+                        server = server_type(address, handler)
+                        created.append(server)
+                        return server
+                    return bind
+
+                with mock.patch.object(package, "HTTPServer", capture(http)), \
+                        mock.patch.object(package, "TCPServer", capture(tcp)), \
+                        mock.patch.object(package, "UDPServer", capture(udp)):
+                    with self.assertRaises(type(error)) as failure:
+                        ENTRY.Fixture("127.0.0.1", 0)
+                self.assertIs(failure.exception, error)
+                self.assertEqual(len(created), 3)
+                self.assertTrue(all(server.socket.fileno() == -1 for server in created))
 
     def test_cli_rejects_invalid_host_lifetime_and_fixed_ports(self):
         for arguments in (["--host", "0.0.0.0", "--nonce", "valid-fixture"],

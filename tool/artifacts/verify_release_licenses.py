@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""逐项比较APK与独立审核的许可、资产和依赖材料。
+"""比较APK中的许可、数据资产和原生依赖与本次构建材料。
 
-从可信目录使用python3 -I运行。输入按只读方式处理，显式提供的空
---output-dir接收提取的原生库及buildinfo。--notices采用从依赖原始
-许可独立生成并审核的decoded NOTICES.Z，模块图和Gradle报告对应本次构建。
+使用python3 -I运行，--output-dir指定已有空目录，接收原生库和buildinfo。
+--notices填写依赖源码生成并解码的NOTICES文件，--go-modules和
+--android-dependencies分别填写本次Go模块图与Gradle依赖报告。
 """
 
 import argparse
+import base64
 import gzip
 import hashlib
 import io
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -27,16 +29,16 @@ ASSETS = (
     "third_party/notices/android.txt",
     "third_party/notices/material-icons.txt",
     "third_party/sources/re_editor/LICENSE",
-    "third_party/data/certificates/NOTICE.txt",
-    "third_party/data/certificates/MPL-2.0.txt",
+    "build/generated/bundled/legal/certificates/NOTICE.txt",
+    "build/generated/bundled/legal/certificates/MPL-2.0.txt",
     "third_party/notices/publicsuffix.txt",
-    "third_party/data/geodata/NOTICE.txt",
-    "third_party/data/geodata/CC-BY-SA-4.0.txt",
-    "third_party/data/geodata/GeoSite-MIT.txt",
-    "third_party/data/geodata/CC-BY-4.0.txt",
+    "build/generated/bundled/legal/geodata/NOTICE.txt",
+    "build/generated/bundled/legal/geodata/CC-BY-SA-4.0.txt",
+    "build/generated/bundled/legal/geodata/GeoSite-MIT.txt",
+    "build/generated/bundled/legal/geodata/CC-BY-4.0.txt",
 )
 ABIS = {"armeabi-v7a": "arm", "arm64-v8a": "arm64", "x86_64": "amd64"}
-# Bound untrusted archive reads, including the *decoded* gzip payload.
+# 限制归档成员的读取大小，包括gzip解压后的内容。
 TEXT_LIMIT = 32 * 1024 * 1024
 LIBRARY_LIMIT = 256 * 1024 * 1024
 
@@ -55,7 +57,7 @@ def emit(label, **details):
 
 
 def go_modules(path):
-    """Read the concatenated JSON objects from go list -m -json all."""
+    """读取go list -m -json all依次输出的多个JSON对象。"""
     text = path.read_text(encoding="utf-8").strip()
     decoder = json.JSONDecoder()
     modules = {}
@@ -91,9 +93,9 @@ def android_coordinates(text):
         if "(c)" in line:
             continue
         requested, chosen = match.groups()
-        if requested == "project" and re.search(r"project\s+:[\w:.-]+(?:\s+\(\*\))?\s*$", line):
-            # Flutter plugins are local Gradle projects; their Maven children
-            # are still checked below, while plugin licenses live in NOTICES.Z.
+        if requested == "project" and re.search(r"project\s+(?::[\w:.-]+|':[^'\s]+')(?:\s+\(\*\))?\s*$", line):
+            # Flutter插件作为本地Gradle项目参与构建；下方核对其Maven依赖，
+            # 插件许可则从NOTICES.Z中核对。
             continue
         parts = requested.split(":")
         require(len(parts) in (2, 3), "Unsupported Android dependency: " + requested)
@@ -171,10 +173,69 @@ def read_entry(archive, name, limit):
     return data
 
 
-def check_platform_assets(archive, root):
-    source = root / "android/app/src/main/assets"
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        require(key not in result, "Duplicate manifest key: " + key)
+        result[key] = value
+    return result
+
+
+def resource_origin(row, label):
+    require(isinstance(row.get("version"), str) and row["version"]
+            and row["version"].lower() != "latest", "Missing fixed resource version: " + label)
+    url = row.get("sourceUrl", "")
+    require(isinstance(url, str) and re.fullmatch(r"https://[A-Za-z0-9.-]+/[^\s?#]+", url)
+            and "/latest/" not in url, "Invalid fixed resource URL: " + label)
+    return {"version": row["version"], "source_url": url}
+
+
+def check_public_suffix(root, module, source):
+    """校验所选模块zip的h1，比较编译表记录的提交、来源通知和可编辑PSL列表。"""
+    effective = module.get("Replace") or module
+    name, version = effective["Path"], effective["Version"]
+    prefix = name + "@" + version + "/"
+    entries = []
+    total = 0
+    with zipfile.ZipFile(source) as archive:
+        names = archive.namelist()
+        require(len(names) == len(set(names)), "Duplicate x/net source archive names")
+        for path in sorted(names):
+            require(path.startswith(prefix) and ".." not in path.split("/") and "\n" not in path,
+                    "Invalid selected x/net source archive path")
+            data = read_entry(archive, path, TEXT_LIMIT)
+            total += len(data)
+            require(total <= LIBRARY_LIMIT, "x/net source archive exceeds size limit")
+            entries.append(digest(data) + "  " + path + "\n")
+        module_sum = "h1:" + base64.b64encode(hashlib.sha256("".join(entries).encode()).digest()).decode()
+        require(module_sum == effective.get("Sum"), "x/net source archive Sum mismatch")
+        table = read_entry(archive, prefix + "publicsuffix/table.go", TEXT_LIMIT)
+    revision = re.search(rb"git revision ([0-9a-f]{40})", table[:6000])
+    require(revision, "Compiled publicsuffix revision is missing")
+    revision = revision[1].decode()
+    notice = (root / "third_party/notices/publicsuffix.txt").read_text(encoding="utf-8")
+    data = (root / "third_party/data/publicsuffix/public_suffix_list.dat").read_bytes()
+    require(revision in notice and version in notice and digest(data) in notice,
+            "PSL notice differs from selected x/net revision or editable source bytes")
+    require(b"Mozilla Public" in data[:4096] and b"2.0" in data[:4096], "PSL editable source license is missing")
+    result = {"verified": True, "module": name, "version": version, "sum": module_sum, "revision": revision,
+              "bytes": len(data), "sha256": digest(data), "table_sha256": digest(table)}
+    emit("PUBLIC_SUFFIX", **result)
+    return result
+
+
+def check_platform_assets(archive, root, release_inputs=None):
+    spec = importlib.util.spec_from_file_location("dependency_update_verifier", Path(__file__).resolve().parents[2] / "tool/dependencies/update.py")
+    update = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(update)
+    record = update.read_release_resources(root, release_inputs)
+    source = root / update.GENERATED_BUNDLED / "assets"
+    require(json.loads((source.parent / "resources.json").read_bytes(), object_pairs_hook=unique_object) == record,
+            "generated assets 与指定的 release 输入记录不同")
     certificate_manifest = json.loads(
-        (root / "third_party/data/certificates/manifest.json").read_text(encoding="utf-8"))
+        (source.parent / "certificates.json").read_text(encoding="utf-8"),
+        object_pairs_hook=unique_object)
+    certificate_origin = resource_origin(certificate_manifest, "CA")
     certificate = certificate_manifest["asset"]
     require(isinstance(certificate, str)
             and re.fullmatch(r"certificates/[A-Za-z0-9_-][A-Za-z0-9_.-]*\.pem", certificate),
@@ -188,23 +249,44 @@ def check_platform_assets(archive, root):
     require(actual == (source / certificate).read_bytes()
             and len(actual) == size and digest(actual) == checksum,
             "Platform asset bytes differ: " + certificate)
-    emit("PLATFORM_ASSET", entry="assets/" + certificate, bytes=len(actual), sha256=digest(actual))
+    certificates = {name for name in archive.namelist()
+                    if name.startswith("assets/certificates/") and not name.endswith("/")}
+    require(certificates == {"assets/" + certificate}, "Unexpected certificate assets")
+    emit("PLATFORM_ASSET", entry="assets/" + certificate, bytes=len(actual), sha256=digest(actual),
+         **certificate_origin)
     manifest_bytes = read_entry(archive, "assets/geodata/manifest.json", 64 * 1024)
     require(manifest_bytes == (source / "geodata/manifest.json").read_bytes(), "Geo manifest bytes differ")
-    manifest = json.loads(manifest_bytes)
-    require(manifest.get("format") == "clash-pseudo-bundled-geodata" and manifest.get("version") == 1,
-            "Unsupported Geo manifest")
+    manifest = json.loads(manifest_bytes, object_pairs_hook=unique_object)
+    require(manifest.get("format") == "clash-pseudo-bundled-geodata" and type(manifest.get("version")) is int
+            and manifest["version"] == 1, "Unsupported Geo manifest")
     files = manifest["files"]
-    require(len(files) == 4 and {row["kind"] for row in files} == {"geoip", "geosite", "mmdb", "asn"},
+    require(isinstance(files, list) and all(isinstance(row, dict) for row in files)
+            and len(files) == 4 and {row["kind"] for row in files} == {"geoip", "geosite", "mmdb", "asn"},
             "Expected exactly four Geo kinds")
     require(len({row["asset"] for row in files}) == 4, "Duplicate Geo asset name")
     stored_total = installed_total = compressed_total = 0
     for row in files:
+        origin = resource_origin(row, row["kind"])
+        work_name = {"geoip": "GeoIP.dat", "geosite": "GeoSite.dat", "mmdb": "Country.mmdb", "asn": "ASN.mmdb"}[row["kind"]]
+        require(row.get("workName") == work_name, "Invalid Geo install target: " + row["kind"])
+        require(isinstance(row.get("licenses"), list) and row["licenses"]
+                and all(isinstance(value, str) and value for value in row["licenses"])
+                and isinstance(row.get("attribution"), str) and row["attribution"]
+                and isinstance(row.get("changes"), str) and row["changes"], "Missing Geo legal provenance")
+        expected_licenses = ({"CC-BY-SA-4.0", "CC-BY-4.0"} if row["kind"] == "geoip"
+                             else {"MIT"} if row["kind"] == "geosite" else {"CC-BY-4.0"})
+        require(expected_licenses <= set(row["licenses"]), "Missing Geo source license attribution")
+        if row["kind"] in ("geoip", "geosite"):
+            require(isinstance(row.get("sourceCommit"), str)
+                    and re.fullmatch(r"[0-9a-f]{40}", row["sourceCommit"]), "Missing fixed V2Fly source commit")
+            origin["source_commit"] = row["sourceCommit"]
         name = row["asset"]
         require(isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9_.-]+", name)
                 and name not in (".", ".."), "Invalid Geo asset name")
         require(all(type(row[key]) is int and 0 < row[key] <= TEXT_LIMIT
                     for key in ("storedBytes", "installedBytes")), "Invalid fixed Geo size")
+        require(all(isinstance(row[key], str) and re.fullmatch(r"[0-9a-f]{64}", row[key])
+                    for key in ("storedSha256", "installedSha256")), "Invalid fixed Geo SHA-256")
         entry = "assets/geodata/" + name
         stored = read_entry(archive, entry, row["storedBytes"])
         require(len(stored) == row["storedBytes"] and digest(stored) == row["storedSha256"],
@@ -222,17 +304,22 @@ def check_platform_assets(archive, root):
         installed_total += len(installed)
         compressed = archive.getinfo(entry).compress_size
         compressed_total += compressed
-        emit("GEODATA_ASSET", entry=entry, stored_bytes=len(stored), installed_bytes=len(installed),
-             apk_compressed_bytes=compressed, sha256=digest(stored))
-    require(stored_total == manifest["storedDataTotalBytes"] and installed_total == manifest["installedTotalBytes"],
+        emit("GEODATA_ASSET", entry=entry, work_name=work_name, stored_bytes=len(stored), installed_bytes=len(installed),
+             apk_compressed_bytes=compressed, sha256=digest(stored), installed_sha256=digest(installed), **origin)
+    require(all(type(manifest[key]) is int for key in ("storedDataTotalBytes", "installedTotalBytes"))
+            and stored_total == manifest["storedDataTotalBytes"] and installed_total == manifest["installedTotalBytes"],
             "Geo manifest totals differ")
     legal = manifest.get("legalMaterials", []) + ([manifest["notice"]] if "notice" in manifest else [])
+    require(len({row["file"] for row in legal}) == len(legal), "Duplicate Geo legal asset name")
     for row in legal:
         name = row["file"]
         require(isinstance(name, str) and re.fullmatch(r"(?:licenses/)?[A-Za-z0-9_.-]+", name)
                 and name.split("/")[-1] not in (".", ".."), "Invalid Geo legal asset name")
         actual = read_entry(archive, "assets/geodata/" + name, TEXT_LIMIT)
-        canonical = root / "third_party/data/geodata" / name.split("/")[-1]
+        canonical = source / "geodata" / name
+        require(type(row["bytes"]) is int and 0 < row["bytes"] <= TEXT_LIMIT
+                and isinstance(row["sha256"], str) and re.fullmatch(r"[0-9a-f]{64}", row["sha256"]),
+                "Invalid Geo legal size or SHA-256")
         require(actual == canonical.read_bytes()
                 and len(actual) == row["bytes"] and digest(actual) == row["sha256"],
                 "Geo legal asset bytes differ: " + name)
@@ -240,8 +327,9 @@ def check_platform_assets(archive, root):
     expected |= {"assets/geodata/" + row["file"] for row in legal}
     actual_names = {name for name in archive.namelist() if name.startswith("assets/geodata/") and not name.endswith("/")}
     require(actual_names == expected, "Unexpected Geo assets or expanded duplicate")
+    update.verify_bundled_assets(root, record)
     emit("GEODATA_TOTAL", stored_bytes=stored_total, installed_bytes=installed_total,
-         apk_compressed_data_bytes=compressed_total, scope="data entries only; excludes ZIP/signing/alignment overhead")
+         apk_compressed_data_bytes=compressed_total, scope="数据文件内容的总大小，不含ZIP结构、签名和对齐填充")
 
 
 def verify(args):
@@ -249,6 +337,12 @@ def verify(args):
     output = args.output_dir.resolve()
     require(output.is_dir() and not any(output.iterdir()), "Output directory must exist and be empty")
     modules = go_modules(args.go_modules)
+    xnet_source = getattr(args, "xnet_source", None)
+    if xnet_source is not None:
+        require("golang.org/x/net" in modules, "Selected graph has no x/net module")
+        check_public_suffix(root, modules["golang.org/x/net"], xnet_source)
+    else:
+        emit("PUBLIC_SUFFIX", verified=False, reason="填写--xnet-source参数，指定实际所选x/net模块的原始zip路径，然后重新运行PSL来源核验")
     abis = tuple(getattr(args, "abis", None) or ABIS)
     require(len(set(abis)) == len(abis) and set(abis) <= ABIS.keys(), "Invalid target ABI selection")
     selected = android_coordinates(args.android_dependencies.read_text(encoding="utf-8"))
@@ -262,7 +356,7 @@ def verify(args):
     notice_modules = set(re.findall(r"^([\w.-]+(?:/[\w.+~-]+)+) (v[^\s]+)$", go_notice, re.M))
     expected_notices = args.notices.read_bytes()
     require(expected_notices and len(expected_notices) <= TEXT_LIMIT,
-            "Reviewed NOTICES snapshot must be nonempty and within the text size limit")
+            "作为比较依据的NOTICES文件须为非空文本，且大小在上限以内")
     expected_notices.decode("utf-8")
     with args.apk.open("rb") as stream:
         apk_hash = hashlib.file_digest(stream, "sha256").hexdigest()
@@ -276,12 +370,12 @@ def verify(args):
             require(actual == (root / relative).read_bytes(), "License asset bytes differ: " + relative)
             emit("LICENSE_ASSET", entry=name, bytes=len(actual), sha256=digest(actual))
         compressed = read_entry(archive, "assets/flutter_assets/NOTICES.Z", TEXT_LIMIT)
-        # Bound decoded output while streaming through GzipFile.read.
+        # 通过GzipFile.read分段解压，并限制解压后内容的大小。
         with gzip.GzipFile(fileobj=io.BytesIO(compressed)) as stream:
             notices = stream.read(TEXT_LIMIT + 1)
-        require(notices == expected_notices, "NOTICES.Z differs from reviewed decoded snapshot")
+        require(notices == expected_notices, "NOTICES.Z解压后的内容与指定的NOTICES文件不同")
         emit("NOTICES", bytes=len(notices), sha256=digest(notices))
-        check_platform_assets(archive, root)
+        check_platform_assets(archive, root, getattr(args, "release_inputs", None))
         libraries = sorted(n for n in names if n.startswith("lib/") and n.endswith("/libmihomo_bridge.so"))
         require(libraries == sorted("lib/" + abi + "/libmihomo_bridge.so" for abi in abis),
                 "Expected exactly the selected native bridge ABIs: " + ", ".join(abis))
@@ -306,21 +400,24 @@ def verify(args):
             graphs.append(dependencies)
         require(all(graph == graphs[0] for graph in graphs[1:]),
                 "Native ABIs link different Go dependency graphs")
-    emit("FINAL", exit_code=0, scope="license/data bytes and resolved dependency graphs")
+    emit("FINAL", exit_code=0, scope="许可与数据资产字节、各ABI的Go buildinfo及所选依赖图")
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--project", required=True, type=Path, help="Trusted project root")
-    parser.add_argument("--apk", required=True, type=Path, help="APK to inspect (never executed)")
-    parser.add_argument("--notices", required=True, type=Path, help="Decoded NOTICES.Z from an independent source build")
+    parser.add_argument("--release-inputs", type=Path, help="本次 third_party/data/resources.json 的路径")
+    parser.add_argument("--project", required=True, type=Path, help="本次构建的项目根目录")
+    parser.add_argument("--apk", required=True, type=Path, help="待核验APK路径")
+    parser.add_argument("--notices", required=True, type=Path, help="从依赖源码生成并解码的NOTICES文件")
     parser.add_argument("--abi", dest="abis", action="append", choices=tuple(ABIS),
-                        help="Expected APK ABI; repeat for universal, default: all three")
-    parser.add_argument("--go-modules", required=True, type=Path, help="go list -m -json all output")
+                        help="APK应含的ABI；通用版可重复指定，默认核对三个ABI")
+    parser.add_argument("--go-modules", required=True, type=Path, help="本次go list -m -json all输出文件")
+    parser.add_argument("--xnet-source", type=Path,
+                        help="实际所选x/net模块原始zip，用于核对PSL提交及可编辑列表")
     parser.add_argument("--android-dependencies", required=True, type=Path,
-                        help="Gradle releaseRuntimeClasspath dependencies output")
-    parser.add_argument("--output-dir", required=True, type=Path, help="Existing empty extraction/result directory")
-    parser.add_argument("--go", default="go", help="Trusted installed Go executable; no toolchain downloads")
+                        help="本次Gradle releaseRuntimeClasspath依赖报告")
+    parser.add_argument("--output-dir", required=True, type=Path, help="已有空目录，保存各ABI原生库和buildinfo.txt")
+    parser.add_argument("--go", default="go", help="已安装Go可执行文件的名称或路径")
     args = parser.parse_args(argv)
     try:
         verify(args)

@@ -1,4 +1,4 @@
-"""备份核验工具只读取、校验摘要及比较原始字节，不替代应用准入／事务测试。"""
+"""测试备份文件读取、清单校验、摘要计算和业务文件内容比较。"""
 import hashlib
 import importlib.util
 import json

@@ -13,34 +13,42 @@ TARGETS = {
 
 
 class BackupRulesTest(unittest.TestCase):
+    def assert_business_file_allowlist(self, section):
+        # 完整白名单排除安装标记、运行输入、内核文件和其他备份 domain。
+        self.assertEqual(section.attrib, {})
+        self.assertEqual(len(section), len(TARGETS))
+        self.assertEqual(
+            {(node.tag, node.attrib.get("domain"), node.attrib.get("path"))
+             for node in section},
+            {("include", domain, path) for domain, path in TARGETS},
+        )
+        for node in section:
+            # 不附加 requireFlags 或其他传输／加密能力门槛。
+            self.assertEqual(set(node.attrib), {"domain", "path"})
+            self.assertEqual(len(node), 0)
+
     def test_modern_backup_and_transfer_have_exact_file_allowlist(self):
         rules = ET.parse(MAIN / "res/xml/data_extraction_rules.xml").getroot()
-        cloud = rules.find("cloud-backup")
-        self.assertEqual(cloud.attrib, {"disableIfNoEncryptionCapabilities": "true"})
-        for section in (cloud, rules.find("device-transfer")):
-            self.assertEqual(
-                {(node.tag, node.attrib.get("domain"), node.attrib.get("path"))
-                 for node in section},
-                {("include", domain, path) for domain, path in TARGETS},
-            )
-
-    def test_android_9_backup_requires_client_encryption(self):
-        rules = ET.parse(MAIN / "res/xml-v28/backup_rules.xml").getroot()
-        self.assertEqual(
-            {(node.tag, node.attrib.get("domain"), node.attrib.get("path"),
-              node.attrib.get("requireFlags")) for node in rules},
-            {("include", domain, path, "clientSideEncryption")
-             for domain, path in TARGETS},
+        self.assertEqual(rules.tag, "data-extraction-rules")
+        self.assertEqual(rules.attrib, {})
+        self.assertCountEqual(
+            [section.tag for section in rules], ["cloud-backup", "device-transfer"]
         )
+        for section in rules:
+            with self.subTest(section=section.tag):
+                self.assert_business_file_allowlist(section)
 
-    def test_older_devices_exclude_every_backup_domain(self):
+    def test_api24_full_backup_has_exact_business_file_allowlist(self):
         rules = ET.parse(MAIN / "res/xml/backup_rules.xml").getroot()
-        domains = {"root", "file", "database", "sharedpref", "external",
-                   "device_root", "device_file", "device_database", "device_sharedpref"}
-        self.assertEqual({node.attrib["domain"] for node in rules}, domains)
-        for node in rules:
-            self.assertEqual(node.tag, "exclude")
-            self.assertEqual(node.attrib["path"], ".")
+        self.assertEqual(rules.tag, "full-backup-content")
+        self.assert_business_file_allowlist(rules)
+
+    def test_api28_and_later_share_the_api24_rules_without_an_encryption_override(self):
+        base = MAIN / "res/xml/backup_rules.xml"
+        self.assertTrue(base.is_file())
+        self.assertFalse((MAIN / "res/xml-v28/backup_rules.xml").exists())
+        self.assertEqual(set((MAIN / "res").glob("xml*/backup_rules.xml")), {base})
+        self.assert_business_file_allowlist(ET.parse(base).getroot())
 
     def test_manifest_selects_rules_and_storage_uses_matching_location(self):
         namespace = "{http://schemas.android.com/apk/res/android}"
@@ -50,11 +58,23 @@ class BackupRulesTest(unittest.TestCase):
         self.assertEqual(app.attrib[namespace + "fullBackupOnly"], "true")
         self.assertEqual(app.attrib[namespace + "fullBackupContent"], "@xml/backup_rules")
         self.assertEqual(app.attrib[namespace + "dataExtractionRules"], "@xml/data_extraction_rules")
-        paths = (MAIN / "kotlin/io/github/monadboxlab/clashpseudo/app/AppFiles.kt").read_text()
+        paths = (MAIN / "kotlin/io/github/monadboxlab/clashpseudo/storage/AppFiles.kt").read_text()
         self.assertIn('File(context.filesDir, "configurations")', paths)
-        self.assertIn('File(context.noBackupFilesDir, "work/run-input-$owner.json")', paths)
+        self.assertRegex(
+            paths, r'fun\s+work\(context:\s*Context\)\s*=\s*'
+            r'File\(context\.noBackupFilesDir,\s*"work"\)'
+        )
+        self.assertRegex(
+            paths, r'fun\s+runInput\(context:\s*Context,\s*owner:\s*String\)\s*=\s*'
+            r'File\(work\(context\),\s*"run-input-\$owner\.json"\)'
+        )
+        self.assertRegex(
+            paths, r'fun\s+privacyNotice\(context:\s*Context\)\s*=\s*'
+            r'File\(context\.noBackupFilesDir,\s*"privacy-notice-shown"\)'
+        )
         self.assertIn('File(context.noBackupFilesDir.canonicalFile, "mihomo")', paths)
-        store = (ROOT / "lib/src/features/configs/config_store.dart").read_text()
+        self.assertIn('File(context.noBackupFilesDir, "work/system-input.json")', paths)
+        store = (ROOT / "lib/src/logic/configs/config_store.dart").read_text()
         self.assertIn('${directory.path}/configurations.json', store)
 
 

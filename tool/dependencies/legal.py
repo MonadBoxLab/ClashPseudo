@@ -1,4 +1,4 @@
-"""依赖更新使用的原始许可收集与 GPLv3 组合检查。"""
+"""收集依赖的许可原文，检查许可与GPLv3的兼容性。"""
 
 import hashlib
 import io
@@ -13,7 +13,27 @@ import zipfile
 
 SEPARATOR = "=" * 72 + "\n"
 CLASSIFIER = "github.com/google/licenseclassifier/v2/tools/identify_license@v2.0.0"
-# 与项目现有 GPL-3.0-only 组合及独立文件源码交付相符的标准许可。
+TEXT_LIMIT = 8 * 1024 * 1024
+ARCHIVE_LIMIT = 64 * 1024 * 1024
+ARCHIVE_ENTRIES = 10000
+
+
+def limited_read(stream, limit):
+    result = bytearray()
+    while True:
+        chunk = stream.read(min(64 * 1024, limit - len(result) + 1))
+        if not chunk:
+            return bytes(result)
+        if len(result) + len(chunk) > limit:
+            raise ValueError("许可材料超过读取大小上限")
+        result.extend(chunk)
+
+
+def read_text_bytes(path):
+    with path.open("rb") as stream:
+        return limited_read(stream, TEXT_LIMIT)
+
+# 可与GPL-3.0-only组合的许可，以及随独立数据文件提供源码时可用的许可。
 COMPATIBLE = {
     "MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "BSD-0-Clause", "0BSD",
     "ISC", "Zlib", "Unlicense", "CC0-1.0", "BSL-1.0", "MPL-2.0",
@@ -56,16 +76,27 @@ def sections(text, pattern):
 def legal_files(directory):
     result = {}
     copyrights = set()
-    for path in sorted(directory.rglob("*")):
+    paths = []
+    for path in directory.rglob("*"):
+        paths.append(path)
+        if len(paths) > 100000:
+            raise ValueError("许可源码文件数超过上限")
+    total = 0
+    for path in sorted(paths):
         if not path.is_file() or path.is_symlink():
             continue
         relative = path.relative_to(directory).as_posix()
         if LEGAL_NAME.fullmatch(path.name):
-            result[relative] = path.read_bytes()
+            result[relative] = read_text_bytes(path)
+            total += len(result[relative])
         elif path.suffix in (".go", ".c", ".h", ".s", ".S", ".java", ".kt", ".dart"):
-            text = path.read_text(encoding="utf-8", errors="replace")
-            copyrights.update(line for line in text.splitlines()
-                              if re.search(r"(?i)copyright\b|©", line))
+            text = read_text_bytes(path).decode("utf-8", errors="replace")
+            for line in text.splitlines():
+                if line not in copyrights and re.search(r"(?i)copyright\b|©", line):
+                    copyrights.add(line)
+                    total += len(line.encode()) + 1
+        if total > ARCHIVE_LIMIT:
+            raise ValueError("许可正文与版权行超过总大小上限")
     if copyrights:
         result["源码版权行"] = ("\n".join(sorted(copyrights)) + "\n").encode()
     return result
@@ -76,25 +107,131 @@ def render_files(files):
                    for name, data in sorted(files.items()))
 
 
-def archive_legal(data):
-    """只读取 ZIP 内容，原始材料保持在字节中，嵌套 JAR 单独读取。"""
+def archive_legal(data, *, _budget=None, _depth=0):
+    """读取归档中的许可；外层归档与嵌套JAR共用解压后总大小和条目数上限。"""
+    if len(data) > ARCHIVE_LIMIT or _depth > 4:
+        raise ValueError("许可归档大小或嵌套层数超过上限")
+    budget = _budget if _budget is not None else {"bytes": ARCHIVE_LIMIT, "entries": ARCHIVE_ENTRIES}
     files = {}
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
-        for info in archive.infolist():
+        entries = archive.infolist()
+        budget["entries"] -= len(entries)
+        if budget["entries"] < 0:
+            raise ValueError("许可归档超过条目数上限")
+        for info in entries:
             path = PurePosixPath(info.filename)
-            if info.is_dir():
+            if info.is_dir() or not (LEGAL_NAME.fullmatch(path.name) or path.suffix in (".jar", ".java", ".kt")):
                 continue
+            limit = min(budget["bytes"], ARCHIVE_LIMIT if path.suffix == ".jar" else TEXT_LIMIT)
+            if info.file_size > limit or info.flag_bits & 1:
+                raise ValueError("许可归档成员大小超过上限或已加密：" + info.filename)
+            with archive.open(info) as stream:
+                value = limited_read(stream, limit)
+            budget["bytes"] -= len(value)
             if LEGAL_NAME.fullmatch(path.name):
-                files[path.as_posix()] = archive.read(info)
+                if path.as_posix() in files:
+                    raise ValueError("许可归档包含重复正文：" + path.as_posix())
+                files[path.as_posix()] = value
             elif path.suffix == ".jar":
-                for name, value in archive_legal(archive.read(info)).items():
-                    files[path.as_posix() + "!/" + name] = value
-            elif path.suffix in (".java", ".kt"):
-                content = archive.read(info).decode("utf-8")
-                header = re.match(r"\s*(/\*.*?\*/)", content, re.S)
+                for name, value in archive_legal(value, _budget=budget, _depth=_depth + 1).items():
+                    key = path.as_posix() + "!/" + name
+                    if key in files:
+                        raise ValueError("许可归档包含重复正文：" + key)
+                    files[key] = value
+            else:
+                header = re.match(r"\s*(/\*.*?\*/)", value.decode("utf-8"), re.S)
                 if header and re.search(r"(?i)copyright|licensed|permission", header[1]):
                     files[path.as_posix() + "（许可头）"] = header[1].encode()
     return files
+
+
+def resource_materials(root, specs):
+    """生成 CA 与 Geo 的资源清单和来源通知，返回各文件的待写入内容。"""
+    def encoded(value):
+        return (json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode()
+
+    ca = specs["ca"]
+    certificate = {}
+    certificate.update(asset="certificates/cacert.pem", sourceUrl=ca["sourceUrl"], version=ca["version"],
+                       checksumUrl=ca.get("checksumUrl", ca["sourceUrl"] + ".sha256"),
+                       bytes=ca["storedBytes"], sha256=ca["storedSha256"], roots=ca["certificateRoots"])
+    ca_notice = (
+        "公共 CA 数据通知\n\nMozilla 公共 CA 数据，经 curl 的 Mozilla CA Extract 项目提供。\n"
+        "来源与说明：https://curl.se/docs/caextract.html\n"
+        f"原始快照：{ca['sourceUrl']}\nMozilla 数据版本：{ca['version']}\n"
+        "对应源码位置：build-inputs/bundled/assets/certificates/cacert.pem\n"
+        f"原始文件：{ca['storedBytes']} bytes\n完整文件 SHA-256：{ca['storedSha256']}\n\n"
+        "本地处理：保存上述PEM快照，包含其头部、证书名称和证书数据。\n"
+        "文件校验：对完整PEM计算SHA-256，与上述值比较。\n\n"
+        "公共 CA 数据采用 Mozilla Public License 2.0。\n"
+        "MPL-2.0 全文：third_party/data/certificates/MPL-2.0.txt\n"
+        "官方法律原文：https://www.mozilla.org/media/MPL/2.0/index.txt\n"
+        "获取源码：从上述原始文件 URL 下载，或在应用对应源码包的\n"
+        "build-inputs/bundled/assets/certificates/cacert.pem 查找。分发时附上本通知和 MPL 全文。\n"
+        "应用对应源码下载入口见NOTICE.md。\n"
+    ).encode()
+    geo = {}
+    names = {"geoip": ("GeoIP.dat", "GeoIP.dat"), "geosite": ("GeoSite.dat", "GeoSite.dat"),
+             "mmdb": ("Country.mmdb", "dbip-country-lite.mmdb.gzip"),
+             "asn": ("ASN.mmdb", "dbip-asn-lite.mmdb.gzip")}
+    records = []
+    for kind, (work, asset) in names.items():
+        spec = specs[kind]
+        item = {}
+        item.update({key: spec[key] for key in ("kind", "version", "sourceUrl", "encoding", "storedBytes",
+                                                "storedSha256", "installedBytes", "installedSha256")})
+        item.update(workName=work, asset=asset)
+        item["licenses"] = (["CC-BY-SA-4.0", "CC-BY-4.0"] if kind == "geoip"
+                            else ["MIT"] if kind == "geosite" else ["CC-BY-4.0"])
+        item["attribution"] = ("Copyright (c) 2018-2019 V2Ray" if kind == "geosite" else
+                               ("V2Fly; " if kind == "geoip" else "")
+                               + "IP Geolocation by DB-IP (https://db-ip.com/)")
+        item["changes"] = (f"本地文件名：{asset}；安装文件名：{work}。安装时复制该DAT文件。"
+                           if kind in ("geoip", "geosite") else
+                           f"应用内文件名：{asset}；安装时将官方gzip解压为{work}。")
+        if kind in ("geoip", "geosite"):
+            item["sourceCommit"] = spec["sourceCommit"]
+            item["licenseSha256"] = spec["licenseSha256"]
+        else:
+            item["sourcePage"] = spec["sourcePage"]
+        records.append(item)
+    materials = []
+    for name, source in (
+        ("CC-BY-SA-4.0.txt", f"https://raw.githubusercontent.com/v2fly/geoip/{specs['geoip']['sourceCommit']}/LICENSE"),
+        ("GeoSite-MIT.txt", f"https://raw.githubusercontent.com/v2fly/domain-list-community/{specs['geosite']['sourceCommit']}/LICENSE"),
+        ("CC-BY-4.0.txt", "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/CC-BY-4.0.txt"),
+    ):
+        data = read_text_bytes(root / "third_party/data/geodata" / name)
+        if not data:
+            raise ValueError("资源许可正文为空：" + name)
+        kind = {"CC-BY-SA-4.0.txt": "geoip", "GeoSite-MIT.txt": "geosite"}.get(name)
+        if kind and sha(data) != specs[kind]["licenseSha256"]:
+            raise ValueError("指定源码提交中的资源许可内容已变化，请完成技术复核：" + name)
+        materials.append({"file": "licenses/" + name, "bytes": len(data), "sha256": sha(data), "sourceUrl": source})
+    if not read_text_bytes(root / "third_party/data/certificates/MPL-2.0.txt"):
+        raise ValueError("CA MPL-2.0 许可正文缺失")
+    notice = ("内置Geo数据的来源与许可\n\n"
+              + "\n\n".join(
+                  f"{item['workName']}\n来源：{item['sourceUrl']}\n版本：{item['version']}\n"
+                  + (f"源码：{item['sourceCommit']}\n" if "sourceCommit" in item else f"官网下载页：{item['sourcePage']}\n")
+                  + f"许可：{', '.join(item['licenses'])}\n归属：{item['attribution']}\n处理：{item['changes']}"
+                  for item in records)
+              + "\n\nAPK 内的许可全文位于 geodata/licenses/CC-BY-SA-4.0.txt、GeoSite-MIT.txt 和 CC-BY-4.0.txt。\n"
+              "来源、版本、下载文件和安装用文件的字节数及 SHA-256 记录在 geodata/manifest.json 中。\n"
+              "构建时从 third_party/data/resources.json 的冻结记录生成上述文件，不查询最新版本。\n"
+              "应用对应源码包包含 build-inputs/bundled/assets/geodata/ 下的同次数据库、manifest 与许可，\n"
+              "以及 dependencies/data/ 下的 GeoIP 转换器、GeoIP 数据和 GeoSite 可编辑源码归档。\n"
+              "源码归档来源、大小与 SHA-256 见 build-inputs/resource-sources.json；下载入口见 NOTICE.md。\n").encode()
+    geo.update(format="clash-pseudo-bundled-geodata", version=1, files=records, legalMaterials=materials,
+               installedTotalBytes=sum(item["installedBytes"] for item in records),
+               storedDataTotalBytes=sum(item["storedBytes"] for item in records),
+               notice={"file": "NOTICE.txt", "bytes": len(notice), "sha256": sha(notice)})
+    return {
+        "third_party/data/certificates/manifest.json": encoded(certificate),
+        "third_party/data/certificates/NOTICE.txt": ca_notice,
+        "android/app/src/main/assets/geodata/manifest.json": encoded(geo),
+        "third_party/data/geodata/NOTICE.txt": notice,
+    }
 
 
 class Legal:
@@ -191,36 +328,59 @@ class Legal:
                      + render_files(files))
             blocks.append(block)
         notice.write_text(prefix + "".join(blocks), encoding="utf-8")
-        self.public_suffix(graph)
+        return self.public_suffix(graph)
 
-    def public_suffix(self, graph):
-        module = graph["golang.org/x/net"]
+    def public_suffix_source(self, graph):
+        selected = graph["golang.org/x/net"]
+        module = selected.get("Replace") or selected
         metadata = json.loads(self.updater.go_run("mod", "download", "-json",
                                                 module["Path"] + "@" + module["Version"]))
-        table = (Path(metadata["Dir"]) / "publicsuffix/table.go").read_text(encoding="utf-8")
+        self.require(not metadata.get("Error") and metadata.get("Dir"), "x/net 实际源码不可用")
+        table = read_text_bytes(Path(metadata["Dir"]) / "publicsuffix/table.go").decode("utf-8")
         revision = re.search(r"git revision ([0-9a-f]{40})", table[:6000])
-        self.require(revision, "x/net publicsuffix 来源修订缺失")
+        self.require(revision, "x/net 的 publicsuffix 数据缺少来源提交号")
         revision = revision[1]
+        return {"module": module["Path"], "moduleVersion": module["Version"], "revision": revision,
+                "sourceUrl": "https://raw.githubusercontent.com/publicsuffix/list/" + revision + "/public_suffix_list.dat"}
+
+    def public_suffix(self, graph):
+        source = self.public_suffix_source(graph)
+        revision, version = source["revision"], source["moduleVersion"]
         notice = self.root / "third_party/notices/publicsuffix.txt"
-        current = notice.read_bytes().decode("utf-8")
+        current = read_text_bytes(notice).decode("utf-8")
         target = self.root / "third_party/data/publicsuffix/public_suffix_list.dat"
-        unchanged = revision in current and module["Version"] in current
-        if unchanged and target.is_file() and sha(target.read_bytes()) in current:
-            return
-        data = self.fetch("https://raw.githubusercontent.com/publicsuffix/list/" + revision + "/public_suffix_list.dat")
+        labels = (source["module"], "x/net") if source["module"] == "golang.org/x/net" else (source["module"],)
+        module_pattern = r"(?:" + "|".join(re.escape(name) for name in labels) + r") " + re.escape(version)
+        selected = bool(re.search(module_pattern + r"(?=[；。\s]|$)", current))
+        pinned_revision = (source["sourceUrl"] in current or bool(re.search(
+            r"(?m)(?:PSL |^)" + revision + r"(?=[（\s]|$)", current)))
+        unchanged = selected and pinned_revision
+        if unchanged and target.is_file():
+            data = read_text_bytes(target)
+            checksum = sha(data)
+            self.require(re.search(r"(?<![0-9a-f])" + checksum + r"(?![0-9a-f])", current),
+                         "PSL 固定来源与现有摘要不同")
+            self.require(data and b"BEGIN ICANN DOMAINS" in data and b"END PRIVATE DOMAINS" in data,
+                         "PSL 原始列表格式无效")
+            return dict(source, sha256=checksum)
+        data = self.fetch(source["sourceUrl"])
+        self.require(data and b"BEGIN ICANN DOMAINS" in data and b"END PRIVATE DOMAINS" in data,
+                     "PSL 原始列表格式无效")
         if unchanged:
             self.require(sha(data) in current, "PSL 固定来源与现有摘要不同")
-        # 可编辑列表随对应源码交付；MPL 原文继续复用现有材料。
+        # 将可编辑PSL列表加入对应源码包，并附上现有的MPL许可全文。
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
-        if unchanged:
-            return
-        notice.write_text(
-            f"Public Suffix List\nx/net {module['Version']}；PSL {revision}\n"
-            f"来源：https://github.com/publicsuffix/list/blob/{revision}/public_suffix_list.dat\n"
-            f"列表 SHA-256：{sha(data)}\n\n"
-            "列表采用 MPL-2.0，Go 实现采用其随附 BSD 许可。可编辑列表随对应源码提供。\n\n"
-            + (self.root / "third_party/data/certificates/MPL-2.0.txt").read_text(encoding="utf-8"), encoding="utf-8")
+        if not unchanged:
+            notice.write_text(
+                f"Public Suffix List\n{source['module']} {version}；PSL {revision}\n"
+                f"来源：https://github.com/publicsuffix/list/blob/{revision}/public_suffix_list.dat\n"
+                f"列表 SHA-256：{sha(data)}\n\n"
+                "列表采用MPL-2.0，Go实现采用其随附BSD许可。\n"
+                "可编辑列表：third_party/data/publicsuffix/public_suffix_list.dat\n"
+                "获取源码：从上述固定 URL 下载，或从应用对应源码包的 application.tar 中获取。\n\n"
+                + (self.root / "third_party/data/certificates/MPL-2.0.txt").read_text(encoding="utf-8"), encoding="utf-8")
+        return dict(source, sha256=sha(data))
 
     def pub_licenses(self):
         resolved = json.loads(self.run([self.updater.flutter, "pub", "deps", "--json"], self.root))
@@ -232,7 +392,7 @@ class Legal:
             if package["name"] not in changed:
                 continue
             uri = urlparse(urljoin(base, package["rootUri"]))
-            self.require(uri.scheme == "file", "Pub 包来源不是本地解析文件")
+            self.require(uri.scheme == "file", "Pub 包来源必须指向依赖解析得到的本地文件")
             directory = Path(unquote(uri.path))
             if directory == self.root:
                 continue

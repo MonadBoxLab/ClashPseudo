@@ -1,4 +1,4 @@
-"""从共同静态契约及资源来源清单生成各层编译期定义。"""
+"""从跨语言常量声明和资源来源清单生成各语言的编译期定义。"""
 
 import argparse
 import json
@@ -26,6 +26,7 @@ def entries(root):
     data = json.loads((root / SOURCE).read_text(), object_pairs_hook=unique_object)
     if not isinstance(data, dict) or not data:
         raise ValueError("Contract must contain named domains")
+    validate_core_contract(data)
     result = []
     names = set()
     for domain, fields in data.items():
@@ -48,21 +49,48 @@ def entries(root):
     return result
 
 
-def asset_metadata(root):
-    manifest = json.loads(
-        (root / "android/app/src/main/assets/geodata/manifest.json").read_text(),
-        object_pairs_hook=unique_object,
-    )
-    certificate = json.loads(
-        (root / "third_party/data/certificates/manifest.json").read_text(),
-        object_pairs_hook=unique_object,
-    )
+def validate_core_contract(data):
+    ipc = data.get("core_ipc")
+    if ipc is None:
+        return
+    if not isinstance(ipc, dict):
+        raise ValueError("Core IPC contract 格式无效")
+    limits = ("version", "control_bytes", "identity_bytes", "frame_bytes",
+              "queue_bytes", "record_bytes")
+    if any(type(ipc.get(name)) is not int or not 0 < ipc[name] <= 0x7fffffff
+           for name in limits):
+        raise ValueError("Core IPC 容量必须是有效的正整数")
+    if not (ipc["identity_bytes"] <= ipc["control_bytes"] <= ipc["frame_bytes"]
+            <= ipc["queue_bytes"] and ipc["record_bytes"] <= ipc["frame_bytes"]):
+        raise ValueError("Core IPC 容量之间的关系无效")
+    frames = [value for name, value in ipc.items() if name.startswith("frame_") and name != "frame_bytes"]
+    if (not frames or any(type(value) is not int or not 1 <= value <= 255 for value in frames)
+            or len(frames) != len(set(frames))):
+        raise ValueError("Core IPC frame kind 必须是互不重复的单字节值")
+    operations = data.get("core_operation")
+    if (not isinstance(operations, dict) or not operations
+            or any(type(value) is not int or not 0 < value <= 0x7fffffff
+                   for value in operations.values())
+            or len(operations) != len(set(operations.values()))):
+        raise ValueError("core_operation 的值必须是互不重复的正整数")
+    for domain in ("core_part", "core_channel", "core_field", "core_purpose", "core_phase", "core_error"):
+        fields = data.get(domain)
+        if (not isinstance(fields, dict) or not fields
+                or any(not isinstance(value, str) or not value for value in fields.values())
+                or len(fields) != len(set(fields.values()))):
+            raise ValueError(f"Core IPC 字段必须是互不重复的非空字符串：{domain}")
+
+
+def asset_metadata(manifest, certificate):
+    """根据当次构建的 Geo／CA manifest 生成资源定义，不读取源码目录中的 payload。"""
     if (not isinstance(manifest, dict)
             or manifest.get("format") != "clash-pseudo-bundled-geodata"
             or type(manifest.get("version")) is not int or manifest["version"] != 1
             or not isinstance(manifest.get("files"), list)):
         raise ValueError("Invalid bundled Geo manifest")
-    metadata = [ASSET_HEADER, "package io.github.monadboxlab.clashpseudo.nativecore\n\ninternal object BundledAssetContract {\n"]
+    metadata = [ASSET_HEADER, "package io.github.monadboxlab.clashpseudo.nativecore\n\n"
+                "import io.github.monadboxlab.clashpseudo.nativecore.assets.BundledGeo\n\n"
+                "internal object BundledAssetContract {\n"]
     kinds = set()
     assets = set()
     for item in manifest["files"]:
@@ -109,8 +137,11 @@ def asset_metadata(root):
             or type(size) is not int or not 0 < size <= 0x7fffffff
             or not isinstance(checksum, str) or not re.fullmatch(r"[0-9a-f]{64}", checksum)):
         raise ValueError("Invalid bundled certificate asset, size or SHA-256")
+    roots = certificate.get("roots")
+    if type(roots) is not int or roots <= 0:
+        raise ValueError("CA manifest 必须记录证书数量")
     for name, value in [("CERTIFICATE_ASSET", asset), ("CERTIFICATE_BYTES", size),
-                        ("CERTIFICATE_SHA256", checksum)]:
+                        ("CERTIFICATE_SHA256", checksum), ("CERTIFICATE_ROOTS", roots)]:
         metadata.append(f"    const val {name} = {json.dumps(value)}\n")
     metadata.append("}\n")
     return "".join(metadata)
@@ -143,7 +174,6 @@ def outputs(root):
         Path("android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/app/ApplicationContract.kt"): "".join(kotlin),
         Path("native/mihomo/internal/appcontract/contract.go"): go_source,
         Path("native/mihomo/application_contract.h"): "".join(native),
-        Path("android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/nativecore/BundledAssetContract.kt"): asset_metadata(root),
     }
 
 
@@ -169,9 +199,22 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--asset-manifest", type=Path, help="当次生成的 Geo manifest")
+    parser.add_argument("--certificate-manifest", type=Path, help="当次生成的 CA manifest")
+    parser.add_argument("--asset-output", type=Path, help="BundledAssetContract.kt 输出路径")
     args = parser.parse_args()
+    asset_arguments = (args.asset_manifest, args.certificate_manifest, args.asset_output)
+    if any(asset_arguments) and (not all(asset_arguments) or args.check):
+        parser.error("资源生成需要三个 asset 参数，不能与静态 --check 一起使用")
     try:
-        generate(args.root, check=args.check)
+        if args.asset_manifest:
+            result = asset_metadata(
+                json.loads(args.asset_manifest.read_bytes(), object_pairs_hook=unique_object),
+                json.loads(args.certificate_manifest.read_bytes(), object_pairs_hook=unique_object))
+            args.asset_output.parent.mkdir(parents=True, exist_ok=True)
+            args.asset_output.write_text(result, encoding="utf-8")
+        else:
+            generate(args.root, check=args.check)
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         print(error, file=sys.stderr)
         return 1

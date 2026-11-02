@@ -1,5 +1,6 @@
 """受控 fixture 服务的创建与关闭。"""
 import contextlib
+import errno
 import ipaddress
 import re
 import socket
@@ -14,6 +15,18 @@ def ipv4_host(value):
     if address.is_unspecified or address.is_multicast or int(address) == 0xffffffff:
         raise ValueError("fixture requires a specific IPv4 interface address")
     return str(address)
+
+
+def _dns_servers(host):
+    # TCP 与 UDP 分别分配动态端口；两种 socket 都绑定成功后才取得该端口对。
+    for attempt in range(16):
+        tcp = TCPServer((host, 0), DNSTCP)
+        try:
+            return tcp, UDPServer(tcp.server_address, DNS)
+        except BaseException as error:
+            tcp.server_close()
+            if not isinstance(error, OSError) or error.errno != errno.EADDRINUSE or attempt == 15:
+                raise
 
 
 class Fixture:
@@ -39,15 +52,16 @@ class Fixture:
             server = HTTPServer((host, port), HTTP)
             self.servers.append(server)
             self.port = server.server_port
-            for attribute, server_type, handler in [("udp_port", UDPServer, Echo),
-                                                     ("dns_port", UDPServer, DNS),
-                                                     ("socks_port", TCPServer, SOCKS),
-                                                     ("reject_port", TCPServer, RejectTarget)]:
-                server = server_type((host, 0), handler)
+            server = UDPServer((host, 0), Echo)
+            self.servers.append(server)
+            self.udp_port = server.server_address[1]
+            dns_tcp, dns_udp = _dns_servers(host)
+            self.servers.extend((dns_tcp, dns_udp))
+            self.dns_port = dns_tcp.server_address[1]
+            for attribute, handler in [("socks_port", SOCKS), ("reject_port", RejectTarget)]:
+                server = TCPServer((host, 0), handler)
                 self.servers.append(server)
                 setattr(self, attribute, server.server_address[1])
-            # DNS 的 TCP 与 UDP 使用同一实际端口。
-            self.servers.append(TCPServer((host, self.dns_port), DNSTCP))
             for server in self.servers:
                 server.fixture = self
         except BaseException:
