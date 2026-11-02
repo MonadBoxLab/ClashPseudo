@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.VpnService
+import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
@@ -13,29 +14,35 @@ import androidx.test.runner.lifecycle.Stage
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import io.github.monadboxlab.clashpseudo.MainActivity
+import io.github.monadboxlab.clashpseudo.app.ApplicationContract as Contract
 import io.github.monadboxlab.clashpseudo.bridge.AppBridge
-import io.github.monadboxlab.clashpseudo.nativecore.CoreHost
-import io.github.monadboxlab.clashpseudo.nativecore.NativeCore
-import io.github.monadboxlab.clashpseudo.nativecore.VpnSpecification
+import io.github.monadboxlab.clashpseudo.controls.SystemControls
+import io.github.monadboxlab.clashpseudo.debug.CoreFixtureContract as Fixture
+import io.github.monadboxlab.clashpseudo.nativecore.CoreClient
+import io.github.monadboxlab.clashpseudo.nativecore.CoreIpcTestDriver
+import io.github.monadboxlab.clashpseudo.nativecore.CoreLifecycleRecord
+import io.github.monadboxlab.clashpseudo.nativecore.CorePlatformTestDriver
+import io.github.monadboxlab.clashpseudo.nativecore.CorePreparationObserver
+import io.github.monadboxlab.clashpseudo.nativecore.CoreResourceGate
+import io.github.monadboxlab.clashpseudo.nativecore.CoreService
+import io.github.monadboxlab.clashpseudo.nativecore.vpn.VpnSpecification
 import io.github.monadboxlab.clashpseudo.schedule.ScheduleManager
-import io.github.monadboxlab.clashpseudo.vpn.NativeSession
+import io.github.monadboxlab.clashpseudo.storage.AppFiles
 import io.github.monadboxlab.clashpseudo.vpn.PseudoVpnService
-import java.util.UUID
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.FutureTask
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
+import java.security.MessageDigest
+import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
-/** The controller restores the official SAF fixture and waits for the host's
- * worker-download-start before broadcasting. Downloads and Store publication
- * belong exclusively to the production Dart executor and ScheduleWorker.
- */
+/** controller 经正式 SAF 恢复 fixture，并在真实下载开始后广播；下载和保存均由唯一 AppRuntime 执行。 */
 class ScheduleWorkerCancellationTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
+    private val context get() = instrumentation.targetContext.applicationContext
+    private val client get() = CoreClient.get(context)
+    private val platform = CorePlatformTestDriver()
 
     @Test fun ownedWorkCancellationKeepsWriterGateUntilRealDartDrain() {
         val nonce = requireNotNull(InstrumentationRegistry.getArguments().getString("nonce"))
@@ -50,51 +57,35 @@ class ScheduleWorkerCancellationTest {
 
     @Test fun ownedScheduledRevokeInvalidatesBeforeMainCleanup() {
         val nonce = "p5-load-worker-r7w10"
-        assertEquals("This revoke regression uses only the config policy", "config", kindArgument())
-        val context = instrumentation.targetContext.applicationContext
+        assertEquals("revoke 回归只使用 config policy", "config", kindArgument())
         val action = context.packageName + ".validation.REVOKE_WORK_R7W10"
         val signal = CountDownLatch(1)
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) {
-                if (intent.action == action && intent.getStringExtra("nonce") == nonce &&
-                    intent.getStringExtra("kind") == "config") signal.countDown()
-            }
-        }
-        context.registerReceiver(receiver, IntentFilter(action), Context.RECEIVER_EXPORTED)
-        try {
-            ownedRunningWork(nonce, signal)
-        } finally {
-            context.unregisterReceiver(receiver)
-        }
+        val receiver = signalReceiver(action, nonce, "config", signal)
+        registerReceiver(receiver, action)
+        try { ownedRunningWork(nonce, signal) }
+        finally { context.unregisterReceiver(receiver) }
     }
 
     @Test fun ownedScheduledStartingCancellationStopsBeforePrepare() {
-        assertEquals("This STARTING regression uses only the config policy", "config", kindArgument())
+        assertEquals("STARTING 回归只使用 config policy", "config", kindArgument())
         ownedRunningWork("p5-load-worker-r7w12", null, cancelStarting = true)
     }
 
-    // Running entries share only the existing real startup/background/Worker flow.
     private fun ownedRunningWork(nonce: String, revokeSignal: CountDownLatch?, cancelStarting: Boolean = false) {
         val cancelledId = cancelOwnedWork(nonce,
             "CANCEL_WORK_" + nonce.removePrefix("p5-load-worker-").uppercase())
         val kind = kindArgument()
-        val context = instrumentation.targetContext.applicationContext
         val id = if (kind == "config") "p5-worker-config-$nonce" else "p5-worker-plugin-$nonce"
         val unique = "update-$kind-$id"
         val manager = WorkManager.getInstance(context)
-        assertEquals(WorkInfo.State.CANCELLED,
-            manager.getWorkInfoById(cancelledId).get(10, TimeUnit.SECONDS)?.state)
+        assertEquals(WorkInfo.State.CANCELLED, manager.getWorkInfoById(cancelledId).get(10, TimeUnit.SECONDS)?.state)
 
-        // Only read the controlled Stores after cancellation and real writer drain.
+        // 只有真实 Dart writer 退出后才读取 controller 准备的商店。
         val directory = AppFiles.configs(context)
         val configs = JSONObject(directory.resolve("configurations.json").readText(Charsets.UTF_8))
         val overrides = JSONObject(directory.resolve("overrides.json").readText(Charsets.UTF_8))
-        val configEntries = configs.getJSONArray("entries").let { entries ->
-            (0 until entries.length()).map { entries.getJSONObject(it) }
-        }
-        val pluginEntries = overrides.getJSONArray("entries").let { entries ->
-            (0 until entries.length()).map { entries.getJSONObject(it) }
-        }
+        val configEntries = entries(configs)
+        val pluginEntries = entries(overrides)
         val selectedId = if (kind == "config") id else "p5-worker-local-$nonce"
         assertEquals(selectedId, configs.getString("selectedId"))
         val selected = configEntries.single { it.getString("id") == selectedId }
@@ -102,93 +93,65 @@ class ScheduleWorkerCancellationTest {
         assertEquals(1, selected.getInt("revision"))
         val body1 = selected.getString("body")
         val marker1 = "# Controlled, local-only fixture $nonce revision 1\n"
-        assertTrue("Cancelled download must leave the initial config body", body1.startsWith(marker1))
+        assertTrue("取消下载必须保留初始 config body", body1.startsWith(marker1))
         assertEquals(1, plugin.getInt("revision"))
-        assertEquals("# Controlled plugin $nonce revision 1\nrules: ['DOMAIN,controlled.$nonce.test,REJECT']\n",
-            plugin.getString("body"))
+        assertEquals("# Controlled plugin $nonce revision 1\nrules: ['DOMAIN,controlled.$nonce.test,REJECT']\n", plugin.getString("body"))
         assertEquals(kind == "override", plugin.getBoolean("enabled"))
-        val enabledTargets = listOf("config" to configEntries, "override" to pluginEntries).flatMap { (targetKind, entries) ->
-            entries.filter { it.getJSONObject("update").getBoolean("enabled") }.map { entry ->
+        val enabledTargets = listOf("config" to configEntries, "override" to pluginEntries).flatMap { (targetKind, values) ->
+            values.filter { it.getJSONObject("update").getBoolean("enabled") }.map { entry ->
                 assertEquals(6, entry.getJSONObject("update").getInt("hours"))
                 targetKind to entry.getString("id")
             }
         }
-        assertEquals("Fixture must enable only the requested periodic target", listOf(kind to id), enabledTargets)
+        assertEquals("fixture 只能启用指定 periodic target", listOf(kind to id), enabledTargets)
 
         var requestedStart = false
         var replacementId: UUID? = null
-        val startingEntered = CountDownLatch(1)
-        val startingRelease = CountDownLatch(1)
-        val startingQueued = AtomicBoolean(false)
-        val startingBarrier = if (!cancelStarting) null else FutureTask {
-            startingEntered.countDown()
-            check(startingRelease.await(30, TimeUnit.SECONDS)) { "STARTING barrier was not released" }
-        }
-        var previousChanged: (() -> Unit)? = null
+        var gateArmed = false
+        val observers = mutableListOf<CoreIpcTestDriver>()
+        var failure: Throwable? = null
         try {
-            var firstGeneration = -1L
             main {
-                assertNull("VPN grant must already exist; never open authorization UI", VpnService.prepare(context))
-                assertEquals(NativeSession.Phase.STOPPED, PseudoVpnService.session.snapshot().phase)
-                assertNull("A prior Service must have fully stopped", PseudoVpnService.instance)
+                assertNull("必须已获得 VPN grant，不能打开授权界面", VpnService.prepare(context))
+                assertEquals("STOPPED", AppBridge.runtimeState()["phase"])
                 assertFalse(AppBridge.logic.busy)
                 assertNull(AppBridge.operationId)
-                firstGeneration = PseudoVpnService.session.snapshot().generation + 1
             }
+            nativeEmpty()
             requestedStart = true
-            assertNotNull(context.startForegroundService(
-                Intent(context, PseudoVpnService::class.java).setAction(VpnService.SERVICE_INTERFACE)))
-            val before = runningInput(firstGeneration)
+            val start = Intent(context, PseudoVpnService::class.java).setAction(VpnService.SERVICE_INTERFACE)
+            assertNotNull(if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(start) else context.startService(start))
+            val before = runningInput(selectedId, 1).also { observers.add(it.observer) }
             assertInput(before, selected, plugin.takeIf { kind == "override" })
             val actualChoices = selectorChoices()
             assertEquals(setOf("Controlled", "GLOBAL"), actualChoices.keys)
-            Log.i("PseudoWorkerTest",
-                "OWNED_WORK_RUNNING_INPUT nonce=$nonce kind=$kind session=${before.session.generation} core=${before.core.generation} revision=1 attached=true")
+            Log.i("PseudoWorkerTest", "OWNED_WORK_RUNNING_INPUT nonce=$nonce kind=$kind process=${before.processId} input=${before.inputId} generation=1 revision=1 attached=true")
 
             lateinit var uiActivity: MainActivity
             main {
                 uiActivity = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)
                     .filterIsInstance<MainActivity>().single()
             }
-            context.startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            context.startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             awaitBackground(uiActivity)
-            Log.i("PseudoWorkerTest",
-                "OWNED_WORK_BACKGROUND nonce=$nonce kind=$kind mainActivityVisible=false")
-            if (cancelStarting) main {
-                val session = PseudoVpnService.session
-                synchronized(session) {
-                    val original = session.changed
-                    previousChanged = original
-                    session.changed = {
-                        original()
-                        val current = session.snapshot()
-                        if (current.generation == before.session.generation + 1 &&
-                            current.phase == NativeSession.Phase.STARTING && startingQueued.compareAndSet(false, true)) {
-                            // begin() calls changed synchronously; startNative is queued only after it returns.
-                            PseudoVpnService.worker.execute(checkNotNull(startingBarrier))
-                        }
-                    }
-                }
+            Log.i("PseudoWorkerTest", "OWNED_WORK_BACKGROUND nonce=$nonce kind=$kind mainActivityVisible=false")
+            if (cancelStarting) {
+                CorePreparationObserver.armWorkerGate(context)
+                gateArmed = true
             }
-            val preservedStores = if (revokeSignal == null && !cancelStarting) null else
-                listOf("configurations.json", "overrides.json", "preferences.json")
-                    .associateWith { directory.resolve(it).readBytes() }
+            val preservedStores = if (revokeSignal == null && !cancelStarting) null else businessFiles()
             val synced = CountDownLatch(1)
-            ScheduleManager.sync(context, listOf(mapOf("kind" to kind, "id" to id, "hours" to 6))) {
-                synced.countDown()
-            }
-            assertTrue("Production schedule sync did not complete", synced.await(10, TimeUnit.SECONDS))
-            val replacements = manager.getWorkInfosForUniqueWork(unique).get(10, TimeUnit.SECONDS)
-                .filter { !it.state.isFinished }
-            assertEquals("UPDATE must create one live replacement", 1, replacements.size)
+            ScheduleManager.sync(context, listOf(mapOf("kind" to kind, "id" to id, "hours" to 6))) { synced.countDown() }
+            assertTrue("production schedule sync 未完成", synced.await(10, TimeUnit.SECONDS))
+            val replacements = manager.getWorkInfosForUniqueWork(unique).get(10, TimeUnit.SECONDS).filter { !it.state.isFinished }
+            assertEquals("UPDATE 必须创建一个 live replacement", 1, replacements.size)
             val replacement = replacements.single()
-            assertNotEquals("Cancelled periodic work must not be reused", cancelledId, replacement.id)
+            assertNotEquals("不能复用已取消 periodic work", cancelledId, replacement.id)
             assertTrue(replacement.tags.contains(ScheduleWorker::class.java.name))
             replacementId = replacement.id
-            await("replacement ScheduleWorker executing its real download", 30_000) {
+            await("replacement ScheduleWorker 执行真实下载", 30_000) {
                 val info = checkNotNull(manager.getWorkInfoById(replacement.id).get(10, TimeUnit.SECONDS))
-                assertFalse("Replacement finished before its real download was observed", info.state.isFinished)
+                assertFalse("观察到真实下载前 replacement 已结束", info.state.isFinished)
                 var executing = false
                 main {
                     val command = AppBridge.command
@@ -201,8 +164,7 @@ class ScheduleWorkerCancellationTest {
                         assertEquals(true, state["scheduleBusy"])
                         assertEquals(true, state["writerBusy"])
                         assertEquals("RUNNING", state["phase"])
-                        assertEquals(before.session.generation, PseudoVpnService.session.snapshot().generation)
-                        assertEquals(before.core, PseudoVpnService.core.snapshot())
+                        assertSameInput(before)
                     }
                 }
                 executing
@@ -211,39 +173,42 @@ class ScheduleWorkerCancellationTest {
 
             if (cancelStarting) {
                 Log.i("PseudoWorkerTest", "WAIT_OWNED_WORK_STARTING nonce=$nonce kind=$kind")
-                assertTrue("Scheduled reconnect did not reach its real STARTING barrier",
-                    startingEntered.await(90, TimeUnit.SECONDS))
-                await("network Worker completed its application handoff", 10_000) {
+                await("scheduled reconnect 进入真实 PREPARE 前 gate", 90_000) {
+                    CorePreparationObserver.workerGateState(context) != null
+                }
+                before.observer.awaitDeath()
+                assertTrue(before.observer.deathConfirmed)
+                await("network Worker 完成 application handoff", 10_000) {
                     val info = checkNotNull(manager.getWorkInfoById(replacement.id).get(10, TimeUnit.SECONDS))
                     assertFalse(info.state.isFinished)
                     info.state == WorkInfo.State.ENQUEUED
                 }
-                cancelStartingWork(context, nonce, id, before, checkNotNull(preservedStores),
-                    startingRelease, checkNotNull(startingBarrier))
+                val starting = CoreIpcTestDriver.fixture().also(observers::add)
+                cancelStartingWork(nonce, id, before, checkNotNull(preservedStores), starting)
             } else if (revokeSignal != null) {
                 awaitBackground(uiActivity)
-                revokeRunningWork(context, nonce, kind, id, before, checkNotNull(preservedStores), revokeSignal)
+                revokeRunningWork(nonce, kind, id, before, checkNotNull(preservedStores), revokeSignal)
             } else {
-                val after = runningInput(before.session.generation + 1)
-                assertTrue("Automatic application must prepare a new core", after.core.generation > before.core.generation)
-                assertNotEquals(before.core.composition, after.core.composition)
+                val after = runningInput(selectedId, if (kind == "config") 2 else 1, before).also { observers.add(it.observer) }
+                before.observer.awaitDeath()
+                assertTrue("重连必须确认原 core Binder death", before.observer.deathConfirmed)
+                assertNotEquals("自动应用必须使用新 core process", before.processId, after.processId)
+                assertNotEquals("自动应用必须使用新 run-input", before.inputId, after.inputId)
+                assertNotEquals(before.composition, after.composition)
                 val expectedConfig = JSONObject(selected.toString())
                 val expectedPlugin = if (kind == "override") JSONObject(plugin.toString()) else null
                 if (kind == "config") {
-                    expectedConfig.put("revision", 2).put("body",
-                        body1.replaceFirst(marker1, "# Controlled, local-only fixture $nonce revision 2\n"))
+                    expectedConfig.put("revision", 2).put("body", body1.replaceFirst(marker1,
+                        "# Controlled, local-only fixture $nonce revision 2\n"))
                 } else {
                     expectedPlugin!!.put("revision", 2).put("body",
                         "# Controlled plugin $nonce revision 2\nrules: ['DOMAIN,changed.$nonce.test,REJECT']\n")
                 }
                 assertInput(after, expectedConfig, expectedPlugin)
-                // Only the content identity changes; validate the complete newly loaded specification.
-                assertEquals(before.specification.copy(generation = after.core.generation,
-                    composition = checkNotNull(after.core.composition)), after.specification)
+                assertEquals(before.specification.copy(generation = after.generation, composition = after.composition), after.specification)
                 for (key in listOf("name", "mode", "source", "routingOverride", "access", "packages")) {
-                    assertEquals("Unchanged running input field $key", before.input.get(key).toString(), after.input.get(key).toString())
+                    assertEquals("未涉及的实际输入字段 $key", before.input.get(key).toString(), after.input.get(key).toString())
                 }
-                // Reconnect carries the actual selectors captured after startup.
                 val carriedChoices = after.input.getJSONObject("choices")
                 assertEquals(actualChoices.keys, carriedChoices.keys().asSequence().toSet())
                 for ((name, member) in actualChoices) {
@@ -252,370 +217,274 @@ class ScheduleWorkerCancellationTest {
                     assertEquals(member, carried.getString("member"))
                 }
                 assertEquals(actualChoices, selectorChoices())
-                await("periodic Worker completion after automatic application", 10_000) {
+                await("periodic Worker 在自动应用后完成", 10_000) {
                     val info = checkNotNull(manager.getWorkInfoById(replacement.id).get(10, TimeUnit.SECONDS))
                     assertFalse(info.state.isFinished)
                     info.state == WorkInfo.State.ENQUEUED
                 }
                 main {
-                    assertEquals(NativeSession.Phase.RUNNING, PseudoVpnService.session.snapshot().phase)
-                    assertEquals(before.session.generation + 1, PseudoVpnService.session.snapshot().generation)
-                    assertEquals(after.core, PseudoVpnService.core.snapshot())
+                    assertEquals("RUNNING", AppBridge.runtimeState()["phase"])
+                    assertSameInput(after)
                     assertEquals(false, AppBridge.runtimeState()["writerBusy"])
                 }
-                val savedEntries = JSONObject(directory.resolve(
-                    if (kind == "config") "configurations.json" else "overrides.json").readText(Charsets.UTF_8))
-                    .getJSONArray("entries")
-                val savedTarget = (0 until savedEntries.length()).map { savedEntries.getJSONObject(it) }
-                    .single { it.getString("id") == id }
-                assertEquals(2, savedTarget.getInt("revision"))
-                assertEquals("applied", savedTarget.getJSONObject("update").getString("lastResult"))
-                assertFalse(savedTarget.getJSONObject("update").isNull("lastAttempt"))
+                val saved = entries(JSONObject(directory.resolve(if (kind == "config") "configurations.json" else "overrides.json")
+                    .readText(Charsets.UTF_8))).single { it.getString("id") == id }
+                assertEquals(2, saved.getInt("revision"))
+                assertEquals("applied", saved.getJSONObject("update").getString("lastResult"))
+                assertFalse(saved.getJSONObject("update").isNull("lastAttempt"))
                 awaitBackground(uiActivity)
-                Log.i("PseudoWorkerTest",
-                    "OWNED_WORK_APPLIED nonce=$nonce kind=$kind uuid=${replacement.id} session=${after.session.generation} core=${after.core.generation} revision=2 lastResult=applied writerBusy=false attached=true reconnects=1 uiBackground=true")
+                Log.i("PseudoWorkerTest", "OWNED_WORK_APPLIED nonce=$nonce kind=$kind uuid=${replacement.id} process=${after.processId} input=${after.inputId} generation=1 revision=2 lastResult=applied writerBusy=false attached=true reconnects=1 uiBackground=true")
             }
-        } finally {
-            try {
-                startingRelease.countDown()
-                try {
-                    previousChanged?.let { original ->
-                        main {
-                            synchronized(PseudoVpnService.session) { PseudoVpnService.session.changed = original }
-                        }
-                    }
-                } finally {
-                    if (startingQueued.get()) checkNotNull(startingBarrier).get(10, TimeUnit.SECONDS)
-                }
-            } finally {
-                try {
-                    if (requestedStart) {
-                        var live = false
-                        main {
-                            live = PseudoVpnService.instance != null ||
-                                PseudoVpnService.session.snapshot().phase != NativeSession.Phase.STOPPED
-                        }
-                        if (live) stopAndDrain(context)
-                    }
-                } finally {
-                    replacementId?.let { uuid ->
-                        try {
-                            manager.cancelWorkById(uuid).result.get(10, TimeUnit.SECONDS)
-                        } finally {
-                            awaitWriterDrain("replacement Worker cleanup")
-                        }
-                    }
-                }
+        } catch (error: Throwable) { failure = error; throw error }
+        finally {
+            fun cleanup(action: () -> Unit) {
+                try { action() }
+                catch (error: Throwable) { if (failure == null) failure = error else if (failure !== error) failure!!.addSuppressed(error) }
             }
+            cleanup { if (gateArmed) CorePreparationObserver.releaseWorkerGate(context) }
+            cleanup {
+                if (requestedStart && client.status()["phase"] !in setOf(Contract.CORE_PHASE_DISCONNECTED, Contract.CORE_PHASE_EXITED)) stopAndDrain()
+            }
+            cleanup {
+                replacementId?.let { manager.cancelWorkById(it).result.get(10, TimeUnit.SECONDS) }
+                awaitWriterDrain("replacement Worker 清理")
+            }
+            observers.forEach { observer -> cleanup { observer.close() } }
+            cleanup { if (gateArmed) CorePreparationObserver.removeWorkerGate(context) }
+            failure?.let { throw it }
         }
         Log.i("PseudoWorkerTest", "OWNED_WORK_STOPPED nonce=$nonce kind=$kind phase=STOPPED core=EMPTY attached=false writerBusy=false")
         awaitControllerExport(nonce, kind)
     }
 
-    private fun cancelStartingWork(context: Context, nonce: String, id: String, before: Loaded,
-                                   beforeStores: Map<String, ByteArray>, release: CountDownLatch,
-                                   barrier: FutureTask<Unit>) {
-        val generation = before.session.generation + 1
-        assertFalse("Native startup barrier must still be held", barrier.isDone)
-        nativeEmpty() // Read directly: submitting a worker read here would wait behind the barrier.
+    private fun cancelStartingWork(nonce: String, id: String, before: Loaded, beforeStores: Map<String, ByteArray>,
+                                   starting: CoreIpcTestDriver) {
+        val gate = checkNotNull(CorePreparationObserver.workerGateState(context))
+        assertNotEquals(before.processId, gate.getString("processId"))
+        assertNotEquals(before.inputId, gate.getString("inputId"))
+        assertEquals(starting.processId, gate.getString("processId"))
+        assertEquals(starting.pid, gate.getInt("pid"))
+        assertNotEquals(android.os.Process.myPid(), starting.pid)
+        assertEquals(1L, gate.getLong("generation"))
+        assertTrue(gate.getLong("requestId") > 0)
+        assertFalse(gate.getBoolean("released"))
+        assertFalse(gate.getBoolean("finished"))
+        val current = client.status()
+        assertEquals(Contract.CORE_PHASE_LOADING, current["phase"])
+        assertEquals(id, current["configId"])
+        assertEquals(2, (current["revision"] as Number).toInt())
+        assertEquals(gate.getString("inputId"), current["inputId"])
+        val native = query(Contract.CORE_OPERATION_SNAPSHOT)
+        assertFalse(native.getBoolean("prepared"))
+        assertFalse(native.getBoolean("attached"))
         val files = AppFiles.configs(context)
         val committed = files.resolve("configurations.json").readBytes()
         val configs = JSONObject(committed.toString(Charsets.UTF_8))
         assertEquals(id, configs.getString("selectedId"))
-        val entries = configs.getJSONArray("entries")
-        val saved = (0 until entries.length()).map { entries.getJSONObject(it) }
-            .single { it.getString("id") == id }
-        assertEquals("The real second download must already be saved", 2, saved.getInt("revision"))
-        assertEquals(before.input.getString("body").replaceFirst(
-            "# Controlled, local-only fixture $nonce revision 1\n",
+        val saved = entries(configs).single { it.getString("id") == id }
+        assertEquals("第二次真实下载必须已经保存", 2, saved.getInt("revision"))
+        assertEquals(before.input.getString("body").replaceFirst("# Controlled, local-only fixture $nonce revision 1\n",
             "# Controlled, local-only fixture $nonce revision 2\n"), saved.getString("body"))
         assertEquals("updated", saved.getJSONObject("update").getString("lastResult"))
         assertFalse(saved.getJSONObject("update").isNull("lastAttempt"))
+        val staged = platform.runRecord(current)
+        assertEquals(gate.getString("inputId"), staged.getString("inputId"))
+        assertEquals(saved.getString("body"), staged.getString("body"))
+        assertEquals(2, staged.getInt("revision"))
         main {
-            val service = checkNotNull(PseudoVpnService.instance)
-            val session = PseudoVpnService.session.snapshot()
-            assertEquals(generation, session.generation)
-            assertEquals(NativeSession.Phase.STARTING, session.phase)
-            assertEquals(id, session.configId)
-            assertEquals(2, session.revision)
-            assertEquals(before.core.generation, PseudoVpnService.core.snapshot().generation)
-            assertEquals(CoreHost.Phase.EMPTY, PseudoVpnService.core.snapshot().phase)
+            val state = AppBridge.runtimeState()
+            assertEquals("STARTING", state["phase"])
+            assertEquals(id, state["configId"])
+            assertEquals(2, state["revision"])
             assertNotNull(AppBridge.operationId)
             assertEquals("refreshSchedule", AppBridge.command?.get("action"))
             assertEquals("config", AppBridge.command?.get("kind"))
             assertEquals(id, AppBridge.command?.get("id"))
-            assertEquals(true, AppBridge.runtimeState()["scheduleBusy"])
+            assertEquals(true, state["scheduleBusy"])
             assertTrue(AppBridge.logic.busy)
-            // Exercise scheduled-owner cancellation directly.
             assertTrue(AppBridge.cancelScheduledOperation())
             assertNull(AppBridge.operationId)
             assertNull(AppBridge.command)
-            assertEquals(generation, PseudoVpnService.session.snapshot().generation)
-            assertEquals("Scheduled cancellation must stop its captured STARTING session synchronously",
-                NativeSession.Phase.STOPPING, PseudoVpnService.session.snapshot().phase)
-            assertSame(service, PseudoVpnService.instance)
-            assertEquals(before.core.generation, PseudoVpnService.core.snapshot().generation)
-            assertEquals(CoreHost.Phase.EMPTY, PseudoVpnService.core.snapshot().phase)
             assertEquals(false, AppBridge.runtimeState()["scheduleBusy"])
             assertEquals(true, AppBridge.runtimeState()["writerBusy"])
-            assertTrue("Real Dart execution must retain its drain gate", AppBridge.logic.busy)
-            assertEquals(1L, release.count)
-            assertFalse(barrier.isDone)
+            assertTrue("取消不等于实际 Dart executor 退出", AppBridge.logic.busy)
         }
-        nativeEmpty()
-        Log.i("PseudoWorkerTest",
-            "OWNED_WORK_STARTING_CANCELLED nonce=$nonce kind=config session=$generation phase=STOPPING operationId=null writerBusy=true barrierHeld=true prepared=false attached=false")
-        release.countDown()
-        barrier.get(10, TimeUnit.SECONDS)
-        await("cancelled STARTING Service/native and actual Dart drain", 35_000) {
+        Log.i("PseudoWorkerTest", "OWNED_WORK_STARTING_CANCELLED nonce=$nonce kind=config process=${starting.processId} operationId=null writerBusy=true prepared=false attached=false")
+        await("PREPARE gate 收到真实取消且 invocation 返回", 10_000) {
+            checkNotNull(CorePreparationObserver.workerGateState(context)).let { it.getBoolean("cancelObserved") && it.getBoolean("finished") }
+        }
+        CorePreparationObserver.releaseWorkerGate(context)
+        starting.awaitDeath()
+        assertTrue(starting.deathConfirmed)
+        await("取消 STARTING 后实际 core/FD 和 Dart writer drain", 35_000) {
+            val status = client.status()
+            assertEquals("取消不能替换到另一个 core", starting.processId, status["processId"])
+            assertEquals(gate.getString("inputId"), status["inputId"])
+            assertNotEquals(Contract.CORE_PHASE_READY, status["phase"])
             var drained = false
             main {
-                val session = PseudoVpnService.session.snapshot()
-                val core = PseudoVpnService.core.snapshot()
-                assertEquals(generation, session.generation)
-                assertTrue("Cancelled startup must never attach late",
-                    session.phase == NativeSession.Phase.STOPPING || session.phase == NativeSession.Phase.STOPPED)
-                assertEquals("Cancelled startup must not prepare another core", before.core.generation, core.generation)
-                assertEquals(CoreHost.Phase.EMPTY, core.phase)
+                val state = AppBridge.runtimeState()
+                assertTrue(state["phase"] in setOf("STARTING", "STOPPING", "STOPPED"))
                 assertNull(AppBridge.operationId)
                 assertNull(AppBridge.command)
-                val state = AppBridge.runtimeState()
                 assertEquals(false, state["scheduleBusy"])
                 assertEquals(false, state["pendingStart"])
                 assertEquals(false, state["pendingSystemStart"])
-                drained = session.phase == NativeSession.Phase.STOPPED && PseudoVpnService.instance == null &&
-                    state["writerBusy"] == false && !AppBridge.logic.busy
+                drained = state["phase"] == "STOPPED" && state["writerBusy"] == false && !AppBridge.logic.busy &&
+                    status["phase"] == Contract.CORE_PHASE_EXITED
             }
             drained
         }
-        worker { Unit }
+        assertEquals("stop", client.lifecycle.snapshot().exitReason)
+        assertFalse("明确取消不能生成异常恢复要求", client.lifecycle.snapshot().recoveryRequired)
         nativeEmpty()
-        assertArrayEquals("Cancellation must retain the committed revision 2 without claiming applied",
-            committed, files.resolve("configurations.json").readBytes())
+        assertArrayEquals("保留 revision 2，不能把取消记为 applied", committed, files.resolve("configurations.json").readBytes())
         for (name in listOf("overrides.json", "preferences.json")) {
-            assertArrayEquals("STARTING cancellation changed $name", checkNotNull(beforeStores[name]),
-                files.resolve(name).readBytes())
+            assertArrayEquals("STARTING 取消改变了 $name", checkNotNull(beforeStores[name]), files.resolve(name).readBytes())
         }
-        main { stopped(AppBridge.runtimeState(), generation, before.core.generation) }
-        Log.i("PseudoWorkerTest",
-            "OWNED_WORK_STARTING_DRAIN nonce=$nonce kind=config session=$generation phase=STOPPED core=EMPTY revision=2 lastResult=updated writerBusy=false noLateAttach=true otherStoresUnchanged=true")
+        main { assertEquals("STOPPED", AppBridge.runtimeState()["phase"]) }
+        Log.i("PseudoWorkerTest", "OWNED_WORK_STARTING_DRAIN nonce=$nonce kind=config process=${starting.processId} phase=STOPPED core=EMPTY revision=2 lastResult=updated writerBusy=false noLateAttach=true otherStoresUnchanged=true")
     }
 
-    /** Invoke onRevoke on the actual Service to test callback handling. */
-    private fun revokeRunningWork(context: Context, nonce: String, kind: String, id: String,
-                                  before: Loaded, beforeStores: Map<String, ByteArray>, signal: CountDownLatch) {
+    private fun revokeRunningWork(nonce: String, kind: String, id: String, before: Loaded,
+                                  beforeStores: Map<String, ByteArray>, signal: CountDownLatch) {
         Log.i("PseudoWorkerTest", "WAIT_OWNED_WORK_REVOKE nonce=$nonce kind=$kind")
-        assertTrue("No matching second-download revoke signal within 90 seconds",
-            signal.await(90, TimeUnit.SECONDS))
+        assertTrue("90 秒内未收到第二次下载的 revoke signal", signal.await(90, TimeUnit.SECONDS))
+        var owner: String? = null
+        var admittedAt: Long? = null
+        var deadline: Long? = null
         main {
-            val service = checkNotNull(PseudoVpnService.instance)
-            val owner = checkNotNull(AppBridge.operationId)
-            val command = AppBridge.command
-            assertEquals("refreshSchedule", command?.get("action"))
-            assertEquals(kind, command?.get("kind"))
-            assertEquals(id, command?.get("id"))
-            assertEquals(NativeSession.Phase.RUNNING, PseudoVpnService.session.snapshot().phase)
-            assertEquals(before.session.generation, PseudoVpnService.session.snapshot().generation)
-            assertEquals(before.core, PseudoVpnService.core.snapshot())
+            owner = checkNotNull(AppBridge.operationId)
+            admittedAt = checkNotNull(AppBridge.operationAdmittedAt)
+            deadline = checkNotNull(AppBridge.operationDeadline)
+            assertEquals("refreshSchedule", AppBridge.command?.get("action"))
+            assertEquals(kind, AppBridge.command?.get("kind"))
+            assertEquals(id, AppBridge.command?.get("id"))
+            assertEquals("RUNNING", AppBridge.runtimeState()["phase"])
+            assertSameInput(before)
             assertEquals(true, AppBridge.runtimeState()["scheduleBusy"])
-            assertTrue("The second real Dart download must still be in flight", AppBridge.logic.busy)
-            val failure = AtomicReference<Throwable?>()
-            val callback = Thread({
-                try {
-                    service.onRevoke()
-                } catch (error: Throwable) {
-                    failure.set(error)
-                }
-            }, "PseudoWorkerRevoke")
-            callback.start()
-            callback.join(2_000)
-            failure.get()?.let { throw it }
-            assertFalse("Non-main onRevoke must not wait for main cleanup", callback.isAlive)
-            // Assert synchronous withdrawal while the main queue remains held.
-            assertNull("Revocation must synchronously withdraw scheduled publication authority", AppBridge.operationId)
-            assertTrue("Authority withdrawal must retain the actual Dart writer", AppBridge.logic.busy)
-            assertEquals(true, AppBridge.runtimeState()["writerBusy"])
-            assertSame(service, PseudoVpnService.instance)
-            assertEquals(before.session.generation, PseudoVpnService.session.snapshot().generation)
-            assertEquals(before.core.generation, PseudoVpnService.core.snapshot().generation)
-            Log.i("PseudoWorkerTest",
-                "OWNED_WORK_REVOKED_SYNC nonce=$nonce kind=$kind owner=$owner operationId=null dartBusy=true writerBusy=true mainQueueHeld=true directServiceCallback=true")
+            assertTrue("第二次真实 Dart 下载必须仍在执行", AppBridge.logic.busy)
         }
-        await("revoked Service/native exit and actual late Dart I/O drain", 35_000) {
+        val beforeRecords = runRecords()
+        val callback = before.observer.debug.serviceControl(Fixture.REVOKE_SERVICE_OFF_MAIN)
+        assertEquals(before.processId, callback.getString("processId"))
+        assertEquals(before.observer.pid, callback.getInt("pid"))
+        assertTrue(callback.getBoolean("callbackOffMain"))
+        assertTrue(callback.getBoolean("callbackReturned"))
+        assertTrue("onRevoke 返回前必须关闭原 TUN FD", callback.getBoolean("originalDescriptorClosed"))
+        assertTrue(callback.getBoolean("descriptorWithdrawn"))
+        assertTrue("不能把 revoke callback 施加到后来替换的 Service", callback.getBoolean("sameServiceOrDestroyed"))
+        await("实际 revoked event 撤销 scheduled publication authority", 10_000) {
+            var withdrawn = false
+            main {
+                assertTrue("onRevoke 不能把尚未结束的真实下载标成退出", AppBridge.logic.busy)
+                assertEquals(true, AppBridge.runtimeState()["writerBusy"])
+                withdrawn = AppBridge.operationId == null && AppBridge.runtimeState()["scheduleBusy"] == false
+                if (withdrawn) assertNull(AppBridge.command)
+                else if (AppBridge.command?.get("action") == "systemRevoked") {
+                    assertNotEquals(owner, AppBridge.operationId)
+                    assertEquals(owner, AppBridge.command?.get("revokedOwner"))
+                    assertEquals(admittedAt, AppBridge.operationAdmittedAt)
+                    assertEquals(deadline, AppBridge.operationDeadline)
+                    assertEquals(before.processId, AppBridge.command?.get("processId"))
+                    assertEquals(before.inputId, AppBridge.command?.get("inputId"))
+                    assertEquals(false, AppBridge.runtimeState()["scheduleBusy"])
+                    assertFalse("无 LAN 的 revoke 不得排入另一个 Dart execute", AppBridge.logic.ownsOperation(checkNotNull(AppBridge.operationId)))
+                } else assertEquals(owner, AppBridge.operationId)
+            }
+            withdrawn
+        }
+        Log.i("PseudoWorkerTest", "OWNED_WORK_REVOKED_SYNC nonce=$nonce kind=$kind owner=$owner process=${before.processId} operationId=null dartBusy=true writerBusy=true directServiceCallback=true originalDescriptorClosed=true")
+        before.observer.awaitDeath()
+        assertTrue(before.observer.deathConfirmed)
+        await("revoke 后实际 core 退出及迟到 Dart I/O drain", 35_000) {
+            assertEquals("revoke 下载不能重启 core", before.processId, client.status()["processId"])
+            assertEquals("revoke 下载不能发布新运行输入", before.inputId, client.status()["inputId"])
             var drained = false
             main {
-                val session = PseudoVpnService.session.snapshot()
-                val core = PseudoVpnService.core.snapshot()
-                assertEquals("Revoked download must not restart VPN", before.session.generation, session.generation)
-                assertEquals("Revoked download must not prepare another core", before.core.generation, core.generation)
-                assertTrue(session.phase == NativeSession.Phase.STOPPING || session.phase == NativeSession.Phase.STOPPED)
-                assertNotEquals(CoreHost.Phase.FAILED, core.phase)
-                assertNull(AppBridge.operationId)
                 val state = AppBridge.runtimeState()
+                assertTrue(state["phase"] in setOf("STOPPING", "STOPPED"))
+                assertNull(AppBridge.operationId)
                 assertEquals(false, state["pendingStart"])
                 assertEquals(false, state["pendingSystemStart"])
-                drained = session.phase == NativeSession.Phase.STOPPED && core.phase == CoreHost.Phase.EMPTY &&
-                    PseudoVpnService.instance == null && state["scheduleBusy"] == false &&
-                    state["writerBusy"] == false && !AppBridge.logic.busy
+                drained = state["phase"] == "STOPPED" && client.status()["phase"] == Contract.CORE_PHASE_EXITED &&
+                    state["scheduleBusy"] == false && state["writerBusy"] == false && !AppBridge.logic.busy
                 if (drained) assertNull(AppBridge.command)
             }
             drained
         }
-        worker { Unit }
         nativeEmpty()
-        val files = AppFiles.configs(context)
-        for ((name, bytes) in beforeStores) {
-            assertArrayEquals("Revoked late download changed $name", bytes, files.resolve(name).readBytes())
-        }
+        for ((name, bytes) in beforeStores) assertArrayEquals("revoke 后迟到下载改变了 $name", bytes, AppFiles.configs(context).resolve(name).readBytes())
+        assertEquals("revoked", client.lifecycle.snapshot().exitReason)
+        assertEquals("revoke 下载不能发布另一份 run record", beforeRecords, runRecords())
         main {
-            stopped(AppBridge.runtimeState(), before.session.generation, before.core.generation)
-            assertNull(PseudoVpnService.instance)
+            assertEquals("STOPPED", AppBridge.runtimeState()["phase"])
             assertFalse(AppBridge.logic.busy)
-            assertNull("Direct callback must leave the existing SDK grant intact", VpnService.prepare(context))
+            assertNull("直接 callback 不得撤销已有 SDK grant", VpnService.prepare(context))
         }
-        Log.i("PseudoWorkerTest",
-            "OWNED_WORK_REVOKE_DRAIN nonce=$nonce kind=$kind phase=STOPPED core=EMPTY writerBusy=false storedFilesUnchanged=true noNewPrepareOrAttach=true directServiceCallback=true sdkGrantIntact=true")
-    }
-
-    private fun awaitControllerExport(nonce: String, kind: String) {
-        val context = instrumentation.targetContext.applicationContext
-        val action = context.packageName + ".validation.EXPORT_WORK_" + nonce.removePrefix("p5-load-worker-").uppercase()
-        val exported = CountDownLatch(1)
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) {
-                if (intent.action == action && intent.getStringExtra("nonce") == nonce &&
-                    intent.getStringExtra("kind") == kind) exported.countDown()
-            }
-        }
-        context.registerReceiver(receiver, IntentFilter(action), Context.RECEIVER_EXPORTED)
-        try {
-            // Snapshot before runner teardown and startup reconciliation of
-            // this still-enabled saved policy can admit another real check.
-            Log.i("PseudoWorkerTest", "WAIT_OWNED_WORK_EXPORT nonce=$nonce kind=$kind")
-            assertTrue("No formal export confirmation within 120 seconds", exported.await(120, TimeUnit.SECONDS))
-        } finally {
-            context.unregisterReceiver(receiver)
-        }
-    }
-
-    private fun selectorChoices(): Map<String, String> = worker {
-        val groups = JSONObject(NativeCore.strategies()).getJSONArray("groups")
-        (0 until groups.length()).associate { index ->
-            val group = groups.getJSONObject(index)
-            assertEquals("The controlled fixture has only select groups", "select", group.getString("type"))
-            val member = group.getString("now")
-            assertTrue(member.isNotEmpty())
-            group.getString("name") to member
-        }
-    }
-
-    private fun awaitBackground(activity: MainActivity) {
-        await("actual stopped UI Activity", 10_000) {
-            var hidden = false
-            main {
-                val monitor = ActivityLifecycleMonitorRegistry.getInstance()
-                val visible = listOf(Stage.STARTED, Stage.RESUMED, Stage.PAUSED, Stage.RESTARTED)
-                    .any { stage -> monitor.getActivitiesInStage(stage).any { it is MainActivity } }
-                hidden = !visible && (activity.isDestroyed || monitor.getActivitiesInStage(Stage.STOPPED).contains(activity))
-            }
-            hidden
-        }
-    }
-
-    private fun kindArgument(): String {
-        val kind = requireNotNull(InstrumentationRegistry.getArguments().getString("kind")) {
-            "Pass kind=config or kind=override"
-        }
-        require(kind == "config" || kind == "override") { "Pass kind=config or kind=override" }
-        return kind
+        Log.i("PseudoWorkerTest", "OWNED_WORK_REVOKE_DRAIN nonce=$nonce kind=$kind phase=STOPPED core=EMPTY writerBusy=false storedFilesUnchanged=true noNewPrepareOrAttach=true directServiceCallback=true sdkGrantIntact=true")
     }
 
     private fun cancelOwnedWork(nonce: String, signalSuffix: String): UUID {
-        val arguments = InstrumentationRegistry.getArguments()
-        assertEquals("Pass the fixed instrumentation nonce", nonce, arguments.getString("nonce"))
+        assertEquals("必须传入固定 instrumentation nonce", nonce, InstrumentationRegistry.getArguments().getString("nonce"))
         val kind = kindArgument()
-        val context = instrumentation.targetContext.applicationContext
         val action = context.packageName + ".validation." + signalSuffix
         val signal = CountDownLatch(1)
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) {
-                if (intent.action == action && intent.getStringExtra("nonce") == nonce &&
-                    intent.getStringExtra("kind") == kind) signal.countDown()
-            }
-        }
-        context.registerReceiver(receiver, IntentFilter(action), Context.RECEIVER_EXPORTED)
+        val receiver = signalReceiver(action, nonce, kind, signal)
+        registerReceiver(receiver, action)
         var ownedWorkId: UUID? = null
         try {
-            // Verify the UI remains usable before controlled Store creation.
-            main {
-                assertEquals(NativeSession.Phase.STOPPED, PseudoVpnService.session.snapshot().phase)
-            }
+            main { assertEquals("STOPPED", AppBridge.runtimeState()["phase"]) }
             Log.i("PseudoWorkerTest", "WAIT_OWNED_WORK_CANCEL nonce=$nonce kind=$kind")
-            assertTrue("No matching controller signal within 90 seconds",
-                signal.await(90, TimeUnit.SECONDS))
-
+            assertTrue("90 秒内未收到对应 controller signal", signal.await(90, TimeUnit.SECONDS))
             val id = if (kind == "config") "p5-worker-config-$nonce" else "p5-worker-plugin-$nonce"
             val unique = "update-$kind-$id"
             val manager = WorkManager.getInstance(context)
             val infos = manager.getWorkInfosForUniqueWork(unique).get(10, TimeUnit.SECONDS)
-            assertEquals("Expected exactly one WorkInfo for $unique", 1, infos.size)
+            assertEquals("$unique 必须只有一个 WorkInfo", 1, infos.size)
             val work = infos.single()
             assertEquals(WorkInfo.State.RUNNING, work.state)
-            assertTrue("Expected the production ScheduleWorker", work.tags.contains(ScheduleWorker::class.java.name))
-            // Unique name and the production Worker tag establish cleanup ownership.
+            assertTrue("必须是 production ScheduleWorker", work.tags.contains(ScheduleWorker::class.java.name))
             ownedWorkId = work.id
             var owner: String? = null
-            var sessionGeneration = -1L
-            var coreGeneration = -1L
+            val stoppedInput = StoppedInput(identity(client.status()), client.lifecycle.snapshot(), runRecords())
             main {
-                val command = AppBridge.command
-                assertEquals("refreshSchedule", command?.get("action"))
-                assertEquals(kind, command?.get("kind"))
-                assertEquals(id, command?.get("id"))
+                assertEquals("refreshSchedule", AppBridge.command?.get("action"))
+                assertEquals(kind, AppBridge.command?.get("kind"))
+                assertEquals(id, AppBridge.command?.get("id"))
                 owner = AppBridge.operationId
-                assertNotNull("The real scheduled operation must own the writer", owner)
+                assertNotNull("真实 scheduled operation 必须持有 writer", owner)
                 val state = AppBridge.runtimeState()
                 assertEquals(true, state["scheduleBusy"])
                 assertEquals(true, state["writerBusy"])
-                assertTrue("Expected real Dart execution in flight", AppBridge.logic.busy)
-                assertEquals("STOPPED", state["phase"])
-                sessionGeneration = PseudoVpnService.session.snapshot().generation
-                coreGeneration = PseudoVpnService.core.snapshot().generation
-                assertEquals(CoreHost.Phase.EMPTY, PseudoVpnService.core.snapshot().phase)
+                assertTrue("真实 Dart execution 必须仍在执行", AppBridge.logic.busy)
+                stopped(state, stoppedInput)
             }
-
-            val files = AppFiles.configs(context)
-            val beforeStores = listOf("configurations.json", "overrides.json", "preferences.json")
-                .associateWith { files.resolve(it).readBytes() }
+            nativeEmpty()
+            val beforeStores = businessFiles()
             manager.cancelWorkById(work.id).result.get(10, TimeUnit.SECONDS)
-            assertEquals(WorkInfo.State.CANCELLED,
-                manager.getWorkInfoById(work.id).get(10, TimeUnit.SECONDS)?.state)
-            Log.i("PseudoWorkerTest",
-                "OWNED_WORK_CANCELLED nonce=$nonce kind=$kind uuid=${work.id} owner=$owner state=CANCELLED")
-
-            await("cancelled schedule owner with retained real writer", 10_000) {
+            assertEquals(WorkInfo.State.CANCELLED, manager.getWorkInfoById(work.id).get(10, TimeUnit.SECONDS)?.state)
+            Log.i("PseudoWorkerTest", "OWNED_WORK_CANCELLED nonce=$nonce kind=$kind uuid=${work.id} owner=$owner state=CANCELLED")
+            await("取消 schedule owner 后保留真实 writer", 10_000) {
                 var cancelled = false
                 main {
                     val state = AppBridge.runtimeState()
-                    stopped(state, sessionGeneration, coreGeneration)
-                    assertEquals("Cancellation must not release a still-running Dart writer", true, state["writerBusy"])
-                    assertTrue("Actual Dart execute must still be in flight", AppBridge.logic.busy)
-                    assertTrue("An unrelated owner replaced the cancelled operation",
-                        AppBridge.operationId == null || AppBridge.operationId == owner)
+                    stopped(state, stoppedInput)
+                    assertEquals("取消不能释放尚未退出的 Dart writer", true, state["writerBusy"])
+                    assertTrue("实际 Dart execute 必须仍在执行", AppBridge.logic.busy)
+                    assertTrue("其他 owner 替换了被取消的 operation", AppBridge.operationId == null || AppBridge.operationId == owner)
                     cancelled = state["scheduleBusy"] == false && AppBridge.operationId == null
                     if (cancelled) assertNull(AppBridge.command)
                 }
                 cancelled
             }
             nativeEmpty()
-            Log.i("PseudoWorkerTest",
-                "OWNED_WORK_GATE nonce=$nonce kind=$kind scheduleBusy=false writerBusy=true phase=STOPPED operationId=null dartBusy=true")
-
-            await("actual Dart writer drain", 35_000) {
+            Log.i("PseudoWorkerTest", "OWNED_WORK_GATE nonce=$nonce kind=$kind scheduleBusy=false writerBusy=true phase=STOPPED operationId=null dartBusy=true")
+            await("实际 Dart writer drain", 35_000) {
                 var drained = false
                 main {
                     val state = AppBridge.runtimeState()
-                    stopped(state, sessionGeneration, coreGeneration)
+                    stopped(state, stoppedInput)
                     assertEquals(false, state["scheduleBusy"])
                     assertNull(AppBridge.operationId)
                     assertNull(AppBridge.command)
@@ -625,165 +494,229 @@ class ScheduleWorkerCancellationTest {
                 drained
             }
             nativeEmpty()
-            for ((name, bytes) in beforeStores) {
-                assertArrayEquals("Cancelled download changed $name", bytes, files.resolve(name).readBytes())
-            }
+            assertEquals("取消下载不能生成新的不可变 run record", stoppedInput.records, runRecords())
+            for ((name, bytes) in beforeStores) assertArrayEquals("取消下载改变了 $name", bytes, AppFiles.configs(context).resolve(name).readBytes())
             val after = manager.getWorkInfosForUniqueWork(unique).get(10, TimeUnit.SECONDS)
-            assertEquals("Cancellation must not enqueue a replacement", listOf(work.id), after.map { it.id })
+            assertEquals("取消不能自动 enqueue replacement", listOf(work.id), after.map { it.id })
             assertEquals(WorkInfo.State.CANCELLED, after.single().state)
-            Log.i("PseudoWorkerTest",
-                "OWNED_WORK_DRAIN nonce=$nonce kind=$kind uuid=${work.id} scheduleBusy=false writerBusy=false phase=STOPPED core=EMPTY prepared=false attached=false noRestart=true storedFilesUnchanged=true")
+            Log.i("PseudoWorkerTest", "OWNED_WORK_DRAIN nonce=$nonce kind=$kind uuid=${work.id} scheduleBusy=false writerBusy=false phase=STOPPED core=EMPTY prepared=false attached=false noRestart=true storedFilesUnchanged=true")
             return work.id
         } finally {
-            try {
-                context.unregisterReceiver(receiver)
-            } finally {
+            try { context.unregisterReceiver(receiver) }
+            finally {
                 ownedWorkId?.let { uuid ->
-                    try {
-                        WorkManager.getInstance(context).cancelWorkById(uuid).result.get(10, TimeUnit.SECONDS)
-                    } finally {
-                        awaitWriterDrain("owned work cleanup and actual writer drain")
-                    }
+                    try { WorkManager.getInstance(context).cancelWorkById(uuid).result.get(10, TimeUnit.SECONDS) }
+                    finally { awaitWriterDrain("owned work 清理及实际 writer drain") }
                 }
             }
         }
     }
 
-    private data class Loaded(
-        val session: NativeSession.Snapshot,
-        val core: CoreHost.Snapshot,
-        val input: JSONObject,
-        val specification: VpnSpecification,
-    )
+    private data class Loaded(val status: Map<String, Any?>, val input: JSONObject,
+                              val specification: VpnSpecification, val observer: CoreIpcTestDriver) {
+        val processId get() = status["processId"] as String
+        val inputId get() = status["inputId"] as String
+        val generation get() = (status["generation"] as Number).toLong()
+        val composition get() = status["composition"] as String
+    }
+    private data class StoppedInput(val identity: Map<String, Any?>, val lifecycle: CoreLifecycleRecord.State,
+                                    val records: Map<String, String>)
 
-    private fun runningInput(expectedGeneration: Long): Loaded {
-        lateinit var session: NativeSession.Snapshot
-        lateinit var core: CoreHost.Snapshot
-        await("VPN generation $expectedGeneration RUNNING and actual writer drain", 90_000) {
+    private fun runningInput(configId: String, revision: Int, previous: Loaded? = null): Loaded {
+        var candidate: String? = null
+        await("VPN 实际运行输入 $configId revision=$revision 及 writer drain", 90_000) {
+            val loaded = client.status()
+            val process = loaded["processId"] as? String
+            if (process != null && process != previous?.processId &&
+                loaded["phase"] in setOf(Contract.CORE_PHASE_LOADING, Contract.CORE_PHASE_READY)) {
+                if (candidate == null) candidate = process else assertEquals("出现额外的 core 重启", candidate, process)
+            }
+            assertNotEquals(Contract.CORE_PHASE_COMMUNICATION_LOST, loaded["phase"])
+            if (loaded["phase"] == Contract.CORE_PHASE_RECOVERY_REQUIRED) fail("VPN 启动失败：${loaded["error"]}")
             var ready = false
             main {
-                val current = PseudoVpnService.session.snapshot()
-                val loaded = PseudoVpnService.core.snapshot()
-                assertTrue("Unexpected extra VPN restart", current.generation <= expectedGeneration)
-                assertNotEquals(NativeSession.Phase.UNKNOWN, current.phase)
-                assertNotEquals(CoreHost.Phase.FAILED, loaded.phase)
-                if (current.generation == expectedGeneration && current.phase == NativeSession.Phase.STOPPED) {
-                    current.error?.let { fail("VPN startup failed: ${it.id}") }
-                }
                 val state = AppBridge.runtimeState()
-                ready = current.generation == expectedGeneration && current.phase == NativeSession.Phase.RUNNING &&
-                    loaded.phase == CoreHost.Phase.READY && loaded.purpose == CoreHost.Purpose.VPN &&
-                    state["writerBusy"] == false && state["scheduleBusy"] == false &&
-                    state["pendingSystemStart"] == false && state["pendingStart"] == false &&
-                    !AppBridge.logic.busy && AppBridge.operationId == null
-                if (ready) { session = current; core = loaded }
+                assertNotEquals("UNKNOWN", state["phase"])
+                ready = state["phase"] == "RUNNING" && loaded["phase"] == Contract.CORE_PHASE_READY &&
+                    loaded["purpose"] == Contract.CORE_PURPOSE_RUNNING && loaded["vpnRunning"] == true &&
+                    loaded["configId"] == configId && (loaded["revision"] as? Number)?.toInt() == revision &&
+                    (previous == null || process != previous.processId) &&
+                    state["writerBusy"] == false && state["scheduleBusy"] == false && state["pendingSystemStart"] == false &&
+                    state["pendingStart"] == false && !AppBridge.logic.busy && AppBridge.operationId == null
             }
             ready
         }
-        val composition = checkNotNull(core.composition)
-        val (input, native, specification) = worker {
-            val bytes = checkNotNull(PseudoVpnService.core.runningInput(core.generation, composition))
-            Triple(JSONObject(bytes.toString(Charsets.UTF_8)), JSONObject(NativeCore.snapshot()),
-                VpnSpecification.read(NativeCore.vpnSpec()))
+        val loaded = client.status()
+        assertEquals(1L, (loaded["generation"] as Number).toLong())
+        val observer = CoreIpcTestDriver.fixture()
+        try {
+            assertEquals(loaded["processId"], observer.processId)
+            assertEquals((loaded["pid"] as Number).toInt(), observer.pid)
+            assertNotEquals(android.os.Process.myPid(), observer.pid)
+            val input = platform.runRecord(loaded)
+            assertEquals(loaded["inputId"], input.getString("inputId"))
+            assertEquals(loaded["composition"], input.getString("composition"))
+            val specification = VpnSpecification.read(query(Contract.CORE_OPERATION_VPN_SPEC).toString())
+            assertEquals(1L, specification.generation)
+            assertEquals(input.getString("composition"), specification.composition)
+            val native = query(Contract.CORE_OPERATION_SNAPSHOT)
+            assertTrue(native.getBoolean("prepared"))
+            assertTrue(native.getBoolean("attached"))
+            assertFalse(native.getBoolean("cleanupFailed"))
+            assertEquals(loaded["processId"], client.lifecycle.snapshot().processId)
+            assertEquals(loaded["inputId"], client.lifecycle.snapshot().inputId)
+            assertEquals("running", client.lifecycle.snapshot().stage)
+            assertTrue(CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java))
+            main {
+                assertEquals("RUNNING", AppBridge.runtimeState()["phase"])
+                assertEquals(identity(loaded), identity(client.status()))
+                assertNull(AppBridge.operationId)
+                assertFalse(AppBridge.logic.busy)
+            }
+            CoreIpcTestDriver.assertNoGoInApplication()
+            return Loaded(loaded, input, specification, observer)
+        } catch (error: Throwable) {
+            try { observer.close() } catch (cleanup: Throwable) { if (cleanup !== error) error.addSuppressed(cleanup) }
+            throw error
         }
-        assertEquals(composition, input.getString("composition"))
-        assertEquals(core.generation, specification.generation)
-        assertEquals(composition, specification.composition)
-        assertTrue(native.getBoolean("prepared"))
-        assertTrue(native.getBoolean("attached"))
-        assertFalse(native.getBoolean("cleanupFailed"))
-        main {
-            assertEquals(NativeSession.Phase.RUNNING, PseudoVpnService.session.snapshot().phase)
-            assertEquals(expectedGeneration, PseudoVpnService.session.snapshot().generation)
-            assertEquals(core, PseudoVpnService.core.snapshot())
-            assertNotNull(PseudoVpnService.instance)
-            assertNull(AppBridge.operationId)
-            assertFalse(AppBridge.logic.busy)
-        }
-        return Loaded(session, core, input, specification)
     }
 
     private fun assertInput(loaded: Loaded, config: JSONObject, plugin: JSONObject?) {
         val id = config.getString("id")
         val revision = config.getInt("revision")
-        assertEquals(id, loaded.session.configId)
-        assertEquals(revision, loaded.session.revision)
-        assertEquals(id, loaded.core.configId)
-        assertEquals(revision, loaded.core.revision)
-        for (key in listOf("id", "name", "revision", "body")) {
-            assertEquals("Actual loaded config field $key", config.get(key), loaded.input.get(key))
+        assertEquals(id, loaded.status["configId"])
+        assertEquals(revision, (loaded.status["revision"] as Number).toInt())
+        main {
+            assertEquals(id, AppBridge.runtimeState()["configId"])
+            assertEquals(revision, AppBridge.runtimeState()["revision"])
         }
+        for (key in listOf("id", "name", "revision", "body")) assertEquals("实际装载 config 字段 $key", config.get(key), loaded.input.get(key))
         val parts = loaded.input.getJSONArray("overrides")
         assertEquals(if (plugin == null) 0 else 1, parts.length())
-        if (plugin != null) {
-            val part = parts.getJSONObject(0)
-            for (key in listOf("id", "name", "mode", "role", "revision", "body")) {
-                assertEquals("Actual loaded plugin field $key", plugin.get(key), part.get(key))
-            }
+        if (plugin != null) for (key in listOf("id", "name", "mode", "role", "revision", "body")) {
+            assertEquals("实际装载 plugin 字段 $key", plugin.get(key), parts.getJSONObject(0).get(key))
         }
     }
 
-    private fun stopAndDrain(context: Context) {
-        context.startService(Intent(context, PseudoVpnService::class.java).setAction(PseudoVpnService.ACTION_STOP))
-        await("normal Service/native Stop and actual business drain", 35_000) {
-            var stopped = false
-            main {
-                val session = PseudoVpnService.session.snapshot()
-                val core = PseudoVpnService.core.snapshot()
-                assertNotEquals(NativeSession.Phase.UNKNOWN, session.phase)
-                assertNotEquals(CoreHost.Phase.FAILED, core.phase)
-                val state = AppBridge.runtimeState()
-                stopped = session.phase == NativeSession.Phase.STOPPED && core.phase == CoreHost.Phase.EMPTY &&
-                    PseudoVpnService.instance == null && state["writerBusy"] == false &&
-                    state["scheduleBusy"] == false && state["pendingSystemStart"] == false &&
-                    !AppBridge.logic.busy && AppBridge.operationId == null
-            }
-            stopped
+    private fun selectorChoices(): Map<String, String> {
+        val reply = platform.query(Contract.CORE_OPERATION_STRATEGIES)
+        assertTrue(reply.terminal.toString(), reply.terminal.getBoolean("complete"))
+        assertEquals(reply.records.size, reply.terminal.getInt("recordCount"))
+        val source = reply.terminal.getString("source")
+        assertTrue(source.isNotEmpty())
+        assertEquals(source, reply.metadata.single().getString("source"))
+        return reply.records.associate { group ->
+            val raw = group.getJSONObject("raw")
+            assertEquals("受控 fixture 的 runtime 类型必须是 Selector", "Selector", raw.getString("type"))
+            val member = raw.getString("now")
+            assertTrue(member.isNotEmpty())
+            group.getString("name") to member
         }
-        worker { Unit }
-        nativeEmpty()
     }
 
-    private fun awaitWriterDrain(label: String) {
-        await(label, 35_000) {
+    private fun query(operation: Int): JSONObject = platform.query(operation).let { reply ->
+        assertTrue(reply.terminal.toString(), reply.terminal.getBoolean("complete"))
+        reply.value
+    }
+
+    private fun stopAndDrain() {
+        val admission = platform.stopFromSystemControl()
+        assertTrue("SystemControls 必须受理 Stop", admission in setOf(SystemControls.Admission.ACCEPTED, SystemControls.Admission.UNCHANGED))
+        await("正常 Stop 的实际 core/FD 与 business drain", 35_000) {
             var drained = false
             main {
                 val state = AppBridge.runtimeState()
-                drained = state["scheduleBusy"] == false && state["writerBusy"] == false &&
+                assertNotEquals("UNKNOWN", state["phase"])
+                assertNotEquals(Contract.CORE_PHASE_COMMUNICATION_LOST, client.status()["phase"])
+                drained = state["phase"] == "STOPPED" && client.status()["phase"] == Contract.CORE_PHASE_EXITED &&
+                    state["writerBusy"] == false && state["scheduleBusy"] == false && state["pendingSystemStart"] == false &&
                     !AppBridge.logic.busy && AppBridge.operationId == null
             }
             drained
         }
+        nativeEmpty()
     }
 
-    private fun <T> worker(block: () -> T): T {
-        val task = FutureTask(block)
-        PseudoVpnService.worker.execute(task)
-        return task.get(10, TimeUnit.SECONDS)
-    }
-
-    private fun stopped(state: Map<String, Any?>, sessionGeneration: Long, coreGeneration: Long) {
+    private fun stopped(state: Map<String, Any?>, before: StoppedInput) {
         assertEquals("STOPPED", state["phase"])
-        assertEquals(sessionGeneration, PseudoVpnService.session.snapshot().generation)
-        val core = PseudoVpnService.core.snapshot()
-        assertEquals(CoreHost.Phase.EMPTY, core.phase)
-        assertEquals("Cancelled execution must not prepare/restart a core", coreGeneration, core.generation)
+        assertEquals("取消不能 prepare 或重启 core", before.identity, identity(client.status()))
+        assertEquals(before.lifecycle, client.lifecycle.snapshot())
         assertEquals(false, state["pendingStart"])
         assertEquals(false, state["pendingSystemStart"])
     }
 
     private fun nativeEmpty() {
-        val native = JSONObject(NativeCore.snapshot())
-        assertFalse(native.getBoolean("prepared"))
-        assertFalse(native.getBoolean("attached"))
+        CoreIpcTestDriver.assertNoGoInApplication()
+        assertTrue("无 context 时不能为检查而启动 core", client.status()["phase"] in
+            setOf(null, Contract.CORE_PHASE_DISCONNECTED, Contract.CORE_PHASE_EXITED))
+        assertFalse(CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java))
+        assertFalse(CoreIpcTestDriver.servicePresent(context, CoreService::class.java))
+        val held = CoreResourceGate.forApplication(context).tryAcquire()
+        assertNotNull("core process 退出前不能释放资源锁", held)
+        held!!.close()
     }
 
-    private fun main(block: () -> Unit) = instrumentation.runOnMainSync(block)
+    private fun assertSameInput(loaded: Loaded) = assertEquals(identity(loaded.status), identity(client.status()))
+    private fun identity(status: Map<String, Any?>) = listOf("processId", "inputId", "generation", "networkRevision", "composition", "configId", "revision")
+        .associateWith { status[it] }
+    private fun runRecords(): Map<String, String> = AppFiles.work(context).listFiles().orEmpty()
+        .filter { it.name.startsWith("run-record-") }.associate { it.name to MessageDigest.getInstance("SHA-256")
+            .digest(it.readBytes()).joinToString("") { byte -> "%02x".format(byte) } }
+    private fun businessFiles() = listOf("configurations.json", "overrides.json", "preferences.json")
+        .associateWith { AppFiles.configs(context).resolve(it).readBytes() }
+    private fun entries(value: JSONObject) = value.getJSONArray("entries").let { values -> (0 until values.length()).map(values::getJSONObject) }
 
+    private fun awaitWriterDrain(label: String) = await(label, 35_000) {
+        var drained = false
+        main {
+            val state = AppBridge.runtimeState()
+            drained = state["scheduleBusy"] == false && state["writerBusy"] == false && !AppBridge.logic.busy && AppBridge.operationId == null
+        }
+        drained
+    }
+
+    private fun awaitBackground(activity: MainActivity) = await("UI Activity 实际停止", 10_000) {
+        var hidden = false
+        main {
+            val monitor = ActivityLifecycleMonitorRegistry.getInstance()
+            val visible = listOf(Stage.STARTED, Stage.RESUMED, Stage.PAUSED, Stage.RESTARTED)
+                .any { stage -> monitor.getActivitiesInStage(stage).any { it is MainActivity } }
+            hidden = !visible && (activity.isDestroyed || monitor.getActivitiesInStage(Stage.STOPPED).contains(activity))
+        }
+        hidden
+    }
+
+    private fun awaitControllerExport(nonce: String, kind: String) {
+        val action = context.packageName + ".validation.EXPORT_WORK_" + nonce.removePrefix("p5-load-worker-").uppercase()
+        val exported = CountDownLatch(1)
+        val receiver = signalReceiver(action, nonce, kind, exported)
+        registerReceiver(receiver, action)
+        try {
+            Log.i("PseudoWorkerTest", "WAIT_OWNED_WORK_EXPORT nonce=$nonce kind=$kind")
+            assertTrue("120 秒内未收到正式 export confirmation", exported.await(120, TimeUnit.SECONDS))
+        } finally { context.unregisterReceiver(receiver) }
+    }
+
+    private fun signalReceiver(action: String, nonce: String, kind: String, signal: CountDownLatch) = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == action && intent.getStringExtra("nonce") == nonce && intent.getStringExtra("kind") == kind) signal.countDown()
+        }
+    }
+
+    private fun registerReceiver(receiver: BroadcastReceiver, action: String) {
+        if (Build.VERSION.SDK_INT >= 33) context.registerReceiver(receiver, IntentFilter(action), Context.RECEIVER_EXPORTED)
+        else @Suppress("DEPRECATION") context.registerReceiver(receiver, IntentFilter(action))
+    }
+
+    private fun kindArgument(): String = requireNotNull(InstrumentationRegistry.getArguments().getString("kind")) {
+        "必须传入 kind=config 或 kind=override"
+    }.also { require(it == "config" || it == "override") { "必须传入 kind=config 或 kind=override" } }
+
+    private fun main(block: () -> Unit) = instrumentation.runOnMainSync(block)
     private fun await(label: String, timeoutMs: Long, ready: () -> Boolean) {
         val deadline = SystemClock.elapsedRealtime() + timeoutMs
         while (!ready()) {
-            check(SystemClock.elapsedRealtime() < deadline) { "Timed out waiting for $label" }
+            check(SystemClock.elapsedRealtime() < deadline) { "等待 $label 超时" }
             Thread.sleep(25)
         }
     }

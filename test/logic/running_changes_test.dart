@@ -1,27 +1,27 @@
+import 'package:clash_pseudo/src/model/platform_failure.dart';
 import 'package:clash_pseudo/src/model/app_snapshot.dart';
 import 'package:clash_pseudo/src/model/core_snapshot.dart';
 
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:clash_pseudo/src/features/configs/config_actions.dart';
-import 'package:clash_pseudo/src/features/configs/config_downloader.dart';
-import 'package:clash_pseudo/src/features/configs/config_entry.dart';
-import 'package:clash_pseudo/src/features/configs/config_store.dart';
-import 'package:clash_pseudo/src/features/mode/tunnel_mode.dart';
-import 'package:clash_pseudo/src/features/overrides/override_actions.dart';
-import 'package:clash_pseudo/src/features/overrides/override_entry.dart';
-import 'package:clash_pseudo/src/features/overrides/override_store.dart';
+import 'package:clash_pseudo/src/logic/configs/config_actions.dart';
+import 'package:clash_pseudo/src/logic/configs/config_downloader.dart';
+import 'package:clash_pseudo/src/model/config_entry.dart';
+import 'package:clash_pseudo/src/logic/configs/config_store.dart';
+import 'package:clash_pseudo/src/model/tunnel_mode.dart';
+import 'package:clash_pseudo/src/logic/overrides/override_actions.dart';
+import 'package:clash_pseudo/src/model/override_entry.dart';
+import 'package:clash_pseudo/src/logic/overrides/override_store.dart';
 import 'package:clash_pseudo/src/model/app_preferences.dart';
-import 'package:clash_pseudo/src/logic/preferences_store.dart';
+import 'package:clash_pseudo/src/logic/storage/preferences_store.dart';
 import 'package:clash_pseudo/src/logic/running_input.dart';
-import 'package:clash_pseudo/src/platform/core_input.dart';
-import 'package:clash_pseudo/src/features/strategies/strategy_actions.dart';
-import 'package:clash_pseudo/src/features/strategies/strategy_choice.dart';
-import 'package:clash_pseudo/src/features/strategies/strategy_snapshot.dart';
-import 'package:clash_pseudo/src/l10n/app_message.dart';
-import 'package:clash_pseudo/src/platform/app_bridge.dart';
-import 'package:flutter/services.dart';
+import 'package:clash_pseudo/src/platform/core/core_input.dart';
+import 'package:clash_pseudo/src/logic/configs/strategy_actions.dart';
+import 'package:clash_pseudo/src/model/strategy_choice.dart';
+import 'package:clash_pseudo/src/model/strategy_snapshot.dart';
+import 'package:clash_pseudo/src/model/app_message.dart';
+import 'package:clash_pseudo/src/platform/channel/app_bridge.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _Download extends ConfigDownloader {
@@ -43,6 +43,8 @@ class _Platform extends AppBridge {
   bool expired = false;
   int _coreGeneration = 8;
   final loaded = <String, dynamic>{
+    'vpnIntent': true,
+    'lanIntent': false,
     'id': 'one',
     'name': 'Main',
     'revision': 1,
@@ -66,7 +68,7 @@ class _Platform extends AppBridge {
     core: CoreSnapshot(
       generation: 8,
       phase: 'READY',
-      purpose: 'VPN',
+      purpose: 'RUNNING',
       configId: 'one',
       revision: 1,
       composition: '["one",1]',
@@ -99,7 +101,7 @@ class _Platform extends AppBridge {
       core: CoreSnapshot(
         generation: 8,
         phase: 'READY',
-        purpose: 'VPN',
+        purpose: 'RUNNING',
         configId: 'one',
         revision: 1,
         composition: loaded['composition'] as String,
@@ -108,6 +110,7 @@ class _Platform extends AppBridge {
   }
 
   void Function()? afterStop;
+  String strategyRawType = 'select';
   bool mismatchChoice = false;
   bool mismatchAccess = false;
   @override
@@ -116,35 +119,38 @@ class _Platform extends AppBridge {
   Future<void> stage(AppMessage message) async {}
   @override
   Future<void> checkOperation() async {
-    if (expired) throw PlatformException(code: 'expired');
+    if (expired) throw PlatformFailure(code: 'expired');
   }
 
   @override
-  Future<Map<String, dynamic>> runningInput(CoreSnapshot core) async =>
+  Future<Map<String, dynamic>?> runningRecord(CoreSnapshot core) async =>
       jsonDecode(jsonEncode(loaded)) as Map<String, dynamic>;
   @override
-  Future<StrategySnapshot> strategies(int generation) async => StrategySnapshot(
-    generation: generation,
-    configId: 'one',
-    revision: 1,
-    purpose: 'VPN',
-    composition: loaded['composition'] as String,
-    globalReferenced: false,
-    unrestored: const {},
-    groups: [
-      StrategyGroup(
-        name: 'Proxy',
-        rawType: 'select',
-        hidden: false,
-        now: (loaded['choices'] as Map)['Proxy']['member'] as String,
-        fixed: '',
-        members: const [
-          StrategyMember(name: 'A', type: 'Direct'),
-          StrategyMember(name: 'B', type: 'Direct'),
+  Future<StrategySnapshot> strategies(CoreSnapshot coreIdentity) async =>
+      StrategySnapshot(
+        processId: coreIdentity.processId,
+        inputId: coreIdentity.inputId,
+        generation: coreIdentity.generation,
+        configId: 'one',
+        revision: 1,
+        purpose: 'RUNNING',
+        composition: loaded['composition'] as String,
+        globalReferenced: false,
+        unrestored: const {},
+        groups: [
+          StrategyGroup(
+            name: 'Proxy',
+            rawType: strategyRawType,
+            hidden: false,
+            now: (loaded['choices'] as Map)['Proxy']['member'] as String,
+            fixed: '',
+            members: const [
+              StrategyMember(name: 'A', type: 'Direct'),
+              StrategyMember(name: 'B', type: 'Direct'),
+            ],
+          ),
         ],
-      ),
-    ],
-  );
+      );
   @override
   Future<bool> authorize() async {
     events.add('authorize');
@@ -152,7 +158,7 @@ class _Platform extends AppBridge {
   }
 
   @override
-  Future<void> stop() async {
+  Future<void> stop({bool preserveLan = true}) async {
     events.add('stop');
     state = AppSnapshot(phase: 'STOPPED', generation: state.generation);
     afterStop?.call();
@@ -163,9 +169,11 @@ class _Platform extends AppBridge {
     required String id,
     required int revision,
     required TunnelMode? mode,
+    bool explicitStart = true,
+    String? path,
   }) async {
     events.add('start');
-    if (failStart) throw PlatformException(code: 'start');
+    if (failStart) throw PlatformFailure(code: 'start');
     started = jsonDecode(await input.readAsString()) as Map<String, dynamic>;
     loaded.addAll(started!);
     if (mismatchChoice) {
@@ -191,9 +199,10 @@ class _Platform extends AppBridge {
           ? mode ?? TunnelMode.rule
           : TunnelMode.parse(started!['routingOverride']),
       core: CoreSnapshot(
+        inputId: started!['inputId'] as String,
         generation: ++_coreGeneration,
         phase: 'READY',
-        purpose: 'VPN',
+        purpose: 'RUNNING',
         configId: id,
         revision: revision,
         composition: started!['composition'] as String,
@@ -202,14 +211,14 @@ class _Platform extends AppBridge {
   }
 
   @override
-  Future<TunnelMode> setMode(TunnelMode mode, int generation) async {
+  Future<TunnelMode> setMode(TunnelMode mode, CoreSnapshot coreIdentity) async {
     events.add('mode:${mode.name}');
     return mode;
   }
 
   @override
   Future<void> setStrategy(
-    int generation,
+    CoreSnapshot coreIdentity,
     String name,
     StrategyChoice choice,
   ) async {
@@ -222,9 +231,12 @@ class _Platform extends AppBridge {
   bool failSchedules = false;
   int scheduleCalls = 0;
   @override
-  Future<void> syncSchedules(List<Map<String, Object?>> targets) async {
+  Future<void> syncSchedules(
+    List<Map<String, Object?>> targets, {
+    required String kind,
+  }) async {
     scheduleCalls++;
-    if (failSchedules) throw PlatformException(code: 'schedule');
+    if (failSchedules) throw PlatformFailure(code: 'schedule');
   }
 }
 
@@ -264,6 +276,29 @@ void main() {
     await overrides.save([part]);
   });
   tearDown(() => directory.delete(recursive: true));
+
+  test('公开 Selector 类型的实际选择在插件更新重连后保留', () async {
+    platform.strategyRawType = 'Selector';
+    platform.loadParts([part]);
+    (platform.loaded['choices'] as Map)['Proxy']['member'] = 'B';
+    final running = (await RunningInput.read(platform, platform.state))!;
+    expect(running.entry.choices['Proxy']!.toJson(), {
+      'type': 'select',
+      'member': 'B',
+    });
+    await parts.execute({
+      'action': 'saveOverride',
+      'id': part.id,
+      'revision': part.revision,
+      'body': 'dns: {}',
+    });
+    expect(parts.result['overrideStatus'], 'applied');
+    expect(platform.events, ['stop', 'start']);
+    expect(platform.started!['choices'], {
+      'Proxy': {'type': 'select', 'member': 'B'},
+    });
+    expect(await input.exists(), isFalse);
+  });
 
   test('known preparation metadata overflow leaves the actual running lease untouched', () async {
     platform.loadParts([part]);
@@ -554,7 +589,7 @@ void main() {
             );
             final value = jsonDecode(await staged.readAsString()) as Map;
             expect(value['packages'], ['new.access']);
-            if (reject) throw PlatformException(code: 'storage');
+            if (reject) throw PlatformFailure(code: 'storage');
             await staged.rename('${directory.path}/$file');
           },
         );
@@ -566,7 +601,7 @@ void main() {
               'packages': ['new.access'],
             });
         if (reject) {
-          await expectLater(operation, throwsA(isA<PlatformException>()));
+          await expectLater(operation, throwsA(isA<PlatformFailure>()));
         } else {
           expect((await operation)?.id, 'accessSavedNextConnection');
         }
@@ -614,7 +649,7 @@ void main() {
           ),
         );
         final before = platform.state;
-        final beforeInput = await platform.runningInput(before.core);
+        final beforeInput = await platform.runningRecord(before.core);
         final beforeLoaded = (await RunningInput.read(platform, before))!;
         expect(before.running, isTrue);
         expect(beforeLoaded.preferences.access, ApplicationAccess.only);
@@ -643,7 +678,7 @@ void main() {
             final staged = jsonDecode(await temporary.readAsString()) as Map;
             expect(staged['access'], 'except');
             expect(staged['packages'], ['new.access']);
-            throw PlatformException(code: 'storage');
+            throw PlatformFailure(code: 'storage');
           },
         );
         final actions = ConfigActions(guarded, download, platform, input);
@@ -662,7 +697,7 @@ void main() {
                   ),
                 )
               : throwsA(
-                  isA<PlatformException>().having(
+                  isA<PlatformFailure>().having(
                     (error) => error.code,
                     'code',
                     'storage',
@@ -688,7 +723,7 @@ void main() {
           platform.state.runningApplicationAccess,
           same(before.runningApplicationAccess),
         );
-        expect(await platform.runningInput(platform.state.core), beforeInput);
+        expect(await platform.runningRecord(platform.state.core), beforeInput);
         final afterLoaded = (await RunningInput.read(
           platform,
           platform.state,
@@ -737,7 +772,7 @@ void main() {
   });
 
   void expectActualMain({
-    TunnelMode? fallbackMode,
+    TunnelMode? fallbackMode = TunnelMode.rule,
     TunnelMode? routingOverride,
   }) {
     expect(platform.started!['body'], main.body);
@@ -772,7 +807,7 @@ void main() {
     });
     expect(parts.result['overrideStatus'], 'applied');
     expect(platform.events, ['stop', 'start']);
-    expectActualMain(fallbackMode: TunnelMode.direct);
+    expectActualMain(fallbackMode: TunnelMode.rule);
     expect((platform.started!['overrides'] as List).single['body'], 'dns: {}');
     expect(await input.exists(), isFalse);
   });
@@ -1486,7 +1521,7 @@ void main() {
       'prepend',
     ]);
     expect(actual[1]['revision'], 5); // Not actual revision 12 + 1.
-    expectActualMain(fallbackMode: TunnelMode.direct);
+    expectActualMain(fallbackMode: TunnelMode.rule);
     final saved = await overrides.read();
     expect(saved.last.enabled, isFalse);
     expect(saved.last.mode, OverrideMode.prepend);
@@ -1544,7 +1579,19 @@ void main() {
     platform.failSchedules = true;
     await expectLater(
       parts.execute({'action': 'deleteOverride', 'id': part.id}),
-      throwsA(isA<PlatformException>()),
+      throwsA(
+        isA<ConfigFailure>()
+            .having(
+              (failure) => failure.message.id,
+              'applied result',
+              'overridesAppliedReconnected',
+            )
+            .having(
+              (failure) => failure.message.detail,
+              'schedule error',
+              contains('schedule'),
+            ),
+      ),
     );
     expect(await overrides.read(), isEmpty);
     expect(platform.events, ['stop', 'start']);
@@ -1776,7 +1823,8 @@ void main() {
     expect((await configs.read()).selected!.revision, saved.revision);
     expect(platform.started!['revision'], saved.revision);
     expect(platform.started!['body'], saved.body);
-    expect(platform.started!['mode'], 'direct');
+    expect(platform.started!['mode'], 'rule');
+    expect((await configs.read()).mode, TunnelMode.direct);
     expect(platform.started!['routingOverride'], isNull);
     expect(platform.started!['access'], 'only');
     expect(platform.started!['packages'], ['fixture.loaded']);
@@ -1809,7 +1857,7 @@ void main() {
       final guarded = ConfigStore(
         directory,
         beforeWrite: () async {
-          throw PlatformException(code: 'expired');
+          throw PlatformFailure(code: 'expired');
         },
       );
       await expectLater(
@@ -1818,7 +1866,7 @@ void main() {
           'access': 'except',
           'packages': ['new.access'],
         }),
-        throwsA(isA<PlatformException>()),
+        throwsA(isA<PlatformFailure>()),
       );
       expect(
         (await PreferencesStore(directory).read()).access,

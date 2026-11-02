@@ -1,21 +1,23 @@
 package engine
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
+	"fmt"
 	"net"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
+	A "github.com/metacubex/mihomo/adapter/inbound"
 	"github.com/metacubex/mihomo/config"
 	C "github.com/metacubex/mihomo/constant"
-
-	"clashpseudo/native/internal/configinput"
+	IN "github.com/metacubex/mihomo/listener/inbound"
 )
 
 func TestPlatformOwnsIngressWithoutChangingRules(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	occupied, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -37,9 +39,6 @@ ntp: {enable: true}
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := configurePlatform(raw, t.TempDir()); err != nil {
-		t.Fatal(err)
-	}
 	if raw.Port != port || !raw.AllowLan || !raw.Tun.Enable || raw.Tun.Stack != C.TunGvisor || raw.Tun.MTU != 1420 || raw.ExternalController == "" || raw.ExternalUI == "" || raw.DNS.Listen == "" || !raw.NTP.Enable || raw.ShadowSocksConfig == "" || raw.VmessConfig == "" {
 		t.Fatal("user configuration was erased to adapt Android")
 	}
@@ -47,7 +46,7 @@ ntp: {enable: true}
 		t.Fatal("routing policy changed")
 	}
 	var e Engine
-	if err := e.Prepare(t.TempDir(), []byte(body), "rule", nil, func(int) bool { return true }); err != nil {
+	if err := e.Prepare(t.TempDir(), []byte(body), "rule", func(int) bool { return true }); err != nil {
 		t.Fatal(err)
 	}
 	defer requireStop(t, &e)
@@ -59,115 +58,70 @@ ntp: {enable: true}
 	}
 }
 
-func TestProviderCacheLocationIsApplicationOwned(t *testing.T) {
-	for _, path := range []string{"providers/explicit.yaml", ""} {
-		body := "proxy-providers:\n  fixture:\n    type: http\n    url: https://invalid.test/provider\n"
-		if path != "" {
-			body += "    path: " + path + "\n"
-		}
-		raw, err := config.UnmarshalRawConfig([]byte(body))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := configurePlatform(raw, t.TempDir()); err != nil {
-			t.Fatal(err)
-		}
-		value, exists := raw.ProxyProvider["fixture"]["path"]
-		if path == "" && exists {
-			t.Fatal("missing HTTP path was needlessly materialized")
-		}
-		if path != "" && (!exists || value != path) {
-			t.Fatal("explicit managed HTTP path was removed")
-		}
+func TestRuntimeKeepsCoreSocketOptionsWithoutPrevalidation(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
 	}
-	for _, path := range []string{"../configurations/configurations.json", "cache.db", "tailscale/state", "GeoIP.dat"} {
-		raw, _ := config.UnmarshalRawConfig([]byte("proxy-providers:\n  fixture:\n    type: http\n    url: https://invalid.test/provider\n    path: '" + path + "'\n"))
-		if err := configurePlatform(raw, t.TempDir()); err == nil {
-			t.Fatalf("accepted protected path %q", path)
-		}
-	}
-	// The public parser derives cache paths for both absent and explicitly empty path
-	// values.
-	raw, _ := config.UnmarshalRawConfig([]byte("proxy-providers:\n  fixture:\n    type: http\n    url: https://invalid.test/provider\n    path: ''\n"))
-	if err := configurePlatform(raw, t.TempDir()); err != nil {
-		t.Fatalf("rejected HTTP provider whose empty path the parser derives: %v", err)
-	}
-}
 
-func TestManagedResourcePathRejectsTraversalAndSymlinks(t *testing.T) {
-	home, outside := t.TempDir(), t.TempDir()
-	if err := os.Symlink(outside, filepath.Join(home, "link")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(filepath.Join(home, "identities"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(home, "identities"), filepath.Join(home, "inside-link")); err != nil {
-		t.Fatal(err)
-	}
-	for _, path := range []string{"../outside", outside, "link/missing.yaml", "inside-link/missing.yaml", ""} {
-		if managedPath(home, path) {
-			t.Fatalf("accepted external/protected resource %q", path)
-		}
-	}
-	if !managedPath(home, "providers/local.yaml") {
-		t.Fatal("rejected missing child under managed home")
-	}
-}
-
-func TestProviderCannotReplaceCustomTailscaleIdentityOrDerivedCache(t *testing.T) {
-	home := t.TempDir()
-	for _, relative := range []string{"logins/account-a", "logins"} {
-		raw, _ := config.UnmarshalRawConfig([]byte(`proxies:
-  - {name: tail, type: tailscale, state-dir: logins/account-a}
-proxy-providers:
-  fixture: {type: http, url: 'https://invalid.test/nodes', path: '` + relative + `'}
-`))
-		if err := configurePlatform(raw, home); err == nil {
-			t.Fatalf("provider overwrote identity path %s", relative)
-		}
-	}
-	source := "https://invalid.test/nodes"
-	derived := filepath.Join("proxies", filepath.Base(C.Path.GetPathByHash("proxies", source)))
-	raw, _ := config.UnmarshalRawConfig([]byte("proxies:\n  - {name: tail, type: tailscale, state-dir: '" + derived + "'}\nproxy-providers:\n  fixture: {type: http, url: '" + source + "'}\n"))
-	if err := configurePlatform(raw, home); err == nil {
-		t.Fatal("derived HTTP path collided with an identity directory")
-	}
-}
-
-func TestRuntimePlatformLimitsAreExplicitAndPreviewDoesNotEraseThem(t *testing.T) {
-	for _, tc := range []struct{ yaml, field, reason string }{
-		{"tun: {enable: false}", "tun.enable", "tunDisabled"},
-		{"external-controller: 127.0.0.1:9090", "external-controller", "controllerUnavailable"},
-		{"routing-mark: 12", "routing-mark", "routingMark"},
-		{"tun: {file-descriptor: 3}", "tun.file-descriptor", "externalFd"},
-		{"tun: {device: custom}", "tun.device", "interfaceName"},
-		{"tun: {auto-redirect: true}", "tun.auto-redirect", "autoRedirect"},
-		{"ntp: {enable: true, write-to-system: true}", "ntp.write-to-system", "systemClock"},
-		{"dns: {enable: false}\ntun: {dns-hijack: ['any:53']}", "tun.dns-hijack", "dnsHijackConflict"},
-	} {
-		t.Run(tc.field, func(t *testing.T) {
-			body, presence, err := configinput.RunningDefaults([]byte(tc.yaml), "", "")
-			if err != nil {
+	for _, purpose := range []string{"PREVIEW", "RUNNING"} {
+		t.Run(fmt.Sprint(purpose), func(t *testing.T) {
+			if isolateEngineTest(t) {
+				return
+			}
+			const body = `geo-auto-update: false
+interface-name: fixture-missing
+routing-mark: 12
+proxies:
+  - {name: options, type: direct, interface-name: fixture-missing, routing-mark: 12, tfo: true}
+listeners:
+  - {name: options-listener, type: http, listen: 127.0.0.1, port: 0, routing-mark: 12}
+dns: {enable: true, listen: '127.0.0.1:0', listen-routing-mark: 12}
+tun: {inet4-address: ['198.18.0.1/30']}
+rules: ['MATCH,DIRECT']
+`
+			var e Engine
+			if purpose == "PREVIEW" {
+				if err := e.PrepareWithOptions(t.TempDir(), []byte(body), "", func(int) bool { return true }, PrepareOptions{Purpose: "PREVIEW"}); err != nil {
+					t.Fatalf("socket options were rejected before actual use: %v", err)
+				}
+				defer requireStop(t, &e)
+				if e.cfg.General.Interface != "fixture-missing" || e.cfg.General.RoutingMark != 12 {
+					t.Fatal("global socket options changed")
+				}
+				info := e.cfg.Proxies["options"].Adapter().ProxyInfo()
+				if info.Interface != "fixture-missing" || info.RoutingMark != 12 || !info.TFO {
+					t.Fatalf("proxy socket options changed: %+v", info)
+				}
+				if option, ok := e.cfg.Listeners["options-listener"].Config().(*IN.HTTPOption); !ok || option == nil || option.RoutingMark != 12 || e.cfg.DNS.ListenRoutingMark != 12 {
+					t.Fatal("listener or DNS socket options changed")
+				}
+				if e.tun != nil || len(e.listenerStates.Snapshot()) != 0 {
+					t.Fatal("PREVIEW启动了外部listener")
+				}
+				requireStop(t, &e)
+				return
+			}
+			lc := A.NewListenConfig()
+			lc.SetRouteMark(12)
+			baseline, original := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+			if original == nil {
+				if err := baseline.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			err := e.PrepareWithOptions(t.TempDir(), []byte(body), "", func(int) bool { return true }, PrepareOptions{Purpose: "RUNNING", VPNIntent: true, Generation: 1, Composition: "socket-options"})
+			if original != nil {
+				var socket *net.OpError
+				if err == nil || !errors.As(err, &socket) || !strings.Contains(err.Error(), original.Error()) {
+					t.Fatalf("实际socket错误被替换: %v; 原错误: %v", err, original)
+				}
+				if e.owner != nil || e.cfg != nil {
+					t.Fatal("socket创建失败后仍持有context")
+				}
+			} else if err != nil {
 				t.Fatal(err)
 			}
-			raw, _ := config.UnmarshalRawConfig(body)
-			var limit *PlatformError
-			if err := platformRuntime(raw, presence); !errors.As(err, &limit) || limit.Field != tc.field || limit.Reason != tc.reason {
-				t.Fatalf("wrong boundary error: %v", err)
-			}
-			var message map[string]any
-			if json.Unmarshal([]byte(limit.Message()), &message) != nil || message["id"] != "nativeConfigurationUnsupported" {
-				t.Fatal("missing stable message")
-			}
+
 		})
-	}
-	body, presence, err := configinput.RunningDefaults([]byte("tun: {file-descriptor: 0, device: '', auto-redirect: false}\nrouting-mark: 0\nntp: {enable: false, write-to-system: true}\nsecret: unused\n"), "", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, _ := config.UnmarshalRawConfig(body)
-	if err := platformRuntime(raw, presence); err != nil {
-		t.Fatalf("ineffective zero/disabled system request rejected: %v", err)
 	}
 }

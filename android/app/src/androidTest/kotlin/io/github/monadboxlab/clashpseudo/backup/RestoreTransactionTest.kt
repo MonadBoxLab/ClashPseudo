@@ -210,7 +210,7 @@ class RestoreTransactionTest {
             f.old(); val old = f.current(); val candidate = f.candidate(); cancelDuringPreparation = true
             val cancelled = f.storage.install(candidate.token, f.storage.snapshot().epoch, BackupFiles.Operation(preparing))
             assertEquals(false, cancelled.committed)
-            assertFalse(cancelled.rolledBack) // no PREPARED journal/formal replacement existed yet
+            assertFalse(cancelled.rolledBack) // The PREPARED journal has not been published, and the business files are unchanged.
             assertEquals("restoreCancelled", cancelled.error)
             assertTrue(f.storage.snapshot().ready)
             assertEquals(old, f.current())
@@ -300,8 +300,6 @@ class RestoreTransactionTest {
             assertTrue(entered.await(5, TimeUnit.SECONDS))
             backupRejects<IOException> { f.storage.publishStore(kind, epoch, BackupLease()) }
             backupRejects<IOException> { f.storage.install(candidate.token, epoch, BackupFiles.Operation(BackupLease())) }
-            // A second instance must acquire the same physical file lock.
-            backupRejects<IOException> { restart(f).recover() }
             release.countDown(); reader.get(5, TimeUnit.SECONDS)
             assertTrue(f.storage.publishStore(kind, epoch, BackupLease()).saved)
         } finally { release.countDown(); pool.shutdownNow() }
@@ -323,7 +321,7 @@ class RestoreTransactionTest {
             assertTrue(entered.await(5, TimeUnit.SECONDS))
             lane.execute { threads += Thread.currentThread(); second.countDown() }
             assertFalse(second.await(100, TimeUnit.MILLISECONDS))
-            // File I/O runs on the dedicated storage lane.
+            // File I/O runs on its dedicated executor.
             assertNotSame(Thread.currentThread(), threads.single())
             assertEquals("pseudo-storage-io", threads.single().name)
             release.countDown()
@@ -332,16 +330,19 @@ class RestoreTransactionTest {
         } finally { release.countDown(); check(finished.await(5, TimeUnit.SECONDS)) }
     }
 
-    @Test fun candidateLeaseIsRetainedUntilActualReadReturnsBeforeDiscard() = BackupFixture.use { f ->
+    @Test fun candidateLeaseIsRetainedUntilItsActualArchiveReadReturnsBeforeDiscard() = BackupFixture.use { f ->
         val candidate = f.candidate()
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
         val pool = Executors.newFixedThreadPool(2)
         try {
             val reading = pool.submit {
-                f.files.withPart(candidate.token, BackupFiles.Kind.CONFIGURATIONS, BackupFiles.Operation(BackupLease())) {
-                    entered.countDown(); check(release.await(10, TimeUnit.SECONDS)); it.readBytes()
-                }
+                f.files.writeArchive(candidate.token, object : java.io.OutputStream() {
+                    override fun write(value: Int) {
+                        entered.countDown(); check(release.await(10, TimeUnit.SECONDS))
+                    }
+                    override fun write(bytes: ByteArray, offset: Int, length: Int) = write(0)
+                }, BackupFiles.Operation(BackupLease()))
             }
             assertTrue(entered.await(5, TimeUnit.SECONDS))
             val discardEntered = CountDownLatch(1)

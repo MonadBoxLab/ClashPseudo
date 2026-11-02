@@ -137,4 +137,11 @@
     <string name="widget_mode_unknown">—</string>
     <string name="widget_capacity">Too small\nOpen app</string>
     <string name="widget_open_description">%1$s. %2$s. Open the app.</string>
+    <string name="lan_service_channel">LAN proxy</string>
+    <string name="lan_service_running">LAN proxy is active</string>
+    <string name="core_recovery_channel">Core recovery</string>
+    <string name="core_recovery_title">The core has exited</string>
+    <string name="core_recovery_body">Open the app to restart or select another configuration.</string>
+    <string name="lan_service_preparing">Preparing LAN proxy</string>
+    <string name="lan_service_unavailable">LAN proxy is unavailable; open the app to review the selected interfaces.</string>
 </resources>

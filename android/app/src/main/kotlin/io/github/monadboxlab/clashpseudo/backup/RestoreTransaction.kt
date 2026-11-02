@@ -1,15 +1,14 @@
 package io.github.monadboxlab.clashpseudo.backup
 
-import android.os.ParcelFileDescriptor
 import android.system.Os
 import android.system.OsConstants
+import io.github.monadboxlab.clashpseudo.message.AppMessage
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
 import java.io.IOException
-import java.nio.channels.OverlappingFileLockException
 import java.util.UUID
 import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicReference
@@ -29,7 +28,7 @@ class RestoreTransaction internal constructor(private val files: BackupFiles) {
         fun runIfCurrent(block: () -> Unit)
     }
     data class State(val ready: Boolean, val restoring: Boolean, val epoch: Long, val error: String? = null,
-        val systemRestore: Boolean = false)
+        val systemRestore: Boolean = false, val issue: AppMessage? = null)
     data class Publication(val saved: Boolean, val durable: Boolean, val epoch: Long,
         val error: String? = null, val cause: Throwable? = null)
     data class Installation(val committed: Boolean?, val rolledBack: Boolean, val ready: Boolean,
@@ -49,15 +48,21 @@ class RestoreTransaction internal constructor(private val files: BackupFiles) {
         if (current.epoch != expectedEpoch) throw IOException("storageEpochChanged")
     }
 
-    /** Worker only, before ANY consumer reads business files, including the system BackupAgent. */
-    fun recover(): State = exclusive {
+    /** Worker only, before consumers; cold startup removes orphans after journal recovery. */
+    fun recover(afterRecovery: () -> Unit = {}): State = exclusive {
         if (state.restoring) throw IOException("storageBusy")
         state = State(false, true, state.epoch + 1)
         try {
             recoverLocked()
-            state = state.copy(ready = true, restoring = false, error = null)
+            val issue = try {
+                afterRecovery()
+                null
+            } catch (error: Exception) {
+                AppMessage("storageCleanupFailed").withDetail(error)
+            }
+            state = state.copy(ready = true, restoring = false, error = null, issue = issue)
         } catch (error: Throwable) {
-            closeGate()
+            closeGate(cause = error)
             throw error
         }
         state
@@ -83,47 +88,35 @@ class RestoreTransaction internal constructor(private val files: BackupFiles) {
                 val temporary = File(files.stores, "${kind.fileName}.tmp")
                 val target = File(files.stores, kind.fileName)
                 var admitted = false
-                files.pinDirectory(files.stores).use { directory ->
-                    val base = "/proc/self/fd/${directory.fd}"
-                    val descriptor = Os.open("$base/${temporary.name}", OsConstants.O_RDONLY or OsConstants.O_NOFOLLOW or
-                        OsConstants.O_NONBLOCK, 0)
-                    val staged = try {
-                        Os.fstat(descriptor).also {
-                            if (!OsConstants.S_ISREG(it.st_mode)) throw IOException("Store staging file is not regular")
-                            files.sync(descriptor)
-                        }
-                    } finally { Os.close(descriptor) }
-                    owner.checkCurrent()
-                    try {
-                        owner.runIfCurrent {
-                            owner.checkCurrent()
-                            requireEpoch(expectedEpoch)
-                            checkTarget(target)
-                            val now = Os.lstat("$base/${temporary.name}")
-                            if (!OsConstants.S_ISREG(now.st_mode) || now.st_dev != staged.st_dev || now.st_ino != staged.st_ino) {
-                                throw IOException("Store staging inode changed")
-                            }
-                            admitted = true
-                            Os.rename("$base/${temporary.name}", "$base/${kind.fileName}")
-                            saved = true
-                        }
-                    } catch (error: Exception) {
-                        if (!saved) throw error
-                        return@exclusive Publication(true, false, expectedEpoch, "publishedAdmissionFailed", error)
+                files.readFile(temporary) { opened ->
+                    opened.inputStream().use { files.sync(it.fd) }
+                }
+                owner.checkCurrent()
+                try {
+                    owner.runIfCurrent {
+                        owner.checkCurrent()
+                        requireEpoch(expectedEpoch)
+                        checkTarget(target)
+                        admitted = true
+                        files.rename(temporary, target)
+                        saved = true
                     }
-                    check(admitted && saved) { "Store admission was not executed" }
-                    try {
-                        files.sync(directory.fileDescriptor)
-                        Publication(true, true, expectedEpoch)
-                    } catch (error: Exception) {
-                        Publication(true, false, expectedEpoch, "publishedDirectorySyncFailed", error)
-                    }
+                } catch (error: Exception) {
+                    if (!saved) throw error
+                    return@exclusive Publication(true, false, expectedEpoch, "publishedAdmissionFailed", error)
+                }
+                check(admitted && saved) { "Store admission was not executed" }
+                try {
+                    files.syncDirectory(files.stores)
+                    Publication(true, true, expectedEpoch)
+                } catch (error: Exception) {
+                    Publication(true, false, expectedEpoch, "publishedDirectorySyncFailed", error)
                 }
             }
         } catch (error: Exception) {
             if (!saved) throw error
-            // Lock/channel/descriptor close can fail after the real rename as well.
-            closeGate(expectedEpoch)
+            // Keep the actual publication if later cleanup fails.
+            closeGate(expectedEpoch, cause = error)
             Publication(true, false, expectedEpoch, "publishedCleanupFailed", error)
         }
     }
@@ -132,16 +125,8 @@ class RestoreTransaction internal constructor(private val files: BackupFiles) {
      * Require complete Dart validation, overwrite confirmation, old-network release
      * and durable PREPARED before admission into the committed install phase.
      */
-    fun install(token: String, expectedEpoch: Long, operation: BackupFiles.Operation): Installation {
-        var completed: Installation? = null
-        return try {
-            exclusive { installLocked(token, expectedEpoch, operation).also { completed = it } }
-        } catch (error: Exception) {
-            val actual = completed ?: throw error
-            closeGate(actual.epoch)
-            actual.copy(ready = false, error = "storageCloseFailed", cause = error)
-        }
-    }
+    fun install(token: String, expectedEpoch: Long, operation: BackupFiles.Operation): Installation =
+        exclusive { installLocked(token, expectedEpoch, operation) }
 
     private fun installLocked(token: String, expectedEpoch: Long, operation: BackupFiles.Operation): Installation {
         requireEpoch(expectedEpoch)
@@ -187,13 +172,13 @@ class RestoreTransaction internal constructor(private val files: BackupFiles) {
                         else if (error is CancellationException) "restoreCancelled"
                         else if (admitted) "restoreRolledBack" else "restorePreparationFailed", error)
                 } catch (recovery: Throwable) {
-                    closeGate()
                     if (recovery !== error) error.addSuppressed(recovery)
+                    closeGate(cause = error)
                     Installation(if (commitPublished) true else null, false, false, state.epoch, "storageRecoveryFailed", error)
                 }
             } catch (fatal: Throwable) {
                 // Process interruption/OOM/fault-injection: leave journal and immutable rollback copies.
-                closeGate()
+                closeGate(cause = fatal)
                 throw fatal
             }
         }
@@ -212,7 +197,7 @@ class RestoreTransaction internal constructor(private val files: BackupFiles) {
             requireSystemRestore(epoch)
             epoch
         } catch (error: Throwable) {
-            closeGate(epoch, "systemRestoreFailed")
+            closeGate(epoch, "systemRestoreFailed", error)
             throw error
         }
     }
@@ -227,29 +212,21 @@ class RestoreTransaction internal constructor(private val files: BackupFiles) {
         require(size >= 0) { "Invalid system restore size" }
         requireSystemRestore(expectedEpoch)
         try {
-            files.pinDirectory(files.stores).use { directory ->
-                val original = Os.fstat(directory.fileDescriptor)
-                val target = File(files.stores, kind.fileName)
-                checkTarget(target)
-                // SDK restore truncates the existing inode, so require a single link
-                // before writing.
-                if ((files.lstat(target)?.st_nlink ?: 0L) > 1L) throw IOException("System restore target has multiple links")
-                restore(target)
-                requireSystemRestore(expectedEpoch)
-                files.pinDirectory(files.stores).use { current ->
-                    val now = Os.fstat(current.fileDescriptor)
-                    if (now.st_dev != original.st_dev || now.st_ino != original.st_ino) throw IOException("System restore directory changed")
+            val target = File(files.stores, kind.fileName)
+            checkTarget(target)
+            // SDK restore truncates in place; another hard-linked name must not change.
+            if ((files.lstat(target)?.st_nlink ?: 0L) > 1L) throw IOException("System restore target has multiple links")
+            restore(target)
+            requireSystemRestore(expectedEpoch)
+            files.readFile(target) { opened ->
+                opened.inputStream().use { input ->
+                    if (Os.fstat(input.fd).st_size != size) throw IOException("Incomplete system restore file")
+                    files.sync(input.fd)
                 }
-                files.readFile(target) { opened ->
-                    opened.inputStream().use { input ->
-                        if (Os.fstat(input.fd).st_size != size) throw IOException("Incomplete system restore file")
-                        files.sync(input.fd)
-                    }
-                }
-                files.syncDirectory(files.stores)
             }
+            files.syncDirectory(files.stores)
         } catch (error: Throwable) {
-            closeGate(expectedEpoch, "systemRestoreFailed")
+            closeGate(expectedEpoch, "systemRestoreFailed", error)
             throw error
         }
     }
@@ -270,7 +247,7 @@ class RestoreTransaction internal constructor(private val files: BackupFiles) {
             if (!stateReference.compareAndSet(before, completed)) throw IOException("systemRestoreIncomplete")
             completed
         } catch (error: Throwable) {
-            closeGate(expectedEpoch, "systemRestoreFailed")
+            closeGate(expectedEpoch, "systemRestoreFailed", error)
             throw error
         }
     }
@@ -304,7 +281,7 @@ class RestoreTransaction internal constructor(private val files: BackupFiles) {
     private fun prepare(record: BackupFiles.Record, operation: BackupFiles.Operation): Journal {
         files.createDirectory(active)
         step("prepare.directory")
-        // Reject linked/directory targets before any formal content can be touched.
+        // Reject symlinks and directories before modifying business files.
         BackupFiles.Kind.entries.forEach { checkTarget(File(files.stores, it.fileName)) }
         val parts = mutableListOf<Part>()
         for (kind in BackupFiles.Kind.entries) {
@@ -318,7 +295,7 @@ class RestoreTransaction internal constructor(private val files: BackupFiles) {
             val target = File(files.stores, kind.fileName)
             val previous = if (files.lstat(target) == null) null else files.readFile(target) { source ->
                 source.inputStream().use { input ->
-                    // Preserve damaged or large old Stores as complete raw bytes.
+                    // Preserve the complete bytes of old business files, including damaged or large files.
                     files.writeNew(File(active, "old-${kind.ordinal}"), input, Long.MAX_VALUE, operation::check)
                 }
             }
@@ -365,7 +342,6 @@ class RestoreTransaction internal constructor(private val files: BackupFiles) {
         cleanRetired()
         val activeStat = files.lstat(active) ?: return Outcome.NONE
         if (!OsConstants.S_ISDIR(activeStat.st_mode)) throw IOException("Linked restore transaction directory")
-        files.pinDirectory(active).close()
         checkMaterialNames()
         val prepared = files.lstat(File(active, PREPARED)) != null
         val committed = files.lstat(File(active, COMMITTED)) != null
@@ -373,17 +349,13 @@ class RestoreTransaction internal constructor(private val files: BackupFiles) {
         val journal = if (files.lstat(File(active, JOURNAL)) == null) null else readJournal()
         if (prepared && journal == null) throw IOException("Missing restore journal")
         if (journal == null) {
-            // Formal files remain unchanged until atomic PREPARED journal publication.
+            // Business files remain unchanged until the PREPARED journal is atomically published.
             retireActive()
             return Outcome.NONE
         }
         if (prepared) verifyMarker(PREPARED, journal)
         if (committed) verifyMarker(COMMITTED, journal)
         if (!prepared) {
-            for ((index, part) in journal.parts.withIndex()) {
-                verifyFile(File(active, "new-$index"), part.fresh)
-                part.old?.let { verifyFile(File(active, "old-$index"), it) }
-            }
             retireActive()
             return Outcome.NONE
         }
@@ -478,12 +450,9 @@ class RestoreTransaction internal constructor(private val files: BackupFiles) {
     private fun checkMaterialNames() {
         val allowed = setOf(JOURNAL, "$JOURNAL.tmp", PREPARED, "$PREPARED.tmp", COMMITTED, "$COMMITTED.tmp") +
             BackupFiles.Kind.entries.flatMap { listOf("new-${it.ordinal}", "old-${it.ordinal}") }
-        files.pinDirectory(active).use { opened ->
-            val directory = File("/proc/self/fd/${opened.fd}")
-            for (name in directory.list() ?: throw IOException("Cannot enumerate restore material")) {
-                if (name !in allowed || !OsConstants.S_ISREG(Os.lstat(File(directory, name).path).st_mode)) {
-                    throw IOException("Unexpected restore material")
-                }
+        for (name in active.list() ?: throw IOException("Cannot enumerate restore material")) {
+            if (name !in allowed || !OsConstants.S_ISREG(Os.lstat(File(active, name).path).st_mode)) {
+                throw IOException("Unexpected restore material")
             }
         }
     }
@@ -499,52 +468,34 @@ class RestoreTransaction internal constructor(private val files: BackupFiles) {
     }
 
     private fun cleanRetired() {
-        files.pinDirectory(files.privateRoot).use { opened ->
-            val names = File("/proc/self/fd/${opened.fd}").list() ?: throw IOException("Cannot enumerate restore workspace")
-            for (name in names) {
-                if (name.startsWith("retired-") && BackupFiles.isToken(name.removePrefix("retired-"))) {
-                    files.removePrivateDirectory(File(files.privateRoot, name))
-                    step("recovery.retiredCleaned")
-                }
+        val names = files.privateRoot.list() ?: throw IOException("Cannot enumerate restore workspace")
+        for (name in names) {
+            if (name.startsWith("retired-") && BackupFiles.isToken(name.removePrefix("retired-"))) {
+                files.removePrivateDirectory(File(files.privateRoot, name))
+                step("recovery.retiredCleaned")
             }
         }
     }
 
-    private fun closeGate(expectedEpoch: Long? = null, reason: String = "storageRecoveryFailed") {
+    private fun closeGate(expectedEpoch: Long? = null, reason: String = "storageRecoveryFailed", cause: Throwable? = null) {
         while (true) {
             val current = stateReference.get()
             if (expectedEpoch != null && current.epoch != expectedEpoch) return
             val closed = current.copy(ready = false, restoring = false,
-                error = current.error ?: reason, systemRestore = false)
+                error = current.error ?: reason, systemRestore = false,
+                issue = cause?.let { AppMessage("storageUnavailable").withDetail(it) } ?: current.issue)
             if (stateReference.compareAndSet(current, closed)) return
         }
     }
     private fun step(name: String) = files.afterStep(name)
 
-    /**
-     * All entry points use the shared JVM gate and physical lock through actual
-     * execution.
-     */
+    /** One process-local gate remains held until the actual file work returns. */
     private fun <T> exclusive(block: () -> T): T {
         BackupFiles.checkWorker()
-        if (!gate.tryLock()) throw IOException("storageBusy")
+        if (gate.isHeldByCurrentThread || !gate.tryLock()) throw IOException("storageBusy")
         try {
-            try { files.ensureWorkspace() } catch (error: Throwable) { closeGate(); throw error }
-            files.pinDirectory(files.privateRoot).use { root ->
-                val raw = Os.open("/proc/self/fd/${root.fd}/storage.lock", OsConstants.O_RDWR or
-                    OsConstants.O_CREAT or OsConstants.O_NOFOLLOW, 0x180)
-                val owned = try {
-                    if (!OsConstants.S_ISREG(Os.fstat(raw).st_mode)) throw IOException("Storage lock is not regular")
-                    ParcelFileDescriptor.dup(raw)
-                } finally { Os.close(raw) }
-                return owned.use { descriptor ->
-                    ParcelFileDescriptor.AutoCloseOutputStream(descriptor).use { stream ->
-                        val lock = try { stream.channel.tryLock() } catch (_: OverlappingFileLockException) { null }
-                            ?: throw IOException("storageBusy")
-                        lock.use { block() }
-                    }
-                }
-            }
+            try { files.ensureWorkspace() } catch (error: Throwable) { closeGate(cause = error); throw error }
+            return block()
         } finally { gate.unlock() }
     }
 
@@ -553,7 +504,7 @@ class RestoreTransaction internal constructor(private val files: BackupFiles) {
         private const val JOURNAL = "journal.bin"
         private const val PREPARED = "PREPARED"
         private const val COMMITTED = "COMMITTED"
-        private const val JOURNAL_MAGIC = 0x43505231 // CPR1; internal mechanical log, not a business schema.
+        private const val JOURNAL_MAGIC = 0x43505231 // CPR1 identifies the binary restore journal format.
         private const val MAX_JOURNAL = 4096
         private fun sameBytes(a: BackupFiles.Fingerprint, b: BackupFiles.Fingerprint) = a.bytes == b.bytes && a.sha256 == b.sha256
         private fun writeFingerprint(output: DataOutputStream, value: BackupFiles.Fingerprint) {

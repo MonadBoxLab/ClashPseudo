@@ -1,83 +1,51 @@
 package io.github.monadboxlab.clashpseudo.backup
 
-import io.github.monadboxlab.clashpseudo.backup.utf8Length
-
-import io.github.monadboxlab.clashpseudo.app.AppMessage
-
+import io.github.monadboxlab.clashpseudo.message.AppMessage
+import java.io.IOException
 import java.util.UUID
 import org.junit.Assert.*
 import org.junit.Test
 
-/** Tests the pure result projection. */
+/** Actual feedback stays intact; consumers derive display and action eligibility. */
 class BackupBridgeProjectionTest {
-    private val supplementary = String(Character.toChars(0x1f680))
-    private fun result(label: String?, status: String = "prepared") = backupProjection(mapOf(
-        "status" to status,
-        "token" to UUID.randomUUID().toString(),
-        "createdAtMillis" to 123L,
-        "committed" to (if (status == "restored") true else null),
-        "summary" to mapOf("configurations" to 1, "overrides" to 0, "hasSelection" to true, "selectedName" to label),
-    ))!!
-    private fun label(value: Map<String, Any?>) = (value["summary"] as Map<*, *>)["selectedName"]
-
-    @Test fun preservesAValidSevenHundredByteAsciiLabelExactlyWithoutTrimmingOrSecondTruncation() {
-        val value = " " + "a".repeat(698) + " "
-        assertEquals(700, value.toByteArray(Charsets.UTF_8).size)
-        assertEquals(value, label(result(value)))
+    @Test fun completeNamesAndUnknownFieldsAreNotTrimmedFilteredOrRevalidated() {
+        for (label in listOf(" " + "a".repeat(698) + " ", "a".repeat(511) + "🚀", "🚀".repeat(1025), "\uD800")) {
+            val value = mapOf(
+                "status" to "prepared", "token" to UUID.randomUUID().toString(), "createdAtMillis" to 123L,
+                "body" to "credential: secret", "uri" to "content://private/document", "paths" to mapOf("x" to "/private/path"),
+                "summary" to mapOf("configurations" to 1, "overrides" to 0, "hasSelection" to true,
+                    "selectedName" to label, "future" to listOf(null, false, 0, emptyMap<String, Any?>())),
+            )
+            assertEquals(value, backupProjection(value))
+        }
     }
 
-    @Test fun surrogatePairCrossingTheOld512BoundaryIsPreservedAsACompletePair() {
-        val value = "a".repeat(511) + supplementary
-        assertEquals(513, value.length)
-        assertEquals(value, label(result(value)))
-        assertEquals(515L, utf8Length(label(result(value)) as String))
-    }
-
-    @Test fun acceptsTheFullOneKiBUtf8LabelAndOmitsAnInvalidSummaryWithoutErasingCommit() {
-        val boundary = supplementary.repeat(256)
-        assertEquals(1024L, utf8Length(boundary))
-        assertEquals(boundary, label(result(boundary)))
-        val tooLarge = result(boundary + "a", "restored")
-        assertFalse(tooLarge.containsKey("summary"))
-        assertEquals(true, tooLarge["committed"])
-        assertEquals("restored", tooLarge["status"])
-        assertFalse(result("a".repeat(1025)).containsKey("summary"))
-        assertFalse(result("\uD800").containsKey("summary"))
-    }
-
-    @Test fun filtersBodiesUrisPathsAndUnknownSummaryKeysInsteadOfForwardingCandidateDescriptors() {
-        val projection = backupProjection(mapOf(
-            "status" to "prepared", "token" to UUID.randomUUID().toString(),
-            "body" to "credential: secret", "uri" to "content://private/document", "paths" to mapOf("x" to "/private/path"),
-            "summary" to mapOf("configurations" to 1, "overrides" to 0, "hasSelection" to false, "selectedName" to null,
-                "body" to "secret", "directory" to "/private/path"),
-        ))!!
-        assertEquals(setOf("status", "token", "summary"), projection.keys)
-        assertEquals(setOf("configurations", "overrides", "hasSelection", "selectedName"), (projection["summary"] as Map<*, *>).keys)
-        assertFalse(projection.toString().contains("secret"))
-        assertFalse(projection.toString().contains("/private/path"))
-        assertFalse(projection.toString().contains("content://"))
-    }
-
-    @Test fun keepsStructuredFollowupReasonsAndActualUnknownCommitWithoutExceptionStrings() {
-        val message = AppMessage("operationFinished").toMap()
-        val projection = backupProjection(mapOf(
-            "status" to "unconfirmed", "committed" to null, "rolledBack" to false, "ready" to false, "epoch" to 7L,
+    @Test fun committedNullFalseAndEmptyValuesAndOriginalFollowupReasonsAllSurvive() {
+        val primary = IOException("original provider failure", IllegalStateException("original cause"))
+        primary.addSuppressed(IOException("cleanup failure"))
+        val message = AppMessage("backupFailed").withDetail(primary).toMap()
+        val value = mapOf(
+            "status" to "unconfirmed", "committed" to null, "rolledBack" to false, "ready" to false, "epoch" to 0L,
             "settingsMessage" to message, "scheduleMessage" to message, "connectionMessage" to message,
-            "cause" to IllegalStateException("private exception body"),
-        ))!!
-        assertTrue(projection.containsKey("committed"))
-        assertNull(projection["committed"])
-        for (key in listOf("settingsMessage", "scheduleMessage", "connectionMessage")) assertEquals(message, projection[key])
-        assertFalse(projection.containsKey("cause"))
+            "errorDetail" to message, "future" to emptyList<String>(), "errorCode" to null,
+        )
+        assertEquals(value, backupProjection(value))
+        val detail = message["detail"] as String
+        for (original in listOf("original provider failure", "original cause", "cleanup failure")) {
+            assertTrue(detail.contains(original))
+        }
     }
 
-    @Test fun neverCoercesFractionalMetadataAndDoesNotPublishAFalsePartialSummary() {
-        val projection = backupProjection(mapOf(
-            "status" to "failed", "epoch" to 1.9,
+    @Test fun unexpectedMetadataRemainsRawWithoutGrantingIntegerEligibility() {
+        val value = mapOf(
+            "status" to "future-status", "epoch" to 1.9,
             "summary" to mapOf("configurations" to 1.1, "overrides" to 0, "hasSelection" to true, "selectedName" to "name"),
-        ))!!
-        assertFalse(projection.containsKey("epoch"))
-        assertFalse(projection.containsKey("summary"))
+        )
+        assertEquals(value, backupProjection(value))
+        assertNull(backupInteger(value["epoch"]))
+        assertNull(backupInteger(-1))
+        assertEquals(0L, backupInteger(0))
+        assertEquals(7L, backupInteger(7L))
+        assertNull(backupProjection(null))
     }
 }

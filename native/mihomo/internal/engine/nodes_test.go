@@ -1,16 +1,71 @@
 package engine
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"clashpseudo/native/internal/configinput"
+	"clashpseudo/native/internal/coreview"
 	C "github.com/metacubex/mihomo/constant"
 	P "github.com/metacubex/mihomo/constant/provider"
 )
 
+type nodeStreamRow struct {
+	Kind               string                            `json:"kind"`
+	Name               string                            `json:"name"`
+	SourceKind         string                            `json:"sourceKind"`
+	Source             string                            `json:"sourceName"`
+	SourceVersion      uint32                            `json:"sourceVersion"`
+	Raw                map[string]any                    `json:"raw"`
+	Provenance         *configinput.DefinitionProvenance `json:"provenance"`
+	ProviderProvenance *configinput.DefinitionProvenance `json:"providerProvenance"`
+}
+
+func readNodeStream(t *testing.T, e *Engine, source *string) ([]nodeStreamRow, string, error) {
+	t.Helper()
+	rows := make([]nodeStreamRow, 0)
+	metadataSource := ""
+	identity, err := e.StreamNodes(context.Background(), source, func(value any) error {
+		body, err := json.Marshal(value)
+		if err != nil {
+			return err
+		}
+		var meta struct {
+			Source string `json:"source"`
+		}
+		if err = json.Unmarshal(body, &meta); err != nil {
+			return err
+		}
+		metadataSource = meta.Source
+		return nil
+	}, func(value any) error {
+		body, err := json.Marshal(value)
+		if err != nil {
+			return err
+		}
+		var row nodeStreamRow
+		if err = json.Unmarshal(body, &row); err != nil {
+			return err
+		}
+		rows = append(rows, row)
+		return nil
+	})
+	if identity != "" && identity != metadataSource {
+		t.Error("metadata与terminal来源不一致", identity, metadataSource)
+	}
+	return rows, identity, err
+}
 func TestNodesIncludeProviderMembersAndExcludeGroups(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	var e Engine
 	body := []byte(`proxies:
  - {name: shared-name, type: direct}
@@ -31,80 +86,90 @@ proxy-groups:
 rules:
  - MATCH,DIRECT
 `)
-	if err := e.Prepare(t.TempDir(), body, "rule", nil, func(int) bool { return true }); err != nil {
+	if err := e.Prepare(t.TempDir(), body, "rule", func(int) bool { return true }); err != nil {
 		t.Fatal(err)
 	}
 	defer requireStop(t, &e)
-	query := NodeQuery{Limit: 1, Search: "shared-name"}
-	var sources []string
-	for {
-		value, err := e.Nodes(query)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if strings.Contains(value, "secret-") || strings.Contains(value, "127.0.0.1") {
-			t.Fatal("node query exposed credentials or endpoint")
-		}
-		var page NodePage
-		if err := json.Unmarshal([]byte(value), &page); err != nil {
-			t.Fatal(err)
-		}
-		if page.Total != 3 || len(page.Nodes) != 1 {
-			t.Fatalf("unexpected page: %+v", page)
-		}
-		node := page.Nodes[0]
-		if node.Builtin {
-			t.Fatal("custom node marked as builtin")
-		}
-		kind := "proxyProvider"
-		if node.Source == "" {
-			kind = "configuration"
-		}
-		if node.SourceKind != kind {
-			t.Fatalf("node source identity = %q, want %q", node.SourceKind, kind)
-		}
-		if !strings.Contains(value, `"sourceVersion":`) {
-			t.Fatal("node response omitted its source version")
-		}
-		var version uint32
-		if kind == "proxyProvider" {
-			version = e.cfg.Providers[node.Source].Version()
-		}
-		if node.SourceVersion != version {
-			t.Fatalf("node source version = %d, want %d", node.SourceVersion, version)
-		}
-		sources = append(sources, node.Source)
-		if page.NextOffset == -1 {
-			break
-		}
-		query.Offset, query.Token = page.NextOffset, page.Token
-	}
-	if strings.Join(sources, ",") != ",first,second" {
-		t.Fatal(sources)
-	}
-	value, err := e.Nodes(NodeQuery{Limit: 100})
+	rows, _, err := readNodeStream(t, &e, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var page NodePage
-	if err := json.Unmarshal([]byte(value), &page); err != nil {
-		t.Fatal(err)
-	}
+	sources := []string{}
 	builtins := 0
-	for _, node := range page.Nodes {
-		if node.Name == "Group" || node.Name == "GLOBAL" {
-			t.Fatal("group appeared as node")
+	for _, row := range rows {
+		if row.Name == "Group" || row.Name == "GLOBAL" {
+			t.Fatal("group出现在node stream", row)
 		}
-		if node.Builtin {
+		if row.SourceKind == "configuration" && row.Name != "shared-name" {
 			builtins++
 		}
+		if row.Name != "shared-name" {
+			continue
+		}
+		kind := "proxyProvider"
+		var version uint32
+		if row.Source == "" {
+			kind = "configuration"
+		} else {
+			version = e.cfg.Providers[row.Source].Version()
+		}
+		if row.SourceKind != kind || row.SourceVersion != version {
+			t.Fatal("来源或version改变", row)
+		}
+		sources = append(sources, row.Source)
 	}
-	if builtins != 6 {
-		t.Fatalf("builtin count: %d", builtins)
+	if strings.Join(sources, ",") != ",first,second" || builtins != 6 {
+		t.Fatal(sources, builtins)
 	}
 }
-
-func TestNodesExactProviderFilterKeepsSearchAndPagination(t *testing.T) {
+func TestNodeTestHistoryKeepsCompletePublicTarget(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	defer server.Close()
+	var e Engine
+	if err := e.Prepare(t.TempDir(), []byte("proxies: [{name: history-node, type: direct}]\nrules: ['MATCH,DIRECT']\n"), "rule", func(int) bool { return true }); err != nil {
+		t.Fatal(err)
+	}
+	defer requireStop(t, &e)
+	target := strings.Replace(server.URL, "http://", "http://fixture-user:fixture-password@", 1) + "/原文?token=fixture"
+	proxy := e.cfg.Proxies["history-node"]
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := proxy.URLTest(ctx, target, delayExpected); err != nil {
+		t.Fatal(err)
+	}
+	rows, _, err := readNodeStream(t, &e, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.Name == "history-node" {
+			raw, err := proxy.MarshalJSON()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var original map[string]any
+			if err = json.Unmarshal(raw, &original); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(row.Raw, original) {
+				t.Fatal("公开history或原始target改变", row.Raw, original)
+			}
+			extra, ok := row.Raw["extra"].(map[string]any)
+			if !ok || extra[target] == nil {
+				t.Fatal("完整公开target丢失", row.Raw)
+			}
+			return
+		}
+	}
+	t.Fatal("缺少history-node")
+}
+func TestNodesExactProviderFilterKeepsAllMembersAndEmptyName(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	var e Engine
 	body := []byte(`proxies:
  - {name: shared-name, type: direct}
@@ -122,61 +187,40 @@ proxy-providers:
   payload:
    - {name: shared-name, type: direct}
    - {name: alpha-second, type: direct}
-rules:
- - MATCH,DIRECT
+rules: ['MATCH,DIRECT']
 `)
-	if err := e.Prepare(t.TempDir(), body, "rule", nil, func(int) bool { return true }); err != nil {
+	if err := e.Prepare(t.TempDir(), body, "rule", func(int) bool { return true }); err != nil {
 		t.Fatal(err)
 	}
 	defer requireStop(t, &e)
-	read := func(source, search, token string, offset int) (NodePage, error) {
-		request, err := json.Marshal(map[string]any{"source": source, "search": search, "token": token, "offset": offset, "limit": 1})
-		if err != nil {
-			t.Fatal(err)
-		}
-		var query NodeQuery
-		if err := json.Unmarshal(request, &query); err != nil {
-			t.Fatal(err)
-		}
-		value, err := e.Nodes(query)
-		var page NodePage
-		if err == nil {
-			err = json.Unmarshal([]byte(value), &page)
-		}
-		return page, err
+	source := "alpha"
+	rows, _, err := readNodeStream(t, &e, &source)
+	if err != nil || len(rows) != 2 || rows[0].Name != "shared-name" || rows[1].Name != "alpha-second" {
+		t.Fatal(rows, err)
 	}
-	first, err := read("alpha", "", "", 0)
-	if err != nil || first.Total != 2 || first.NextOffset != 1 || len(first.Nodes) != 1 || first.Nodes[0].Source != "alpha" || first.Nodes[0].Name != "shared-name" {
-		t.Fatalf("exact source first page = %+v, %v", first, err)
+	for _, row := range rows {
+		if row.Source != "alpha" {
+			t.Fatal(row)
+		}
 	}
-	// A different provider can change while this exact-source dataset stays valid.
 	unrelated := &nodeChangingProvider{version: 1, changeOnRead: true}
 	e.cfg.Providers["unrelated"] = unrelated
 	defer delete(e.cfg.Providers, "unrelated")
-	next, err := read("alpha", "", first.Token, first.NextOffset)
-	if err != nil || next.Total != 2 || next.NextOffset != -1 || len(next.Nodes) != 1 || next.Nodes[0].Source != "alpha" || next.Nodes[0].Name != "alpha-second" {
-		t.Fatalf("exact source next page = %+v, %v", next, err)
+	if rows, _, err = readNodeStream(t, &e, &source); err != nil || len(rows) != 2 || unrelated.version != 1 {
+		t.Fatal("精确来源读取了无关provider成员", rows, err)
 	}
-	unrelated.changeOnRead = false
-	filtered, err := read("alpha", "shared", "", 0)
-	if err != nil || filtered.Total != 1 || len(filtered.Nodes) != 1 || filtered.Nodes[0].Source != "alpha" {
-		t.Fatalf("search within exact source = %+v, %v", filtered, err)
+	source = ""
+	rows, _, err = readNodeStream(t, &e, &source)
+	if err != nil || len(rows) != 1 || rows[0].Name != "DIRECT" || rows[0].SourceKind != "proxyProvider" {
+		t.Fatal(rows, err)
 	}
-	emptyName, err := read("", "", "", 0)
-	if err != nil || emptyName.Total != 1 || len(emptyName.Nodes) != 1 || emptyName.Nodes[0].Name != "DIRECT" || emptyName.Nodes[0].Builtin || emptyName.Nodes[0].SourceKind != "proxyProvider" {
-		t.Fatalf("explicit empty provider name = %+v, %v", emptyName, err)
+	source = "missing"
+	if _, _, err = readNodeStream(t, &e, &source); err == nil {
+		t.Fatal("缺失provider被接受")
 	}
-	if _, err := e.Nodes(NodeQuery{Limit: 100}); err != nil {
-		t.Fatalf("omitted source global query: %v", err)
-	}
-	if _, err := read("alpha-extra", "", first.Token, 0); !errors.Is(err, errNodesChanged) {
-		t.Fatalf("token reused for another source: %v", err)
-	}
-	if _, err := read("missing", "", "", 0); err == nil {
-		t.Fatal("unavailable provider source accepted")
-	}
-	if _, err := read(strings.Repeat("x", 4097), "", "", 0); err == nil {
-		t.Fatal("overlong provider source accepted")
+	source = strings.Repeat("x", 4097)
+	if _, _, err = readNodeStream(t, &e, &source); err == nil {
+		t.Fatal("超长来源被接受")
 	}
 }
 
@@ -194,39 +238,36 @@ func (p *nodeChangingProvider) Proxies() []C.Proxy {
 	}
 	return nil
 }
-
-func TestNodePagesRejectProviderUpdatesAndInvalidRequests(t *testing.T) {
+func TestNodeStreamRejectsProviderChangesAndStoppedOwner(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	var e Engine
-	if _, err := e.Nodes(NodeQuery{Limit: 10}); !errors.Is(err, ErrStopped) {
+	if _, _, err := readNodeStream(t, &e, nil); !errors.Is(err, ErrStopped) {
 		t.Fatal(err)
 	}
-	if err := e.Prepare(t.TempDir(), []byte("rules:\n - MATCH,DIRECT\n"), "rule", nil, func(int) bool { return true }); err != nil {
+	if err := e.Prepare(t.TempDir(), []byte("rules: ['MATCH,DIRECT']\n"), "rule", func(int) bool { return true }); err != nil {
 		t.Fatal(err)
 	}
 	defer requireStop(t, &e)
 	provider := &nodeChangingProvider{version: 1}
 	e.cfg.Providers["changing"] = provider
 	defer delete(e.cfg.Providers, "changing")
-	value, err := e.Nodes(NodeQuery{Limit: 1})
+	_, before, err := readNodeStream(t, &e, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var page NodePage
-	if err := json.Unmarshal([]byte(value), &page); err != nil {
-		t.Fatal(err)
-	}
 	provider.version++
-	if _, err := e.Nodes(NodeQuery{Limit: 1, Offset: 1, Token: page.Token}); !errors.Is(err, errNodesChanged) {
-		t.Fatal(err)
+	_, after, err := readNodeStream(t, &e, nil)
+	if err != nil || before == after {
+		t.Fatal(before, after, err)
 	}
 	provider.changeOnRead = true
-	if _, err := e.Nodes(NodeQuery{Limit: 1}); !errors.Is(err, errNodesChanged) {
+	if _, _, err = readNodeStream(t, &e, nil); !errors.Is(err, coreview.ErrNodesChanged) {
 		t.Fatal(err)
 	}
-	provider.changeOnRead = false
-	for _, query := range []NodeQuery{{}, {Limit: 101}, {Limit: 1, Offset: -1}, {Limit: 1, Offset: 1}, {Limit: 1, Search: strings.Repeat("x", 4097)}} {
-		if _, err := e.Nodes(query); err == nil {
-			t.Fatal("invalid query accepted")
-		}
+	original := errors.New("consumer原始错误")
+	if _, err = e.StreamNodes(context.Background(), nil, func(any) error { return nil }, func(any) error { return original }); err != original {
+		t.Fatal(err)
 	}
 }

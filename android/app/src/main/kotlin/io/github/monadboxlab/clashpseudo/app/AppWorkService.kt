@@ -1,5 +1,8 @@
 package io.github.monadboxlab.clashpseudo.app
 
+import io.github.monadboxlab.clashpseudo.message.AppMessage
+import io.github.monadboxlab.clashpseudo.message.AppStrings
+
 import io.github.monadboxlab.clashpseudo.bridge.AppBridge
 
 import io.github.monadboxlab.clashpseudo.R
@@ -53,8 +56,10 @@ class AppWorkService : Service() {
             AppBridge.logic.execute(owner, AppBridge.command ?: emptyMap()) { outcome ->
                 if (id == owner) complete(outcome)
             }
-        } catch (_: Exception) {
-            interrupt(AppStrings.message(R.string.error_background_start))
+        } catch (error: Exception) {
+            interrupt(AppStrings.message(R.string.error_background_start).withDetail(error))
+        } catch (error: LinkageError) {
+            interrupt(AppStrings.message(R.string.error_background_start).withDetail(error))
         }
         return START_NOT_STICKY
     }
@@ -71,14 +76,14 @@ class AppWorkService : Service() {
     private fun interrupt(message: AppMessage) {
         if (finished) return
         val workOwner = id?.takeIf { AppBridge.logic.ownsOperation(it) }
-        if (workOwner != null && AppBridge.interruptBackupRestore(workOwner, message)) {
-            // 超时或Service销毁撤销后续提交权；已提交结果沿实际I/O返回结算。
+        if (workOwner != null && AppBridge.interruptOperation(workOwner, message)) {
+            // End the Service lifetime, not the Dart/native completion or writer gate.
             main.removeCallbacks(deadline)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelfResult(startId)
             return
         }
-        workOwner?.let { AppBridge.logic.cancel(it) }
-        complete(if (workOwner != null) mapOf("message" to message.toMap())
-            else AppBridge.notExecutedResult(AppBridge.command.takeIf { AppBridge.operationId == id }, message))
+        complete(AppBridge.notExecutedResult(AppBridge.command.takeIf { AppBridge.operationId == id }, message))
     }
 
     override fun onTimeout(startId: Int, fgsType: Int) {

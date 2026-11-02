@@ -205,6 +205,9 @@ func proxyFormScalarKinds(t *testing.T, actual, expected any) {
 }
 
 func TestProxyFormSlashScannerRegression(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	// Require the exact minimal yaml_edit escape emitted by the actual OpenVPN form.
 	var value map[string]any
 	if err := yaml.Unmarshal([]byte("value: \"a\\/b\\nlast\"\n"), &value); err == nil || !strings.Contains(err.Error(), "unknown escape character") {
@@ -223,6 +226,9 @@ func TestProxyFormSlashScannerRegression(t *testing.T) {
 }
 
 func TestProxyFormFlowPlainScannerRegression(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	for _, bad := range []string{
 		`{url: https://fixture.invalid/provider?token=synthetic}`,
 		`{allowed-ips: [::/0]}`,
@@ -249,6 +255,9 @@ func TestProxyFormFlowPlainScannerRegression(t *testing.T) {
 }
 
 func TestProxyFormPublicParserContract(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	oldHome := C.Path.HomeDir()
 	C.SetHomeDir(t.TempDir())
 	t.Cleanup(func() { C.SetHomeDir(oldHome) })
@@ -303,6 +312,9 @@ func TestProxyFormPublicParserContract(t *testing.T) {
 
 // Validate limits against actual public consumers.
 func TestProxyFormExactTimeSpecFromActualGUI(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	for _, fixture := range proxyFormFixtures(t) {
 		if fixture.ID != "vmess-tlsmirror-all-fields" {
 			continue
@@ -339,6 +351,9 @@ func TestProxyFormExactTimeSpecFromActualGUI(t *testing.T) {
 }
 
 func TestProxyFormTimeSpecConsumerLimits(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	const max = uint64(1<<63 - 1)
 	base := tlsmirror.TimeSpec{BaseNanoseconds: max}
 	if duration, err := base.Duration(); err != nil || duration != time.Duration(max) {
@@ -373,6 +388,9 @@ func TestProxyFormTimeSpecConsumerLimits(t *testing.T) {
 }
 
 func TestProxyFormQUICWindowConsumerLimits(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	for _, value := range []uint64{0, quicvarint.Max, 1 << 63, ^uint64(0)} {
 		config := &quic.Config{
 			InitialStreamReceiveWindow: value, MaxStreamReceiveWindow: value,
@@ -413,6 +431,9 @@ func TestProxyFormQUICWindowConsumerLimits(t *testing.T) {
 }
 
 func TestProxyFormZeroTierTraceConsumerLimits(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	oldHome := C.Path.HomeDir()
 	C.SetHomeDir(t.TempDir())
 	t.Cleanup(func() { C.SetHomeDir(oldHome) })
@@ -467,6 +488,9 @@ func TestProxyFormZeroTierTraceConsumerLimits(t *testing.T) {
 // Test-only public Option ABI coverage for the explicitly written forms and real
 // widget inputs. Internal proxy:"-" fields are outside the form field set.
 func TestProxyFormGostRejectsNonPublicMode(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	for _, fixture := range proxyFormFixtures(t) {
 		if fixture.ID != "ss-plugin-gost-plugin" {
 			continue
@@ -496,6 +520,9 @@ func TestProxyFormGostRejectsNonPublicMode(t *testing.T) {
 }
 
 func TestProxyFormDynamicPluginAndMuxFieldsExercised(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	// Enumerate public configuration keys for the fixed internal obfs structs; include
 	// production fields only.
 	fixtures := make(map[string]proxyFormContractFixture)
@@ -553,6 +580,9 @@ func TestProxyFormDynamicPluginAndMuxFieldsExercised(t *testing.T) {
 }
 
 func TestProxyFormAllPublicOptionFieldsExercised(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	options := map[string]any{
 		"http": outbound.HttpOption{}, "socks5": outbound.Socks5Option{}, "ssh": outbound.SshOption{},
 		"masque": outbound.MasqueOption{}, "ss": outbound.ShadowSocksOption{}, "ssr": outbound.ShadowSocksROption{},

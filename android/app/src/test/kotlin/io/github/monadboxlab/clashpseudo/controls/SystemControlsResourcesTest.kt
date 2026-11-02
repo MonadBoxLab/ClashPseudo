@@ -1,5 +1,10 @@
 package io.github.monadboxlab.clashpseudo.controls
 
+import io.github.monadboxlab.clashpseudo.app.PseudoBackupAgent
+import io.github.monadboxlab.clashpseudo.app.VpnTileService
+import io.github.monadboxlab.clashpseudo.app.VpnWidgetProvider
+import io.github.monadboxlab.clashpseudo.vpn.PseudoVpnService
+
 import org.junit.Assert.*
 import org.junit.Test
 import org.w3c.dom.Element

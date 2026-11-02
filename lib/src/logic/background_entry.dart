@@ -1,13 +1,4 @@
-import 'package:flutter/foundation.dart';
-import 'package:flutter/scheduler.dart';
-import 'package:flutter/services.dart';
-
 import 'app_runtime.dart';
 
-class _BackgroundBinding extends BindingBase
-    with SchedulerBinding, ServicesBinding {}
-
-void runBackground() {
-  _BackgroundBinding();
-  AppRuntime().start();
-}
+/// 后台业务入口接收 platform 已创建的唯一 runtime。
+Future<void> runBackground(AppRuntime runtime) => runtime.start();

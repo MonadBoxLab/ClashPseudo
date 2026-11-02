@@ -1,18 +1,31 @@
+import 'package:clash_pseudo/src/model/platform_failure.dart';
+import 'package:clash_pseudo/src/model/core_snapshot.dart';
+
+import '../support/core_runtime_fixture.dart';
+
+import 'package:clash_pseudo/src/model/application_contract.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:clash_pseudo/src/logic/app_runtime.dart';
-import 'package:clash_pseudo/src/features/configs/config_entry.dart';
-import 'package:clash_pseudo/src/features/configs/config_store.dart';
-import 'package:clash_pseudo/src/platform/app_bridge.dart';
-import 'package:clash_pseudo/src/features/overrides/override_store.dart';
-import 'package:clash_pseudo/src/features/overrides/override_entry.dart';
+import 'package:clash_pseudo/src/platform/app_bootstrap.dart';
+import 'package:clash_pseudo/src/model/config_entry.dart';
+import 'package:clash_pseudo/src/logic/configs/config_store.dart';
+import 'package:clash_pseudo/src/platform/channel/app_bridge.dart';
+import 'package:clash_pseudo/src/logic/overrides/override_store.dart';
+import 'package:clash_pseudo/src/model/override_entry.dart';
 import 'package:clash_pseudo/src/model/app_preferences.dart';
-import 'package:clash_pseudo/src/logic/preferences_store.dart';
-import 'package:clash_pseudo/src/l10n/messages.dart';
+import 'package:clash_pseudo/src/logic/storage/preferences_store.dart';
+import 'package:clash_pseudo/src/model/messages.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'configs/downloader_redirect_test.dart' show ClientFake;
+
+import 'package:clash_pseudo/src/ui/locale/message_text.dart';
+
+import '../support/connection_window_fixtures.dart' as connection_fixtures;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -20,21 +33,58 @@ void main() {
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   late Directory directory;
-  late AppRuntime runtime;
+  late AppBootstrap runtime;
+  late CoreRuntimeFixture transport;
   late List<String> inputOwners;
   late List<Map<String, dynamic>> preparedInputs;
   Completer<void>? stageWait;
   late Map<String, Object?> snapshot;
   PlatformException? writeFailure;
   PlatformException? stopFailure;
+  var finishReconnect = false;
+  PlatformException? afterStartFailure;
   int stops = 0;
   final schedules = <List>[];
+  final scheduleKinds = <String>[];
   final starts = <Map<String, dynamic>>[];
   Map<String, dynamic>? submitted;
   final resourceUpdates = <Map<String, dynamic>>[];
   Completer<Map<String, dynamic>>? resourceReply;
+  final cleanupRequests = <Map<String, dynamic>>[];
+  Completer<Map<String, dynamic>>? cleanupReply;
+  int pathReads = 0;
+  int connectionReads = 0;
+  int connectionCloses = 0;
+  Completer<Map<String, dynamic>>? connectionSample;
+  Completer<String>? connectionClose;
 
   Future<Object?> send(String method, Object? arguments) {
+    final raw = snapshot['core'];
+    if (raw is Map) {
+      snapshot['core'] = {
+        'processId': 'runtime-process',
+        'inputId': 'runtime-input',
+        'networkRevision': 7,
+        ...raw,
+      };
+    }
+    if (method == 'runtimeState') arguments = snapshot;
+    if (method == 'execute' && arguments is Map) {
+      final source = snapshot['core'];
+      arguments = {'admittedAt': 100, 'deadline': 60100, ...arguments};
+      if (source is Map &&
+          const [
+            'updateResource',
+            'closeConnection',
+          ].contains(arguments['action'])) {
+        arguments = {
+          'processId': source['processId'],
+          'inputId': source['inputId'],
+          'networkRevision': source['networkRevision'],
+          ...arguments,
+        };
+      }
+    }
     final result = Completer<ByteData?>();
     ServicesBinding.instance.channelBuffers.push(
       AppBridge.channel.name,
@@ -45,17 +95,28 @@ void main() {
   }
 
   setUp(() async {
-    directory = await Directory.systemTemp.createTemp('pseudo-runtime-');
+    transport = await CoreRuntimeFixture.create();
+    directory = transport.directory;
     inputOwners = [];
     preparedInputs = [];
     stageWait = null;
     snapshot = {'phase': 'STOPPED'};
     writeFailure = null;
     stopFailure = null;
+    finishReconnect = false;
+    afterStartFailure = null;
     stops = 0;
     resourceUpdates.clear();
     resourceReply = null;
+    cleanupRequests.clear();
+    cleanupReply = null;
+    pathReads = 0;
+    connectionReads = 0;
+    connectionCloses = 0;
+    connectionSample = null;
+    connectionClose = null;
     schedules.clear();
+    scheduleKinds.clear();
     starts.clear();
     await ConfigStore(directory).save(
       ConfigCollection(
@@ -71,9 +132,141 @@ void main() {
         selectedId: 'one',
       ),
     );
+    for (var index = 0; index < 8; index++) {
+      transport.script(ApplicationContract.coreOperationResourceUpdate, (
+        request,
+      ) async {
+        resourceUpdates.add({
+          ...Map<String, dynamic>.from(snapshot['core'] as Map),
+          ...Map<String, dynamic>.from(request.wire['identity'] as Map),
+          ...request.arguments,
+          'owner': request.wire['owner'],
+        });
+        try {
+          request.complete(await resourceReply!.future);
+        } on PlatformException catch (error) {
+          request.interrupt(error);
+          request.signalExit();
+        }
+      });
+      transport.script(ApplicationContract.coreOperationConnections, (
+        request,
+      ) async {
+        connectionReads++;
+        request.complete(
+          await connectionSample?.future ??
+              connection_fixtures.sample([connection_fixtures.row('a')], 0),
+        );
+      });
+      transport.script(ApplicationContract.coreOperationConnectionClose, (
+        request,
+      ) async {
+        connectionCloses++;
+        expectSync(request.arguments['id'], 'a');
+        expectSync(request.wire['owner'], 'close-owner');
+        request.complete({'status': await connectionClose!.future});
+      });
+      transport.script(ApplicationContract.coreOperationPrepare, (
+        request,
+      ) async {
+        final args = {
+          'id': request.arguments['configId'],
+          'revision': request.arguments['revision'],
+          'owner': request.wire['owner'],
+          ...request.arguments,
+        };
+        if (request.arguments['purpose'] == 'PREVIEW') {
+          inputOwners.add(args['owner'] as String);
+          preparedInputs.add(
+            jsonDecode(
+              await File('${directory.path}/${args['owner']}.input')
+                  .readAsString(),
+            ) as Map<String, dynamic>,
+          );
+        } else {
+          starts.add(args);
+        }
+        await transport.replyDefault(request);
+        snapshot = {
+          ...transport.snapshotMap(),
+          'generation': finishReconnect ? 5 : snapshot['generation'] ?? 0,
+        };
+      });
+      transport.script(ApplicationContract.coreOperationMode, (request) {
+        request.complete({'mode': transport.actualMode});
+        if (finishReconnect && starts.isNotEmpty) {
+          writeFailure = afterStartFailure;
+        }
+      });
+    }
+    final registered = <String>{};
     messenger.setMockMethodCallHandler(AppBridge.channel, (call) async {
       final args = Map<String, dynamic>.from(call.arguments as Map? ?? {});
+      if ((call.method.startsWith('core') &&
+              call.method != ApplicationContract.coreChannelStatus) ||
+          const [
+            ApplicationContract.coreChannelReadRunInputRecord,
+            ApplicationContract.coreChannelPublishRunInput,
+            ApplicationContract.coreChannelLocalInterfaces,
+          ].contains(call.method)) {
+        final raw = snapshot['core'];
+        if (raw is Map) {
+          transport.core = CoreSnapshot.fromMap(Map<String, dynamic>.from(raw));
+          transport.actualMode = snapshot['mode'] as String? ?? 'rule';
+        }
+        if (call.method == ApplicationContract.coreChannelReadRunInputRecord &&
+            registered.add(args['inputId'] as String)) {
+          await transport.writeRecord({
+            'inputId': args['inputId'],
+            'id': transport.core.configId,
+            'revision': transport.core.revision,
+            'body': 'old',
+            'name': 'Local',
+            'composition': transport.core.composition,
+            'overrides': [],
+            'choices': {},
+            'vpnIntent': true,
+            'lanIntent': false,
+            'mode': null,
+            'access': 'all',
+            'packages': [],
+          });
+        }
+        if (call.method == ApplicationContract.coreChannelExit) {
+          stops++;
+          if (stopFailure != null) throw stopFailure!;
+          final result = await transport.handlePlatformCall(call);
+          snapshot = {
+            'phase': 'STOPPED',
+            'generation': snapshot['generation'] ?? 0,
+            'core': transport.coreMap(),
+          };
+          return result;
+        }
+        return transport.handlePlatformCall(call);
+      }
       switch (call.method) {
+        case 'runtimeState':
+          return snapshot;
+        case 'retain':
+          expect(args['observationOwner'], isNotEmpty);
+          return null;
+        case 'sampleConnections':
+          connectionReads++;
+          return jsonEncode(
+            await connectionSample?.future ??
+                connection_fixtures.sample([connection_fixtures.row('a')], 0),
+          );
+        case 'closeConnection':
+          connectionCloses++;
+          expectSync(args, {
+            'generation': 7,
+            'configId': 'one',
+            'revision': 1,
+            'connectionId': 'a',
+            'owner': 'close-owner',
+          });
+          return jsonEncode({'status': await connectionClose!.future});
         case 'submit':
           submitted = args;
           return {'operationId': 'save-codec', 'remainingMs': 120000};
@@ -81,6 +274,10 @@ void main() {
           return 120000;
         case 'trustRoots':
           return Uint8List(0);
+        case ApplicationContract.coreChannelStatus:
+          return snapshot['core'] ?? {'phase': 'disconnected', 'generation': 0};
+        case ApplicationContract.coreChannelRuntimeChanged:
+          return null;
         case 'ready':
           return null;
         case 'refreshStrings':
@@ -91,8 +288,15 @@ void main() {
         case 'stop':
           stops++;
           if (stopFailure != null) throw stopFailure!;
+          if (finishReconnect) {
+            snapshot = {
+              'phase': 'STOPPED',
+              'generation': snapshot['generation'],
+            };
+          }
           return null;
         case 'paths':
+          pathReads++;
           return {
             'configs': directory.path,
             'storageEpoch': 1,
@@ -110,6 +314,9 @@ void main() {
           expect(await staged.exists(), isTrue);
           await staged.rename('${directory.path}/$file');
           return {'saved': true, 'durable': true, 'epoch': 1};
+        case 'scheduleCoreCleanup':
+          cleanupRequests.add(args);
+          return await cleanupReply!.future;
         case 'updateResource':
           resourceUpdates.add(args);
           return jsonEncode(await resourceReply!.future);
@@ -144,9 +351,30 @@ void main() {
           return snapshot;
         case 'syncSchedules':
           schedules.add(args['targets'] as List);
+          scheduleKinds.add(args['kind'] as String);
           return null;
         case 'start':
           starts.add(args);
+          if (finishReconnect) {
+            snapshot = {
+              'phase': 'RUNNING',
+              'generation': 5,
+              'configId': args['id'],
+              'revision': args['revision'],
+              'mode': 'rule',
+              'core': {
+                'phase': 'READY',
+                'generation': 9,
+                'purpose': 'RUNNING',
+                'configId': args['id'],
+                'revision': args['revision'],
+                'composition': jsonEncode([args['id'], args['revision']]),
+              },
+            };
+            writeFailure = afterStartFailure;
+          }
+          return null;
+        case 'finishScheduledDownload':
           return null;
         case 'stage':
           await stageWait?.future;
@@ -165,14 +393,12 @@ void main() {
           throw MissingPluginException(call.method);
       }
     });
-    runtime = AppRuntime();
+    runtime = transport.bootstrap;
     await runtime.start();
   });
   tearDown(() async {
-    stageWait?.complete();
-    AppBridge.channel.setMethodCallHandler(null);
-    messenger.setMockMethodCallHandler(AppBridge.channel, null);
-    await directory.delete(recursive: true);
+    if (stageWait != null && !stageWait!.isCompleted) stageWait!.complete();
+    await transport.dispose();
   });
 
   const resourceCore = <String, Object?>{
@@ -180,7 +406,7 @@ void main() {
     'composition': '["actual",2]',
     'configId': 'actual',
     'revision': 2,
-    'purpose': 'VPN',
+    'purpose': 'RUNNING',
   };
   Map<String, Object?> resourceCommand() => {
     'owner': 'resource-owner',
@@ -189,6 +415,354 @@ void main() {
     'kind': 'proxyProvider',
     'name': 'remote',
   };
+
+  for (final status in ['closed', 'absent']) {
+    testWidgets(
+      'actual $status notifies the captured composition and retires an older sample',
+      (tester) async {
+        // ChannelBuffers retains the listener's registration zone. Register here
+        // so runtime callbacks, observer timers and channel replies all run under
+        // the same FakeAsync clock, rather than setUp's real async zone.
+        await runtime.start();
+        Future<Object?> reply(String method, Object? arguments) async {
+          var settled = false;
+          final pending = send(method, arguments);
+          unawaited(
+            pending.then<void>(
+              (_) {
+                settled = true;
+              },
+              onError: (Object _, StackTrace _) {
+                settled = true;
+              },
+            ),
+          );
+          // Advance zero-duration observer timers as well as microtask replies.
+          await tester.pump(Duration.zero);
+          await tester.pump(const Duration(milliseconds: 1));
+          expect(
+            settled,
+            isTrue,
+            reason: '$method reply did not drain its microtasks',
+          );
+          return pending;
+        }
+
+        Future<Map> observedConnection() async {
+          final result = await reply('connections', {'state': snapshot}) as Map;
+          expect(result['generation'], 7);
+          expect(result['configId'], 'one');
+          expect(result['revision'], 1);
+          expect(result['composition'], 'one');
+          expect(result['purpose'], 'RUNNING');
+          final row = (result['connections'] as List).single as Map;
+          expect((row['raw'] as Map)['id'], 'a');
+          return row['observation'] as Map;
+        }
+
+        final samples = <Completer<Map<String, dynamic>>>[];
+        snapshot = {
+          'phase': 'RUNNING',
+          'generation': 4,
+          'elapsedMs': 0,
+          'elapsedRealtimeMs': 0,
+          'configId': 'one',
+          'revision': 1,
+          'mode': 'rule',
+          'core': {
+            'processId': 'runtime-process',
+            'inputId': 'runtime-input',
+            'networkRevision': 7,
+            'phase': 'READY',
+            'generation': 7,
+            'purpose': 'RUNNING',
+            'configId': 'one',
+            'revision': 1,
+            'composition': 'one',
+          },
+        };
+        try {
+          await tester.runAsync(() => transport.runtime.restoreExisting());
+          await reply('runtimeState', snapshot);
+          expect(connectionReads, 1);
+          expect((await observedConnection())['active'], isTrue);
+          final oldSample = connectionSample =
+              Completer<Map<String, dynamic>>();
+          samples.add(oldSample);
+          snapshot['elapsedMs'] = 1000;
+          snapshot['elapsedRealtimeMs'] = 1000;
+          await tester.pump(const Duration(seconds: 1));
+          expect(connectionReads, 2);
+          connectionClose = Completer<String>();
+          var settled = false;
+          final pending =
+              send('execute', {
+                'owner': 'close-owner',
+                'action': 'closeConnection',
+                'generation': 7,
+                'configId': 'one',
+                'revision': 1,
+                'composition': 'one',
+                'purpose': 'RUNNING',
+                'connectionId': 'a',
+              }).then((value) {
+                settled = true;
+                return value as Map;
+              });
+          await tester.pump();
+          expect(connectionCloses, 1);
+          await tester.pump(const Duration(seconds: 6));
+          expect(
+            settled,
+            isFalse,
+            reason: settled ? '实际提前回执：${await pending}' : null,
+          );
+          final concurrent = await reply('execute', {
+            'owner': 'next',
+            'action': 'stop',
+          }) as Map;
+          expect(concurrent['message'], messages.operationInProgress.toMap());
+          expect(stops, 0);
+          connectionClose!.complete(status);
+          await tester.pump();
+          // subscription.cancel 返回 Dart 的 root-zone Future，先完成真实 microtask，再检查同次 Reply。
+          await tester.runAsync(() => Future<void>.value());
+          await tester.pump();
+          expect(
+            settled,
+            isTrue,
+            reason: 'Actual close reply must drain the writer',
+          );
+          expect((await pending)['connectionStatus'], status);
+          expect((await observedConnection())['active'], isFalse);
+          final replacementSample = connectionSample =
+              Completer<Map<String, dynamic>>();
+          samples.add(replacementSample);
+          oldSample.complete(
+            connection_fixtures.sample(
+              [connection_fixtures.row('a')],
+              1000,
+              presence: {'a': true},
+            ),
+          );
+          await tester.pump();
+          // This sample entered before close and cannot resurrect the ended row.
+          expect((await observedConnection())['active'], isFalse);
+          expect(pathReads, 0);
+        } finally {
+          snapshot = {'phase': 'STOPPED', 'generation': 4, 'elapsedMs': 2000};
+          await reply('runtimeState', snapshot);
+          if (connectionClose case final close? when !close.isCompleted) {
+            close.complete(status);
+          }
+          for (final sample in samples) {
+            if (!sample.isCompleted) {
+              sample.complete(connection_fixtures.sample([], 2000));
+            }
+          }
+          await tester.pump();
+          await reply('clearInactiveConnections', {'state': snapshot});
+          await tester.pump();
+        }
+      },
+    );
+  }
+
+  for (final scope in ['cache', 'resource', 'all']) {
+    test(
+      'core cleanup $scope reaches its owner without reading damaged stores',
+      () async {
+        for (final name in [
+          'configurations.json',
+          'overrides.json',
+          'preferences.json',
+        ]) {
+          await File('${directory.path}/$name').writeAsString('{broken 原文🙂');
+        }
+        final request = {
+          'owner': 'cleanup-owner',
+          'action': 'scheduleCoreCleanup',
+          'paths': scope == 'all'
+              ? ['cache.db', '原文.yaml']
+              : ['$scope/原文.yaml'],
+          'path': '/not-an-admitted-deletion-path',
+        };
+        cleanupReply = Completer<Map<String, dynamic>>();
+        final pending = send('execute', request);
+        await Future<void>.delayed(Duration.zero);
+        expect(cleanupRequests.single, {
+          'owner': 'cleanup-owner',
+          'paths': request['paths'],
+          'admittedAt': 100,
+          'deadline': 60100,
+        });
+        final items = [
+          {
+            'path': '$scope/原文.yaml',
+            'completed': true,
+            'error': null,
+            'detail': 'https://user:password@fixture.test/?token=原文🙂',
+          },
+        ];
+        final native = {'success': true, 'items': items};
+        cleanupReply!.complete(native);
+        final result = await pending as Map;
+        expect(result['success'], isTrue);
+        expect(result['cleanup'], native);
+        expect(
+          result['message'],
+          const AppMessage('coreCleanupCompleted').withDetail(items).toMap(),
+        );
+        expect(pathReads, 0);
+        expect(stops, 0);
+        expect(starts, isEmpty);
+        expect(schedules, isEmpty);
+        for (final name in [
+          'configurations.json',
+          'overrides.json',
+          'preferences.json',
+        ]) {
+          expect(
+            await File('${directory.path}/$name').readAsString(),
+            '{broken 原文🙂',
+          );
+        }
+      },
+    );
+  }
+
+  for (final (status, items, message)
+      in <(String, List<Map<String, Object?>>, String)>[
+        (
+          'completed',
+          [
+            {'path': 'cache.db', 'completed': true, 'error': null},
+          ],
+          'coreCleanupCompleted',
+        ),
+        (
+          'failed',
+          [
+            {'path': 'cache.db', 'completed': true, 'error': null},
+            {
+              'path': '原文.yaml',
+              'completed': false,
+              'error': {
+                'message': '原始删除错误',
+                'future': [false, null],
+              },
+            },
+          ],
+          'coreCleanupPartial',
+        ),
+        ('needsSelection', [], 'coreCleanupNeedsSelection'),
+        (
+          'failed',
+          [
+            {'path': 'cache.db', 'completed': true, 'error': null},
+          ],
+          'coreCleanupFailed',
+        ),
+      ]) {
+    test('cleanup $status 的 $message 使用实际 items，完整保留文件与记录错误且不自动重启', () async {
+      cleanupReply = Completer<Map<String, dynamic>>();
+      final pending = send('execute', {
+        'owner': 'cleanup-owner',
+        'action': 'scheduleCoreCleanup',
+        'paths': ['cache.db', '原文.yaml'],
+      });
+      await Future<void>.delayed(Duration.zero);
+      final outcome = {
+        'success': status == 'completed',
+        'status': status,
+        'items': items,
+        'error': status == 'failed'
+            ? {
+                'message': '原始清理记录错误',
+                'future': [false, null],
+              }
+            : null,
+      };
+      cleanupReply!.complete(outcome);
+      final result = await pending as Map;
+      expect(result['success'], status == 'completed');
+      expect(result['cleanup'], outcome);
+      expect(result['message'], AppMessage(message).withDetail(items).toMap());
+      expect(stops, 0);
+      expect(starts, isEmpty);
+      expect(pathReads, 0);
+    });
+  }
+
+  test('published cleanup keeps its actual reply and drain after owner cancellation', () async {
+    cleanupReply = Completer<Map<String, dynamic>>();
+    var settled = false;
+    final pending =
+        send('execute', {
+          'owner': 'cleanup-owner',
+          'action': 'scheduleCoreCleanup',
+          'paths': ['cache.db'],
+        }).then((value) {
+          settled = true;
+          return value;
+        });
+    await Future<void>.delayed(Duration.zero);
+    expect(cleanupRequests, hasLength(1));
+    await send('cancel', 'cleanup-owner');
+    await Future<void>.delayed(Duration.zero);
+    expect(settled, isFalse);
+    final concurrent =
+        await send('execute', {'owner': 'next', 'action': 'stop'}) as Map;
+    expect(concurrent['success'], isFalse);
+    expect(concurrent['message'], messages.operationInProgress.toMap());
+    expect(stops, 0);
+    final native = {'success': true, 'items': <Object?>[]};
+    cleanupReply!.complete(native);
+    final result = await pending as Map;
+    expect(result['success'], isTrue);
+    expect(result['cleanup'], native);
+    expect(
+      result['message'],
+      const AppMessage('coreCleanupCompleted')
+          .withDetail(native['items'])
+          .toMap(),
+    );
+    expect(settled, isTrue);
+    expect(
+      (await send('execute', {'owner': 'next', 'action': 'stop'})
+          as Map)['success'],
+      isTrue,
+    );
+  });
+
+  test('core cleanup failure retains the native original detail', () async {
+    cleanupReply = Completer<Map<String, dynamic>>();
+    const failure = AppMessage(
+      'coreCleanupFailed',
+      detail: 'rename failed https://user:password@fixture.test/?token=原文🙂',
+    );
+    final pending = send('execute', {
+      'owner': 'cleanup-owner',
+      'action': 'scheduleCoreCleanup',
+      'scope': 'all',
+    });
+    await Future<void>.delayed(Duration.zero);
+    cleanupReply!.completeError(
+      PlatformException(code: 'coreCleanup', details: failure.toMap()),
+    );
+    final result = await pending as Map;
+    expect(result['success'], isFalse);
+    expect(
+      result['message'],
+      messageFromFailure(
+        PlatformFailure(code: 'coreCleanup', details: failure.toMap()),
+        fallback: messages.platformOperationFailed,
+      ).toMap(),
+    );
+    expect((result['failure'] as Map)['details'], failure.toMap());
+    expect(stops, 0);
+    expect(starts, isEmpty);
+  });
 
   for (final status in ['ok', 'updateFailed', 'stopped']) {
     test(
@@ -201,16 +775,19 @@ void main() {
         };
         resourceReply = Completer<Map<String, dynamic>>();
         var settled = false;
+        final admitted = transport.next(
+          ApplicationContract.coreOperationResourceUpdate,
+        );
         final pending = send('execute', resourceCommand()).then((value) {
           settled = true;
           return value as Map;
         });
-        await Future<void>.delayed(Duration.zero);
+        await admitted;
         expect(settled, isFalse);
         expect(resourceUpdates.single['owner'], 'resource-owner');
         expect(resourceUpdates.single['configId'], 'actual');
         expect(resourceUpdates.single['revision'], 2);
-        expect(resourceUpdates.single['purpose'], 'VPN');
+        expect(resourceUpdates.single['purpose'], 'RUNNING');
         resourceReply!.complete({
           ...resourceCore,
           'update': status == 'ok' ? {'status': 'ok'} : {'error': status},
@@ -242,8 +819,7 @@ void main() {
   for (final response in [
     <String, dynamic>{
       ...resourceCore,
-      'composition': 'stale',
-      'update': {'status': 'ok'},
+      'update': {'status': 'invalid'},
     },
     <String, dynamic>{
       ...resourceCore,
@@ -270,26 +846,92 @@ void main() {
     );
   }
 
-  test('resource canceled owner cannot report late native success', () async {
+  for (final status in ['ok', 'updateFailed']) {
+    test('resource canceled owner waits for the actual $status result and drain', () async {
+      const original =
+          'https://user:pass@fixture.test/?token=原文🙂\nAuthorization: Bearer fixture';
+      snapshot = {
+        'phase': 'RUNNING',
+        'mode': 'rule',
+        'core': {'phase': 'READY', ...resourceCore},
+      };
+      resourceReply = Completer<Map<String, dynamic>>();
+      var settled = false;
+      final admitted = transport.next(
+        ApplicationContract.coreOperationResourceUpdate,
+      );
+      final pending = send('execute', resourceCommand()).then((value) {
+        settled = true;
+        return value as Map;
+      });
+      await admitted;
+      expect(resourceUpdates, hasLength(1));
+      await send('cancel', 'resource-owner');
+      await Future<void>.delayed(Duration.zero);
+      expect(settled, isFalse);
+      final concurrent =
+          await send('execute', {'owner': 'next', 'action': 'stop'}) as Map;
+      expect(concurrent['success'], isFalse);
+      expect(concurrent['message'], messages.operationInProgress.toMap());
+      expect(stops, 0);
+      writeFailure = PlatformException(
+        code: 'expired',
+        message: 'The owner ended after the native write entered',
+      );
+      snapshot = {'phase': 'STOPPED'};
+      resourceReply!.complete({
+        ...resourceCore,
+        'update': status == 'ok'
+            ? {'status': 'ok'}
+            : {'error': status, 'detail': original},
+      });
+      final result = await pending;
+      expect(result['success'], status == 'ok');
+      expect(result['resourceStatus'], status);
+      expect(
+        result['message'],
+        (status == 'ok'
+                ? messages.resourceUpdateSuccess
+                : messages.resourceUpdateFailed.withDetail(original))
+            .toMap(),
+      );
+      expect(settled, isTrue);
+      expect(starts, isEmpty);
+      expect(pathReads, 0);
+      expect(stops, 0);
+    });
+  }
+
+  test('resource bridge failure keeps its original typed message', () async {
+    const failure = AppMessage(
+      'androidErrorNativeReadUnavailable',
+      detail: 'https://user:pass@fixture.test/?token=原文🙂\nAuthorization: Bearer fixture',
+    );
     snapshot = {
       'phase': 'RUNNING',
-      'mode': 'rule',
       'core': {'phase': 'READY', ...resourceCore},
     };
     resourceReply = Completer<Map<String, dynamic>>();
+    final admitted = transport.next(
+      ApplicationContract.coreOperationResourceUpdate,
+    );
     final pending = send('execute', resourceCommand());
-    await Future<void>.delayed(Duration.zero);
-    expect(resourceUpdates, hasLength(1));
-    await send('cancel', 'resource-owner');
+    await admitted;
+    resourceReply!.completeError(
+      PlatformException(code: 'updateResource', details: failure.toMap()),
+    );
     final result = await pending as Map;
     expect(result['success'], isFalse);
     expect(result['resourceStatus'], 'unconfirmed');
-    resourceReply!.complete({
-      ...resourceCore,
-      'update': {'status': 'ok'},
-    });
-    await Future<void>.delayed(Duration.zero);
+    expect((result['message'] as Map)['id'], failure.id);
+    expect((result['message'] as Map)['detail'], contains(failure.detail));
+    expect(
+      jsonEncode(result['failure']),
+      contains('androidErrorNativeReadUnavailable'),
+    );
+    expect(jsonEncode(result['failure']), contains('updateResource'));
     expect(starts, isEmpty);
+    expect(stops, 0);
   });
 
   test(
@@ -316,23 +958,33 @@ void main() {
       final policy = (await OverrideStore(directory).read()).single.update;
       expect(policy.enabled, isTrue);
       expect(policy.hours, 12);
-      expect(schedules.single.single['id'], 'remote-part');
+      expect(scheduleKinds, ['override']);
+      expect(schedules.single, [
+        {'kind': 'override', 'id': 'remote-part', 'hours': 12},
+      ]);
       schedules.clear();
+      scheduleKinds.clear();
       final synced = await send('execute', {
         'owner': 'calibrate',
         'action': 'syncSchedules',
       }) as Map;
       expect(synced['success'], isTrue);
-      expect(schedules.single, [
-        {'kind': 'override', 'id': 'remote-part', 'hours': 12},
+      expect(scheduleKinds, ['config', 'override']);
+      expect(schedules, [
+        [],
+        [
+          {'kind': 'override', 'id': 'remote-part', 'hours': 12},
+        ],
       ]);
       schedules.clear();
+      scheduleKinds.clear();
       final deleted = await send('execute', {
         'owner': 'delete-scheduled-part',
         'action': 'deleteOverride',
         'id': 'remote-part',
       }) as Map;
       expect(deleted['success'], isTrue);
+      expect(scheduleKinds, ['override']);
       expect(schedules.single, isEmpty);
       expect(await OverrideStore(directory).read(), isEmpty);
     },
@@ -504,6 +1156,20 @@ void main() {
     'one runtime obtains a fresh owner and input for each command',
     () async {
       for (final owner in ['first', 'second']) {
+        await ConfigStore(directory).save(
+          ConfigCollection(
+            entries: [
+              ConfigEntry(
+                id: 'one',
+                name: 'fixture',
+                kind: ConfigKind.local,
+                revision: 1,
+                body: owner,
+              ),
+            ],
+            selectedId: 'one',
+          ),
+        );
         final result = await send('execute', {
           'owner': owner,
           'action': 'prepareStrategies',
@@ -514,6 +1180,7 @@ void main() {
         expect(await File('${directory.path}/$owner.input').exists(), isFalse);
       }
       expect(inputOwners, ['first', 'second']);
+      expect(preparedInputs.map((input) => input['body']), ['first', 'second']);
     },
   );
 
@@ -579,7 +1246,7 @@ void main() {
         'core': {
           'phase': 'READY',
           'generation': 8,
-          'purpose': 'VPN',
+          'purpose': 'RUNNING',
           'configId': 'local',
           'revision': 1,
           'composition': '["local",1]',
@@ -610,7 +1277,14 @@ void main() {
     'cancel drains the active executor and rejects concurrent commands',
     () async {
       stageWait = Completer<void>();
-      final first = send('execute', {'owner': 'first', 'action': 'stop'});
+      var settled = false;
+      final first = send('execute', {'owner': 'first', 'action': 'stop'}).then((
+        value,
+      ) {
+        settled = true;
+        return value as Map;
+      });
+
       await Future<void>.delayed(Duration.zero);
       final duplicate =
           await send('execute', {'owner': 'second', 'action': 'stop'}) as Map;
@@ -620,8 +1294,16 @@ void main() {
           await send('execute', {'owner': 'second', 'action': 'stop'}) as Map;
       expect(stillBusy['success'], isFalse);
       await send('cancel', 'first');
-      expect((await first as Map)['success'], isFalse);
+      await Future<void>.delayed(Duration.zero);
+      expect(settled, isFalse);
+      final draining =
+          await send('execute', {'owner': 'second', 'action': 'stop'}) as Map;
+      expect(draining['success'], isFalse);
+      expect(draining['message'], messages.operationInProgress.toMap());
+      expect(stops, 0);
       stageWait!.complete();
+      expect((await first)['success'], isFalse);
+      expect(settled, isTrue);
       stageWait = null;
       final next =
           await send('execute', {'owner': 'second', 'action': 'stop'}) as Map;
@@ -683,7 +1365,7 @@ void main() {
       // Keep UI snapshot construction independent of business-runtime initialization.
       setMessageLanguage(AppLanguage.zh);
       AppBridge.channel.setMethodCallHandler(null);
-      runtime = AppRuntime();
+      runtime = AppBootstrap();
       await runtime.start();
       final result = await send('execute', {
         'owner': 'recreated-$language',
@@ -704,7 +1386,12 @@ void main() {
       }) as Map;
       expect(invalid['success'], isFalse);
       expect(invalid['configStatus'], 'notSaved');
-      expect(invalid['message'], messages.textNotUtf8.toMap());
+      expect(
+        invalid['message'],
+        messages.textNotUtf8
+            .withDetail(const FormatException('Invalid UTF-8 byte', null, 0))
+            .toMap(),
+      );
     }
     expect((await ConfigStore(directory).read()).entries, hasLength(1));
     expect(stops, 0);
@@ -805,6 +1492,68 @@ void main() {
       expect(starts, isEmpty);
     },
   );
+
+  for (final outcome in ['saved', 'applyFailed', 'applied']) {
+    test('scheduled $outcome facts survive runtime result settlement', () async {
+      const original = 'diagnostic write original cause / 原文🙂';
+      final collection = await ConfigStore(directory).read();
+      await ConfigStore(directory).save(
+        collection.replace(
+          collection.selected!.withUpdate(const UpdatePolicy(enabled: true)),
+        ),
+      );
+      if (outcome != 'saved') {
+        snapshot = {
+          'phase': 'RUNNING',
+          'generation': 4,
+          'configId': 'one',
+          'revision': 1,
+          'mode': 'rule',
+          'core': {
+            'phase': 'READY',
+            'generation': 8,
+            'purpose': 'RUNNING',
+            'configId': 'one',
+            'revision': 1,
+            'composition': '["one",1]',
+          },
+        };
+      }
+      if (outcome == 'applyFailed') {
+        stopFailure = PlatformException(code: 'stop', message: original);
+      }
+      if (outcome == 'applied') {
+        finishReconnect = true;
+        afterStartFailure = PlatformException(
+          code: 'diagnostic',
+          message: original,
+        );
+      }
+      final client = ClientFake('/downloaded');
+      final result = await HttpOverrides.runZoned(() async {
+        // Register the runtime callback in the same controlled transport zone.
+        await runtime.start();
+        return await send('execute', {
+          'owner': 'scheduled-$outcome',
+          'action': 'refreshSchedule',
+          'kind': 'config',
+          'id': 'one',
+        }) as Map;
+      }, createHttpClient: (_) => client);
+      expect(client.requests, hasLength(2));
+      expect(result['scheduleStatus'], outcome);
+      expect(result['targetId'], 'one');
+      expect(result['savedRevision'], 2);
+      expect(result['success'], outcome == 'saved');
+      if (outcome != 'saved') {
+        expect((result['message'] as Map)['detail'], contains(original));
+      }
+      final saved = (await ConfigStore(directory).read()).selected!;
+      expect(saved.revision, 2);
+      expect(saved.body, 'rules: []');
+      expect(starts, hasLength(outcome == 'applied' ? 1 : 0));
+    });
+  }
 
   test('periodic refresh keeps the old body when the source fails', () async {
     await ConfigStore(directory).save(

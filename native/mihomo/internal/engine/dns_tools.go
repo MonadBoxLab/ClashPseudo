@@ -8,14 +8,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 	"unicode/utf8"
-
-	"clashpseudo/native/internal/appcontract"
 
 	"github.com/metacubex/mihomo/component/resolver"
 	D "github.com/miekg/dns"
 	"golang.org/x/net/idna"
+
+	"clashpseudo/native/internal/appcontract"
 )
 
 const MaxDNSRequest = appcontract.DnsRequestBytes
@@ -46,6 +45,10 @@ type dnsReply struct {
 	Answer     []dnsRecord `json:"answer"`
 	Authority  []dnsRecord `json:"authority"`
 	Additional []dnsRecord `json:"additional"`
+	Stale      bool        `json:"stale,omitempty"`
+	Message    *D.Msg      `json:"message"`
+	Error      string      `json:"error,omitempty"`
+	Detail     string      `json:"detail,omitempty"`
 }
 
 type dnsOperation struct {
@@ -53,14 +56,14 @@ type dnsOperation struct {
 	requestID uint64
 	owner     *socketOwner
 	epoch     uint64
-	system    *resolverSnapshot
+	system    func()
 	ctx       context.Context
 	cancel    context.CancelFunc
 }
 
 // The actual public call owns this slot until return; Stop waits through its update
 // lifetime.
-func (e *Engine) beginDNS(kind string, requestID uint64) (*dnsOperation, resolver.Resolver, error) {
+func (e *Engine) beginDNS(kind string, requestID uint64, parents ...context.Context) (*dnsOperation, resolver.Resolver, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if !e.available() {
@@ -69,17 +72,15 @@ func (e *Engine) beginDNS(kind string, requestID uint64) (*dnsOperation, resolve
 	if kind == "query" && (!e.cfg.DNS.Enable || resolver.DefaultResolver == nil) {
 		return nil, nil, errors.New("unavailable")
 	}
-	if kind == "query" && requestID != 0 && requestID <= e.cancelledDNS.Load() {
-		return nil, nil, errors.New("cancelled")
+	parent := context.Background()
+	if len(parents) != 0 {
+		parent = parents[0]
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), appcontract.DnsQueryTimeoutMs*time.Millisecond)
-	op := &dnsOperation{kind: kind, requestID: requestID, owner: e.owner, epoch: e.networkEpoch.Load(), system: systemDNS.value.Load(), ctx: ctx, cancel: cancel}
+	ctx, cancel := context.WithTimeout(parent, appcontract.DnsQueryTimeoutMs*time.Millisecond)
+	op := &dnsOperation{kind: kind, requestID: requestID, owner: e.owner, epoch: e.networkEpoch.Load(), system: e.systemDNS.CaptureCache(e.owner.id), ctx: ctx, cancel: cancel}
 	if !e.dnsOperation.CompareAndSwap(nil, op) {
 		cancel()
 		return nil, nil, errors.New("busy")
-	}
-	if kind == "query" && requestID != 0 && requestID <= e.cancelledDNS.Load() {
-		cancel()
 	}
 	e.updates.Add(1)
 	return op, resolver.DefaultResolver, nil
@@ -92,11 +93,6 @@ func (e *Engine) endDNS(op *dnsOperation) {
 func (e *Engine) CancelDNSRequest(id uint64) {
 	if id == 0 {
 		return
-	}
-	for old := e.cancelledDNS.Load(); old < id; old = e.cancelledDNS.Load() {
-		if e.cancelledDNS.CompareAndSwap(old, id) {
-			break
-		}
 	}
 	if op := e.dnsOperation.Load(); op != nil && op.kind == "query" && op.requestID == id {
 		op.cancel()
@@ -111,32 +107,42 @@ func (e *Engine) CancelDNSQuery() {
 func (e *Engine) dnsCurrent(op *dnsOperation) bool {
 	return current.Load() == op.owner && op.owner.active.Load() && e.networkEpoch.Load() == op.epoch
 }
-func dnsFailure(code string) string {
-	body, _ := json.Marshal(map[string]string{"error": code})
+func dnsFailure(code string, cause ...error) string {
+	// Keep the complete diagnostic even when it exceeds the result budget. The
+	// bridge must then reject the whole envelope through failure.details, not
+	// accept a larger result or trim the cause to manufacture a bounded success.
+	value := map[string]string{"error": code}
+	if err := errors.Join(cause...); err != nil {
+		value["detail"] = err.Error()
+	}
+	body, _ := json.Marshal(value)
 	return string(body)
 }
 
 func normalizeDNSQuestion(body []byte) (DNSQuestion, uint16, error) {
 	var q DNSQuestion
-	if len(body) == 0 || len(body) > MaxDNSRequest || !utf8.Valid(body) || json.Unmarshal(body, &q) != nil ||
-		q.Name == "" || len(q.Name) > appcontract.DnsNameBytes || !utf8.ValidString(q.Name) {
-		return q, 0, errors.New("invalidRequest")
+	if len(body) == 0 || len(body) > MaxDNSRequest {
+		return q, 0, errors.New("DNS request is empty or exceeds its byte limit")
+	}
+	if !utf8.Valid(body) {
+		return q, 0, errors.New("DNS request is not valid UTF-8")
+	}
+	if err := json.Unmarshal(body, &q); err != nil {
+		return q, 0, err
+	}
+	if q.Name == "" || len(q.Name) > appcontract.DnsNameBytes || !utf8.ValidString(q.Name) {
+		return q, 0, errors.New("DNS name is empty, exceeds its byte limit or is not valid UTF-8")
 	}
 	q.Type = strings.ToUpper(q.Type)
 	kind, ok := dnsTypes[q.Type]
 	if !ok {
-		return q, 0, errors.New("invalidRequest")
+		return q, 0, errors.New("unsupported DNS question type: " + q.Type)
 	}
 	if kind == D.TypePTR {
 		if ip, err := netip.ParseAddr(q.Name); err == nil {
 			name, err := D.ReverseAddr(ip.String())
 			q.Name = name
 			return q, kind, err
-		}
-	}
-	for _, r := range q.Name {
-		if unicode.IsControl(r) || unicode.IsSpace(r) || strings.ContainsRune("/:@#?%", r) {
-			return q, 0, errors.New("invalidRequest")
 		}
 	}
 	// The fixed packer narrows decimal escapes to a byte. Check that one
@@ -151,10 +157,10 @@ func normalizeDNSQuestion(body []byte) (DNSQuestion, uint16, error) {
 		}
 		if q.Name[index] >= '0' && q.Name[index] <= '9' {
 			if index+3 > len(q.Name) {
-				return q, 0, errors.New("invalidRequest")
+				return q, 0, errors.New("incomplete decimal DNS escape")
 			}
 			if _, err := strconv.ParseUint(q.Name[index:index+3], 10, 8); err != nil {
-				return q, 0, errors.New("invalidRequest")
+				return q, 0, err
 			}
 			index += 2
 		}
@@ -175,36 +181,47 @@ func normalizeDNSQuestion(body []byte) (DNSQuestion, uint16, error) {
 			}
 			ascii, err := profile.ToASCII(label)
 			if err != nil {
-				return q, 0, errors.New("invalidRequest")
+				return q, 0, err
 			}
 			labels[index] = ascii
 		}
 		name = strings.Join(labels, ".")
 	}
-	q.Name = D.CanonicalName(name)
-	if _, ok := D.IsDomainName(q.Name); !ok {
-		return q, 0, errors.New("invalidRequest")
-	}
+	q.Name = D.Fqdn(name)
 	var wire [256]byte
 	length, err := D.PackDomainName(q.Name, wire[:], 0, nil, false)
-	if err != nil || length > 255 {
-		return q, 0, errors.New("invalidRequest")
+	if err != nil {
+		return q, 0, err
+	}
+	if length > 255 {
+		return q, 0, errors.New("DNS wire name exceeds 255 bytes")
 	}
 	return q, kind, nil
 }
 
 func (e *Engine) DNSQuery(body []byte) string {
+	return e.DNSQueryContext(context.Background(), body)
+}
+func (e *Engine) DNSQueryContext(ctx context.Context, body []byte) string {
 	q, kind, err := normalizeDNSQuestion(body)
 	if err != nil {
-		return dnsFailure("invalidRequest")
+		return dnsFailure("invalidRequest", err)
 	}
 	var token struct {
-		RequestID uint64 `json:"requestId,string"`
+		RequestID json.RawMessage `json:"requestId"`
 	}
-	if json.Unmarshal(body, &token) != nil {
-		return dnsFailure("invalidRequest")
+	if err := json.Unmarshal(body, &token); err != nil {
+		return dnsFailure("invalidRequest", err)
 	}
-	op, source, err := e.beginDNS("query", token.RequestID)
+	var id uint64
+	if len(token.RequestID) != 0 {
+		value := strings.Trim(string(token.RequestID), "\"")
+		id, err = strconv.ParseUint(value, 10, 64)
+		if err != nil {
+			return dnsFailure("invalidRequest", err)
+		}
+	}
+	op, source, err := e.beginDNS("query", id, ctx)
 	if err != nil {
 		return dnsFailure(err.Error())
 	}
@@ -217,20 +234,23 @@ func (e *Engine) DNSQuery(body []byte) string {
 	started := time.Now()
 	answer, err := source.ExchangeContext(op.ctx, request)
 	elapsed := time.Since(started)
-	if !e.dnsCurrent(op) {
-		return dnsFailure("obsolete")
+	code := ""
+	if err != nil {
+		code = "queryFailed"
+		if errors.Is(err, context.DeadlineExceeded) {
+			code = "timeout"
+		} else if errors.Is(err, context.Canceled) {
+			code = "cancelled"
+		}
+		if answer == nil {
+			return dnsFailure(code, err)
+		}
 	}
-	if errors.Is(op.ctx.Err(), context.DeadlineExceeded) {
-		return dnsFailure("timeout")
-	}
-	if op.ctx.Err() != nil {
-		return dnsFailure("cancelled")
-	}
-	if err != nil || answer == nil {
-		return dnsFailure("queryFailed")
+	if answer == nil {
+		return dnsFailure("queryFailed", errors.New("DNS resolver returned no message"))
 	}
 	if len(answer.Answer)+len(answer.Ns)+len(answer.Extra) > MaxDNSRecords {
-		return dnsFailure("resultTooLarge")
+		return dnsFailure("resultTooLarge", err)
 	}
 	project := func(records []D.RR) []dnsRecord {
 		out := make([]dnsRecord, 0, len(records))
@@ -241,16 +261,19 @@ func (e *Engine) DNSQuery(body []byte) string {
 		return out
 	}
 	value := dnsReply{Question: q, Rcode: answer.Rcode, RcodeName: D.RcodeToString[answer.Rcode], ElapsedMS: float64(elapsed) / float64(time.Millisecond), Truncated: answer.Truncated,
-		Answer: project(answer.Answer), Authority: project(answer.Ns), Additional: project(answer.Extra)}
+		Answer: project(answer.Answer), Authority: project(answer.Ns), Additional: project(answer.Extra), Stale: !e.dnsCurrent(op), Message: answer, Error: code}
+	if err != nil {
+		value.Detail = err.Error()
+	}
 	if value.RcodeName == "" {
 		value.RcodeName = "RCODE" + strconv.Itoa(answer.Rcode)
 	}
-	encoded, err := json.Marshal(value)
-	if err != nil || len(encoded) > MaxDNSResult {
-		return dnsFailure("resultTooLarge")
+	encoded, marshalError := json.Marshal(value)
+	if marshalError != nil {
+		return dnsFailure("queryFailed", err, marshalError)
 	}
-	if !e.dnsCurrent(op) {
-		return dnsFailure("obsolete")
+	if len(encoded) > MaxDNSResult {
+		return dnsFailure("resultTooLarge", err)
 	}
 	return string(encoded)
 }
@@ -262,21 +285,18 @@ func (e *Engine) ClearDNSCache() string {
 	}
 	defer e.endDNS(op)
 	system := op.system
-	activeSystem := system != nil && system.resolver != nil && system.reason == nil && system.owner == op.owner
+	activeSystem := system != nil
 	if source != nil {
 		source.ClearCache()
 	}
 	if activeSystem {
-		system.resolver.ClearCache()
+		system()
 	}
 	status := "empty"
 	if source != nil || activeSystem {
 		status = "completed"
 	}
-	if !e.dnsCurrent(op) {
-		return dnsFailure("obsolete")
-	}
-	value, _ := json.Marshal(map[string]any{"status": status, "resolverActive": source != nil, "systemResolverActive": activeSystem})
+	value, _ := json.Marshal(map[string]any{"status": status, "resolverActive": source != nil, "systemResolverActive": activeSystem, "stale": !e.dnsCurrent(op)})
 	return string(value)
 }
 
@@ -297,9 +317,10 @@ func (e *Engine) FlushFakeIP() string {
 	e.mu.Unlock()
 	status := "empty"
 	outcome := "inactive"
+	var failure error
 	if v4 || v6 {
 		status, outcome = "completed", "cleared"
-		if err := resolver.FlushFakeIP(); err != nil {
+		if failure = resolver.FlushFakeIP(); failure != nil {
 			status, outcome = "partialOrFailed", "unconfirmed"
 		}
 	}
@@ -311,6 +332,10 @@ func (e *Engine) FlushFakeIP() string {
 	}
 	// Preserve each completed flush mutation and report later cancellation or aggregate
 	// partial failure separately.
-	value, _ := json.Marshal(map[string]any{"status": status, "persistent": persistent, "ipv4": family(v4), "ipv6": family(v6)})
+	result := map[string]any{"status": status, "persistent": persistent, "ipv4": family(v4), "ipv6": family(v6), "stale": !e.dnsCurrent(op)}
+	if failure != nil {
+		result["detail"] = failure.Error()
+	}
+	value, _ := json.Marshal(result)
 	return string(value)
 }

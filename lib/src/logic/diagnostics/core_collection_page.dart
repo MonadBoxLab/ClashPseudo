@@ -1,0 +1,171 @@
+import 'dart:convert';
+
+import '../../model/application_contract.dart';
+import '../../model/definition_provenance.dart';
+import '../../platform/core/core_client.dart';
+
+/// 分类中的原文定义与运行记录只通过精确 provenance 关联。
+class DefinitionRows {
+  DefinitionRows(Iterable<Map<String, dynamic>> definitions)
+    : _definitions = {
+        for (final row in definitions) row['localDefinition'] as String: row,
+      };
+
+  final Map<String, Map<String, dynamic>> _definitions;
+  final Set<String> _matched = {};
+
+  Map<String, dynamic> associate(Map<String, dynamic> record) {
+    // provider 的下载内容没有直接定义的编辑权。
+    if (record['sourceKind'] == 'proxyProvider') return record;
+    final provenance = DefinitionProvenance.tryFromValue(record['provenance']);
+    if (provenance == null) return record;
+    for (final contribution in provenance.contributors) {
+      if (!contribution.isLocalCustom) continue;
+      for (final entry in _definitions.entries) {
+        final row = entry.value;
+        if (row['entryId'] == contribution.id &&
+            row['revision'] == contribution.revision &&
+            row['definitionPath'] == contribution.path &&
+            (row['kind'] == null || row['kind'] == record['kind']) &&
+            _matched.add(entry.key)) {
+          return {...record, 'localDefinition': entry.key};
+        }
+      }
+    }
+    return record;
+  }
+
+  Iterable<Map<String, dynamic>> get remaining => _definitions.entries
+      .where((entry) => !_matched.contains(entry.key))
+      .map((entry) => entry.value);
+
+  static List<Map<String, dynamic>> merge(
+    Iterable<Map<String, dynamic>> records,
+    Iterable<Map<String, dynamic>> definitions,
+  ) {
+    final projection = DefinitionRows(definitions);
+    return [...records.map(projection.associate), ...projection.remaining];
+  }
+
+  static bool matches(Map<String, dynamic> row, String search) {
+    final query = search.trim().toLowerCase();
+    if (query.isEmpty) return true;
+    // 编辑身份和内部来源不参与用户搜索。
+    final visible = Map<String, dynamic>.of(row)
+      ..remove('localDefinition')
+      ..remove('readingDefinition')
+      ..remove('entryId')
+      ..remove('revision')
+      ..remove('definitionPath')
+      ..remove('provenance')
+      ..remove('providerProvenance');
+    return jsonEncode(visible).toLowerCase().contains(query);
+  }
+
+  static String pageToken(String native, String local) =>
+      local.isEmpty ? native : jsonEncode([native, local]);
+}
+
+/// 对完整公开导出逐条搜索，只保留当前页和计数。
+class CoreCollectionPage {
+  const CoreCollectionPage({
+    required this.rows,
+    required this.total,
+    required this.offset,
+    required this.source,
+    required this.metadata,
+    required this.terminal,
+  });
+  final List<Map<String, dynamic>> rows;
+  final int total;
+  final int offset;
+  final String source;
+  final Map<String, dynamic> metadata;
+  final Map<String, dynamic> terminal;
+
+  int get nextOffset =>
+      offset + rows.length < total ? offset + rows.length : -1;
+
+  static Future<CoreCollectionPage> read(
+    CoreCall call, {
+    required int offset,
+    required int limit,
+    required String search,
+    String token = '',
+    String localIdentity = '',
+    Iterable<Map<String, dynamic>> definitions = const [],
+    Map<String, dynamic> Function(Map<String, dynamic>)? project,
+  }) async {
+    final projection = DefinitionRows(definitions);
+    final rows = <Map<String, dynamic>>[];
+    final metadata = <String, dynamic>{};
+    Map<String, dynamic>? terminal;
+    var seen = 0;
+    var matched = 0;
+    void accept(Map<String, dynamic> row) {
+      if (!DefinitionRows.matches(row, search)) return;
+      if (matched >= offset && rows.length < limit) {
+        rows.add(Map.unmodifiable(row));
+      }
+      matched++;
+    }
+
+    try {
+      if (offset < 0 || limit < 1 || limit > 1000) {
+        throw const FormatException('分页范围无效');
+      }
+      await for (final frame in call.frames()) {
+        switch (frame.kind) {
+          case ApplicationContract.coreIpcFrameMetadata:
+            metadata.addAll(frame.object);
+          case ApplicationContract.coreIpcFrameRecord:
+            seen++;
+            final record = frame.object;
+            accept(projection.associate(project?.call(record) ?? record));
+          case ApplicationContract.coreIpcFrameTerminal:
+            terminal = frame.object;
+          default:
+            throw const FormatException('集合导出包含无效帧');
+        }
+      }
+      if (terminal != null) terminal = await call.finish(terminal);
+      final source = terminal?['source'];
+      if (terminal == null ||
+          terminal['complete'] != true ||
+          terminal['recordCount'] != seen ||
+          source is! String ||
+          source.isEmpty ||
+          terminal['stale'] == true ||
+          terminal['error'] != null ||
+          metadata['source'] != null && metadata['source'] != source ||
+          token.isNotEmpty &&
+              token != DefinitionRows.pageToken(source, localIdentity)) {
+        throw FormatException('集合来源变化或未完整返回', terminal);
+      }
+      projection.remaining.forEach(accept);
+      if (metadata['scopes'] case final List scopes
+          when definitions.any(
+            (row) =>
+                (row['definitionPath'] as String? ?? '').startsWith('/rules/'),
+          )) {
+        metadata['scopes'] = [
+          for (final scope in scopes)
+            if (scope is Map && scope['kind'] == 'main')
+              {...scope, 'count': seen + projection.remaining.length}
+            else
+              scope,
+        ];
+      }
+    } catch (error, stack) {
+      return call.fail(error, stack);
+    }
+    return CoreCollectionPage(
+      rows: List.unmodifiable(rows),
+      total: matched,
+      offset: offset,
+      source: terminal['source'] as String,
+      metadata: Map.unmodifiable(metadata),
+      terminal: Map.unmodifiable(terminal),
+    );
+  }
+}

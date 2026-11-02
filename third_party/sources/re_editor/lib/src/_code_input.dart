@@ -1,4 +1,4 @@
-part of re_editor;
+part of 're_editor.dart';
 
 class _CodeInputController extends ChangeNotifier implements DeltaTextInputClient {
 
@@ -380,6 +380,7 @@ class _CodeInputController extends ChangeNotifier implements DeltaTextInputClien
   void insertContent(KeyboardInsertedContent content) {
   }
 
+  @override
   bool onFocusReceived() => false;
 
   void ensureInput() {

@@ -1,5 +1,8 @@
 package io.github.monadboxlab.clashpseudo.controls
 
+import io.github.monadboxlab.clashpseudo.app.AppWorkService
+import io.github.monadboxlab.clashpseudo.vpn.PseudoVpnService
+
 import io.github.monadboxlab.clashpseudo.app.VpnTileService
 import io.github.monadboxlab.clashpseudo.app.VpnWidgetProvider
 
@@ -58,6 +61,28 @@ class SystemControlsMetadataTest {
             assertEquals(R.mipmap.ic_launcher, info.previewImage)
             assertEquals("mipmap", context.resources.getResourceTypeName(info.previewImage))
         }
+    }
+
+    @Suppress("DEPRECATION")
+    @Test fun stopBroadcastAndControlAliasesRemainPrivateWhileSystemVpnIsPermissionBound() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val manager = context.packageManager
+        val receiver = manager.getReceiverInfo(ComponentName(context, VpnWidgetProvider::class.java), 0)
+        assertFalse("Notification/widget Stop must not be an exported command entry", receiver.exported)
+        assertTrue(receiver.enabled)
+        for (name in listOf("StartVpnShortcut", "StopVpnShortcut")) {
+            val alias = manager.getActivityInfo(ComponentName(context.packageName, "${context.packageName}.$name"), 0)
+            assertFalse(alias.exported)
+            assertEquals("${context.packageName}.MainActivity", alias.targetActivity)
+        }
+        val vpn = manager.getServiceInfo(ComponentName(context.packageName,
+            "${context.packageName}.vpn.PseudoVpnService"), PackageManager.GET_META_DATA)
+        assertTrue(vpn.exported)
+        assertEquals("android.permission.BIND_VPN_SERVICE", vpn.permission)
+        assertTrue(vpn.metaData.getBoolean("android.net.VpnService.SUPPORTS_ALWAYS_ON"))
+        val work = manager.getServiceInfo(ComponentName(context.packageName,
+            "${context.packageName}.app.AppWorkService"), 0)
+        assertFalse(work.exported)
     }
 
     @Suppress("DEPRECATION") // The public int-flags overloads also support API 24.

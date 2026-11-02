@@ -10,10 +10,107 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
-  String get selectDetails => '选择列表项目以查看详情。';
+  String get memoryTitle => '内存';
 
   @override
-  String get selectionOutsideList => '所选项目位于当前列表范围之外。';
+  String memoryApplication(String value) {
+    return '应用 $value MB';
+  }
+
+  @override
+  String memoryCore(String value) {
+    return '内核 $value MB';
+  }
+
+  @override
+  String get lanProxyTitle => '局域网代理';
+
+  @override
+  String get lanProxyNotice =>
+      '让同一局域网的设备通过本机的 HTTP 或 SOCKS5 代理访问网络。此服务可独立于 VPN 运行。';
+
+  @override
+  String get lanProxyEnabled => '开启局域网代理';
+
+  @override
+  String get lanProxyAddresses => '监听地址';
+
+  @override
+  String get lanProxyPort => '端口';
+
+  @override
+  String get lanProxyInvalidPort => '端口必须为 1 到 65535 之间的整数。';
+
+  @override
+  String get lanProxyUdp => '允许 UDP';
+
+  @override
+  String get lanProxyUnknownInterface => '无法确认此接口的网络类型。请确认它属于您信任的局域网后再选择。';
+
+  @override
+  String get lanProxyNoAddress => '没有可用的局域网接口地址。连接 Wi-Fi 或以太网后刷新。';
+
+  @override
+  String get lanProxyActual => '实际监听状态';
+
+  @override
+  String get lanProxyNotRunning => '未监听';
+
+  @override
+  String get lanProxyUnavailable => '地址已失效';
+
+  @override
+  String get lanProxyRaw => '编辑 YAML 原文';
+
+  @override
+  String get lanProxyFormUnavailable => '当前 YAML 无法完整显示为表单。请编辑原文；保存会保留原始内容。';
+
+  @override
+  String get coreInterruptedTitle => '内核运行中断';
+
+  @override
+  String get coreInterruptedMessage =>
+      '已暂停自动启动。当前页面和编辑内容继续保留。请在总览重新启动、更换配置或清理文件。';
+
+  @override
+  String get coreRecoveryRestart => '重新启动';
+
+  @override
+  String get coreRecoverySelect => '更换配置';
+
+  @override
+  String get coreCleanupSelect => '清理内核文件';
+
+  @override
+  String get coreCleanupSelectionNotice =>
+      '先停止内核，再删除勾选的缓存数据库或地理数据文件。未勾选的文件保持不变。';
+
+  @override
+  String get coreCleanupRestartLatest => '全部清理完成后，使用最新保存的配置启动';
+
+  @override
+  String get coreCleanupNoCandidates => '没有已确认的可清理文件。';
+
+  @override
+  String get coreCleanupDeleteSelected => '停止并清理所选文件';
+
+  @override
+  String get coreCleanupPartial => '部分文件未清理完成';
+
+  @override
+  String get coreLoaded => '内核已加载';
+
+  @override
+  String get vpnTakenOver => 'VPN 已接管';
+
+  @override
+  String get logClear => '清空日志';
+
+  @override
+  String get selectDetails => '选择列表中的项目以查看详情。';
+
+  @override
+  String get selectionOutsideList => '当前列表中没有所选项目。';
 
   @override
   String get editLocalDefinition => '编辑本地定义';
@@ -22,14 +119,11 @@ class AppLocalizationsZh extends AppLocalizations {
   String get definitionFormName => '名称';
 
   @override
-  String get nodeRuntimePropertiesOnly => '此处展示运行能力与测试历史；内核未提供完整原始节点字段。';
-
-  @override
   String get strategyRejectStatus => '拒绝';
 
   @override
   String strategyCardDelayNotice(String result) {
-    return '当前成员最近一次HTTP目标测试：$result。';
+    return '当前成员最近一次 HTTP 目标延迟测试：$result。';
   }
 
   @override
@@ -40,9 +134,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get configurationsNavigation => '配置';
-
-  @override
-  String get enlargeWindow => '当前任务和未保存的修改已保留，放大窗口后即可继续操作。';
 
   @override
   String get strategies => '策略';
@@ -81,7 +172,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get language => '语言';
 
   @override
-  String get configurationsAndPlugins => '配置与插件';
+  String get configurationsAndData => '配置与数据';
 
   @override
   String get routingAndResources => '分流与资源';
@@ -91,6 +182,12 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get configurations => '配置管理';
+
+  @override
+  String get configSelected => '已选择';
+
+  @override
+  String get selectConfig => '选择配置';
 
   @override
   String get recentConnections => '最近连接';
@@ -117,7 +214,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get coreLogsRecentWindow => '最近会话';
 
   @override
-  String get applicationAccess => '应用访问 VPN 控制';
+  String get applicationAccess => '应用 VPN 接管范围';
 
   @override
   String get alwaysOnVpn => 'VPN 始终开启';
@@ -157,8 +254,7 @@ class AppLocalizationsZh extends AppLocalizations {
       '自有代码采用 GPL-3.0-only。您可以依照 GNU 通用公共许可证第 3 版复制、修改和分发。在适用法律允许范围内不提供担保。第三方部分保留各自版权与许可。';
 
   @override
-  String get sourceDistributionNotice =>
-      '对应源码与构建材料须按许可要求随实际分发版本提供；当前为未公开发布的开发版本。';
+  String get sourceDistributionNotice => '对应源码与构建材料随发行版本提供。';
 
   @override
   String get versionUnavailable => '暂时无法读取版本信息。';
@@ -168,9 +264,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get refresh => '刷新';
-
-  @override
-  String get runtimeConfigExplanation => '当前内核公开接口返回的实时JSON设置。';
 
   @override
   String get runtimeConfigSearch => '查找字段或值';
@@ -188,13 +281,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get runtimeConfigPreview => '预览 · 未接管';
 
   @override
-  String get runtimeConfigStale => '旧快照 · 请刷新确认';
-
-  @override
   String get runtimeConfigEmpty => '请先选择一份已保存正文的配置。';
-
-  @override
-  String get runtimeConfigFailed => '读取失败 · 请核实内核状态后重试';
 
   @override
   String get noSearchResults => '没有匹配的行';
@@ -209,16 +296,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get coreReadFailed => '读取失败 · 请刷新重试';
 
   @override
-  String get coreSnapshotStale => '旧快照 · 非当前状态';
+  String get coreSnapshotStale => '上次读取结果 · 非当前状态';
 
   @override
   String get sourceConfiguration => '配置自身';
 
   @override
   String get builtinNode => '内置';
-
-  @override
-  String get nodeHistoryNotice => '节点能力与测试历史快照，测试URL已脱敏。';
 
   @override
   String get previousPage => '上一页';
@@ -231,6 +315,18 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get details => '详情';
+
+  @override
+  String get errorDetails => '错误详情';
+
+  @override
+  String get viewError => '查看错误';
+
+  @override
+  String get technicalDetails => '技术详情';
+
+  @override
+  String get copyTechnicalDetails => '复制技术详情';
 
   @override
   String get mainRules => '主规则';
@@ -251,7 +347,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get noRules => '没有匹配的规则';
 
   @override
-  String get compiledRules => '实际生效声明顺序';
+  String get compiledRules => '实际生效的声明顺序';
 
   @override
   String get normalizedRules => '规则集规范化条目';
@@ -261,7 +357,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get ruleSourceNotice =>
-      '域名与 IP-CIDR 规则集展示规范化条目，合并可能改变数量。classical 展示内联 payload、缓存内容或配置 fallback，并非编译后规则导出。';
+      '域名与 IP-CIDR 规则集显示规范化后的条目，合并条目可能改变数量。classical 类型显示配置内的内容（payload）、缓存内容或配置的备用内容（fallback），并非编译后的规则。';
 
   @override
   String get ruleTarget => '目标';
@@ -283,7 +379,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get resourcesExplanation =>
-      '列出内核使用的代理提供者、规则提供者和Geo数据库。来源显示协议与主机；更新时间来自内核记录或本地文件修改时间，数量为当前条目数。';
+      '列出内核使用的代理提供者、规则提供者和 Geo 数据库。来源显示协议与主机；更新时间来自内核记录或本地文件的修改时间，数量表示当前条目数。';
 
   @override
   String get resourceSearch => '名称、类型或来源';
@@ -323,7 +419,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get resourceNotAutoTarget => '非自动更新目标';
 
   @override
-  String get resourceAutoScope => '更新目标沿用内核进程记录，可能包含先前配置使用过的数据库。';
+  String get resourceAutoScope => '更新对象以内核进程记录为准，可能包括先前配置使用过的数据库。';
 
   @override
   String resourceFileModifiedAt(String time) {
@@ -379,10 +475,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get resourceNoExternalSource => '内联或内置资源没有外部来源';
 
   @override
-  String get coreLogsExplanation =>
-      '当前会话的内存日志最多1000条／1MiB。日志按字段脱敏，长条目截断并标记；阅读与复制时请注意敏感信息。';
-
-  @override
   String get logLevel => '级别';
 
   @override
@@ -404,23 +496,28 @@ class AppLocalizationsZh extends AppLocalizations {
   String get noLogs => '当前会话还没有日志';
 
   @override
+  String logLocalDropped(int count) {
+    return '已略过 $count 条日志';
+  }
+
+  @override
   String logDropped(int count) {
-    return '因容量限制已丢弃 $count 条';
+    return '传输中遗漏 $count 条日志';
   }
 
   @override
   String logTotal(int count) {
-    return '缓冲内 $count 条';
+    return '已缓存 $count 条';
   }
 
   @override
-  String get logClearLocal => '清空本地窗口';
+  String get logClearLocal => '清空本页日志';
 
   @override
   String get logBackToLatest => '回到最新';
 
   @override
-  String get logClearNotice => '清空仅影响当前页面缓冲，不修改系统日志或内核设置。';
+  String get logClearNotice => '只清空本页缓存的日志，不修改系统日志或内核设置。';
 
   @override
   String get logTruncated => '已截断';
@@ -477,7 +574,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get delayUnavailable => '当前策略组无法测试';
 
   @override
-  String get delayBatchFailed => '批次已失效，请重新测试';
+  String get delayBatchFailed => '本次批量测试已失效，请重新测试';
 
   @override
   String get overridePlugins => '插件（复写）';
@@ -522,7 +619,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get overrideEmpty => '尚未添加插件。';
 
   @override
-  String get overrideNotice => '上方优先；运行内容改变时重新连接。';
+  String get overrideNotice => '列表中位置越靠上的插件优先级越高。正在运行的配置内容改变时，会重新连接。';
 
   @override
   String get loonProxyName => '代理名称';
@@ -556,7 +653,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get overrideSource => '插件 URL';
 
   @override
-  String get overrideUpdate => '更新';
+  String get overrideUpdate => '更新插件';
+
+  @override
+  String get viewOverrideError => '查看插件错误';
+
+  @override
+  String get overrideActionFailed => '插件操作未完成';
 
   @override
   String get overrideDelete => '删除';
@@ -569,7 +672,7 @@ class AppLocalizationsZh extends AppLocalizations {
       '将从保存列表移除此插件；若当前接管正在使用它，将重新连接并中断已有连接。未连接时不会启动接管。';
 
   @override
-  String get localYamlInvalid => '正文不是有效的单份 YAML 对象，请先在文本编辑器中修正。';
+  String get localYamlInvalid => '正文必须是单个有效的 YAML 对象，请先在文本编辑器中修正。';
 
   @override
   String get localYamlInvalidStructure => '目标定义的结构或字段类型不正确，未修改正文。';
@@ -581,17 +684,17 @@ class AppLocalizationsZh extends AppLocalizations {
   String get localYamlAliasTarget => '目标使用了共享 YAML 锚点或别名，请在文本编辑器中修改。';
 
   @override
-  String get localYamlInheritedTarget => '目标来自 YAML 合并继承，请在文本编辑器中修改。';
+  String get localYamlInheritedTarget => '此定义通过 YAML 合并继承而来，请在文本编辑器中修改。';
 
   @override
-  String get localYamlUnsafeStructure => '正文结构过深或别名展开过多，无法安全修改。';
+  String get localYamlUnsafeStructure => '正文嵌套过深或展开的别名过多，无法安全修改。';
 
   @override
   String get localYamlUnsupportedEdit => '无法在保留其他正文的情况下修改此定义，请使用文本编辑器。';
 
   @override
   String get localYamlUnsupportedField =>
-      '此字段的原文形状无法由当前表单表达，将保留原值；请在文本编辑器中修改此字段。';
+      '当前表单无法表示此字段原始值的格式，将保留原值；请在文本编辑器中修改此字段。';
 
   @override
   String get definitionFormUnsetField => '移除此字段';
@@ -608,14 +711,14 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String provenancePlugins(int count) {
-    return '$count 个插件参与';
+    return '由 $count 个插件提供';
   }
 
   @override
-  String get provenanceHeading => '参与插件';
+  String get provenanceHeading => '提供内容的插件';
 
   @override
-  String get provenanceProviderHeading => '定义参与插件';
+  String get provenanceProviderHeading => '提供此定义的插件';
 
   @override
   String get strategyGroupFormTitle => '新增策略组';
@@ -634,21 +737,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get strategyGroupDefinitionTitle => '策略组属性';
-
-  @override
-  String get strategyGroupSourceConfiguration => '主配置';
-
-  @override
-  String get strategyGroupSourceCore => '内核生成';
-
-  @override
-  String get strategyGroupSourceUnknown => '来源未确认';
-
-  @override
-  String get strategyGroupPluginContribution => '由插件贡献';
-
-  @override
-  String get strategyGroupSourceReadOnly => '下列属性来自策略组的实际运行数据，当前页面为只读视图。';
 
   @override
   String get strategyGroupAttributesHeading => '实际属性';
@@ -718,7 +806,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get providerFormReplacement => '替换内容';
 
   @override
-  String get providerFormPathHint => '相对于受管资源目录；不接受绝对路径或上级路径。';
+  String get providerFormPathHint => '路径相对于应用管理的资源目录；不能使用绝对路径或指向上级目录的路径。';
 
   @override
   String get providerFormInvalidPath => '路径无效';
@@ -755,17 +843,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get ruleFormCondition => '原生条件表达式';
 
   @override
-  String get ruleFormUnrepresentable => '此字段无法按规则格式原样表达';
+  String get ruleFormUnrepresentable => '规则格式无法原样保存此字段';
 
   @override
   String get ruleFormTargetHint => '目标名称不能含逗号或首尾空格。';
 
   @override
   String get ruleFormSrcHint => 'src 已包含 no-resolve 的效果。';
-
-  @override
-  String get ruleFormIdentityNotice =>
-      '当前 Android 接入未提供连接所属进程或 UID，这些规则可能无法匹配。';
 
   @override
   String get definitionFormMoveUp => '上移';
@@ -804,10 +888,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get proxyCategoryVpn => 'VPN 协议';
 
   @override
-  String get proxyCategoryBuiltin => '内置处理项';
+  String get proxyCategoryBuiltin => '内置连接处理方式';
 
   @override
-  String get proxyBuiltinDescription => '内核处理项，并非代理协议。';
+  String get proxyBuiltinDescription => '由内核直接处理连接，不属于代理协议。';
 
   @override
   String get proxyOptional => '可选';
@@ -885,7 +969,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get proxyUnitMbps => 'Mbps';
 
   @override
-  String get proxyUnitPackets => '包';
+  String get proxyUnitPackets => '数据包';
 
   @override
   String proxyAddItem(String field) {
@@ -901,9 +985,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get localCustomTitle => '本地自定义';
 
   @override
-  String get localCustomDisabled => '此插件已停用，保存不会启用它。';
-
-  @override
   String get moreLabel => '更多操作';
 
   @override
@@ -916,14 +997,14 @@ class AppLocalizationsZh extends AppLocalizations {
   String get applicationListFailed => '无法读取已安装应用列表。';
 
   @override
-  String get applicationAllowEmpty => '仅选中模式下至少需要选择一个应用。';
+  String get applicationAllowEmpty => '选择“仅选中应用”时，至少需要选择一个应用。';
 
   @override
   String get applicationReconnectTitle => '保存并重新连接？';
 
   @override
   String get applicationReconnectMessage =>
-      '保存后会正常停止当前接管，并按当前配置与模式重新连接；已有连接会中断。若重新连接失败，设置仍会保留。';
+      '保存后会先正常停止当前接管，再按当前配置和模式重新连接，已有连接会中断。若重新连接失败，设置仍会保留。';
 
   @override
   String get applicationReconnect => '保存并重新连接';
@@ -936,7 +1017,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get applicationAccessNotice =>
-      '选中范围内的应用由VPN接管，其余应用沿系统网络连接。保存后重新连接，使新设置生效。';
+      '选定范围内应用的流量由 VPN 接管，其余应用使用系统网络连接。保存后重新连接，新设置才会生效。';
 
   @override
   String get searchApplications => '搜索应用名称或包名';
@@ -978,19 +1059,25 @@ class AppLocalizationsZh extends AppLocalizations {
       '始终开启由 Android 系统管理。开启后系统会在需要时启动本应用，并可在解锁后恢复最近保存的配置。应用不能绕过系统关闭它。';
 
   @override
-  String get alwaysOnUnknown => '请在系统设置确认当前状态。';
+  String get vpnStatusLoading => '正在读取 VPN 状态';
 
   @override
-  String get alwaysOnEnabled => '系统状态：已开启';
+  String get vpnStatusReadFailed => '无法读取 Android VPN 状态。';
 
   @override
-  String get alwaysOnDisabled => '系统状态：未开启';
+  String get alwaysOnUnknown => '未确认';
 
   @override
-  String get lockdownEnabled => '阻止不通过 VPN 的连接：已开启';
+  String get alwaysOnEnabled => '已开启';
 
   @override
-  String get lockdownDisabled => '阻止不通过 VPN 的连接：未开启';
+  String get alwaysOnDisabled => '未开启';
+
+  @override
+  String get lockdownEnabled => '已开启';
+
+  @override
+  String get lockdownDisabled => '未开启';
 
   @override
   String get lockdownTitle => '阻止不通过 VPN 的连接';
@@ -1025,7 +1112,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get autoUpdateInterval => '检查周期';
 
   @override
-  String get autoUpdateNotice => '系统调度可能延后或使用移动数据；下载失败保留原内容。';
+  String get autoUpdateNotice => '系统安排的更新可能延迟，也可能使用移动数据；下载失败时保留原内容。';
 
   @override
   String get autoUpdateEnabled => '已开启自动更新';
@@ -1055,16 +1142,28 @@ class AppLocalizationsZh extends AppLocalizations {
   String get autoUpdateNever => '尚未检查';
 
   @override
-  String get applicationPolicyNextConnection => '已保存策略将在下次连接时使用。';
+  String get applicationPolicyNextConnectionShort => '下次连接生效';
 
   @override
-  String get applicationPolicyApplied => '已保存策略正在使用。';
+  String get applicationPolicyAppliedShort => '已生效';
 
   @override
-  String get applicationPolicyPending => '已保存策略尚未应用；再次保存可重连重试。';
+  String get applicationPolicyPendingShort => '尚未生效';
 
   @override
-  String get applicationPolicyUnknown => '运行策略未确认；再次保存可重连核实。';
+  String get applicationPolicyUnknownShort => '未确认';
+
+  @override
+  String get applicationPolicyNextConnection => '已保存的应用接管范围设置将在下次连接时生效。';
+
+  @override
+  String get applicationPolicyApplied => '已保存的应用接管范围设置正在使用。';
+
+  @override
+  String get applicationPolicyPending => '已保存的应用接管范围设置尚未生效；再次保存可重新连接并重试。';
+
+  @override
+  String get applicationPolicyUnknown => '尚未确认正在使用的应用接管范围；再次保存可重新连接并核实。';
 
   @override
   String get strategyGroupMissing => '策略组已不存在';
@@ -1103,37 +1202,37 @@ class AppLocalizationsZh extends AppLocalizations {
   String get stateUnknown => '状态未确认';
 
   @override
-  String get statusIssue => '状态异常 · 查看详情';
+  String get statusIssue => '状态异常';
 
   @override
-  String get statusPending => '状态确认前，暂不可启停';
+  String get statusPending => '状态未确认';
 
   @override
-  String get statusAutoRetry => '暂时无法获取状态，正在自动尝试';
+  String get statusAutoRetry => '正在重试';
 
   @override
-  String get statusPlatformUnconfirmed => '平台尚未确认资源状态，暂不可启停';
+  String get statusPlatformUnconfirmed => '资源状态未确认';
 
   @override
-  String get statusWaiting => '正在等待接管结果';
+  String get statusWaiting => '正在等待结果';
 
   @override
-  String get statusConfigFailed => '配置读取失败，仍可查看管理页面';
+  String get statusConfigFailed => '无法读取配置';
 
   @override
-  String get statusConfigLoading => '正在读取已保存配置';
+  String get statusConfigLoading => '正在读取配置';
 
   @override
-  String get statusImportPrompt => '导入完整配置后，即可启动';
+  String get statusImportPrompt => '未选择配置';
 
   @override
   String get statusReimport => '当前配置需要重新导入更新';
 
   @override
-  String get statusReady => '准备好，即可开始';
+  String get statusReady => '已准备就绪，可以启动';
 
   @override
-  String get identityUnconfirmed => '配置身份未确认';
+  String get identityUnconfirmed => '尚未确认所用配置';
 
   @override
   String get identityLoading => '正在读取配置';
@@ -1199,7 +1298,7 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get modeSavedUnconfirmed => '保存模式未确认';
+  String get modeSavedUnconfirmed => '已保存的模式尚未确认';
 
   @override
   String get modeRule => '规则';
@@ -1258,23 +1357,24 @@ class AppLocalizationsZh extends AppLocalizations {
   String get modeReadFailed => '模式读取失败';
 
   @override
-  String get modeDiffers => '实际模式与保存回退';
+  String get modeDiffers => '当前模式与已保存的备用模式';
 
   @override
   String modeSaved(String mode) {
-    return '已保存回退：$mode；仅在配置未指定 mode 时使用。';
+    return '已保存的备用模式：$mode；仅在配置未指定 mode 字段时使用。';
   }
 
   @override
   String modeActualDiffers(String mode) {
-    return '实际运行：$mode；配置指定的模式可以与已保存的回退模式不同。';
+    return '当前运行模式：$mode；配置指定的模式可能与已保存的备用模式不同。';
   }
 
   @override
-  String get modeHint => '运行中选择会立即切换实际模式；未运行时仅保存回退模式。配置未指定 mode 时才使用保存回退。';
+  String get modeHint =>
+      '运行时选择模式会立即切换当前模式；未运行时只保存备用模式。配置未指定 mode 字段时，才使用已保存的备用模式。';
 
   @override
-  String get modeFollowConfigIdle => '随配置 · 未运行';
+  String get modeFollowConfigIdle => '使用配置中的模式 · 未运行';
 
   @override
   String get notProvided => '未提供';
@@ -1292,22 +1392,27 @@ class AppLocalizationsZh extends AppLocalizations {
   String get inactiveOnly => '不活跃';
 
   @override
-  String get recordLimitReached => '记录达上限';
+  String get recordLimitReached => '记录数量已达上限';
 
   @override
-  String get connectionUpdating => '正在更新';
+  String get clearInactiveConnections => '清除已结束记录';
+
+  @override
+  String connectionOmitted(int count) {
+    return '因容量限制略过 $count 条完整记录';
+  }
+
+  @override
+  String get rawData => '原始数据';
+
+  @override
+  String get copyOriginalText => '复制原文';
+
+  @override
+  String get connectionLimitedNotice => '记录容量已达上限，部分连接未显示。可清除已结束记录以腾出空间。';
 
   @override
   String get connectionRefreshFailed => '刷新失败';
-
-  @override
-  String get connectionRefreshRetrying => '刷新失败，正在重试';
-
-  @override
-  String get takeoverStopped => '接管已停止';
-
-  @override
-  String get statusUnconfirmed => '状态未确认';
 
   @override
   String get exitSearch => '退出搜索';
@@ -1337,9 +1442,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get connectionActive => '活跃';
 
   @override
-  String get connectionPending => '待确认';
-
-  @override
   String get connectionInactive => '已不活跃';
 
   @override
@@ -1362,12 +1464,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get disconnect => '断开连接';
-
-  @override
-  String get fieldsTruncated => '部分长字段已截短';
-
-  @override
-  String get connectionStatus => '连接状态';
 
   @override
   String portLabel(String port) {
@@ -1396,9 +1492,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get connectionClosed => '已断开';
 
   @override
-  String get connectionReplaced => '会话已切换';
-
-  @override
   String cumulative(String bytes) {
     return '累计 $bytes';
   }
@@ -1425,7 +1518,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get showHiddenGroups => '显示隐藏策略组';
 
   @override
-  String get hideHiddenGroups => '隐藏隐藏策略组';
+  String get hideHiddenGroups => '不显示隐藏策略组';
 
   @override
   String get strategyGroups => '策略组';
@@ -1446,13 +1539,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get loadingStrategies => '正在加载策略…';
 
   @override
-  String get selectionsNotRestored => '原选择未恢复';
+  String get selectionsNotRestored => '部分选择未恢复';
 
   @override
   String get underTakeover => '接管中';
 
   @override
-  String get notUnderTakeover => '未接管 · 预选';
+  String get notUnderTakeover => '未接管 · 已预选';
 
   @override
   String get viewUnrestored => '查看未恢复的选择';
@@ -1526,7 +1619,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get popupUpdateFailed => '更新失败 · 查看原因';
 
   @override
-  String get popupSavedDiffersShort => '保存与实际不一致 · 查看详情';
+  String get popupSavedDiffersShort => '已保存选择与实际选择不同 · 查看详情';
 
   @override
   String get popupNotRestoredShort => '原选择未恢复 · 查看详情';
@@ -1565,10 +1658,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get strategyChoiceLoadBalance => '负载均衡';
 
   @override
-  String get strategyReadStale => '策略状态暂未更新，前台将自动重试；旧记录不能用于切换。';
+  String get strategyReadStale => '策略状态尚未更新，应用在前台时会自动重试；不能使用旧记录切换策略。';
 
   @override
-  String get strategyContextChanged => '策略上下文已变化，请等待当前配置重新读取。';
+  String get strategyContextChanged => '策略运行状态已变化，请等待重新读取当前配置。';
 
   @override
   String get strategyGroupChanged => '策略组或成员已变化，本次选择未保存。';
@@ -1704,7 +1797,7 @@ class AppLocalizationsZh extends AppLocalizations {
       'MTU 必须介于 1 至 65535 之间，使用 IPv6 时至少为 1280。';
 
   @override
-  String get nativeReasonInvalidAddress => '派生的 VPN 接口地址或其所需的下一个地址无效。';
+  String get nativeReasonInvalidAddress => '计算得到的 VPN 接口地址或所需的下一个地址无效。';
 
   @override
   String get nativeReasonSystemDnsUnavailable =>
@@ -1712,15 +1805,15 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get nativeReasonPrivateDnsUnavailable =>
-      '严格模式 Android 私人 DNS 没有已验证的等价安全通道，不能降级为明文 DNS。';
+      '当前无法为 Android 严格模式的私人 DNS 提供经过验证的等效安全连接，不能改用明文 DNS。';
 
   @override
   String get nativeReasonProviderPath =>
-      'provider 路径未通过目录范围、符号链接、受保护文件或目标身份校验。';
+      '资源提供者（provider）的路径未通过目录范围、符号链接、受保护文件或目标文件标识检查。';
 
   @override
   String get nativeReasonAndroidUserUnavailable =>
-      '应用只能枚举和管理当前 Android 用户的应用，不支持其他用户及其 UID 的过滤条件。';
+      '应用只能列出和管理当前 Android 用户安装的应用，不支持按其他用户或其 UID 筛选。';
 
   @override
   String get storageContextChanged => '数据已恢复或替换，请重新打开此页面。未提交的输入仍可复制保留。';
@@ -1734,13 +1827,13 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get storageUnavailable => '配置、插件和设置暂时不可用，数据恢复确认后才能继续。停止连接不受影响。';
+  String get storageUnavailable => '配置、插件和设置暂时不可用，请等待数据恢复得到确认后再继续。仍可停止连接。';
 
   @override
   String get trustedRootsUnavailable => '无法读取或解析默认受信根证书，请重试。';
 
   @override
-  String get nameInvalid => '请输入非空且不超过 80 个 UTF-8 字节的配置名称。';
+  String get nameInvalid => '配置名称不能为空，且 UTF-8 编码后不能超过 80 字节。';
 
   @override
   String get operationBusyFile => '当前有操作正在处理，文件未提交。请等待操作完成后重新选择。';
@@ -1780,7 +1873,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String autoUpdateHours(int hours) {
-    return '自动更新：$hours 小时';
+    return '自动更新：每 $hours 小时';
   }
 
   @override
@@ -1815,18 +1908,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get deleteKeepsSelection => '当前选择与接管不变。';
 
   @override
-  String get deleteNoSelection => '删除后没有当前配置。';
+  String get deleteNoSelection => '删除后取消当前选择，不会自动选择其他配置。';
 
   @override
-  String deleteSelects(String name) {
-    return '删除后选择“$name”，不会自动启动。';
-  }
+  String get deleteRemoteBody => '将删除保存的正文与来源，不会自动停止正在运行的连接。';
 
   @override
-  String get deleteRemoteBody => '将删除保存的正文与来源。';
-
-  @override
-  String get deleteLocalBody => '将删除保存的本地正文。';
+  String get deleteLocalBody => '将删除保存的本地正文，不会自动停止正在运行的连接。';
 
   @override
   String get renameConfig => '重命名配置';
@@ -1895,7 +1983,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get overwrite => '覆盖更新';
 
   @override
-  String get leaveBodyTitle => '离开正文？';
+  String get leaveBodyTitle => '离开正文编辑页？';
 
   @override
   String get leaveBodyMessage => '已提交的保存不会因离开而取消。结果尚未确认，请回配置列表核实，不要重复提交。';
@@ -1913,16 +2001,17 @@ class AppLocalizationsZh extends AppLocalizations {
   String get nameRequired => '请输入配置名称。';
 
   @override
-  String get normalizeNewlinesTitle => '统一混合换行？';
+  String get normalizeNewlinesTitle => '统一换行格式？';
 
   @override
-  String get normalizeNewlinesMessage => '此正文包含多种换行。保存修改将统一为主要换行风格，BOM 保持不变。';
+  String get normalizeNewlinesMessage =>
+      '正文中使用了多种换行格式。保存时将统一为主要使用的格式，并保留字节顺序标记（BOM）。';
 
   @override
   String get normalizeAndSave => '统一并保存';
 
   @override
-  String get submittedSavedTitle => '提交版本已保存';
+  String get submittedSavedTitle => '已保存提交的版本';
 
   @override
   String get submittedSavedMessage => '提交的正文已保存，此后产生的修改仍保留在编辑器中，尚未保存。';
@@ -1934,7 +2023,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get savedApplyFailed => '已保存，应用未完成';
 
   @override
-  String get saveFailed => '保存未完成';
+  String get saveFailed => '保存失败';
 
   @override
   String get findBody => '查找正文';
@@ -1961,7 +2050,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get tooLarge => '超过 16 MiB · 未截断';
 
   @override
-  String get sizePending => '大小待确认 · 保存时重检';
+  String get sizePending => '大小尚未确认 · 保存时重新检查';
 
   @override
   String get unsavedChanges => '未保存修改';
@@ -1973,7 +2062,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get find => '查找';
 
   @override
-  String get softWrap => '软换行';
+  String get softWrap => '自动换行';
 
   @override
   String get saveAndApply => '保存并应用';
@@ -1982,11 +2071,11 @@ class AppLocalizationsZh extends AppLocalizations {
   String get bodyUnreadable => '该配置没有可用正文，请先更新来源。';
 
   @override
-  String get bodyPrepFailed => '无法准备配置正文，请返回后重试。';
+  String get bodyPrepFailed => '配置正文尚未准备好，请返回后重试。';
 
   @override
   String editorLineTooLong(int line, int limit) {
-    return '第 $line 行超过 $limit 个 UTF-16 代码单元，无法编辑或软换行预览；原文未改动。';
+    return '第 $line 行超过 $limit 个 UTF-16 代码单元的编辑上限，现按只读文本块显示完整原文。';
   }
 
   @override
@@ -2000,7 +2089,7 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get editorContextChanged => '暂时无法编辑，请先完成当前操作或重新打开正文。';
+  String get editorContextChanged => '暂时无法保存，草稿仍保留。';
 
   @override
   String get aboutTitle => '关于 Clash Pseudo';
@@ -2018,8 +2107,87 @@ class AppLocalizationsZh extends AppLocalizations {
   String get materialIconsFont => 'Material Icons 字体';
 
   @override
+  String get privacyNoticeTitle => '隐私与许可';
+
+  @override
+  String get privacyNoticeUnderstood => '我已了解';
+
+  @override
+  String get privacyNoticeNotSaved => '未能确认提示记录已保存。下次打开可能再次显示。';
+
+  @override
+  String get privacyNoticeBody =>
+      'Clash Pseudo 开源、免费，不进行用户数据采集或上报，不提供任何代理节点或订阅服务。\n\n数据处理\n\n应用不统计用户的使用情况，不分析用户行为，也不自动上报崩溃信息。配置、插件与应用设置保存在设备上。代理和规则匹配在设备上处理流量、域名及 IP；连接信息与日志用于显示和诊断，已安装应用列表用于设置哪些应用的流量由 VPN 接管。\n\n网络通信\n\n配置和插件下载、DNS 查询、代理连接、测速、远程图标及规则／地理数据更新会访问相应网络服务，目标由配置和程序默认值确定。关闭 VPN 接管不关闭这些功能的网络访问。\n\n请求会向目标服务发送功能所需的内容和认证信息，服务也会看到连接来源的 IP。HTTP 来源的下载没有传输加密。\n\n权限用途\n\n- 网络访问与网络状态：建立连接、下载内容和检查网络。\n- 前台服务与通知：运行 VPN、局域网代理服务和后台任务，显示运行状态。\n- 已安装应用可见性：显示应用列表，设置哪些应用的流量由 VPN 接管。\n- VPN 授权：经 Android 授权后建立 VPN 接口，接管选定范围的网络流量。\n\n文件与备份\n\n配置和插件正文、来源地址及其中保存的凭据存放在应用私有目录，应用未另行加密。导出的 ZIP 未加密，包含配置、插件、应用设置及其中保存的来源地址和凭据。备份的导入、导出位于“设置 → 存储与数据”，通过 Android 文件选择器完成；保存位置由您选择。\n\nAndroid 系统备份和设备迁移可复制配置、插件与应用设置，是否启用由系统设置与所用备份服务决定。文件提供方的同步功能也可保存所选文件的云端副本。\n\n连接记录、内核日志与原始正文\n\n近期连接记录与日志只暂存在设备内存中，受容量和保留时间限制，不保存为历史文件；可在相应页面清除，进程结束后消失。\n\n可在“设置 → 诊断工具 → 内核日志”查看内核运行、连接和错误信息。保留的日志按内核原文显示；容量不足时移除或略过整条记录，并显示遗漏情况，不截断或改写正文。配置编辑器和备份保留原始正文。\n\n删除与查看\n\n您可在应用内删除配置与插件、清除近期记录和日志，并逐项清理缓存数据库及可重建的地理数据文件。清理前需停止内核；只删除已确认的文件，协议身份、provider自定义文件和其他用户文件继续保留。\n\n您也可在系统设置中撤销 VPN 授权或清除应用数据。清除应用数据或卸载不会删除已导出的文件、系统备份或其他外部副本。\n\n完整说明随功能变化更新，可在“设置 → 关于”查看当前安装版本的内容。\n\n项目仓库\n\nhttps://github.com/MonadBoxLab/ClashPseudo\n\n更多请参见 GPLv3 协议。';
+
+  @override
+  String get privacyNoticeSummary =>
+      'Clash Pseudo 开源、免费，不进行用户数据采集或上报，不提供任何代理节点或订阅服务。\n\n更多请参见 GPLv3 协议。';
+
+  @override
+  String get privacyNoticeIntro =>
+      'Clash Pseudo 开源、免费，不进行用户数据采集或上报，不提供任何代理节点或订阅服务。';
+
+  @override
+  String get privacyNoticeReadFull => '完整说明';
+
+  @override
+  String get privacyNoticeLicenseNotice => '更多请参见 GPLv3 协议。';
+
+  @override
+  String get privacyNoticeLicenseName => 'GPLv3';
+
+  @override
+  String get projectRepositoryUrl =>
+      'https://github.com/MonadBoxLab/ClashPseudo';
+
+  @override
+  String get privacyDataProcessingTitle => '数据处理';
+
+  @override
+  String get privacyDataProcessingBody =>
+      '应用不统计用户的使用情况，不分析用户行为，也不自动上报崩溃信息。配置、插件与应用设置保存在设备上。代理和规则匹配在设备上处理流量、域名及 IP；连接信息与日志用于显示和诊断，已安装应用列表用于设置哪些应用的流量由 VPN 接管。';
+
+  @override
+  String get privacyNetworkCommunicationTitle => '网络通信';
+
+  @override
+  String get privacyNetworkCommunicationBody =>
+      '配置和插件下载、DNS 查询、代理连接、测速、远程图标及规则／地理数据更新会访问相应网络服务，目标由配置和程序默认值确定。关闭 VPN 接管不关闭这些功能的网络访问。\n\n请求会向目标服务发送功能所需的内容和认证信息，服务也会看到连接来源的 IP。HTTP 来源的下载没有传输加密。';
+
+  @override
+  String get privacyPermissionPurposesTitle => '权限用途';
+
+  @override
+  String get privacyPermissionPurposesBody =>
+      '- 网络访问与网络状态：建立连接、下载内容和检查网络。\n- 前台服务与通知：运行 VPN、局域网代理服务和后台任务，显示运行状态。\n- 已安装应用可见性：显示应用列表，设置哪些应用的流量由 VPN 接管。\n- VPN 授权：经 Android 授权后建立 VPN 接口，接管选定范围的网络流量。';
+
+  @override
+  String get privacyFilesAndBackupsTitle => '文件与备份';
+
+  @override
+  String get privacyFilesAndBackupsBody =>
+      '配置和插件正文、来源地址及其中保存的凭据存放在应用私有目录，应用未另行加密。导出的 ZIP 未加密，包含配置、插件、应用设置及其中保存的来源地址和凭据。备份的导入、导出位于“设置 → 存储与数据”，通过 Android 文件选择器完成；保存位置由您选择。\n\nAndroid 系统备份和设备迁移可复制配置、插件与应用设置，是否启用由系统设置与所用备份服务决定。文件提供方的同步功能也可保存所选文件的云端副本。';
+
+  @override
+  String get privacyRecordsAndLogsTitle => '连接记录、内核日志与原始正文';
+
+  @override
+  String get privacyRecordsAndLogsBody =>
+      '近期连接记录与日志只暂存在设备内存中，受容量和保留时间限制，不保存为历史文件；可在相应页面清除，进程结束后消失。\n\n可在“设置 → 诊断工具 → 内核日志”查看内核运行、连接和错误信息。保留的日志按内核原文显示；容量不足时移除或略过整条记录，并显示遗漏情况，不截断或改写正文。配置编辑器和备份保留原始正文。';
+
+  @override
+  String get privacyDeletingDataTitle => '删除与查看';
+
+  @override
+  String get privacyDeletingDataBody =>
+      '您可在应用内删除配置与插件、清除近期记录和日志，并逐项清理缓存数据库及可重建的地理数据文件。清理前需停止内核；只删除已确认的文件，协议身份、provider自定义文件和其他用户文件继续保留。\n\n您也可在系统设置中撤销 VPN 授权或清除应用数据。清除应用数据或卸载不会删除已导出的文件、系统备份或其他外部副本。\n\n完整说明随功能变化更新，可在“设置 → 关于”查看当前安装版本的内容。';
+
+  @override
+  String get privacyProjectRepositoryTitle => '项目仓库';
+
+  @override
   String get legalBody =>
-      '自有代码采用 GPL-3.0-only。您可以依照 GNU 通用公共许可证第 3 版复制、修改和分发。在适用法律允许范围内不提供担保。第三方部分保留各自版权与许可。\n\n许可全文与随包第三方通知可在下方查看。对应源码与构建材料须随实际分发版本提供；当前为未公开发布的开发版本。';
+      '自有代码采用 GPL-3.0-only。您可以依照 GNU 通用公共许可证第 3 版复制、修改和分发。在适用法律允许范围内不提供担保。第三方部分保留各自版权与许可。\n\n许可全文与随包第三方通知可在下方查看。实际分发版本须提供对应源码与构建材料。';
 
   @override
   String get projectTitle => '项目';
@@ -2029,7 +2197,7 @@ class AppLocalizationsZh extends AppLocalizations {
       '# 默认直连配置；运行模式和策略选择仍以客户端为准。\nrules:\n  - MATCH,DIRECT\n';
 
   @override
-  String get noUsableBodyReimport => '该配置没有可用正文，请重新导入更新。';
+  String get noUsableBodyReimport => '该配置没有可用正文，请重新更新来源。';
 
   @override
   String get noBodyUpdateSource => '该配置没有可用正文，请先更新来源。';
@@ -2038,10 +2206,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get requestNotAccepted => '请求未被受理，请重试。';
 
   @override
-  String get temporaryModeUnknown => '暂时无法确认运行模式，前台将自动重试。';
+  String get temporaryModeUnknown => '暂时无法确认运行模式，应用在前台时会自动重试。';
 
   @override
-  String get temporaryStatusUnavailable => '暂时无法获取接管状态，前台将自动重试，不会自动启动。';
+  String get temporaryStatusUnavailable => '暂时无法获取接管状态，应用在前台时会自动重试，不会自动启动。';
 
   @override
   String get temporaryConfigsUnreadable => '暂时无法读取已保存配置，原文件未被修改。';
@@ -2118,7 +2286,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get updateStateWriteFailed => '无法保存更新状态，更新未开始；旧记录未修改，请修复存储问题后重试。';
 
   @override
-  String get stageStoppingOld => '正在停止旧接管';
+  String get stageStoppingOld => '正在停止先前的接管';
 
   @override
   String get configUpdatedRestarted => '配置已更新并重新启动。';
@@ -2127,7 +2295,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get configSavedParsedAtStart => '配置已保存，启动时由内核解析。';
 
   @override
-  String get configChangedReopen => '配置已删除、正文已变化或不可编辑，请重新打开；当前输入未覆盖保存。';
+  String get configChangedReopen => '配置已删除、正文已变化或不可编辑，请重新打开；当前输入未保存。';
 
   @override
   String get stageSavingConfig => '正在保存配置';
@@ -2137,7 +2305,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get configSavedApplyReleasePending =>
-      '配置已保存，但应用或旧预览释放未完成。请核实接管状态；新正文已保留。';
+      '配置已保存，但应用新配置或释放上次预览资源尚未完成。请核实接管状态；新正文已保留。';
 
   @override
   String get configSaved => '配置已保存。';
@@ -2155,7 +2323,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get autoUpdateDisabledResult => '自动更新已关闭。';
 
   @override
-  String get configNameInvalid => '请输入非空且不超过 80 个 UTF-8 字节的配置名称。';
+  String get configNameInvalid => '配置名称不能为空，且 UTF-8 编码后不能超过 80 字节。';
 
   @override
   String get switchedConfig => '已切换接管配置。';
@@ -2164,13 +2332,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get configSelectedNotStarted => '已选择配置，尚未启动接管。';
 
   @override
-  String get stopBeforeDelete => '请先停止接管，再删除当前使用的配置。';
-
-  @override
   String get configDeleted => '配置已删除，未启动接管。';
 
   @override
-  String get modeSavedNextStart => '回退模式已保存；启动时仅在配置未指定 mode 时使用。';
+  String get modeSavedNextStart => '备用模式已保存；启动时仅在配置未指定 mode 字段时使用。';
 
   @override
   String get modeConfirmed => '运行模式已确认。';
@@ -2180,7 +2345,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get modeNotConfirmed =>
-      '回退模式已保存，但本次运行模式切换未确认；启动时仅在配置未指定 mode 时使用回退模式。';
+      '备用模式已保存，但本次运行模式切换未确认；启动时仅在配置未指定 mode 字段时使用备用模式。';
 
   @override
   String get modeSwitchedResult => '运行模式已切换。';
@@ -2207,7 +2372,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get accessSavedReconnectFailed => '运行中的配置不可用，设置已保存但未能重新连接。';
 
   @override
-  String get stageReconnectAccess => '正在重新连接以应用访问设置';
+  String get stageReconnectAccess => '正在重新连接以应用新的接管范围设置';
 
   @override
   String get accessSavedReconnected => '应用访问设置已保存并重新连接。';
@@ -2285,7 +2450,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get overrideAutoUpdateDisabled => '插件自动更新已关闭。';
 
   @override
-  String get overrideSourceExists => '该来源已有插件，请更新已有项。';
+  String get overrideSourceExists => '已有插件使用此来源，请更新该插件。';
 
   @override
   String get overrideUpdateIncomplete => '更新未完成，请重试。';
@@ -2297,7 +2462,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get overrideUpdatedApplyLater => '插件已更新。';
 
   @override
-  String get overrideNameInvalid => '请输入非空且不超过 80 个 UTF-8 字节的插件名称。';
+  String get overrideNameInvalid => '插件名称不能为空，且 UTF-8 编码后不能超过 80 字节。';
 
   @override
   String get overridesUnreadable => '无法读取已保存插件，原文件未被修改。';
@@ -2412,7 +2577,7 @@ class AppLocalizationsZh extends AppLocalizations {
       '插件 JSON 的 UTF-8 编码超过 128 MiB，未应用本次修改。';
 
   @override
-  String get preparationMetadataInvalid => '配置身份或来源信息包含无效的 Unicode 编码，未应用本次修改。';
+  String get preparationMetadataInvalid => '配置标识或来源信息包含无效的 Unicode 编码，未应用本次修改。';
 
   @override
   String get textNotUtf8 => '配置正文不是有效的 UTF-8 文本。';
@@ -2421,7 +2586,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get textTooLargeImport => '配置正文超过 16 MiB，未导入。';
 
   @override
-  String get sessionChangedNoDisconnect => '会话已变化，未执行断开。';
+  String get sessionChangedNoDisconnect => '会话已变化，未执行断开连接操作。';
 
   @override
   String get disconnectFailedShort => '断开失败';
@@ -2433,13 +2598,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get pathUnavailable => '路径未提供';
 
   @override
-  String get strategyStatusStale => '策略状态暂未更新，前台将自动重试；旧记录不能用于切换。';
+  String get strategyStatusStale => '策略状态尚未更新，应用在前台时会自动重试；不能使用旧记录切换策略。';
 
   @override
-  String get coreContextUnconfirmed => '内核上下文尚未确认。';
+  String get coreContextUnconfirmed => '尚未确认内核运行状态。';
 
   @override
-  String get strategyContextChangedRetry => '策略上下文已变化，请等待当前配置重新读取。';
+  String get strategyContextChangedRetry => '策略运行状态已变化，请等待重新读取当前配置。';
 
   @override
   String get applyingStrategySelection => '正在应用策略选择';
@@ -2449,7 +2614,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String applicationSharedUidNotice(String packages) {
-    return '这些应用共享 Android UID，选择或排除其中一个会同时作用于：$packages';
+    return '这些应用共享同一个 Android UID。选择或排除其中一个应用，也会影响：$packages';
   }
 
   @override
@@ -2484,7 +2649,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get androidErrorApplications => '无法读取应用列表。';
 
   @override
-  String get androidErrorLogicExpired => '逻辑引擎已结束。';
+  String get androidErrorLogicExpired => '后台业务处理已结束。';
 
   @override
   String get androidErrorOperationEnded => '操作已结束。';
@@ -2493,7 +2658,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get androidErrorScheduleSave => '无法保存自动更新计划。';
 
   @override
-  String get androidErrorBusy => '已有操作正在处理，请等待确认。';
+  String get androidErrorBusy => '已有操作正在处理，请等待操作完成。';
 
   @override
   String get androidErrorUnknownCommand => '无法识别此操作。';
@@ -2541,7 +2706,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get androidErrorInvalidResult => '操作未返回有效结果。';
 
   @override
-  String get androidErrorOperationIncomplete => '业务操作未完成，请核实状态后重试。';
+  String get androidErrorOperationIncomplete => '操作未完成，请核实状态后重试。';
 
   @override
   String get androidStatusUpdating => '正在更新';
@@ -2577,7 +2742,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get androidErrorVpnServiceStart => '系统未允许启动 VPN 服务，请返回应用后重试。';
 
   @override
-  String get androidErrorReleaseUnconfirmed => '资源释放未确认，不能报告已停止或重新启动。';
+  String get androidErrorReleaseUnconfirmed => '尚未确认资源是否已释放，当前停止或重启的结果仍未确认。';
 
   @override
   String get androidErrorTakeoverStartFailed => '接管未能启动。';
@@ -2598,7 +2763,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get androidErrorStrategyParams => '策略加载参数无效。';
 
   @override
-  String get androidErrorStrategyContext => '策略上下文已变化，本次结果未确认。';
+  String get androidErrorStrategyContext => '策略运行状态已变化，本次结果未确认。';
 
   @override
   String get androidErrorStrategyTimeout => '策略操作等待超时，请等待实际状态重新读取。';
@@ -2610,10 +2775,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get androidErrorNativeStrategyUnavailable => '原生策略接口不可用。';
 
   @override
-  String get androidErrorCoreContextRefresh => '内核上下文已变化，请刷新后重试。';
+  String get androidErrorCoreContextRefresh => '内核运行状态已变化，请刷新后重试。';
 
   @override
-  String get androidErrorCoreContextReread => '内核上下文已变化，请重新读取。';
+  String get androidErrorCoreContextReread => '内核运行状态已变化，请重新读取。';
 
   @override
   String get androidErrorGroupUntestable => '当前策略组无法测试。';
@@ -2676,7 +2841,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get androidErrorLogsQuerySize => '日志查询超出大小限制。';
 
   @override
-  String get androidErrorCoreBusy => '内核忙碌或上下文已变化，请刷新后重试。';
+  String get androidErrorCoreBusy => '内核正在处理其他操作，或运行状态已变化，请刷新后重试。';
 
   @override
   String get androidErrorCoreReadTimeout => '内核读取超时，请重试。';
@@ -2688,7 +2853,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get androidErrorNativeReadUnavailable => '原生读取接口不可用。';
 
   @override
-  String get androidErrorVpnInputMissing => 'VPN 授权已失效或运行输入缺失。';
+  String get androidErrorVpnInputMissing => 'VPN 授权已失效，或缺少运行所需的数据。';
 
   @override
   String get androidErrorNotificationDenied => '系统未允许显示接管通知。';
@@ -2769,7 +2934,41 @@ class AppLocalizationsZh extends AppLocalizations {
   String get dnsQuery => '查询';
 
   @override
-  String get dnsResolverNotice => '当前内核解析器；可能命中缓存，不等同于客户端 DNS 响应。';
+  String get dnsRefreshCoreStatus => '刷新内核状态';
+
+  @override
+  String get dnsViewQueryResults => '查看查询结果';
+
+  @override
+  String get dnsQueryResults => '查询结果';
+
+  @override
+  String get dnsPreviousQuery => '上次查询';
+
+  @override
+  String get dnsViewPreviousQuery => '查看上次查询';
+
+  @override
+  String get dnsQueryRawData => 'DNS 查询原始数据';
+
+  @override
+  String dnsQueryIdentity(String name, String type) {
+    return '查询：$name · $type';
+  }
+
+  @override
+  String dnsResponseSource(String source) {
+    return '来源：$source';
+  }
+
+  @override
+  String get dnsCacheOperationDetails => '缓存操作详情';
+
+  @override
+  String get dnsCacheRawData => '缓存操作原始数据';
+
+  @override
+  String get dnsResolverNotice => '使用当前内核的解析器查询，可能读取缓存，结果不等同于客户端实际收到的 DNS 响应。';
 
   @override
   String get dnsReady => '输入名称并查询';
@@ -2793,7 +2992,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get dnsInvalidRequest => '名称或记录类型无效，或请求超出大小限制。';
 
   @override
-  String get dnsBusy => '上次查询仍在结束，请稍候。';
+  String get dnsBusy => '上次查询尚未完全结束，请稍候。';
 
   @override
   String get dnsTimeout => '查询超时，未自动重试。';
@@ -2811,10 +3010,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get dnsInvalidResponse => '无法读取查询结果，请重试。';
 
   @override
-  String get dnsQuestion => '问题';
+  String get dnsQuestion => '查询条件';
 
   @override
-  String get dnsAnswer => '回答';
+  String get dnsAnswer => '应答记录';
 
   @override
   String get dnsAuthority => '权威记录';
@@ -2880,16 +3079,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get dnsPoolUnconfirmed => '清理结果未确认';
 
   @override
-  String get dnsPersistentPoolEnabled => '持久池：已启用';
+  String get dnsPersistentPoolEnabled => '持久化映射池：已启用';
 
   @override
-  String get dnsPersistentPoolDisabled => '持久池：未启用';
+  String get dnsPersistentPoolDisabled => '持久化映射池：未启用';
 
   @override
-  String get providerFormFormatHint => 'format 控制外部内容编码；inline 使用规则条目。';
+  String get providerFormFormatHint => 'format 指定外部内容的编码格式；inline 类型直接使用规则条目。';
 
   @override
-  String get strategyGroupHashKeyInvalid => 'round-robin 不接受非空 hash-key';
+  String get strategyGroupHashKeyInvalid => '使用 round-robin 时，hash-key 必须为空';
 
   @override
   String get allStrategyGroups => '全部策略组';
@@ -2904,16 +3103,159 @@ class AppLocalizationsZh extends AppLocalizations {
   String get noStrategyGroups => '没有策略组';
 
   @override
-  String get trafficSessionScope => '本次 VPN 连接的内核统计，并非设备总量或计费流量。';
+  String get coreCleanupCache => '清除内核缓存数据库';
+
+  @override
+  String get coreCleanupCacheMessage =>
+      '仅删除内核工作目录中的 cache.db，清除内核保存的选择、fake-IP 映射和来源缓存。不删除配置、插件、应用设置、下载资源或节点身份信息。';
+
+  @override
+  String get coreCleanupAll => '重置内核数据';
+
+  @override
+  String get coreCleanupAllMessage =>
+      '将删除内核工作目录中的全部文件，包括 Geo 数据库、资源提供者（provider）下载的内容、cache.db、协议的本地身份信息和用户放入的其他文件；可能需要重新下载或重新登录。不删除配置、插件、应用设置、为“VPN 始终开启”保存的启动数据（Always-on）、首次提示记录、应用备份或目录外文件。';
+
+  @override
+  String get coreCleanupResource => '删除本地资源文件';
+
+  @override
+  String get coreCleanupResourceMessage =>
+      '只删除下列资源文件，不删除其配置定义。再次使用时可能需要重新下载或导入。不删除其他文件。';
+
+  @override
+  String get coreCleanupRestartMessage => '应用将请求停止连接并退出；下次打开时，在内核使用文件前执行删除。';
+
+  @override
+  String get coreCleanupReplacesPending => '这将替换尚未完成的清理安排。';
+
+  @override
+  String get coreCleanupScheduleAndExit => '安排并退出';
+
+  @override
+  String get coreCleanupScheduledTitle => '已安排清理';
+
+  @override
+  String get coreCleanupScheduled => '已安排清理，将在下次启动时执行。当前尚未删除文件。';
+
+  @override
+  String coreCleanupScheduledWithIssue(String result, String issue) {
+    return '$result\n\n$issue';
+  }
+
+  @override
+  String get coreCleanupStopUnconfirmed => '未能确认内核已停止。';
+
+  @override
+  String get coreCleanupExit => '退出应用';
+
+  @override
+  String get coreCleanupRetry => '退出并在下次启动时重试';
+
+  @override
+  String get coreCleanupInitializing => '正在检查内核数据清理安排。';
+
+  @override
+  String get coreCleanupRequired => '内核目录清理尚未执行。请在“存储与数据”中退出应用后重新打开。';
+
+  @override
+  String get coreCleanupFailed => '内核数据清理未完成。';
+
+  @override
+  String get coreCleanupCompleted => '所选内核文件已清理。再次使用内核时，可能会生成新文件。';
+
+  @override
+  String get coreCleanupNeedsSelection => '请先选择要清理的内核文件。';
+
+  @override
+  String resourceLocalFile(String path) {
+    return '本地文件：$path';
+  }
+
+  @override
+  String get storageData => '存储与数据';
+
+  @override
+  String get storageUsage => '存储占用';
+
+  @override
+  String get storageCleanup => '数据清理';
+
+  @override
+  String get storageUsageFailed => '无法读取存储占用。';
+
+  @override
+  String get storageCleanupFailed => '上次运行遗留的临时文件未能全部清理。';
+
+  @override
+  String get coreDataDirectory => '内核工作目录';
+
+  @override
+  String get storageMemoryNotice => '近期连接与内核日志仅暂存在内存中。清除已结束记录不会关闭活跃连接。';
+
+  @override
+  String get storageCoreNotice => '内核文件由 mihomo 管理，不适用配置与插件的容量上限。';
+
+  @override
+  String storageBytes(String bytes) {
+    return '$bytes';
+  }
+
+  @override
+  String storageFileBytes(String bytes, String limit) {
+    return '$bytes / $limit';
+  }
+
+  @override
+  String storageFileLimit(String limit) {
+    return '上限：$limit';
+  }
+
+  @override
+  String get storageLimitExceeded => '已超出上限';
+
+  @override
+  String get storageEntryCountUnavailable => '条目：—';
+
+  @override
+  String storageEntryCount(int count, int limit) {
+    return '$count / $limit 条';
+  }
+
+  @override
+  String get clearConfigurations => '删除全部配置';
+
+  @override
+  String get clearConfigurationsMessage =>
+      '将删除所有已保存的配置、所选配置及保存的模式选择，并取消配置自动更新任务。正在运行的连接不会自动停止。不删除插件、应用设置或内核文件。';
+
+  @override
+  String get configurationsCleared => '已保存的配置已全部删除。';
+
+  @override
+  String get clearOverrides => '删除全部插件';
+
+  @override
+  String get clearOverridesMessage =>
+      '将删除所有已保存的插件（包括本地自定义）并取消插件自动更新任务；应用会尝试从当前运行的配置中移除插件，再重新连接。即使未能应用这些运行配置变更，本地删除也不会撤销。不删除配置、应用设置或内核文件。';
+
+  @override
+  String get overridesCleared => '已保存的插件已全部删除。';
+
+  @override
+  String get inactiveConnectionsCleared => '已清除已结束的连接记录。';
+
+  @override
+  String get inactiveConnectionsClearFailed => '未能清除已结束的连接记录。';
 
   @override
   String get backupTitle => '备份与恢复';
 
   @override
-  String get backupExport => '导出设置';
+  String get backupExport => '导出备份';
 
   @override
-  String get backupImport => '导入设置';
+  String get backupImport => '导入备份';
 
   @override
   String get backupRestore => '恢复备份';
@@ -2949,10 +3291,11 @@ class AppLocalizationsZh extends AppLocalizations {
   String get backupConfirmTitle => '覆盖应用数据？';
 
   @override
-  String get backupConfirmMessage => '备份将覆盖而非合并现有数据，空集合也会清空现有内容。';
+  String get backupConfirmMessage => '备份会覆盖现有数据，而不是与现有数据合并；备份中的空列表也会清空对应的现有内容。';
 
   @override
-  String get backupConfirmRunning => '先停止当前连接并释放资源；恢复后尝试按恢复的所选配置连接，新的断开意图优先。';
+  String get backupConfirmRunning =>
+      '先停止当前连接并释放资源；恢复后尝试使用备份中选定的配置连接。之后收到的断开请求优先执行。';
 
   @override
   String get backupConfirmStopped => '恢复后不会主动建立连接。';
@@ -2976,7 +3319,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get backupTooLarge => '备份超过允许的大小限制。';
 
   @override
-  String get backupCandidateExpired => '备份准备结果已失效，请重新准备。';
+  String get backupCandidateExpired => '先前准备的备份已失效，请重新准备。';
 
   @override
   String get backupNotRestored => '备份数据未恢复。';
@@ -3006,38 +3349,17 @@ class AppLocalizationsZh extends AppLocalizations {
   String get backupSchedulesFailed => '自动更新任务登记未完成。';
 
   @override
-  String get backupSettingsRefreshFailed => '界面设置未能重新读取。';
+  String get backupSettingsRefreshFailed => '未能重新读取界面所显示的设置。';
 
   @override
-  String get localCustomNotice =>
-      '新增与删除仅修改本地自定义插件。删除本地覆盖后，较低优先级的同名定义可能重新生效；不会自动修复引用。';
+  String get resourceRawData => '原始资源数据';
 
   @override
-  String get providerRuntimePropertiesOnly =>
-      '此处展示已加载提供者的运行属性；内核未提供完整原始选项、请求头与凭据。';
-
-  @override
-  String get strategyGroupRuntimePropertiesOnly =>
-      '此处展示策略组的运行属性与展开成员，并非完整原始定义。';
-
-  @override
-  String get localSavedOriginal => '已保存原文';
-
-  @override
-  String get localOriginalContributes => '参与当前加载';
-
-  @override
-  String get localOriginalUnconfirmed => '未确认已加载';
-
-  @override
-  String get localOriginalDisabled => '插件已停用';
-
-  @override
-  String get localCustomDefinitionsEmpty => '此处没有直接定义的本地自定义条目。';
+  String get localCustomDefinitionsEmpty => '本地自定义插件中没有直接定义的条目。';
 
   @override
   String get localCustomDeleteConfirm =>
-      '仅从本地自定义插件删除此项。下层同名定义可能恢复，已有引用不会自动修改。是否继续？';
+      '仅从本地自定义插件删除此项。优先级较低的同名定义可能重新生效，已有引用不会自动修改。是否继续？';
 
   @override
   String get connectionRuleScope => '匹配范围';
@@ -3052,7 +3374,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get backupFailed => '备份操作未完成。';
 
   @override
-  String get backupDocumentWriteUnconfirmed => '备份文件未确认保存完成；所选位置可能留有不完整文件。';
+  String get backupDocumentWriteUnconfirmed => '尚未确认备份文件是否保存完成；所选位置可能留有不完整文件。';
 
   @override
   String localCustomSavedVerificationFailed(String result, String reason) {

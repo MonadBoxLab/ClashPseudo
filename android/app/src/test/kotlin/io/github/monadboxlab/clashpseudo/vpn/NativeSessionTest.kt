@@ -1,6 +1,6 @@
 package io.github.monadboxlab.clashpseudo.vpn
 
-import io.github.monadboxlab.clashpseudo.app.AppMessage
+import io.github.monadboxlab.clashpseudo.message.AppMessage
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -108,6 +108,64 @@ class NativeSessionTest {
             NativeSession.Phase.STOPPING, NativeSession.Phase.STOPPED,
             NativeSession.Phase.STARTING, NativeSession.Phase.STOPPING,
             NativeSession.Phase.UNKNOWN), observed.map { it.phase })
+    }
+
+    @Test fun attachmentConfirmationSurvivesTeardownButNotAReplacement() {
+        for (cleanupFails in listOf(false, true)) {
+            val session = NativeSession { 0L }
+            val first = session.begin()!!
+            assertFalse(session.wasAttached(first))
+            assertTrue(session.attached(first))
+            assertTrue(session.wasAttached(first))
+            session.stopping(first)
+            assertTrue(session.wasAttached(first))
+            session.finished(first, if (cleanupFails) AppMessage("androidErrorReleaseUnconfirmed") else null)
+            assertTrue(session.wasAttached(first))
+            if (!cleanupFails) {
+                val next = session.begin()!!
+                assertFalse(session.wasAttached(first))
+                assertFalse(session.wasAttached(next))
+            }
+        }
+    }
+
+    @Test fun failureReturningDuringStopIsRetainedWithoutStartingAnotherCleanup() {
+        val original = "https://user:pass@fixture.test/?token=原文🙂\nAuthorization: Bearer fixture"
+        for (previous in listOf(null, AppMessage("androidErrorSystemRevoked"))) {
+            val session = NativeSession { 0L }
+            val id = session.begin()!!
+            val actual = AppMessage("androidErrorTakeoverStartFailed").withDetail(original)
+            assertTrue(session.stopping(id, previous))
+            assertFalse(session.stopping(id, actual))
+            assertEquals(NativeSession.Phase.STOPPING, session.snapshot().phase)
+            assertEquals(original, session.snapshot().error!!.detail)
+            assertEquals(previous?.id ?: actual.id, session.snapshot().error!!.id)
+            session.finished(id, null)
+            assertEquals(NativeSession.Phase.STOPPED, session.snapshot().phase)
+            assertEquals(original, session.snapshot().error!!.detail)
+            assertFalse(session.stopping(id, AppMessage("late")))
+            assertEquals(original, session.snapshot().error!!.detail)
+        }
+    }
+
+    @Test fun preNativeFailureKeepsItsErrorWithoutInventingAStartOrOverwritingANewerState() {
+        val session = NativeSession { 0L }
+        val actual = AppMessage("androidErrorNotificationDenied").withDetail("original: 原文🙂")
+        session.failedStart(0, actual)
+        assertEquals(0L, session.snapshot().generation)
+        assertEquals(NativeSession.Phase.STOPPED, session.snapshot().phase)
+        assertEquals(actual, session.snapshot().error)
+        val id = session.begin()!!
+        assertNull(session.snapshot().error)
+        session.failedStart(0, actual)
+        session.failedStart(id, actual)
+        assertNull(session.snapshot().error)
+        session.stopping(id)
+        val cleanup = AppMessage("androidErrorReleaseUnconfirmed").withDetail("actual cleanup")
+        session.finished(id, cleanup)
+        session.failedStart(id, actual)
+        assertEquals(NativeSession.Phase.UNKNOWN, session.snapshot().phase)
+        assertEquals(cleanup, session.snapshot().error)
     }
 
     @Test fun queryDoesNotStartAnything() {

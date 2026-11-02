@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:clash_pseudo/src/features/overrides/override_entry.dart';
-import 'package:clash_pseudo/src/features/overrides/override_store.dart';
+import 'package:clash_pseudo/src/model/override_entry.dart';
+import 'package:clash_pseudo/src/logic/overrides/override_store.dart';
 
 class ReadOnlyOverrideStore extends OverrideStore {
   ReadOnlyOverrideStore() : super(Directory.systemTemp);
@@ -12,5 +12,10 @@ class ReadOnlyOverrideStore extends OverrideStore {
   @override
   Future<void> save(List<OverrideEntry> entries) async {
     throw UnsupportedError('ReadOnlyOverrideStore must not save');
+  }
+
+  @override
+  Future<void> clear() async {
+    throw UnsupportedError('ReadOnlyOverrideStore must not clear');
   }
 }

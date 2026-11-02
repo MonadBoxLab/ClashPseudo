@@ -10,6 +10,108 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get memoryTitle => 'Memory';
+
+  @override
+  String memoryApplication(String value) {
+    return 'App $value MB';
+  }
+
+  @override
+  String memoryCore(String value) {
+    return 'Core $value MB';
+  }
+
+  @override
+  String get lanProxyTitle => 'Local network proxy';
+
+  @override
+  String get lanProxyNotice =>
+      'Let devices on your local network connect through this device\'s HTTP or SOCKS5 proxy. This service can run independently of the VPN.';
+
+  @override
+  String get lanProxyEnabled => 'Enable local network proxy';
+
+  @override
+  String get lanProxyAddresses => 'Listening addresses';
+
+  @override
+  String get lanProxyPort => 'Port';
+
+  @override
+  String get lanProxyInvalidPort => 'Enter an integer port from 1 to 65535.';
+
+  @override
+  String get lanProxyUdp => 'Allow UDP';
+
+  @override
+  String get lanProxyUnknownInterface =>
+      'The network type of this interface could not be identified. Select it only after confirming that it belongs to a trusted local network.';
+
+  @override
+  String get lanProxyNoAddress =>
+      'No local network address is available. Connect to Wi-Fi or Ethernet, then refresh.';
+
+  @override
+  String get lanProxyActual => 'Actual listener status';
+
+  @override
+  String get lanProxyNotRunning => 'Not listening';
+
+  @override
+  String get lanProxyUnavailable => 'Address unavailable';
+
+  @override
+  String get lanProxyRaw => 'Edit YAML source';
+
+  @override
+  String get lanProxyFormUnavailable =>
+      'This YAML cannot be fully represented by the form. Edit the source to preserve its contents.';
+
+  @override
+  String get coreInterruptedTitle => 'Core interrupted';
+
+  @override
+  String get coreInterruptedMessage =>
+      'Automatic start is paused. Your current page and edits are retained. Open Overview to restart, choose a configuration, or clean up files.';
+
+  @override
+  String get coreRecoveryRestart => 'Restart';
+
+  @override
+  String get coreRecoverySelect => 'Choose configuration';
+
+  @override
+  String get coreCleanupSelect => 'Clean up core files';
+
+  @override
+  String get coreCleanupSelectionNotice =>
+      'The core stops before deleting the selected cache database or geographic data files. Unselected files are kept.';
+
+  @override
+  String get coreCleanupRestartLatest =>
+      'Start with the latest saved configuration after every selected file is cleaned up';
+
+  @override
+  String get coreCleanupNoCandidates =>
+      'No confirmed files are available for cleanup.';
+
+  @override
+  String get coreCleanupDeleteSelected => 'Stop and clean selected files';
+
+  @override
+  String get coreCleanupPartial => 'Some files could not be cleaned up';
+
+  @override
+  String get coreLoaded => 'Loaded by core';
+
+  @override
+  String get vpnTakenOver => 'VPN active';
+
+  @override
+  String get logClear => 'Clear logs';
+
+  @override
   String get selectDetails => 'Select an item to view its details.';
 
   @override
@@ -21,10 +123,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get definitionFormName => 'Name';
-
-  @override
-  String get nodeRuntimePropertiesOnly =>
-      'Runtime capabilities and test history are available here. The core does not provide the complete original node options.';
 
   @override
   String get strategyRejectStatus => 'Reject';
@@ -42,10 +140,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get configurationsNavigation => 'Configs';
-
-  @override
-  String get enlargeWindow =>
-      'Enlarge the window to continue. Your current task and edits are kept.';
 
   @override
   String get strategies => 'Strategies';
@@ -84,7 +178,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get language => 'Language';
 
   @override
-  String get configurationsAndPlugins => 'Configurations & plugins';
+  String get configurationsAndData => 'Configurations & data';
 
   @override
   String get routingAndResources => 'Routing & resources';
@@ -94,6 +188,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get configurations => 'Configurations';
+
+  @override
+  String get configSelected => 'Selected';
+
+  @override
+  String get selectConfig => 'Select configuration';
 
   @override
   String get recentConnections => 'Recent connections';
@@ -161,7 +261,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get sourceDistributionNotice =>
-      'Corresponding source and build materials must accompany distribution as required by the licenses. This is an unpublished development build.';
+      'Corresponding source and build materials are provided with each release.';
 
   @override
   String get versionUnavailable => 'Version information is unavailable.';
@@ -171,10 +271,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get refresh => 'Refresh';
-
-  @override
-  String get runtimeConfigExplanation =>
-      'Live JSON settings returned by the core’s public interface.';
 
   @override
   String get runtimeConfigSearch => 'Find fields or values';
@@ -192,14 +288,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get runtimeConfigPreview => 'Preview · VPN off';
 
   @override
-  String get runtimeConfigStale => 'Previous snapshot · refresh to confirm';
-
-  @override
   String get runtimeConfigEmpty =>
       'Select a configuration with saved content first.';
-
-  @override
-  String get runtimeConfigFailed => 'Read failed · check core status and retry';
 
   @override
   String get noSearchResults => 'No matching lines';
@@ -223,10 +313,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get builtinNode => 'Built-in';
 
   @override
-  String get nodeHistoryNotice =>
-      'Node capabilities and test-history snapshot, with test URLs redacted.';
-
-  @override
   String get previousPage => 'Previous page';
 
   @override
@@ -237,6 +323,18 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get details => 'Details';
+
+  @override
+  String get errorDetails => 'Error details';
+
+  @override
+  String get viewError => 'View error';
+
+  @override
+  String get technicalDetails => 'Technical details';
+
+  @override
+  String get copyTechnicalDetails => 'Copy technical details';
 
   @override
   String get mainRules => 'Main rules';
@@ -267,7 +365,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get ruleSourceNotice =>
-      'Domain and IP-CIDR sets contain normalized entries. Classical sets display inline payload, cached content, or the configured fallback.';
+      'Domain and IP-CIDR sets show normalized entries; merging entries can change the count. Classical sets show inline payload, cached content, or the configured fallback, not compiled rules.';
 
   @override
   String get ruleTarget => 'Target';
@@ -394,10 +492,6 @@ class AppLocalizationsEn extends AppLocalizations {
       'Inline or built-in resources have no external source';
 
   @override
-  String get coreLogsExplanation =>
-      'The current session keeps up to 1,000 log entries / 1 MiB in memory. Field redaction and marked truncation are applied; review sensitive information when reading or copying.';
-
-  @override
   String get logLevel => 'Level';
 
   @override
@@ -419,24 +513,29 @@ class AppLocalizationsEn extends AppLocalizations {
   String get noLogs => 'No log entries in this session yet';
 
   @override
+  String logLocalDropped(int count) {
+    return 'Omitted $count log entries';
+  }
+
+  @override
   String logDropped(int count) {
-    return '$count entries dropped due to buffer limits';
+    return '$count log entries omitted during transfer';
   }
 
   @override
   String logTotal(int count) {
-    return '$count in buffer';
+    return 'Cached: $count entries';
   }
 
   @override
-  String get logClearLocal => 'Clear local window';
+  String get logClearLocal => 'Clear logs on this page';
 
   @override
   String get logBackToLatest => 'Back to latest';
 
   @override
   String get logClearNotice =>
-      'Clearing affects only this page\'s buffer; it does not change system logs or core settings.';
+      'Clearing affects only the logs cached on this page; it does not change system logs or core settings.';
 
   @override
   String get logTruncated => 'Truncated';
@@ -576,7 +675,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get overrideSource => 'Plugin URL';
 
   @override
-  String get overrideUpdate => 'Update';
+  String get overrideUpdate => 'Update plugin';
+
+  @override
+  String get viewOverrideError => 'View plugin error';
+
+  @override
+  String get overrideActionFailed => 'Plugin action not completed';
 
   @override
   String get overrideDelete => 'Delete';
@@ -673,22 +778,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get strategyGroupDefinitionTitle => 'Group properties';
-
-  @override
-  String get strategyGroupSourceConfiguration => 'Main configuration';
-
-  @override
-  String get strategyGroupSourceCore => 'Generated by the core';
-
-  @override
-  String get strategyGroupSourceUnknown => 'Source unconfirmed';
-
-  @override
-  String get strategyGroupPluginContribution => 'Plugin contribution';
-
-  @override
-  String get strategyGroupSourceReadOnly =>
-      'These attributes come from the strategy group’s actual runtime data. This page is read-only.';
 
   @override
   String get strategyGroupAttributesHeading => 'Actual attributes';
@@ -805,10 +894,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get ruleFormSrcHint => 'src already implies no-resolve.';
-
-  @override
-  String get ruleFormIdentityNotice =>
-      'The current Android integration does not provide per-connection process or UID identity; these rules may not match.';
 
   @override
   String get definitionFormMoveUp => 'Move up';
@@ -946,10 +1031,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get localCustomTitle => 'Local customizations';
 
   @override
-  String get localCustomDisabled =>
-      'This plugin is disabled. Saving does not enable it.';
-
-  @override
   String get moreLabel => 'More';
 
   @override
@@ -1029,19 +1110,25 @@ class AppLocalizationsEn extends AppLocalizations {
       'Always-on is managed by Android. When enabled, the system starts this app as needed and can restore the most recently saved configuration after unlock. The app cannot bypass the system to disable it.';
 
   @override
-  String get alwaysOnUnknown => 'Confirm the current state in system settings.';
+  String get vpnStatusLoading => 'Reading VPN status';
 
   @override
-  String get alwaysOnEnabled => 'System state: on';
+  String get vpnStatusReadFailed => 'Could not read Android VPN status.';
 
   @override
-  String get alwaysOnDisabled => 'System state: off';
+  String get alwaysOnUnknown => 'Unconfirmed';
 
   @override
-  String get lockdownEnabled => 'Block connections without VPN: on';
+  String get alwaysOnEnabled => 'On';
 
   @override
-  String get lockdownDisabled => 'Block connections without VPN: off';
+  String get alwaysOnDisabled => 'Off';
+
+  @override
+  String get lockdownEnabled => 'On';
+
+  @override
+  String get lockdownDisabled => 'Off';
 
   @override
   String get lockdownTitle => 'Block connections without VPN';
@@ -1110,6 +1197,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get autoUpdateNever => 'Not checked yet';
 
   @override
+  String get applicationPolicyNextConnectionShort => 'Next connection';
+
+  @override
+  String get applicationPolicyAppliedShort => 'In use';
+
+  @override
+  String get applicationPolicyPendingShort => 'Not applied';
+
+  @override
+  String get applicationPolicyUnknownShort => 'Unconfirmed';
+
+  @override
   String get applicationPolicyNextConnection =>
       'The saved policy will be used on the next connection.';
 
@@ -1161,30 +1260,28 @@ class AppLocalizationsEn extends AppLocalizations {
   String get stateUnknown => 'Status unconfirmed';
 
   @override
-  String get statusIssue => 'Status issue · View details';
+  String get statusIssue => 'Needs attention';
 
   @override
-  String get statusPending => 'Unavailable until status is confirmed';
+  String get statusPending => 'Unconfirmed';
 
   @override
-  String get statusAutoRetry => 'Cannot read status yet, retrying';
+  String get statusAutoRetry => 'Retrying';
 
   @override
-  String get statusPlatformUnconfirmed =>
-      'Platform has not confirmed resources';
+  String get statusPlatformUnconfirmed => 'Resources unconfirmed';
 
   @override
-  String get statusWaiting => 'Waiting for the tunnel result';
+  String get statusWaiting => 'Waiting for result';
 
   @override
-  String get statusConfigFailed =>
-      'Cannot read configurations; management is still available';
+  String get statusConfigFailed => 'Configurations unavailable';
 
   @override
-  String get statusConfigLoading => 'Reading saved configurations';
+  String get statusConfigLoading => 'Reading configurations';
 
   @override
-  String get statusImportPrompt => 'Import a full configuration to start';
+  String get statusImportPrompt => 'No configuration selected';
 
   @override
   String get statusReimport => 'The current configuration must be re-imported';
@@ -1319,11 +1416,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get modeReadFailed => 'Cannot read the mode';
 
   @override
-  String get modeDiffers => 'Running mode and saved fallback';
+  String get modeDiffers => 'Running mode and saved fallback mode';
 
   @override
   String modeSaved(String mode) {
-    return 'Saved fallback: $mode; used only if the configuration does not specify a mode.';
+    return 'Saved fallback mode: $mode; used only if the configuration does not specify a mode.';
   }
 
   @override
@@ -1357,19 +1454,25 @@ class AppLocalizationsEn extends AppLocalizations {
   String get recordLimitReached => 'Record limit reached';
 
   @override
-  String get connectionUpdating => 'Updating';
+  String get clearInactiveConnections => 'Clear ended records';
+
+  @override
+  String connectionOmitted(int count) {
+    return '$count whole records omitted by capacity limits';
+  }
+
+  @override
+  String get rawData => 'Original data';
+
+  @override
+  String get copyOriginalText => 'Copy original text';
+
+  @override
+  String get connectionLimitedNotice =>
+      'The record limit has been reached, so some connections are not shown. Clear ended records to make room.';
 
   @override
   String get connectionRefreshFailed => 'Refresh failed';
-
-  @override
-  String get connectionRefreshRetrying => 'Refresh failed, retrying';
-
-  @override
-  String get takeoverStopped => 'Tunnel stopped';
-
-  @override
-  String get statusUnconfirmed => 'Status unconfirmed';
 
   @override
   String get exitSearch => 'Exit search';
@@ -1399,9 +1502,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get connectionActive => 'Active';
 
   @override
-  String get connectionPending => 'Unconfirmed';
-
-  @override
   String get connectionInactive => 'Inactive';
 
   @override
@@ -1424,12 +1524,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get disconnect => 'Disconnect';
-
-  @override
-  String get fieldsTruncated => 'Some long fields are truncated';
-
-  @override
-  String get connectionStatus => 'Connection status';
 
   @override
   String portLabel(String port) {
@@ -1456,9 +1550,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get connectionClosed => 'Disconnected';
-
-  @override
-  String get connectionReplaced => 'Session changed';
 
   @override
   String cumulative(String bytes) {
@@ -1636,7 +1727,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get strategyReadStale =>
-      'Strategy status has not refreshed; the foreground will retry automatically. Old records cannot be used to switch.';
+      'Strategy status has not refreshed; the app will retry while in the foreground. Old records cannot be used to switch strategies.';
 
   @override
   String get strategyContextChanged =>
@@ -1919,19 +2010,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deleteNoSelection =>
-      'After deletion there is no current configuration.';
-
-  @override
-  String deleteSelects(String name) {
-    return 'After deletion \"$name\" is selected; the tunnel does not start automatically.';
-  }
+      'The saved selection will be cleared; no replacement will be selected.';
 
   @override
   String get deleteRemoteBody =>
-      'The saved content and source will be deleted.';
+      'The saved content and source will be deleted. This does not stop the running tunnel.';
 
   @override
-  String get deleteLocalBody => 'The saved local content will be deleted.';
+  String get deleteLocalBody =>
+      'The saved local content will be deleted. This does not stop the running tunnel.';
 
   @override
   String get renameConfig => 'Rename configuration';
@@ -2052,7 +2139,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get savedApplyFailed => 'Saved, apply not completed';
 
   @override
-  String get saveFailed => 'Save not completed';
+  String get saveFailed => 'Save failed';
 
   @override
   String get findBody => 'Find in content';
@@ -2105,7 +2192,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String editorLineTooLong(int line, int limit) {
-    return 'Line $line exceeds $limit UTF-16 code units. Editing and wrapped preview are unavailable; the text is unchanged.';
+    return 'Line $line exceeds the editing limit of $limit UTF-16 code units. Showing the complete original text in read-only blocks.';
   }
 
   @override
@@ -2120,7 +2207,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get editorContextChanged =>
-      'Editing is unavailable. Finish the current operation or reopen this content.';
+      'Saving is unavailable; your draft is retained.';
 
   @override
   String get aboutTitle => 'About Clash Pseudo';
@@ -2138,8 +2225,90 @@ class AppLocalizationsEn extends AppLocalizations {
   String get materialIconsFont => 'Material Icons font';
 
   @override
+  String get privacyNoticeTitle => 'Privacy and license';
+
+  @override
+  String get privacyNoticeUnderstood => 'Understood';
+
+  @override
+  String get privacyNoticeNotSaved =>
+      'Could not confirm that the notice was recorded. It may appear again next time you open the app.';
+
+  @override
+  String get privacyNoticeBody =>
+      'Clash Pseudo is free and open source. It does not collect or report user data and does not provide any proxy nodes or subscription services.\n\nData processing\n\nThe app does not include usage analytics, behavioral analysis, or automatic crash reporting. Configurations, plugins, and app settings are stored on the device. Proxying and rule matching process traffic, domains, and IP addresses on the device. Connection information and logs support display and diagnostics; the installed app list is used to choose which apps the VPN handles.\n\nNetwork communication\n\nConfiguration and plugin downloads, DNS queries, proxy connections, latency tests, remote icons, and rule or geographic database updates contact their respective network services. Destinations come from configurations and application defaults. Turning off VPN traffic handling does not disable network access for these features.\n\nRequests send the content and authentication information needed by the feature, and the receiving service sees the connection\'s source IP address. Downloads from HTTP sources have no transport encryption.\n\nPermission purposes\n\n- Internet access and network state: establish connections, download content, and check the network.\n- Foreground services and notifications: run the VPN, local network proxy service, and background tasks and display their status.\n- Installed app visibility: display the app list and choose which apps the VPN handles.\n- VPN authorization: create a VPN interface after Android authorization and handle traffic within the selected scope.\n\nFiles and backups\n\nConfiguration and plugin contents, source addresses, and credentials saved in them are stored in the app\'s private directory without additional application-level encryption. Exported ZIP files are not encrypted and include configurations, plugins, app settings, and the source addresses and credentials saved in them. Backup import and export are available under Settings → Storage and data and use Android\'s file picker; you choose where exported files are saved.\n\nAndroid system backup and device transfer can copy configurations, plugins, and app settings. Whether they are enabled depends on system settings and the backup service in use. A file provider\'s synchronization features can also keep cloud copies of selected files.\n\nConnection records, core logs, and original content\n\nRecent connection records and logs are held only in device memory, within bounded capacities and retention windows. They are not saved as history files. You can clear them on their respective pages; they disappear when the process ends.\n\nSettings → Diagnostics → Core logs displays core operation, connection, and error messages. Retained logs show original core messages. When capacity is insufficient, whole entries are removed or skipped and omissions are reported; message content is not truncated or rewritten. The configuration editor and backups retain original content.\n\nDeleting data and viewing this notice\n\nYou can delete configurations and plugins, clear recent records and logs, and individually select the cache database and rebuildable geographic data files for cleanup. The core must stop before cleanup. Only confirmed files are deleted; protocol identities, custom provider files, and other user files are retained.\n\nYou can also revoke VPN authorization or clear app data in Android settings. Clearing app data or uninstalling does not delete exported files, system backups, or other external copies.\n\nThis notice is updated as features change. The version included with your installation is available under Settings → About.\n\nProject repository\n\nhttps://github.com/MonadBoxLab/ClashPseudo\n\nSee GPLv3 for more information.';
+
+  @override
+  String get privacyNoticeSummary =>
+      'Clash Pseudo is free and open source. It does not collect or report user data and does not provide any proxy nodes or subscription services.\n\nSee GPLv3 for more information.';
+
+  @override
+  String get privacyNoticeIntro =>
+      'Clash Pseudo is free and open source. It does not collect or report user data and does not provide any proxy nodes or subscription services.';
+
+  @override
+  String get privacyNoticeReadFull => 'Full notice';
+
+  @override
+  String get privacyNoticeLicenseNotice => 'See GPLv3 for more information.';
+
+  @override
+  String get privacyNoticeLicenseName => 'GPLv3';
+
+  @override
+  String get projectRepositoryUrl =>
+      'https://github.com/MonadBoxLab/ClashPseudo';
+
+  @override
+  String get privacyDataProcessingTitle => 'Data processing';
+
+  @override
+  String get privacyDataProcessingBody =>
+      'The app does not include usage analytics, behavioral analysis, or automatic crash reporting. Configurations, plugins, and app settings are stored on the device. Proxying and rule matching process traffic, domains, and IP addresses on the device. Connection information and logs support display and diagnostics; the installed app list is used to choose which apps the VPN handles.';
+
+  @override
+  String get privacyNetworkCommunicationTitle => 'Network communication';
+
+  @override
+  String get privacyNetworkCommunicationBody =>
+      'Configuration and plugin downloads, DNS queries, proxy connections, latency tests, remote icons, and rule or geographic database updates contact their respective network services. Destinations come from configurations and application defaults. Turning off VPN traffic handling does not disable network access for these features.\n\nRequests send the content and authentication information needed by the feature, and the receiving service sees the connection\'s source IP address. Downloads from HTTP sources have no transport encryption.';
+
+  @override
+  String get privacyPermissionPurposesTitle => 'Permission purposes';
+
+  @override
+  String get privacyPermissionPurposesBody =>
+      '- Internet access and network state: establish connections, download content, and check the network.\n- Foreground services and notifications: run the VPN, local network proxy service, and background tasks and display their status.\n- Installed app visibility: display the app list and choose which apps the VPN handles.\n- VPN authorization: create a VPN interface after Android authorization and handle traffic within the selected scope.';
+
+  @override
+  String get privacyFilesAndBackupsTitle => 'Files and backups';
+
+  @override
+  String get privacyFilesAndBackupsBody =>
+      'Configuration and plugin contents, source addresses, and credentials saved in them are stored in the app\'s private directory without additional application-level encryption. Exported ZIP files are not encrypted and include configurations, plugins, app settings, and the source addresses and credentials saved in them. Backup import and export are available under Settings → Storage and data and use Android\'s file picker; you choose where exported files are saved.\n\nAndroid system backup and device transfer can copy configurations, plugins, and app settings. Whether they are enabled depends on system settings and the backup service in use. A file provider\'s synchronization features can also keep cloud copies of selected files.';
+
+  @override
+  String get privacyRecordsAndLogsTitle =>
+      'Connection records, core logs, and original content';
+
+  @override
+  String get privacyRecordsAndLogsBody =>
+      'Recent connection records and logs are held only in device memory, within bounded capacities and retention windows. They are not saved as history files. You can clear them on their respective pages; they disappear when the process ends.\n\nSettings → Diagnostics → Core logs displays core operation, connection, and error messages. Retained logs show original core messages. When capacity is insufficient, whole entries are removed or skipped and omissions are reported; message content is not truncated or rewritten. The configuration editor and backups retain original content.';
+
+  @override
+  String get privacyDeletingDataTitle =>
+      'Deleting data and viewing this notice';
+
+  @override
+  String get privacyDeletingDataBody =>
+      'You can delete configurations and plugins, clear recent records and logs, and individually select the cache database and rebuildable geographic data files for cleanup. The core must stop before cleanup. Only confirmed files are deleted; protocol identities, custom provider files, and other user files are retained.\n\nYou can also revoke VPN authorization or clear app data in Android settings. Clearing app data or uninstalling does not delete exported files, system backups, or other external copies.\n\nThis notice is updated as features change. The version included with your installation is available under Settings → About.';
+
+  @override
+  String get privacyProjectRepositoryTitle => 'Project repository';
+
+  @override
   String get legalBody =>
-      'Original code is licensed under GPL-3.0-only. You may copy, modify and redistribute it under the GNU General Public License version 3. No warranty is provided to the extent permitted by law. Third-party components retain their own copyrights and licenses.\n\nLicense texts and bundled third-party notices are available below. Corresponding source and build materials must accompany any distribution; this is an unpublished development build.';
+      'Original code is licensed under GPL-3.0-only. You may copy, modify and redistribute it under the GNU General Public License version 3. No warranty is provided to the extent permitted by law. Third-party components retain their own copyrights and licenses.\n\nLicense texts and bundled third-party notices are available below. Corresponding source and build materials must be provided for each distributed version.';
 
   @override
   String get projectTitle => 'Project';
@@ -2161,11 +2330,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get temporaryModeUnknown =>
-      'The running mode cannot be confirmed yet; the foreground will retry.';
+      'The running mode cannot be confirmed yet; the app will retry while in the foreground.';
 
   @override
   String get temporaryStatusUnavailable =>
-      'Status is temporarily unavailable; the foreground will retry and will not start automatically.';
+      'Status is temporarily unavailable; the app will retry while in the foreground and will not start the tunnel automatically.';
 
   @override
   String get temporaryConfigsUnreadable =>
@@ -2305,10 +2474,6 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get configSelectedNotStarted =>
       'Configuration selected; the tunnel has not started.';
-
-  @override
-  String get stopBeforeDelete =>
-      'Stop the tunnel before deleting the configuration in use.';
 
   @override
   String get configDeleted =>
@@ -2630,7 +2795,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get strategyStatusStale =>
-      'Strategy status has not refreshed; the foreground will retry. Old records cannot be used to switch.';
+      'Strategy status has not refreshed; the app will retry while in the foreground. Old records cannot be used to switch strategies.';
 
   @override
   String get coreContextUnconfirmed => 'The core context is not confirmed yet.';
@@ -2737,11 +2902,11 @@ class AppLocalizationsEn extends AppLocalizations {
       'The run configuration could not be prepared for the system start.';
 
   @override
-  String get androidErrorSessionChanged => 'The takeover session has changed.';
+  String get androidErrorSessionChanged => 'The tunnel session has changed.';
 
   @override
   String get androidErrorSessionModeChanged =>
-      'The takeover session has changed; this mode change was not confirmed.';
+      'The tunnel session has changed; this mode change was not confirmed.';
 
   @override
   String get androidErrorBackgroundStart =>
@@ -2753,7 +2918,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get androidErrorOperationIncomplete =>
-      'The business operation did not complete. Verify the current state and try again.';
+      'The operation did not complete. Verify the current state and try again.';
 
   @override
   String get androidStatusUpdating => 'Updating';
@@ -2777,11 +2942,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get androidErrorTakeoverTimeout =>
-      'The takeover operation timed out. Verify the actual state.';
+      'The tunnel operation timed out. Verify the actual state.';
 
   @override
   String get androidErrorTakeoverRunning =>
-      'The current takeover has not stopped; a new configuration cannot start.';
+      'The current tunnel has not stopped; a new configuration cannot start.';
 
   @override
   String get androidErrorCoreNotReady =>
@@ -2797,18 +2962,18 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get androidErrorReleaseUnconfirmed =>
-      'Resource release was not confirmed; stopped or restarted state cannot be reported.';
+      'Resource release has not been confirmed. It is not yet clear whether the tunnel stopped or restarted.';
 
   @override
-  String get androidErrorTakeoverStartFailed => 'The takeover could not start.';
+  String get androidErrorTakeoverStartFailed => 'The tunnel could not start.';
 
   @override
   String get androidErrorTakeoverReleaseUnknown =>
-      'Unable to confirm whether takeover resources were released.';
+      'Unable to confirm whether tunnel resources were released.';
 
   @override
   String get androidErrorStopNotAccepted =>
-      'The system did not accept the stop request; takeover state is unconfirmed.';
+      'The system did not accept the stop request; tunnel state is unconfirmed.';
 
   @override
   String get androidErrorStrategyPrepare =>
@@ -2943,11 +3108,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get androidErrorNotificationDenied =>
-      'The system did not allow showing the takeover notification.';
+      'The system did not allow showing the tunnel notification.';
 
   @override
   String get androidErrorNotificationUpdate =>
-      'The takeover notification could not be updated.';
+      'The tunnel notification could not be updated.';
 
   @override
   String get androidErrorNativeCoreLoad =>
@@ -3029,6 +3194,40 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get dnsQuery => 'Query';
+
+  @override
+  String get dnsRefreshCoreStatus => 'Refresh core status';
+
+  @override
+  String get dnsViewQueryResults => 'View query results';
+
+  @override
+  String get dnsQueryResults => 'Query results';
+
+  @override
+  String get dnsPreviousQuery => 'Previous query';
+
+  @override
+  String get dnsViewPreviousQuery => 'View previous query';
+
+  @override
+  String get dnsQueryRawData => 'DNS query raw data';
+
+  @override
+  String dnsQueryIdentity(String name, String type) {
+    return 'Query: $name · $type';
+  }
+
+  @override
+  String dnsResponseSource(String source) {
+    return 'Source: $source';
+  }
+
+  @override
+  String get dnsCacheOperationDetails => 'Cache operation details';
+
+  @override
+  String get dnsCacheRawData => 'Cache operation raw data';
 
   @override
   String get dnsResolverNotice =>
@@ -3175,17 +3374,171 @@ class AppLocalizationsEn extends AppLocalizations {
   String get noStrategyGroups => 'No strategy groups';
 
   @override
-  String get trafficSessionScope =>
-      'Core-counted traffic for this VPN session, not device-wide usage or billed traffic.';
+  String get coreCleanupCache => 'Clear core cache database';
+
+  @override
+  String get coreCleanupCacheMessage =>
+      'Delete only cache.db in the core working directory, clearing cached core choices, fake-IP mappings and provider state. Configurations, plugins, app settings, downloaded resources and node identities are not deleted.';
+
+  @override
+  String get coreCleanupAll => 'Reset core data';
+
+  @override
+  String get coreCleanupAllMessage =>
+      'Delete all files in the core working directory, including Geo databases and provider downloads, cache.db, local protocol identities and any other files placed there. Downloads or sign-in may be needed again. Configurations, plugins, app settings, saved Always-on VPN startup data, the first-run notice record, app backups and files outside this directory are not deleted.';
+
+  @override
+  String get coreCleanupResource => 'Delete local resource file';
+
+  @override
+  String get coreCleanupResourceMessage =>
+      'Delete only the resource file shown below, not its configuration definition. It may need to be downloaded or imported again before use. Other files are not deleted.';
+
+  @override
+  String get coreCleanupRestartMessage =>
+      'The app will request that the connection stop and then exit. The file deletion runs next time you open the app, before the core uses the files.';
+
+  @override
+  String get coreCleanupReplacesPending =>
+      'This replaces the unfinished cleanup request.';
+
+  @override
+  String get coreCleanupScheduleAndExit => 'Schedule and exit';
+
+  @override
+  String get coreCleanupScheduledTitle => 'Cleanup scheduled';
+
+  @override
+  String get coreCleanupScheduled =>
+      'Cleanup is scheduled for the next app start. No files have been deleted yet.';
+
+  @override
+  String coreCleanupScheduledWithIssue(String result, String issue) {
+    return '$result\n\n$issue';
+  }
+
+  @override
+  String get coreCleanupStopUnconfirmed =>
+      'Could not confirm that the core stopped.';
+
+  @override
+  String get coreCleanupExit => 'Exit app';
+
+  @override
+  String get coreCleanupRetry => 'Exit and retry at next start';
+
+  @override
+  String get coreCleanupInitializing =>
+      'Checking the core data cleanup request.';
+
+  @override
+  String get coreCleanupRequired =>
+      'Core directory cleanup is pending. Exit the app from Storage and data, then open it again.';
+
+  @override
+  String get coreCleanupFailed => 'Core data cleanup did not complete.';
+
+  @override
+  String get coreCleanupCompleted =>
+      'Selected core files were cleaned up. Using the core again may create new files.';
+
+  @override
+  String get coreCleanupNeedsSelection =>
+      'Select the core files to clean up first.';
+
+  @override
+  String resourceLocalFile(String path) {
+    return 'Local file: $path';
+  }
+
+  @override
+  String get storageData => 'Storage and data';
+
+  @override
+  String get storageUsage => 'Storage usage';
+
+  @override
+  String get storageCleanup => 'Data cleanup';
+
+  @override
+  String get storageUsageFailed => 'Could not read storage usage.';
+
+  @override
+  String get storageCleanupFailed =>
+      'Could not finish removing temporary files from the previous run.';
+
+  @override
+  String get coreDataDirectory => 'Core working directory';
+
+  @override
+  String get storageMemoryNotice =>
+      'Recent connections and core logs are held only in memory. Clearing ended records does not close active connections.';
+
+  @override
+  String get storageCoreNotice =>
+      'Core files are managed by mihomo and do not use configuration or plugin storage limits.';
+
+  @override
+  String storageBytes(String bytes) {
+    return '$bytes';
+  }
+
+  @override
+  String storageFileBytes(String bytes, String limit) {
+    return '$bytes / $limit';
+  }
+
+  @override
+  String storageFileLimit(String limit) {
+    return 'Limit: $limit';
+  }
+
+  @override
+  String get storageLimitExceeded => 'Exceeds the limit';
+
+  @override
+  String get storageEntryCountUnavailable => 'Entries: —';
+
+  @override
+  String storageEntryCount(int count, int limit) {
+    return '$count / $limit entries';
+  }
+
+  @override
+  String get clearConfigurations => 'Delete all configurations';
+
+  @override
+  String get clearConfigurationsMessage =>
+      'Delete all saved configurations, the saved selection and mode choice, and cancel configuration update schedules. The running connection will not be stopped automatically. Plugins, app settings and core files are not deleted.';
+
+  @override
+  String get configurationsCleared => 'All saved configurations deleted.';
+
+  @override
+  String get clearOverrides => 'Delete all plugins';
+
+  @override
+  String get clearOverridesMessage =>
+      'Delete all saved plugins, including local custom definitions, and cancel plugin update schedules. The app will try removing plugins from the currently running configuration and reconnecting. A failure to apply the running change will not undo the local deletion. Configurations, app settings and core files are not deleted.';
+
+  @override
+  String get overridesCleared => 'All saved plugins deleted.';
+
+  @override
+  String get inactiveConnectionsCleared => 'Ended connection records cleared.';
+
+  @override
+  String get inactiveConnectionsClearFailed =>
+      'Could not clear ended connection records.';
 
   @override
   String get backupTitle => 'Backup and restore';
 
   @override
-  String get backupExport => 'Export settings';
+  String get backupExport => 'Export backup';
 
   @override
-  String get backupImport => 'Import settings';
+  String get backupImport => 'Import backup';
 
   @override
   String get backupRestore => 'Restore backup';
@@ -3306,28 +3659,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'The displayed settings could not be read again.';
 
   @override
-  String get localCustomNotice =>
-      'Additions and deletions only change the local custom plugin. Removing a local override may reveal a lower-priority definition with the same name; references are not repaired automatically.';
-
-  @override
-  String get providerRuntimePropertiesOnly =>
-      'These are the loaded provider\'s runtime properties. Complete original options, headers and credentials are not provided by the core.';
-
-  @override
-  String get strategyGroupRuntimePropertiesOnly =>
-      'These are runtime group attributes and expanded members, not the complete original definition.';
-
-  @override
-  String get localSavedOriginal => 'Saved original';
-
-  @override
-  String get localOriginalContributes => 'Contributes to loaded data';
-
-  @override
-  String get localOriginalUnconfirmed => 'Not confirmed as loaded';
-
-  @override
-  String get localOriginalDisabled => 'Plugin disabled';
+  String get resourceRawData => 'Original resource data';
 
   @override
   String get localCustomDefinitionsEmpty =>

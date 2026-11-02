@@ -2,235 +2,115 @@ package io.github.monadboxlab.clashpseudo.vpn
 
 import android.content.Intent
 import android.net.VpnService
-import android.os.ParcelFileDescriptor
-import android.os.SystemClock
-import android.system.Os
-import android.system.OsConstants
+import android.os.Build
 import androidx.test.platform.app.InstrumentationRegistry
-import io.github.monadboxlab.clashpseudo.app.AppFiles
+import io.github.monadboxlab.clashpseudo.app.ApplicationContract as Contract
 import io.github.monadboxlab.clashpseudo.bridge.AppBridge
-import io.github.monadboxlab.clashpseudo.nativecore.CoreHost
-import io.github.monadboxlab.clashpseudo.nativecore.NativeCore
+import io.github.monadboxlab.clashpseudo.debug.CoreFixtureContract as Fixture
+import io.github.monadboxlab.clashpseudo.message.AppMessage
+import io.github.monadboxlab.clashpseudo.nativecore.CoreIpcTestDriver
+import io.github.monadboxlab.clashpseudo.nativecore.CorePlatformTestDriver
 import io.github.monadboxlab.clashpseudo.nativecore.NativeCoreFailureTest
-import io.github.monadboxlab.clashpseudo.nativecore.VpnSpecification
-import java.io.File
-import java.util.UUID
-import java.util.concurrent.FutureTask
-import java.util.concurrent.TimeUnit
+import io.github.monadboxlab.clashpseudo.nativecore.input.CoreInput
+import io.github.monadboxlab.clashpseudo.nativecore.vpn.VpnSpecification
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
+import java.security.MessageDigest
 
 class VpnSpecificationServiceTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context = instrumentation.targetContext
+    private val platform = CorePlatformTestDriver(context)
+    private val clients = listOf("io.github.monadboxlab.clashpseudo.validation.clienta",
+        "io.github.monadboxlab.clashpseudo.validation.clientb")
 
     @Test fun fileRouteSetChangesAndRevertsWholeServiceSpecificationAndInvalidatesPreAttachRevision() {
-        main {
-            assertNull("Run without another Service owner", PseudoVpnService.instance)
-            assertEquals(NativeSession.Phase.STOPPED, PseudoVpnService.session.snapshot().phase)
-            assertEquals(CoreHost.Phase.EMPTY, PseudoVpnService.core.snapshot().phase)
-            assertFalse(AppBridge.pendingSystemRestore)
-            assertFalse(AppBridge.logic.busy)
-            assertNull(AppBridge.operationId)
-            assertNull("Authorize VPN before this test; do not launch a grant dialog", VpnService.prepare(context))
+        requireIdleAndClients()
+        for (attached in listOf(false, true)) CoreIpcTestDriver.fixture().use { driver ->
+            val reply = driver.fixture(Fixture.ROUTE_PROJECTION, JSONObject().put("attach", attached)).await(90)
+            assertTrue(reply.terminal.toString(), reply.terminal.getBoolean("complete"))
+            val value = reply.value
+            NativeCoreFailureTest.assertSuccess(value.getJSONObject("prepare"))
+            val rows = value.getJSONArray("specifications")
+            assertEquals(3, rows.length())
+            val initial = VpnSpecification.read(rows.getJSONObject(0).getJSONObject("value").toString())
+            assertWholeSpecification(initial, prefix = 32)
+            for ((index, prefix) in listOf(32, 31, 32).withIndex()) {
+                NativeCoreFailureTest.assertSuccess(rows.getJSONObject(index))
+                val actual = VpnSpecification.read(rows.getJSONObject(index).getJSONObject("value").toString())
+                assertEquals(index + 1L, actual.revision)
+                assertWholeSpecification(actual, prefix)
+                assertEquals(initial.copy(revision = actual.revision, routes = actual.routes), actual)
+            }
+            val updates = value.getJSONArray("updates")
+            assertEquals(2, updates.length())
+            for (index in 0 until updates.length()) NativeCoreFailureTest.assertSuccess(updates.getJSONObject(index))
+            val rejected = value.getJSONArray("rejected")
+            assertEquals(if (attached) 0 else 3, rejected.length())
+            if (!attached) for ((index, revision) in listOf(1L, 1L, 2L).withIndex()) {
+                val call = rejected.getJSONObject(index)
+                assertEquals(revision, call.getLong("revision"))
+                assertTrue(NativeCoreFailureTest.nativeError(call).contains("specification revision changed"))
+                assertTrue(call.getBoolean("originalRetained"))
+                assertTrue(call.getBoolean("transferredConsumed"))
+            }
+            val changes = value.getJSONArray("changes")
+            assertEquals(2, changes.length())
+            assertEquals(2L, changes.getJSONObject(0).getLong("revision"))
+            assertEquals(value.toString(), attached, changes.getJSONObject(0).getBoolean("changed"))
+            assertEquals(3L, changes.getJSONObject(1).getLong("revision"))
+            assertFalse(changes.getJSONObject(1).getBoolean("changed"))
+            assertEquals(attached, value.getJSONObject("snapshot").getJSONObject("value").getBoolean("attached"))
+            if (attached) {
+                NativeCoreFailureTest.assertSuccess(value.getJSONObject("attach"))
+                assertTrue(value.getBoolean("originalRetainedAfterAttach"))
+                assertTrue(value.getJSONObject("attachedBeforeUpdates").getJSONObject("value").getBoolean("attached"))
+                NativeCoreFailureTest.assertSuccess(value.getJSONObject("routeStop"))
+                assertTrue(value.getBoolean("originalRetainedAfterStop"))
+                assertTrue(value.getBoolean("originalClosed"))
+            }
+            NativeCoreFailureTest.assertSuccess(value.getJSONObject("shutdown"))
+            NativeCoreFailureTest.assertStopped(value.getJSONObject("after").getJSONObject("value"))
+            driver.exit()
+            assertTrue(driver.deathConfirmed)
+            assertFalse(CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java))
+            CoreIpcTestDriver.removeFixtureHome(context, value)
         }
-        // Only these existing independent clients enter Builder's allowlist. Neither
-        // the application nor the instrumentation UID may be captured by this test.
-        val clients = listOf("io.github.monadboxlab.clashpseudo.validation.clienta",
-            "io.github.monadboxlab.clashpseudo.validation.clientb")
-        val ownUids = setOf(context.applicationInfo.uid, instrumentation.context.applicationInfo.uid)
-        val clientUids = clients.map { context.packageManager.getApplicationInfo(it, 0).uid }
-        assertEquals(2, clientUids.toSet().size)
-        assertTrue(clientUids.none { it in ownUids })
-        val home = AppFiles.core(context)
-        // Use one unique file directly beneath the existing core home.
-        assertTrue(home.isDirectory)
-        assertEquals(home.absoluteFile, home.canonicalFile)
-        val token = UUID.randomUUID().toString()
-        val name = "p5-routes-$token"
-        val provider = File(home, "$name.txt")
-        assertFalse(provider.exists())
-        assertTrue(provider.createNewFile())
-        val identity = Os.lstat(provider.path)
-        fun requireOwnFile() {
-            val now = Os.lstat(provider.path)
-            check(OsConstants.S_ISREG(now.st_mode) && now.st_nlink == 1L &&
-                now.st_dev == identity.st_dev && now.st_ino == identity.st_ino) { "Test provider ownership changed" }
-        }
-        fun writeRoutes(prefix: String) {
-            requireOwnFile()
-            provider.writeText("$prefix\n", Charsets.UTF_8)
-        }
+        // 低层 revision 回归之外，生产链实际经过 Builder 与 Attach。
         val body = """
             mode: rule
             ipv6: false
             find-process-mode: off
             geo-auto-update: false
             geox-url: {geoip: '', geosite: '', mmdb: '', asn: ''}
-            profile: {store-selected: false, store-fake-ip: false}
             dns: {enable: true, enhanced-mode: redir-host, nameserver: [192.168.100.2]}
             tun:
               stack: gvisor
               mtu: 1420
-              route-address: [198.18.0.0/16]
-              route-address-set: [$name]
+              route-address: [198.18.0.0/16, 192.168.100.2/32]
               dns-hijack: ['198.18.0.2:53']
-              include-package: [${clients.joinToString(", ")}]
-            rule-providers:
-              $name: {type: file, behavior: ipcidr, format: text, path: $name.txt, interval: 0}
+              include-package: [io.github.monadboxlab.clashpseudo.validation.clienta, io.github.monadboxlab.clashpseudo.validation.clientb]
             rules: ['MATCH,REJECT']
         """.trimIndent() + "\n"
-        var serviceGeneration: Long? = null
-        var rawOwned = false
-        var rawSessionGeneration = -1L
-        var rawCoreGeneration = -1L
-        var cleanupConfirmed = false
-        var failure: Throwable? = null
-        fun rawOwnerCurrent() {
-            check(PseudoVpnService.session.snapshot().let {
-                it.generation == rawSessionGeneration && it.phase == NativeSession.Phase.STOPPED
-            } && PseudoVpnService.core.snapshot().let {
-                it.generation == rawCoreGeneration && it.phase == CoreHost.Phase.EMPTY
-            }) { "Another owner replaced the raw API test" }
-            if (rawOwned) {
-                val native = JSONObject(NativeCore.snapshot())
-                if (native.getBoolean("prepared")) {
-                    val spec = specification()
-                    check(spec.generation == 1L && spec.composition == token) { "Native owner changed" }
-                }
-            }
-        }
-        try {
-            writeRoutes("192.168.100.2/32")
-            main {
-                val before = PseudoVpnService.session.snapshot()
-                assertEquals(NativeSession.Phase.STOPPED, before.phase)
-                serviceGeneration = before.generation + 1
-                assertNotNull(context.startForegroundService(Intent(context, PseudoVpnService::class.java)
-                    .setAction(PseudoVpnService.ACTION_START)
-                    .putExtra(PseudoVpnService.EXTRA_CONFIG, body)))
-            }
-            await("real Service Builder/Attach") {
-                val state = PseudoVpnService.session.snapshot()
-                val expected = checkNotNull(serviceGeneration)
-                if (state.generation < expected) return@await false
-                assertEquals(expected, state.generation)
-                assertNotEquals(NativeSession.Phase.UNKNOWN, state.phase)
-                if (state.phase == NativeSession.Phase.STOPPED)
-                    state.error?.let { fail("Service failed: ${it.id}") }
-                state.phase == NativeSession.Phase.RUNNING
-            }
-            val initial = worker { specification() }
-            assertEquals(1L, initial.revision)
-            assertEquals(1420, initial.mtu)
-            assertEquals(listOf("198.18.0.1" to 30), initial.addresses)
-            assertEquals(listOf("198.18.0.2"), initial.dnsServers)
-            assertFalse(initial.usesSystemDns)
-            assertTrue(initial.filter.configured)
-            assertEquals(clients, initial.filter.includePackage)
-            assertEquals(setOf("198.18.0.0" to 16, "192.168.100.2" to 32), initial.routes.toSet())
-            worker {
-                assertTrue(JSONObject(NativeCore.snapshot()).getBoolean("attached"))
-                val core = PseudoVpnService.core.snapshot()
-                assertEquals(core.generation, initial.generation)
-                assertEquals(core.composition, initial.composition)
-                // Raw EXTRA_CONFIG exercises direct native updates independently of
-                // formal RunningInput reconnect.
-                val rawInput = JSONObject(checkNotNull(PseudoVpnService.core.runningInput(
-                    core.generation, initial.composition)).toString(Charsets.UTF_8))
-                assertEquals("", rawInput.getString("name"))
-                assertEquals(body, rawInput.getString("body"))
-            }
-            writeRoutes("192.168.100.2/31")
-            update(name)
-            awaitSpecification(initial.copy(revision = 2,
-                routes = listOf("192.168.100.2" to 31, "198.18.0.0" to 16)))
-            await("actual CoreHost route callback") {
-                PseudoVpnService.core.runtimeRefreshCurrent(checkNotNull(serviceGeneration),
-                    initial.generation, initial.composition, 2, "routes")
-            }
-            writeRoutes("192.168.100.2/32")
-            update(name)
-            awaitSpecification(initial.copy(revision = 3))
-            await("route revert invalidates pending callback") {
-                !PseudoVpnService.core.runtimeRefreshCurrent(checkNotNull(serviceGeneration),
-                    initial.generation, initial.composition, 2, "routes")
-            }
-            assertFalse(PseudoVpnService.core.runtimeRefreshCurrent(checkNotNull(serviceGeneration),
-                initial.generation, initial.composition, 3, "routes"))
-            assertEquals(NativeSession.Phase.RUNNING, PseudoVpnService.session.snapshot().phase)
-            assertEquals(serviceGeneration, PseudoVpnService.session.snapshot().generation)
-            stopService(checkNotNull(serviceGeneration))
-            serviceGeneration = null
-
-            // An already-attached engine rejects ANY second Attach before its
-            // revision check. Exercise the distinguishing stale-revision guard in
-            // one real, un-attached native preparation of the identical file config.
-            rawSessionGeneration = PseudoVpnService.session.snapshot().generation
-            rawCoreGeneration = PseudoVpnService.core.snapshot().generation
-            worker {
-                rawOwnerCurrent()
-                assertFalse(JSONObject(NativeCore.snapshot()).getBoolean("prepared"))
-                rawOwned = true
-                val options = JSONObject().put("purpose", "VPN").put("generation", 1)
-                    .put("composition", token).toString().toByteArray(Charsets.UTF_8)
-                assertEquals("", NativeCore.prepare(home.path, body.toByteArray(Charsets.UTF_8), "rule",
-                    NativeCoreFailureTest.Protector(accept = false), options = options))
-            }
-            val beforeAttach = worker { rawOwnerCurrent(); specification() }
-            writeRoutes("192.168.100.2/31")
-            update(name)
-            val changed = awaitSpecification(beforeAttach.copy(revision = 2,
-                routes = listOf("192.168.100.2" to 31, "198.18.0.0" to 16)))
-            rejectStaleAttach(beforeAttach.revision, ::rawOwnerCurrent)
-            writeRoutes("192.168.100.2/32")
-            update(name)
-            awaitSpecification(beforeAttach.copy(revision = 3))
-            rejectStaleAttach(beforeAttach.revision, ::rawOwnerCurrent)
-            rejectStaleAttach(changed.revision, ::rawOwnerCurrent)
-        } catch (error: Throwable) {
-            failure = error
-            throw error
-        } finally {
+        CoreIpcTestDriver.production().use { observer ->
             try {
-                serviceGeneration?.let(::stopService)
-                worker {
-                    if (rawOwned) {
-                        rawOwnerCurrent()
-                        assertEquals("", NativeCore.stop())
-                        rawOwned = false
-                    }
-                    val native = JSONObject(NativeCore.snapshot())
-                    assertFalse(native.getBoolean("prepared"))
-                    assertFalse(native.getBoolean("attached"))
-                    assertFalse(native.getBoolean("cleanupFailed"))
-                }
-                cleanupConfirmed = true
-            } catch (cleanup: Throwable) {
-                if (failure != null) failure.addSuppressed(cleanup) else throw cleanup
+                val prepared = platform.prepare(CoreInput("route-builder-fixture", 1, "rule", body.toByteArray(),
+                    "{}".toByteArray(), name = "route-builder-fixture"))
+                assertTrue(prepared.terminal.toString(), prepared.terminal.getBoolean("complete"))
+                assertWholeSpecification(VpnSpecification.read(platform.query(Contract.CORE_OPERATION_VPN_SPEC).value.toString()), 32)
+                assertEquals(body, platform.runRecord().getString("body"))
+                assertTrue(platform.query(Contract.CORE_OPERATION_SNAPSHOT).value.getBoolean("attached"))
             } finally {
-                // Delete provider resources only after confirmed Stop and worker
-                // completion.
-                if (cleanupConfirmed) {
-                    requireOwnFile()
-                    assertTrue(provider.delete())
-                }
+                platform.exit()
+                observer.awaitDeath()
+                assertFalse(CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java))
             }
         }
     }
 
     @Test fun explicitIpv6AddressCannotBeSilentlyRemovedWhenIpv6IsDisabled() {
-        var generation = 0L
-        main {
-            assertNull(PseudoVpnService.instance)
-            assertEquals(NativeSession.Phase.STOPPED, PseudoVpnService.session.snapshot().phase)
-            assertEquals(CoreHost.Phase.EMPTY, PseudoVpnService.core.snapshot().phase)
-            assertFalse(AppBridge.logic.busy)
-            assertNull(AppBridge.operationId)
-            assertNull(VpnService.prepare(context))
-            generation = PseudoVpnService.session.snapshot().generation + 1
-        }
+        requireIdleAndClients()
         val body = """
             ipv6: false
             geo-auto-update: false
@@ -243,45 +123,51 @@ class VpnSpecificationServiceTest {
               route-address: ['198.18.0.0/16']
             rules: ['MATCH,REJECT']
         """.trimIndent() + "\n"
-        try {
-            assertNotNull(context.startForegroundService(Intent(context, PseudoVpnService::class.java)
-                .setAction(PseudoVpnService.ACTION_START)
-                .putExtra(PseudoVpnService.EXTRA_CONFIG, body)))
-            await("explicit IPv6 loss rejected before Builder") {
-                val state = PseudoVpnService.session.snapshot()
-                check(state.generation <= generation)
-                assertNotEquals(NativeSession.Phase.RUNNING, state.phase)
-                assertNotEquals(NativeSession.Phase.UNKNOWN, state.phase)
-                state.generation == generation && state.phase == NativeSession.Phase.STOPPED &&
-                    PseudoVpnService.instance == null && PseudoVpnService.core.snapshot().phase == CoreHost.Phase.EMPTY
+        CoreIpcTestDriver.production().use { observer ->
+            try {
+                val rejected = platform.prepare(CoreInput("ipv6-fixture", 1, "rule", body.toByteArray(), "{}".toByteArray(), name = "ipv6-fixture"))
+                assertFalse(rejected.terminal.toString(), rejected.terminal.getBoolean("complete"))
+                val failure = rejected.terminal.getJSONObject("error")
+                val native = failure.getJSONObject("nativeError")
+                val original = native.getString("message")
+                assertEquals(original, failure.getString("message"))
+                assertEquals("tun.inet6-address: ipv6Unavailable", original)
+                val error = checkNotNull(AppMessage.fromMap(native.getJSONObject("cause")))
+                assertEquals("nativeConfigurationUnsupported", error.id)
+                assertEquals("tun.inet6-address", error.args["field"])
+                assertEquals(AppMessage("nativeReasonIpv6Unavailable"), error.args["reason"])
+                assertEquals(false, platform.status()["vpnRunning"])
+                observer.awaitDeath()
+                assertTrue(observer.deathConfirmed)
+                platform.await("默认进程确认失败的 core 已退出") {
+                    val state = io.github.monadboxlab.clashpseudo.nativecore.CoreClient.get(context).status()
+                    state[Contract.CORE_FIELD_PROCESS_ID] == observer.processId &&
+                        state[Contract.CORE_FIELD_PHASE] == Contract.CORE_PHASE_EXITED
+                }
+                assertEquals(NativeSession.Phase.STOPPED, PseudoVpnService.session.snapshot().phase)
+                assertFalse(CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java))
+            } finally {
+                platform.exit()
+                observer.awaitDeath()
             }
-            val error = checkNotNull(PseudoVpnService.session.snapshot().error)
-            assertEquals("nativeConfigurationUnsupported", error.id)
-            assertEquals("tun.inet6-address", error.args["field"])
-            assertEquals(io.github.monadboxlab.clashpseudo.app.AppMessage("nativeReasonIpv6Unavailable"), error.args["reason"])
-            worker {
-                val native = JSONObject(NativeCore.snapshot())
-                assertFalse(native.getBoolean("prepared"))
-                assertFalse(native.getBoolean("attached"))
-                assertFalse(native.getBoolean("cleanupFailed"))
+        }
+        CoreIpcTestDriver.production().use { recovered ->
+            try {
+                assertEquals(recovered.processId, platform.handshake()[Contract.CORE_FIELD_PROCESS_ID])
+                val state = platform.query(Contract.CORE_OPERATION_SNAPSHOT)
+                assertTrue(state.terminal.toString(), state.terminal.getBoolean("complete"))
+                NativeCoreFailureTest.assertStopped(state.value)
+            } finally {
+                platform.exit()
+                recovered.awaitDeath()
             }
-        } finally {
-            stopService(generation)
         }
     }
 
     @Test fun formalFileRouteSetUpdatesRebuildVpnFromLatestProjection() {
         val id = "p5-route-formal-r7v4"
-        check(InstrumentationRegistry.getArguments().getString("nonce") == id) {
-            "This test requires nonce=p5-route-formal-r7v4 and its formally restored configuration"
-        }
-        val name = "p5-routes-formal-r7v4"
-        val clients = listOf("io.github.monadboxlab.clashpseudo.validation.clienta",
-            "io.github.monadboxlab.clashpseudo.validation.clientb")
-        val ownUids = setOf(context.applicationInfo.uid, instrumentation.context.applicationInfo.uid)
-        val clientUids = clients.map { context.packageManager.getApplicationInfo(it, 0).uid }
-        assertEquals(2, clientUids.toSet().size)
-        assertTrue(clientUids.none { it in ownUids })
+        check(InstrumentationRegistry.getArguments().getString("nonce") == id) { "必须提供 nonce=p5-route-formal-r7v4 及正式恢复的配置" }
+        requireIdleAndClients()
         val body = """
             mode: rule
             ipv6: false
@@ -301,260 +187,110 @@ class VpnSpecificationServiceTest {
               p5-routes-formal-r7v4: {type: file, behavior: ipcidr, format: text, path: p5-routes-formal-r7v4.txt, interval: 0}
             rules: ['MATCH,REJECT']
         """.trimIndent() + "\n"
-        var firstGeneration = -1L
-        main {
-            assertNull(PseudoVpnService.instance)
-            val session = PseudoVpnService.session.snapshot()
-            assertEquals(NativeSession.Phase.STOPPED, session.phase)
-            assertEquals(CoreHost.Phase.EMPTY, PseudoVpnService.core.snapshot().phase)
-            assertFalse(AppBridge.pendingSystemRestore)
-            assertFalse(AppBridge.logic.busy)
-            assertNull(AppBridge.operationId)
-            assertNull(VpnService.prepare(context))
-            firstGeneration = session.generation + 1
-        }
-        val home = AppFiles.core(context)
-        assertTrue(home.isDirectory)
-        assertEquals(home.absoluteFile, home.canonicalFile)
-        val provider = File(home, "$name.txt")
-        assertFalse(provider.exists())
-        assertTrue("Never overwrite a pre-existing provider", provider.createNewFile())
-        val identity = Os.lstat(provider.path)
-        fun requireOwnFile() {
-            val now = Os.lstat(provider.path)
-            check(OsConstants.S_ISREG(now.st_mode) && now.st_nlink == 1L &&
-                now.st_dev == identity.st_dev && now.st_ino == identity.st_ino) { "Formal test provider ownership changed" }
-        }
-        fun writeRoutes(prefix: String) {
-            requireOwnFile()
-            provider.writeText("$prefix\n", Charsets.UTF_8)
-        }
-        val ownedGenerations = mutableSetOf<Long>()
-        var initialSpec: VpnSpecification? = null
+        val initialFixture = CoreIpcTestDriver.fixture()
+        val ownership = initialFixture.debug.formalRoutes(1, 0, 0)
+        val observers = mutableListOf(initialFixture)
+        var currentFixture = initialFixture
         var started = false
+        var original: VpnSpecification? = null
         var failure: Throwable? = null
-        fun awaitRunning(expectedGeneration: Long, prefix: Int, previousCore: Long?): CoreHost.Snapshot {
-            lateinit var loaded: CoreHost.Snapshot
-            await("formal VPN generation $expectedGeneration and actual business drain") {
-                var ready = false
-                main {
-                    val session = PseudoVpnService.session.snapshot()
-                    check(session.generation <= expectedGeneration) { "Unexpected replacement generation" }
-                    assertNotEquals(NativeSession.Phase.UNKNOWN, session.phase)
-                    if (session.generation in firstGeneration..firstGeneration + 2 && session.configId == id)
-                        ownedGenerations.add(session.generation)
-                    if (session.generation == expectedGeneration && session.phase == NativeSession.Phase.STOPPED)
-                        session.error?.let { fail("Formal startup failed: ${it.id}") }
-                    val core = PseudoVpnService.core.snapshot()
-                    assertNotEquals(CoreHost.Phase.FAILED, core.phase)
-                    ready = session.generation == expectedGeneration && session.phase == NativeSession.Phase.RUNNING &&
-                        core.phase == CoreHost.Phase.READY && core.purpose == CoreHost.Purpose.VPN &&
-                        !AppBridge.pendingSystemRestore && !AppBridge.logic.busy && AppBridge.operationId == null
-                    if (ready) {
-                        assertEquals(id, session.configId)
-                        assertEquals(1, session.revision)
-                        assertEquals(id, core.configId)
-                        assertEquals(1, core.revision)
-                        loaded = core
-                    }
-                }
-                ready
+        fun inspect(prefix: Int, previousProcess: String?): String {
+            platform.await("正式 VPN 与 business writer 结束") {
+                val state = PseudoVpnService.session.snapshot()
+                assertNotEquals(NativeSession.Phase.UNKNOWN, state.phase)
+                if (state.phase == NativeSession.Phase.STOPPED && state.error != null) fail("正式启动失败：${state.error}")
+                state.phase == NativeSession.Phase.RUNNING && state.configId == id &&
+                    !AppBridge.pendingSystemRestore && !AppBridge.logic.busy && AppBridge.operationId == null
             }
-            val composition = checkNotNull(loaded.composition)
-            val (input, native, spec) = worker {
-                val bytes = checkNotNull(PseudoVpnService.core.runningInput(loaded.generation, composition))
-                assertEquals("rule", NativeCore.mode())
-                Triple(JSONObject(bytes.toString(Charsets.UTF_8)), JSONObject(NativeCore.snapshot()), specification())
-            }
+            val loaded = platform.status()
+            val process = loaded["processId"] as String
+            if (previousProcess != null) assertNotEquals(previousProcess, process)
+            assertEquals(1L, (loaded["generation"] as Number).toLong())
+            assertEquals(id, loaded["configId"])
+            assertEquals(1, (loaded["revision"] as Number).toInt())
+            assertEquals(Contract.CORE_PURPOSE_RUNNING, loaded["purpose"])
+            assertEquals(true, loaded["vpnRunning"])
+            val input = platform.runRecord(loaded)
             assertEquals(id, input.getString("id"))
             assertEquals(id, input.getString("name"))
             assertEquals(1, input.getInt("revision"))
             assertEquals("rule", input.getString("mode"))
             assertEquals(body, input.getString("body"))
-            assertEquals("317b4c006f4db391db78c6c16e78ca54a6dfdc0fd63ecfab7b18055d1bb5d4be",
-                java.security.MessageDigest.getInstance("SHA-256")
-                    .digest(input.getString("body").toByteArray(Charsets.UTF_8))
-                    .joinToString("") { "%02x".format(it) })
+            assertEquals("317b4c006f4db391db78c6c16e78ca54a6dfdc0fd63ecfab7b18055d1bb5d4be", sha256(input.getString("body")))
             assertEquals(0, input.getJSONArray("overrides").length())
-            assertEquals(composition, input.getString("composition"))
-            assertTrue(native.getBoolean("prepared"))
-            assertTrue(native.getBoolean("attached"))
-            assertFalse(native.getBoolean("cleanupFailed"))
-            assertEquals(loaded.generation, spec.generation)
-            assertEquals(composition, spec.composition)
-            assertEquals(1L, spec.revision)
-            assertEquals(setOf("198.18.0.0" to 16, "192.168.100.2" to prefix), spec.routes.toSet())
-            assertEquals(2, spec.routes.size)
-            val initial = initialSpec
-            if (initial == null) {
-                assertEquals(1420, spec.mtu)
-                assertEquals(listOf("198.18.0.1" to 30), spec.addresses)
-                assertEquals(listOf("198.18.0.2"), spec.dnsServers)
-                assertFalse(spec.usesSystemDns)
-                assertTrue(spec.filter.configured)
-                assertEquals(clients, spec.filter.includePackage)
-                initialSpec = spec
-            } else {
-                assertEquals(initial.composition, composition)
-                assertEquals(initial.copy(generation = spec.generation, routes = spec.routes), spec)
-            }
-            if (previousCore != null) assertTrue(loaded.generation > previousCore)
-            main {
-                val session = PseudoVpnService.session.snapshot()
-                assertEquals(expectedGeneration, session.generation)
-                assertEquals(NativeSession.Phase.RUNNING, session.phase)
-                assertEquals(id, session.configId)
-                assertEquals(loaded, PseudoVpnService.core.snapshot())
-                assertFalse(AppBridge.logic.busy)
-                assertNull(AppBridge.operationId)
-            }
-            android.util.Log.i("SystemStartCheck", "formalRoute nonce=p5-route-formal-r7v4 " +
-                "session=$expectedGeneration core=${loaded.generation} prefix=$prefix specRevision=${spec.revision} " +
-                "inputMatched=true nativeAttached=true writerDrained=true")
-            return loaded
+            val actual = VpnSpecification.read(platform.query(Contract.CORE_OPERATION_VPN_SPEC).value.toString())
+            assertEquals(1L, actual.revision)
+            assertEquals(input.getString("composition"), actual.composition)
+            assertWholeSpecification(actual, prefix)
+            original?.let { assertEquals(it.copy(generation = actual.generation, routes = actual.routes, networkKey = actual.networkKey), actual) }
+                ?: run { original = actual }
+            val native = platform.query(Contract.CORE_OPERATION_SNAPSHOT).value
+            assertTrue(native.getBoolean("prepared")); assertTrue(native.getBoolean("attached")); assertFalse(native.getBoolean("cleanupFailed"))
+            assertEquals("rule", platform.query(Contract.CORE_OPERATION_MODE).value.getString("mode"))
+            return process
         }
         try {
-            writeRoutes("192.168.100.2/32")
-            main {
-                assertEquals(firstGeneration - 1, PseudoVpnService.session.snapshot().generation)
-                assertEquals(NativeSession.Phase.STOPPED, PseudoVpnService.session.snapshot().phase)
-                started = true
-                assertNotNull(context.startForegroundService(Intent(context, PseudoVpnService::class.java)
-                    .setAction(VpnService.SERVICE_INTERFACE)))
+            started = true
+            val intent = Intent(context, PseudoVpnService::class.java).setAction(VpnService.SERVICE_INTERFACE)
+            assertNotNull(if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent))
+            var process = inspect(32, null)
+            for ((action, prefix) in listOf(2 to 31, 3 to 32)) {
+                assertEquals(process, currentFixture.processId)
+                currentFixture.debug.formalRoutes(action, ownership.getLong("device"), ownership.getLong("inode"))
+                val result = platform.query(Contract.CORE_OPERATION_RESOURCE_UPDATE,
+                    mapOf("kind" to "ruleProvider", "name" to "p5-routes-formal-r7v4"))
+                assertTrue(result.terminal.toString(), result.terminal.getBoolean("complete"))
+                assertEquals("ok", result.value.getString("status"))
+                currentFixture.awaitDeath()
+                assertTrue(currentFixture.deathConfirmed)
+                platform.await("替换 process 实际就绪") { (io.github.monadboxlab.clashpseudo.nativecore.CoreClient.get(context).status()["phase"] == Contract.CORE_PHASE_READY) &&
+                    PseudoVpnService.session.snapshot().phase == NativeSession.Phase.RUNNING }
+                currentFixture = CoreIpcTestDriver.fixture().also(observers::add)
+                process = inspect(prefix, process)
             }
-            val initial = awaitRunning(firstGeneration, 32, null)
-            writeRoutes("192.168.100.2/31")
-            update(name)
-            val changed = awaitRunning(firstGeneration + 1, 31, initial.generation)
-            writeRoutes("192.168.100.2/32")
-            update(name)
-            awaitRunning(firstGeneration + 2, 32, changed.generation)
-        } catch (error: Throwable) {
-            failure = error
-            throw error
-        } finally {
+        } catch (error: Throwable) { failure = error; throw error }
+        finally {
             try {
                 if (started) {
-                    main {
-                        val session = PseudoVpnService.session.snapshot()
-                        check(session.generation in firstGeneration..firstGeneration + 2) { "Do not stop a replacement owner" }
-                        check(session.configId == id || (session.phase == NativeSession.Phase.STOPPED &&
-                            session.generation in ownedGenerations)) { "Formal cleanup cannot identify its configuration" }
-                        check(session.phase != NativeSession.Phase.UNKNOWN) { "Native cleanup is unknown" }
-                        if (AppBridge.operationId != null || AppBridge.logic.busy) {
-                            val command = checkNotNull(AppBridge.command) { "An unidentified business owner is active" }
-                            val sourceGeneration = (command["sessionGeneration"] as? Number)?.toLong()
-                            check(command["action"] == "refreshRuntime" && sourceGeneration != null &&
-                                sourceGeneration in ownedGenerations &&
-                                command["composition"] == initialSpec?.composition) { "Another business owner is active" }
-                        }
-                        context.startService(Intent(context, PseudoVpnService::class.java)
-                            .setAction(PseudoVpnService.ACTION_STOP))
-                    }
+                    assertEquals(id, platform.status()["configId"])
+                    platform.stopFromSystemControl()
+                    currentFixture.awaitDeath()
+                    platform.await("正式 Stop 与实际 business drain") { PseudoVpnService.session.snapshot().phase == NativeSession.Phase.STOPPED &&
+                        !AppBridge.logic.busy && AppBridge.operationId == null && !AppBridge.pendingSystemRestore &&
+                        !CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java) }
                 }
-                await("formal normal Stop and all business/native work drained") {
-                    var stopped = false
-                    main {
-                        val session = PseudoVpnService.session.snapshot()
-                        if (started) check(session.generation in firstGeneration..firstGeneration + 2)
-                        assertNotEquals(NativeSession.Phase.UNKNOWN, session.phase)
-                        assertNotEquals(CoreHost.Phase.FAILED, PseudoVpnService.core.snapshot().phase)
-                        stopped = session.phase == NativeSession.Phase.STOPPED && PseudoVpnService.instance == null &&
-                            PseudoVpnService.core.snapshot().phase == CoreHost.Phase.EMPTY &&
-                            !AppBridge.logic.busy && AppBridge.operationId == null && !AppBridge.pendingSystemRestore
-                    }
-                    stopped
+                assertTrue(observers.all { it.deathConfirmed })
+                observers.forEach { it.close() }
+                CoreIpcTestDriver.fixture().use { cleanup ->
+                    assertTrue(cleanup.debug.formalRoutes(4, ownership.getLong("device"), ownership.getLong("inode")).getBoolean("removed"))
+                    cleanup.exit()
                 }
-                worker {
-                    val native = JSONObject(NativeCore.snapshot())
-                    assertFalse(native.getBoolean("prepared"))
-                    assertFalse(native.getBoolean("attached"))
-                    assertFalse(native.getBoolean("cleanupFailed"))
-                }
-                requireOwnFile()
-                assertTrue(provider.delete())
-            } catch (cleanup: Throwable) {
-                // Unknown ownership/drain leaves only this test's provider for inspection.
-                if (failure != null) failure.addSuppressed(cleanup) else throw cleanup
-            }
+            } catch (cleanup: Throwable) { if (failure == null) throw cleanup else if (cleanup !== failure) failure.addSuppressed(cleanup) }
         }
     }
 
-    private fun rejectStaleAttach(revision: Long, owner: () -> Unit) = worker {
-        owner()
-        ParcelFileDescriptor.open(File("/dev/null"), ParcelFileDescriptor.MODE_READ_WRITE).use {
-            val fd = it.fd
-            val error = NativeCore.attach(it, revision)
-            assertTrue(error, error.contains("specification revision changed"))
-            assertEquals(fd, it.fd)
-            Os.fstat(it.fileDescriptor) // JNI rejected before ownership transfer.
-        }
-        assertFalse(JSONObject(NativeCore.snapshot()).getBoolean("attached"))
+    private fun requireIdleAndClients() {
+        platform.await("business writer 空闲") { !AppBridge.logic.busy && AppBridge.operationId == null && !AppBridge.pendingSystemRestore }
+        assertFalse(CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java))
+        assertEquals(NativeSession.Phase.STOPPED, PseudoVpnService.session.snapshot().phase)
+        assertNull("VPN 必须已授权，不能打开 grant dialog", VpnService.prepare(context))
+        val own = setOf(context.applicationInfo.uid, instrumentation.context.applicationInfo.uid)
+        val uids = clients.map { context.packageManager.getApplicationInfo(it, 0).uid }
+        assertEquals(2, uids.toSet().size)
+        assertTrue(uids.none { it in own })
+        CoreIpcTestDriver.assertNoGoInApplication()
     }
 
-    private fun update(name: String) = worker {
-        val request = JSONObject().put("kind", "ruleProvider").put("name", name)
-        val result = JSONObject(NativeCore.updateResource(request.toString().toByteArray(Charsets.UTF_8)))
-        assertFalse(result.toString(), result.has("error"))
-        assertEquals("ok", result.getString("status"))
-    }
-
-    private fun specification() = VpnSpecification.read(NativeCore.vpnSpec())
-
-    private fun awaitSpecification(expected: VpnSpecification): VpnSpecification {
-        var actual: VpnSpecification? = null
-        await("whole route specification revision ${expected.revision}") {
-            actual = worker { specification() }
-            actual!!.revision >= expected.revision
-        }
-        // Compare Builder fields as one projection, compare routes as a set, and
-        // reject duplicate routes.
-        val value = checkNotNull(actual)
+    private fun assertWholeSpecification(value: VpnSpecification, prefix: Int) {
+        assertEquals(1420, value.mtu)
+        assertEquals(listOf("198.18.0.1" to 30), value.addresses)
+        assertEquals(listOf("198.18.0.2"), value.dnsServers)
+        assertFalse(value.usesSystemDns)
+        assertTrue(value.filter.configured)
+        assertEquals(clients, value.filter.includePackage)
+        assertEquals(setOf("198.18.0.0" to 16, "192.168.100.2" to prefix), value.routes.toSet())
+        assertEquals(2, value.routes.size)
         assertEquals(value.routes.size, value.routes.toSet().size)
-        assertEquals(expected.routes.toSet(), value.routes.toSet())
-        assertEquals(expected, value.copy(routes = expected.routes))
-        return value
     }
-
-    private fun stopService(generation: Long) {
-        await("accepted Service generation") {
-            val now = PseudoVpnService.session.snapshot().generation
-            check(now <= generation) { "Do not stop a replacement owner" }
-            now == generation
-        }
-        main {
-            val now = PseudoVpnService.session.snapshot()
-            check(now.generation == generation) { "Do not stop a replacement owner" }
-            if (PseudoVpnService.instance != null) {
-                context.startService(Intent(context, PseudoVpnService::class.java)
-                    .setAction(PseudoVpnService.ACTION_STOP))
-            }
-        }
-        await("normal Service Stop and destruction") {
-            PseudoVpnService.session.snapshot().let {
-                check(it.generation == generation) { "Owner changed during Stop" }
-                assertNotEquals(NativeSession.Phase.UNKNOWN, it.phase)
-                it.phase == NativeSession.Phase.STOPPED
-            } && PseudoVpnService.instance == null &&
-                PseudoVpnService.core.snapshot().phase == CoreHost.Phase.EMPTY &&
-                !AppBridge.logic.busy && AppBridge.operationId == null
-        }
-        worker { Unit } // Normal cleanup work has returned; do not shut down the shared executor.
-    }
-
-    private fun main(block: () -> Unit) = instrumentation.runOnMainSync(block)
-
-    private fun await(label: String, ready: () -> Boolean) {
-        val deadline = SystemClock.elapsedRealtime() + 30_000
-        while (!ready()) {
-            check(SystemClock.elapsedRealtime() < deadline) { "Timed out waiting for $label" }
-            Thread.sleep(25)
-        }
-    }
-
-    private fun <T> worker(block: () -> T): T {
-        val task = FutureTask(block)
-        PseudoVpnService.worker.execute(task)
-        return task.get(30, TimeUnit.SECONDS)
-    }
+    private fun sha256(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 }

@@ -1,4 +1,4 @@
-part of re_editor;
+part of 're_editor.dart';
 
 /// An immutable style describing how to format and paint editor content.
 class CodeEditorStyle {
@@ -515,8 +515,8 @@ class _CodeEditorState extends State<CodeEditor> {
       ),
       hintTextColor: widget.style?.hintTextColor,
       backgroundColor: widget.style?.backgroundColor,
-      selectionColor: widget.style?.selectionColor ?? selectionTheme.selectionColor ?? theme.colorScheme.primary.withOpacity(0.4),
-      highlightColor: widget.style?.highlightColor ?? selectionTheme.selectionColor ?? theme.colorScheme.primary.withOpacity(0.4),
+      selectionColor: widget.style?.selectionColor ?? selectionTheme.selectionColor ?? theme.colorScheme.primary.withAlpha(102),
+      highlightColor: widget.style?.highlightColor ?? selectionTheme.selectionColor ?? theme.colorScheme.primary.withAlpha(102),
       cursorColor:  widget.style?.cursorColor ?? selectionTheme.cursorColor ?? theme.colorScheme.primary,
       cursorLineColor: widget.style?.cursorLineColor,
       chunkIndicatorColor: widget.style?.chunkIndicatorColor,

@@ -1,4 +1,4 @@
-part of re_editor;
+part of 're_editor.dart';
 
 class _CodeSelectionGestureDetector extends StatefulWidget {
 
@@ -1243,13 +1243,29 @@ class _SelectionToolbarWrapperState extends State<_SelectionToolbarWrapper> with
     return CodeEditorTapRegion(
       child: Directionality(
         textDirection: Directionality.of(this.context),
-        child: FadeTransition(
-          opacity: _opacity,
-          child: CompositedTransformFollower(
-            link: widget.layerLink,
-            showWhenUnlinked: false,
-            offset: widget.offset,
-            child: widget.child,
+        child: ListenableBuilder(
+          listenable: widget.visibility ?? _controller,
+          builder: (context, child) {
+            final bool hidden = !(widget.visibility?.value ?? true);
+            return IgnorePointer(
+              ignoring: hidden,
+              child: ExcludeFocus(
+                excluding: hidden,
+                child: ExcludeSemantics(
+                  excluding: hidden,
+                  child: child,
+                ),
+              ),
+            );
+          },
+          child: FadeTransition(
+            opacity: _opacity,
+            child: CompositedTransformFollower(
+              link: widget.layerLink,
+              showWhenUnlinked: false,
+              offset: widget.offset,
+              child: widget.child,
+            ),
           ),
         ),
       ),

@@ -1,6 +1,6 @@
 package io.github.monadboxlab.clashpseudo.controls
 
-import io.github.monadboxlab.clashpseudo.app.AppStrings
+import io.github.monadboxlab.clashpseudo.message.AppStrings
 import io.github.monadboxlab.clashpseudo.app.VpnTileService
 import io.github.monadboxlab.clashpseudo.app.VpnWidgetProvider
 import io.github.monadboxlab.clashpseudo.bridge.AppBridge
@@ -142,14 +142,18 @@ object SystemControls {
 
     fun snapshot(reply: (Projection) -> Unit) = AppBridge.systemControlSnapshot { reply(project(it)) }
 
+    // An explicit Stop only reduces takeover and must preserve the latest user
+    // intent even under keyguard. Start/navigation still need an unlocked user.
+    internal fun requiresUnlock(action: String?): Boolean = action != "stop"
+
     fun request(context: Context, action: String, reply: (Admission) -> Unit) {
         if (action !in setOf("start", "stop")) { reply(Admission.OPEN_APP); return }
-        // The widget uses the normal locked-screen Activity path; the tile calls
-        // unlockAndRun before its action.
-        val unlocked = runCatching {
-            context.getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == false
-        }.getOrDefault(false)
-        if (!unlocked) { reply(Admission.OPEN_APP); return }
+        if (requiresUnlock(action)) {
+            val unlocked = runCatching {
+                context.getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == false
+            }.getOrDefault(false)
+            if (!unlocked) { reply(Admission.OPEN_APP); return }
+        }
         AppBridge.submitSystemControl(action, reply)
     }
 

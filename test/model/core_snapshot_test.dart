@@ -1,4 +1,4 @@
-import 'package:clash_pseudo/src/l10n/app_message.dart';
+import 'package:clash_pseudo/src/model/app_message.dart';
 import 'package:clash_pseudo/src/model/core_snapshot.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -8,20 +8,28 @@ const _source = CoreSnapshot(
   configId: 'main',
   revision: 3,
   composition: 'loaded-composition',
-  purpose: 'VPN',
+  purpose: 'RUNNING',
 );
 const _wire = <String, dynamic>{
   'generation': 9,
   'configId': 'main',
   'revision': 3,
   'composition': 'loaded-composition',
-  'purpose': 'VPN',
+  'purpose': 'RUNNING',
 };
 
 void main() {
   test('typed and wire identity use the complete lease fields', () {
     expect(_source.hasIdentity, isTrue);
-    expect(_source.identity, (9, 'main', 3, 'loaded-composition', 'VPN'));
+    expect(_source.identity, (
+      null,
+      null,
+      9,
+      'main',
+      3,
+      'loaded-composition',
+      'RUNNING',
+    ));
     expect(_source.matchesIdentity(_source), isTrue);
     expect(_source.matchesWireIdentity(_wire), isTrue);
     const recent = CoreSnapshot(
@@ -30,7 +38,7 @@ void main() {
       configId: 'main',
       revision: 3,
       composition: 'loaded-composition',
-      purpose: 'VPN',
+      purpose: 'RUNNING',
       logWindow: 'closed-window',
       error: AppMessage('coreContextUnconfirmed'),
     );

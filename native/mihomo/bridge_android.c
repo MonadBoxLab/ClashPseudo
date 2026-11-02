@@ -1,499 +1,304 @@
+#include <errno.h>
 #include <jni.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include <unistd.h>
 #include "_cgo_export.h"
 #include "application_contract.h"
+#include "native_bridge.h"
 
 static JavaVM *vm;
 static pthread_mutex_t callback_lock = PTHREAD_MUTEX_INITIALIZER;
-static jobject protector;
-static jmethodID protect_method;
-static jmethodID protect_network_method;
-static jmethodID seed_method;
-static jmethodID specification_method;
+static jobject callbacks;
+static jmethodID protect_method, network_method, dns_method, lookup_method;
+static jmethodID cancel_dns_method, seed_method, specification_method;
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *machine, void *reserved) {
-    (void)reserved;
-    vm = machine;
-    return JNI_VERSION_1_6;
-}
-
-static void clear_protector(JNIEnv *env) {
-    pthread_mutex_lock(&callback_lock);
-    if (protector) (*env)->DeleteGlobalRef(env, protector);
-    protector = NULL;
-    protect_method = NULL;
-    protect_network_method = NULL;
-    seed_method = NULL;
-    specification_method = NULL;
-    pthread_mutex_unlock(&callback_lock);
-}
-
-int native_protect(int fd) {
-    JNIEnv *env = NULL;
-    int attached = 0;
-    jint status = (*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6);
-    if (status == JNI_EDETACHED) {
-        if ((*vm)->AttachCurrentThread(vm, &env, NULL) != JNI_OK) return 0;
-        attached = 1;
-    } else if (status != JNI_OK) return 0;
-    pthread_mutex_lock(&callback_lock);
-    // A local ref keeps the callback alive if stop deletes the global ref mid-call.
-    jobject local = protector ? (*env)->NewLocalRef(env, protector) : NULL;
-    jmethodID method = protect_method;
-    pthread_mutex_unlock(&callback_lock);
-    jboolean accepted = JNI_FALSE;
-    if (local && method) accepted = (*env)->CallBooleanMethod(env, local, method, fd);
-    if ((*env)->ExceptionCheck(env)) {
-        (*env)->ExceptionClear(env);
-        accepted = JNI_FALSE;
-    }
-    if (local) (*env)->DeleteLocalRef(env, local);
-    if (attached) (*vm)->DetachCurrentThread(vm);
-    return accepted == JNI_TRUE;
-}
-
-// Go returns standard UTF-8; NewStringUTF expects JNI modified UTF-8 instead.
-static jstring take_result(JNIEnv *env, char *text) {
-    const char *value = text ? text : "native allocation failed";
-    jsize length = (jsize)strlen(value);
-    jbyteArray bytes = (*env)->NewByteArray(env, length);
-    if (!bytes) { free(text); return NULL; }
-    (*env)->SetByteArrayRegion(env, bytes, 0, length, (const jbyte *)value);
-    free(text);
-    if ((*env)->ExceptionCheck(env)) {
-        (*env)->DeleteLocalRef(env, bytes);
-        return NULL;
-    }
-    jclass cls = (*env)->FindClass(env, "java/lang/String");
-    if (!cls) { (*env)->DeleteLocalRef(env, bytes); return NULL; }
-    jmethodID constructor = (*env)->GetMethodID(env, cls, "<init>", "([BLjava/lang/String;)V");
-    if (!constructor) {
-        (*env)->DeleteLocalRef(env, bytes);
-        (*env)->DeleteLocalRef(env, cls);
-        return NULL;
-    }
-    jstring encoding = (*env)->NewStringUTF(env, "UTF-8");
-    jstring result = NULL;
-    if (constructor && encoding && !(*env)->ExceptionCheck(env)) {
-        result = (*env)->NewObject(env, cls, constructor, bytes, encoding);
-    }
-    if (encoding) (*env)->DeleteLocalRef(env, encoding);
-    (*env)->DeleteLocalRef(env, bytes);
-    (*env)->DeleteLocalRef(env, cls);
-    return result;
+    (void)reserved; vm = machine; return JNI_VERSION_1_6;
 }
 
 static JNIEnv *callback_env(int *attached) {
-    JNIEnv *env = NULL;
-    *attached = 0;
+    JNIEnv *env = NULL; *attached = 0;
     jint status = (*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6);
     if (status == JNI_EDETACHED) {
-        if ((*vm)->AttachCurrentThread(vm, &env, NULL) != JNI_OK) return NULL;
+        if ((*vm)->AttachCurrentThread(vm, (void **)&env, NULL) != JNI_OK) return NULL;
         *attached = 1;
     } else if (status != JNI_OK) return NULL;
     return env;
 }
 
-int native_protect_network(int fd, char *handle) {
-    int attached;
-    JNIEnv *env = callback_env(&attached);
-    if (!env) return 0;
-    pthread_mutex_lock(&callback_lock);
-    jobject local = protector ? (*env)->NewLocalRef(env, protector) : NULL;
-    jmethodID method = protect_network_method;
-    pthread_mutex_unlock(&callback_lock);
-    jstring network = (*env)->NewStringUTF(env, handle);
-    jboolean accepted = JNI_FALSE;
-    if (local && method && network && !(*env)->ExceptionCheck(env))
-        accepted = (*env)->CallBooleanMethod(env, local, method, fd, network);
-    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); accepted = JNI_FALSE; }
-    if (network) (*env)->DeleteLocalRef(env, network);
-    if (local) (*env)->DeleteLocalRef(env, local);
-    if (attached) (*vm)->DetachCurrentThread(vm);
-    return accepted == JNI_TRUE;
+static jbyteArray bytes(JNIEnv *env, const char *data, jsize size) {
+    jbyteArray value = (*env)->NewByteArray(env, size);
+    if (value && size) (*env)->SetByteArrayRegion(env, value, 0, size, (const jbyte *)data);
+    if ((*env)->ExceptionCheck(env)) { if (value) (*env)->DeleteLocalRef(env, value); return NULL; }
+    return value;
 }
 
-int native_seed_geo_available(void) {
-    pthread_mutex_lock(&callback_lock);
-    int available = protector != NULL && seed_method != NULL;
-    pthread_mutex_unlock(&callback_lock);
-    return available;
+/* 标准UTF-8不经过JNI modified UTF-8。 */
+static jstring utf8_string(JNIEnv *env, const char *data) {
+    jbyteArray value = bytes(env, data, (jsize)strlen(data));
+    if (!value || (*env)->ExceptionCheck(env)) return NULL;
+    jclass cls = (*env)->FindClass(env, "java/lang/String");
+    jmethodID constructor = cls ? (*env)->GetMethodID(env, cls, "<init>", "([BLjava/lang/String;)V") : NULL;
+    jstring charset = constructor ? (*env)->NewStringUTF(env, "UTF-8") : NULL;
+    jstring result = constructor && charset ? (*env)->NewObject(env, cls, constructor, value, charset) : NULL;
+    if (charset) (*env)->DeleteLocalRef(env, charset);
+    if (cls) (*env)->DeleteLocalRef(env, cls);
+    (*env)->DeleteLocalRef(env, value);
+    return result;
 }
-
-char *native_seed_geo(char *request) {
-    int attached;
-    JNIEnv *env = callback_env(&attached);
-    if (!env) return strdup("bundled Geo callback thread is unavailable");
-    pthread_mutex_lock(&callback_lock);
-    jobject local = protector ? (*env)->NewLocalRef(env, protector) : NULL;
-    jmethodID method = seed_method;
-    pthread_mutex_unlock(&callback_lock);
-    jstring input = take_result(env, strdup(request));
-    jstring response = NULL;
-    if (local && method && input && !(*env)->ExceptionCheck(env))
-        response = (*env)->CallObjectMethod(env, local, method, input);
-    char *result = NULL;
-    if (!(*env)->ExceptionCheck(env) && response) {
-        const char *text = (*env)->GetStringUTFChars(env, response, NULL);
-        if (text) { result = strdup(text); (*env)->ReleaseStringUTFChars(env, response, text); }
+static char *copy_bytes(JNIEnv *env, jbyteArray value, int limit) {
+    if (!value || (*env)->ExceptionCheck(env)) return NULL;
+    jsize size = (*env)->GetArrayLength(env, value);
+    if (size < 0 || size > limit) return NULL;
+    char *out = malloc((size_t)size + 1);
+    if (!out) return NULL;
+    if (size) (*env)->GetByteArrayRegion(env, value, 0, size, (jbyte *)out);
+    if ((*env)->ExceptionCheck(env)) { free(out); return NULL; }
+    out[size] = 0;
+    return out;
+}
+static char *copy_string(JNIEnv *env, jstring value) {
+    if (!value || (*env)->ExceptionCheck(env)) return NULL;
+    jclass cls = (*env)->FindClass(env, "java/lang/String");
+    jmethodID method = cls ? (*env)->GetMethodID(env, cls, "getBytes", "(Ljava/lang/String;)[B") : NULL;
+    jstring charset = method ? (*env)->NewStringUTF(env, "UTF-8") : NULL;
+    jbyteArray encoded = method && charset ? (*env)->CallObjectMethod(env, value, method, charset) : NULL;
+    char *out = copy_bytes(env, encoded, APP_CORE_IPC_CONTROL_BYTES);
+    if (encoded) (*env)->DeleteLocalRef(env, encoded);
+    if (charset) (*env)->DeleteLocalRef(env, charset);
+    if (cls) (*env)->DeleteLocalRef(env, cls);
+    return out;
+}
+static char *json_error(const char *message) {
+    const char *prefix = "{\"accepted\":false,\"exited\":true,\"ok\":false,\"error\":{\"code\":\"callFailed\",\"message\":\"";
+    const char *suffix = "\"}}";
+    size_t length = strlen(message);
+    char *out = malloc(strlen(prefix) + length * 6 + strlen(suffix) + 1);
+    if (!out) return NULL;
+    char *p = out; memcpy(p, prefix, strlen(prefix)); p += strlen(prefix);
+    for (size_t i = 0; i < length; i++) {
+        unsigned char c = (unsigned char)message[i];
+        if (c == '"' || c == '\\') { *p++ = '\\'; *p++ = (char)c; }
+        else if (c < 32) { snprintf(p, 7, "\\u%04x", c); p += 6; }
+        else *p++ = (char)c;
     }
+    memcpy(p, suffix, strlen(suffix) + 1); return out;
+}
+
+/* 原始Java异常的堆栈保留cause及suppressed文字。 */
+static char *exception_result(JNIEnv *env) {
+    jthrowable failure = (*env)->ExceptionOccurred(env);
+    if (!failure) return NULL;
+    (*env)->ExceptionClear(env);
+    jclass sw_cls = (*env)->FindClass(env, "java/io/StringWriter");
+    jclass pw_cls = sw_cls ? (*env)->FindClass(env, "java/io/PrintWriter") : NULL;
+    jclass th_cls = pw_cls ? (*env)->FindClass(env, "java/lang/Throwable") : NULL;
+    jmethodID sw_init = th_cls ? (*env)->GetMethodID(env, sw_cls, "<init>", "()V") : NULL;
+    jmethodID pw_init = sw_init ? (*env)->GetMethodID(env, pw_cls, "<init>", "(Ljava/io/Writer;)V") : NULL;
+    jmethodID print = pw_init ? (*env)->GetMethodID(env, th_cls, "printStackTrace", "(Ljava/io/PrintWriter;)V") : NULL;
+    jmethodID text = print ? (*env)->GetMethodID(env, sw_cls, "toString", "()Ljava/lang/String;") : NULL;
+    jobject sw = text ? (*env)->NewObject(env, sw_cls, sw_init) : NULL;
+    jobject pw = pw_init && sw ? (*env)->NewObject(env, pw_cls, pw_init, sw) : NULL;
+    if (print && pw) (*env)->CallVoidMethod(env, failure, print, pw);
+    jstring trace = text && sw && !(*env)->ExceptionCheck(env) ? (*env)->CallObjectMethod(env, sw, text) : NULL;
+    char *detail = trace ? copy_string(env, trace) : NULL;
+    char *result = json_error(detail ? detail : "Java callback exception could not be serialized");
+    free(detail);
     if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
-    if (!result) result = strdup("bundled Geo installation failed or was cancelled");
-    if (input) (*env)->DeleteLocalRef(env, input);
-    if (response) (*env)->DeleteLocalRef(env, response);
-    if (local) (*env)->DeleteLocalRef(env, local);
-    if (attached) (*vm)->DetachCurrentThread(vm);
+    if (trace) (*env)->DeleteLocalRef(env, trace);
+    if (pw) (*env)->DeleteLocalRef(env, pw);
+    if (sw) (*env)->DeleteLocalRef(env, sw);
+    if (sw_cls) (*env)->DeleteLocalRef(env, sw_cls);
+    if (pw_cls) (*env)->DeleteLocalRef(env, pw_cls);
+    if (th_cls) (*env)->DeleteLocalRef(env, th_cls);
+    (*env)->DeleteLocalRef(env, failure);
     return result;
 }
 
-void native_specification_changed(long long generation, char *composition, long long revision, int needed) {
-    int attached;
-    JNIEnv *env = callback_env(&attached);
-    if (!env) return;
+static char *callback_result(JNIEnv *env, jbyteArray value, int limit) {
+    char *error = exception_result(env);
+    if (error) return error;
+    char *result = copy_bytes(env, value, limit);
+    error = exception_result(env);
+    if (error) { free(result); return error; }
+    if (!result) return json_error("Android callback returned no bytes or exceeded its byte limit");
+    return result;
+}
+static jobject local_callbacks(JNIEnv *env) {
     pthread_mutex_lock(&callback_lock);
-    jobject local = protector ? (*env)->NewLocalRef(env, protector) : NULL;
-    jmethodID method = specification_method;
+    jobject local = callbacks ? (*env)->NewLocalRef(env, callbacks) : NULL;
     pthread_mutex_unlock(&callback_lock);
-    jstring value = take_result(env, strdup(composition));
-    if (local && method && value && !(*env)->ExceptionCheck(env))
-        (*env)->CallVoidMethod(env, local, method, (jlong)generation, value, (jlong)revision, needed ? JNI_TRUE : JNI_FALSE);
-    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
-    if (value) (*env)->DeleteLocalRef(env, value);
+    return local;
+}
+static void finish_callback(JNIEnv *env, jobject local, int attached) {
     if (local) (*env)->DeleteLocalRef(env, local);
     if (attached) (*vm)->DetachCurrentThread(vm);
 }
 
-#define METHOD(name) Java_io_github_monadboxlab_clashpseudo_nativecore_NativeCore_##name
-#define MAX_PREPARATION_OPTIONS_BYTES APP_CONFIGURATION_PREPARATION_OPTIONS_BYTES
-
-// Rejections must still be valid JSON; a null return would crash Kotlin callers.
-static jstring reject(JNIEnv *env, const char *json) {
-    char *copy = malloc(strlen(json) + 1);
-    if (!copy) return take_result(env, NULL);
-    memcpy(copy, json, strlen(json) + 1);
-    return take_result(env, copy);
+char *native_protect(int fd) {
+    int attached; JNIEnv *env = callback_env(&attached);
+    if (!env) return json_error("JNI callback thread is unavailable");
+    jobject local = local_callbacks(env);
+    jbyteArray value = local ? (*env)->CallObjectMethod(env, local, protect_method, (jint)fd) : NULL;
+    char *result = callback_result(env, value, APP_CORE_IPC_CONTROL_BYTES);
+    if (value) (*env)->DeleteLocalRef(env, value);
+    finish_callback(env, local, attached); return result;
+}
+char *native_protect_network(int fd, char *handle) {
+    int attached; JNIEnv *env = callback_env(&attached);
+    if (!env) return json_error("JNI callback thread is unavailable");
+    jobject local = local_callbacks(env); jstring network = local ? utf8_string(env, handle) : NULL;
+    jbyteArray value = local && network && !(*env)->ExceptionCheck(env) ? (*env)->CallObjectMethod(env, local, network_method, (jint)fd, network) : NULL;
+    char *result = callback_result(env, value, APP_CORE_IPC_CONTROL_BYTES);
+    if (value) (*env)->DeleteLocalRef(env, value);
+    if (network) (*env)->DeleteLocalRef(env, network);
+    finish_callback(env, local, attached); return result;
+}
+char *native_system_dns(long long request_id, char *wire, int size) {
+    int attached; JNIEnv *env = callback_env(&attached);
+    if (!env) return json_error("JNI callback thread is unavailable");
+    jobject local = local_callbacks(env); jbyteArray input = local ? bytes(env, wire, size) : NULL;
+    jbyteArray value = local && input && !(*env)->ExceptionCheck(env) ? (*env)->CallObjectMethod(env, local, dns_method, (jlong)request_id, input) : NULL;
+    char *result = callback_result(env, value, APP_DNS_RESULT_BYTES);
+    if (value) (*env)->DeleteLocalRef(env, value);
+    if (input) (*env)->DeleteLocalRef(env, input);
+    finish_callback(env, local, attached); return result;
+}
+char *native_system_lookup(long long request_id, char *host, int family) {
+    int attached; JNIEnv *env = callback_env(&attached);
+    if (!env) return json_error("JNI callback thread is unavailable");
+    jobject local = local_callbacks(env); jstring name = local ? utf8_string(env, host) : NULL;
+    jbyteArray value = local && name && !(*env)->ExceptionCheck(env) ? (*env)->CallObjectMethod(env, local, lookup_method, (jlong)request_id, name, (jint)family) : NULL;
+    char *result = callback_result(env, value, APP_DNS_RESULT_BYTES);
+    if (value) (*env)->DeleteLocalRef(env, value);
+    if (name) (*env)->DeleteLocalRef(env, name);
+    finish_callback(env, local, attached); return result;
+}
+char *native_cancel_system_dns(long long request_id) {
+    int attached; JNIEnv *env = callback_env(&attached);
+    if (!env) return json_error("JNI callback thread is unavailable");
+    jobject local = local_callbacks(env);
+    jbyteArray value = local ? (*env)->CallObjectMethod(env, local, cancel_dns_method, (jlong)request_id) : NULL;
+    char *result = callback_result(env, value, APP_CORE_IPC_CONTROL_BYTES);
+    if (value) (*env)->DeleteLocalRef(env, value);
+    finish_callback(env, local, attached); return result;
+}
+char *native_seed_geo(char *request, int size) {
+    int attached; JNIEnv *env = callback_env(&attached);
+    if (!env) return json_error("JNI callback thread is unavailable");
+    jobject local = local_callbacks(env); jbyteArray input = local ? bytes(env, request, size) : NULL;
+    jbyteArray value = local && input && !(*env)->ExceptionCheck(env) ? (*env)->CallObjectMethod(env, local, seed_method, input) : NULL;
+    char *result = callback_result(env, value, APP_CORE_IPC_CONTROL_BYTES);
+    if (value) (*env)->DeleteLocalRef(env, value);
+    if (input) (*env)->DeleteLocalRef(env, input);
+    finish_callback(env, local, attached); return result;
+}
+void native_specification_changed(long long revision, int changed) {
+    int attached; JNIEnv *env = callback_env(&attached); if (!env) return;
+    jobject local = local_callbacks(env);
+    if (local) (*env)->CallVoidMethod(env, local, specification_method, (jlong)revision, changed ? JNI_TRUE : JNI_FALSE);
+    char *error = exception_result(env);
+    if (error) { CoreReportCallbackError(error); free(error); }
+    finish_callback(env, local, attached);
 }
 
-JNIEXPORT jstring JNICALL METHOD(initializeTrust)(JNIEnv *env, jclass cls, jbyteArray material) {
-    (void)cls;
-    if (!material || (*env)->GetArrayLength(env, material) > (4 << 20)) return reject(env, "invalid trust material");
-    jsize length = (*env)->GetArrayLength(env, material);
-    jbyte *bytes = (*env)->GetByteArrayElements(env, material, NULL);
-    if (!bytes) return NULL;
-    char *error = CoreInitializeTrust((char *)bytes, length);
-    (*env)->ReleaseByteArrayElements(env, material, bytes, JNI_ABORT);
-    return take_result(env, error);
-}
-
-JNIEXPORT jstring JNICALL METHOD(vpnSpec)(JNIEnv *env, jclass cls) {
-    (void)cls;
-    return take_result(env, CoreVpnSpec());
-}
-
-JNIEXPORT jstring JNICALL METHOD(updateNetwork)(JNIEnv *env, jclass cls, jbyteArray snapshot) {
-    (void)cls;
-    if (!snapshot || (*env)->GetArrayLength(env, snapshot) > 65536) return reject(env, "{\"error\":\"invalid network snapshot\"}");
-    jsize length = (*env)->GetArrayLength(env, snapshot);
-    jbyte *bytes = (*env)->GetByteArrayElements(env, snapshot, NULL);
-    if (!bytes) return NULL;
-    char *result = CoreUpdateNetwork((char *)bytes, length);
-    (*env)->ReleaseByteArrayElements(env, snapshot, bytes, JNI_ABORT);
-    return take_result(env, result);
-}
-
-JNIEXPORT jstring JNICALL METHOD(version)(JNIEnv *env, jclass cls) {
-    (void)cls;
-    return take_result(env, CoreVersion());
-}
-
-JNIEXPORT jstring JNICALL METHOD(prepare)(JNIEnv *env, jclass cls, jstring home, jbyteArray body, jstring mode, jobject callback, jbyteArray choices, jbyteArray overrides, jbyteArray options) {
-    (void)cls;
-    if (!home || !mode || !callback || !body || !choices || !overrides || !options ||
-        (*env)->GetArrayLength(env, body) > APP_CONFIGURATION_TEXT_BYTES ||
-        (*env)->GetArrayLength(env, choices) > (1 << 20) ||
-        (*env)->GetArrayLength(env, overrides) > APP_CONFIGURATION_OVERRIDE_JSON_BYTES)
-        return reject(env, "configuration input exceeds limit");
-    const jsize options_length = (*env)->GetArrayLength(env, options);
-    if (options_length <= 0 || options_length > MAX_PREPARATION_OPTIONS_BYTES)
-        return reject(env, "invalid native preparation options");
-    jclass callback_class = (*env)->GetObjectClass(env, callback);
-    if (!callback_class) return NULL;
-    jmethodID method = (*env)->GetMethodID(env, callback_class, "protectSocket", "(I)Z");
-    (*env)->DeleteLocalRef(env, callback_class);
-    if (!method) return NULL;
-    jmethodID seed = NULL, specification = NULL, network_protect = NULL;
-    jclass callbacks = (*env)->FindClass(env, "io/github/monadboxlab/clashpseudo/nativecore/NativeCore$PreparationCallbacks");
-    if (!callbacks) return NULL;
-    if ((*env)->IsInstanceOf(env, callback, callbacks)) {
-        network_protect = (*env)->GetMethodID(env, callbacks, "protectSocketOnNetwork", "(ILjava/lang/String;)Z");
-        seed = (*env)->GetMethodID(env, callbacks, "seedGeo", "(Ljava/lang/String;)Ljava/lang/String;");
-        specification = (*env)->GetMethodID(env, callbacks, "specificationChanged", "(JLjava/lang/String;JZ)V");
-    }
-    (*env)->DeleteLocalRef(env, callbacks);
-    if ((*env)->ExceptionCheck(env)) return NULL;
-    const char *home_chars = NULL, *mode_chars = NULL;
-    jbyte *body_chars = NULL, *choices_chars = NULL, *overrides_chars = NULL, *options_chars = NULL;
-    char *error = NULL;
-    int installed = 0;
-    home_chars = (*env)->GetStringUTFChars(env, home, NULL);
-    if (!home_chars) goto cleanup;
-    mode_chars = (*env)->GetStringUTFChars(env, mode, NULL);
-    if (!mode_chars) goto cleanup;
-    body_chars = (*env)->GetByteArrayElements(env, body, NULL);
-    if (!body_chars) goto cleanup;
-    choices_chars = (*env)->GetByteArrayElements(env, choices, NULL);
-    if (!choices_chars) goto cleanup;
-    overrides_chars = (*env)->GetByteArrayElements(env, overrides, NULL);
-    if (!overrides_chars) goto cleanup;
-    options_chars = (*env)->GetByteArrayElements(env, options, NULL);
-    if (!options_chars) goto cleanup;
+static int bind_callbacks(JNIEnv *env, jobject object) {
     pthread_mutex_lock(&callback_lock);
-    if (protector) {
-        pthread_mutex_unlock(&callback_lock);
-        error = strdup("native protector is already in use");
-        goto cleanup;
+    if (callbacks) {
+        int same = (*env)->IsSameObject(env, callbacks, object);
+        pthread_mutex_unlock(&callback_lock); return same;
     }
-    protector = (*env)->NewGlobalRef(env, callback);
-    if (protector) {
-        protect_method = method;
-        protect_network_method = network_protect;
-        seed_method = seed;
-        specification_method = specification;
-        installed = 1;
+    jclass cls = (*env)->GetObjectClass(env, object);
+    protect_method = cls ? (*env)->GetMethodID(env, cls, "protect", "(I)[B") : NULL;
+    network_method = protect_method ? (*env)->GetMethodID(env, cls, "protectNetwork", "(ILjava/lang/String;)[B") : NULL;
+    dns_method = network_method ? (*env)->GetMethodID(env, cls, "systemDns", "(J[B)[B") : NULL;
+    lookup_method = dns_method ? (*env)->GetMethodID(env, cls, "systemLookup", "(JLjava/lang/String;I)[B") : NULL;
+    cancel_dns_method = lookup_method ? (*env)->GetMethodID(env, cls, "cancelSystemDns", "(J)[B") : NULL;
+    seed_method = cancel_dns_method ? (*env)->GetMethodID(env, cls, "seedGeo", "([B)[B") : NULL;
+    specification_method = seed_method ? (*env)->GetMethodID(env, cls, "specificationChanged", "(JZ)V") : NULL;
+    int ready = protect_method && network_method && dns_method && lookup_method && cancel_dns_method && seed_method && specification_method && !(*env)->ExceptionCheck(env);
+    if (ready) callbacks = (*env)->NewGlobalRef(env, object);
+    if (cls) (*env)->DeleteLocalRef(env, cls);
+    pthread_mutex_unlock(&callback_lock); return ready && callbacks;
+}
+static jbyteArray take_result(JNIEnv *env, char *text) {
+    const char *value = text ? text : "{\"accepted\":false,\"exited\":true,\"error\":{\"code\":\"callFailed\",\"message\":\"native allocation failed\"}}";
+    jbyteArray result = bytes(env, value, (jsize)strlen(value)); free(text); return result;
+}
+static jbyteArray reject(JNIEnv *env, const char *message) {
+    char *exception = exception_result(env);
+    if (exception) return take_result(env, exception);
+    return take_result(env, json_error(message));
+}
+
+static jbyteArray reject_handoff(JNIEnv *env, const char *message, int input, int output, int tun) {
+    char *original = exception_result(env);
+    if (!original) original = json_error(message);
+    int descriptors[] = {input, output, tun};
+    const char *names[] = {"input", "output", "TUN"};
+    char *failures[3] = {NULL, NULL, NULL};
+    size_t extra = 0;
+    for (int i = 0; i < 3; i++) {
+        if (descriptors[i] >= 0 && close(descriptors[i]) != 0) {
+            int code = errno;
+            char detail[512];
+            snprintf(detail, sizeof(detail), "close(%s): errno=%d %s", names[i], code, strerror(code));
+            failures[i] = json_error(detail);
+            if (failures[i]) extra += strlen(failures[i]) + 1;
+        }
     }
-    pthread_mutex_unlock(&callback_lock);
-    if (!installed) goto cleanup;
-    error = CorePrepare((char *)home_chars, (char *)body_chars, (*env)->GetArrayLength(env, body),
-                        (char *)mode_chars, (char *)choices_chars, (*env)->GetArrayLength(env, choices),
-                        (char *)overrides_chars, (*env)->GetArrayLength(env, overrides),
-                        (char *)options_chars, options_length);
-cleanup:
-    if (options_chars) (*env)->ReleaseByteArrayElements(env, options, options_chars, JNI_ABORT);
-    if (overrides_chars) (*env)->ReleaseByteArrayElements(env, overrides, overrides_chars, JNI_ABORT);
-    if (choices_chars) (*env)->ReleaseByteArrayElements(env, choices, choices_chars, JNI_ABORT);
-    if (body_chars) (*env)->ReleaseByteArrayElements(env, body, body_chars, JNI_ABORT);
-    if (mode_chars) (*env)->ReleaseStringUTFChars(env, mode, mode_chars);
-    if (home_chars) (*env)->ReleaseStringUTFChars(env, home, home_chars);
-    if (installed && (!error || error[0])) clear_protector(env);
-    if ((*env)->ExceptionCheck(env)) { free(error); return NULL; }
-    return take_result(env, error);
-}
-
-JNIEXPORT jstring JNICALL METHOD(strategies)(JNIEnv *env, jclass cls) {
-    (void)cls;
-    return take_result(env, CoreStrategies());
-}
-
-JNIEXPORT jstring JNICALL METHOD(runtimeConfig)(JNIEnv *env, jclass cls) {
-    (void)cls;
-    return take_result(env, CoreRuntimeConfig());
-}
-
-JNIEXPORT jstring JNICALL METHOD(setStrategy)(JNIEnv *env, jclass cls, jbyteArray request) {
-    (void)cls;
-    jsize length = (*env)->GetArrayLength(env, request);
-    jbyte *bytes = (*env)->GetByteArrayElements(env, request, NULL);
-    if (!bytes) return NULL;
-    char *error = CoreSetStrategy((char *)bytes, length);
-    (*env)->ReleaseByteArrayElements(env, request, bytes, JNI_ABORT);
-    return take_result(env, error);
-}
-
-JNIEXPORT jstring JNICALL METHOD(mode)(JNIEnv *env, jclass cls) {
-    (void)cls;
-    return take_result(env, CoreMode());
-}
-
-JNIEXPORT jstring JNICALL METHOD(setMode)(JNIEnv *env, jclass cls, jstring mode) {
-    (void)cls;
-    const char *chars = (*env)->GetStringUTFChars(env, mode, NULL);
-    if (!chars) return NULL;
-    char *error = CoreSetMode((char *)chars);
-    (*env)->ReleaseStringUTFChars(env, mode, chars);
-    return take_result(env, error);
-}
-
-JNIEXPORT jstring JNICALL METHOD(attach)(JNIEnv *env, jclass cls, jobject descriptor, jlong revision) {
-    (void)cls;
-    if (!descriptor || revision <= 0) return reject(env, "invalid TUN attachment arguments");
-    jclass descriptor_class = (*env)->FindClass(env, "android/os/ParcelFileDescriptor");
-    if (!descriptor_class) return NULL;
-    if (!(*env)->IsInstanceOf(env, descriptor, descriptor_class)) {
-        (*env)->DeleteLocalRef(env, descriptor_class);
-        return reject(env, "invalid TUN descriptor object");
+    if (original && extra) {
+        size_t length = strlen(original);
+        char *joined = malloc(length + extra + 24);
+        if (joined) {
+            memcpy(joined, original, length - 2);
+            char *cursor = joined + length - 2;
+            memcpy(cursor, ",\"suppressed\":[", 15); cursor += 15;
+            int first = 1;
+            for (int i = 0; i < 3; i++) {
+                if (!failures[i]) continue;
+                if (!first) *cursor++ = ',';
+                size_t size = strlen(failures[i]);
+                memcpy(cursor, failures[i], size); cursor += size; first = 0;
+            }
+            memcpy(cursor, "]}}", 4);
+            free(original); original = joined;
+        }
     }
-    jmethodID detach = (*env)->GetMethodID(env, descriptor_class, "detachFd", "()I");
-    (*env)->DeleteLocalRef(env, descriptor_class);
-    if (!detach) return NULL;
-    char *error = CoreCanAttach((long long)revision);
-    if (!error || error[0]) return take_result(env, error);
-    free(error);
-    // Kotlin owns the descriptor until this call succeeds. Transfer directly from
-    // detach to Go's consuming contract, including fd=0 and cancelled sessions.
-    jint fd = (*env)->CallIntMethod(env, descriptor, detach);
-    if ((*env)->ExceptionCheck(env)) return NULL;
-    return take_result(env, CoreAttach(fd, (long long)revision));
+    for (int i = 0; i < 3; i++) free(failures[i]);
+    return take_result(env, original);
 }
 
-JNIEXPORT void JNICALL METHOD(cancel)(JNIEnv *env, jclass cls) {
-    (void)env; (void)cls;
-    CoreCancel();
-}
-
-JNIEXPORT jstring JNICALL METHOD(stop)(JNIEnv *env, jclass cls) {
+JNIEXPORT jbyteArray JNICALL Java_io_github_monadboxlab_clashpseudo_nativecore_NativeCore_invoke(
+        JNIEnv *env, jclass cls, jint operation, jlong request_id,
+        jobject input, jobject output, jobject tun, jobject callback) {
     (void)cls;
-    char *error = CoreStop();
-    clear_protector(env);
-    return take_result(env, error);
-}
-
-JNIEXPORT jstring JNICALL METHOD(nodes)(JNIEnv *env, jclass cls, jbyteArray request) {
-    (void)cls;
-    if (!request) return reject(env, "{\"error\":\"invalid node query\"}");
-    jsize length = (*env)->GetArrayLength(env, request);
-    if (length > 65536) return reject(env, "{\"error\":\"invalid node query\"}");
-    jbyte *bytes = (*env)->GetByteArrayElements(env, request, NULL);
-    if (!bytes) return NULL;
-    char *value = CoreNodes((char *)bytes, length);
-    (*env)->ReleaseByteArrayElements(env, request, bytes, JNI_ABORT);
-    return take_result(env, value);
-}
-
-JNIEXPORT jstring JNICALL METHOD(rules)(JNIEnv *env, jclass cls, jbyteArray request) {
-    (void)cls;
-    if (!request) return reject(env, "{\"error\":\"invalid rule query\"}");
-    jsize length = (*env)->GetArrayLength(env, request);
-    if (length > 65536) return reject(env, "{\"error\":\"invalid rule query\"}");
-    jbyte *bytes = (*env)->GetByteArrayElements(env, request, NULL);
-    if (!bytes) return NULL;
-    char *value = CoreRules((char *)bytes, length);
-    (*env)->ReleaseByteArrayElements(env, request, bytes, JNI_ABORT);
-    return take_result(env, value);
-}
-
-JNIEXPORT jstring JNICALL METHOD(logs)(JNIEnv *env, jclass cls, jbyteArray request) {
-    (void)cls;
-    if (!request) return reject(env, "{\"error\":\"invalidLogQuery\"}");
-    jsize length = (*env)->GetArrayLength(env, request);
-    if (length > 4096) return reject(env, "{\"error\":\"invalidLogQuery\"}");
-    jbyte *bytes = (*env)->GetByteArrayElements(env, request, NULL);
-    if (!bytes) return NULL;
-    char *value = CoreLogs((char *)bytes, length);
-    (*env)->ReleaseByteArrayElements(env, request, bytes, JNI_ABORT);
-    return take_result(env, value);
-}
-
-JNIEXPORT jstring JNICALL METHOD(resources)(JNIEnv *env, jclass cls) {
-    (void)cls;
-    return take_result(env, CoreResources());
-}
-
-JNIEXPORT jstring JNICALL METHOD(updateResource)(JNIEnv *env, jclass cls, jbyteArray request) {
-    (void)cls;
-    if (!request) return reject(env, "{\"error\":\"invalidUpdate\"}");
-    jsize length = (*env)->GetArrayLength(env, request);
-    if (length <= 0 || length > 4096) return reject(env, "{\"error\":\"invalidUpdate\"}");
-    jbyte *bytes = (*env)->GetByteArrayElements(env, request, NULL);
-    if (!bytes) return NULL;
-    char *value = CoreUpdateResource((char *)bytes, length);
-    (*env)->ReleaseByteArrayElements(env, request, bytes, JNI_ABORT);
-    return take_result(env, value);
-}
-
-JNIEXPORT jstring JNICALL METHOD(startDelayTest)(JNIEnv *env, jclass cls, jbyteArray request) {
-    (void)cls;
-    if (!request) return reject(env, "{\"error\":\"invalidDelayRequest\"}");
-    jsize length = (*env)->GetArrayLength(env, request);
-    if (length <= 0 || length > 65536) return reject(env, "{\"error\":\"invalidDelayRequest\"}");
-    jbyte *bytes = (*env)->GetByteArrayElements(env, request, NULL);
-    if (!bytes) return NULL;
-    char *value = CoreStartDelayTest((char *)bytes, length);
-    (*env)->ReleaseByteArrayElements(env, request, bytes, JNI_ABORT);
-    return take_result(env, value);
-}
-
-JNIEXPORT jstring JNICALL METHOD(delayTest)(JNIEnv *env, jclass cls, jbyteArray request) {
-    (void)cls;
-    if (!request) return reject(env, "{\"error\":\"delayUnavailable\"}");
-    jsize length = (*env)->GetArrayLength(env, request);
-    if (length <= 0 || length > 512) return reject(env, "{\"error\":\"delayUnavailable\"}");
-    jbyte *bytes = (*env)->GetByteArrayElements(env, request, NULL);
-    if (!bytes) return NULL;
-    char *value = CoreDelayTest((char *)bytes, length);
-    (*env)->ReleaseByteArrayElements(env, request, bytes, JNI_ABORT);
-    return take_result(env, value);
-}
-
-JNIEXPORT void JNICALL METHOD(cancelDelayTest)(JNIEnv *env, jclass cls, jbyteArray request) {
-    (void)cls;
-    if (!request) return;
-    jsize length = (*env)->GetArrayLength(env, request);
-    if (length <= 0 || length > 512) return;
-    jbyte *bytes = (*env)->GetByteArrayElements(env, request, NULL);
-    if (!bytes) return;
-    CoreCancelDelayTest((char *)bytes, length);
-    (*env)->ReleaseByteArrayElements(env, request, bytes, JNI_ABORT);
-}
-
-JNIEXPORT jstring JNICALL METHOD(connections)(JNIEnv *env, jclass cls, jbyteArray request) {
-    (void)cls;
-    if (!request) return reject(env, "{\"error\":\"invalid connection query\"}");
-    jsize length = (*env)->GetArrayLength(env, request);
-    if (length > APP_CONNECTION_REQUEST_BYTES) return reject(env, "{\"error\":\"invalid connection query\"}");
-    jbyte *bytes = (*env)->GetByteArrayElements(env, request, NULL);
-    if (!bytes) return NULL;
-    char *value = CoreConnections((char *)bytes, length);
-    (*env)->ReleaseByteArrayElements(env, request, bytes, JNI_ABORT);
-    return take_result(env, value);
-}
-
-JNIEXPORT jstring JNICALL METHOD(closeConnection)(JNIEnv *env, jclass cls, jbyteArray request) {
-    (void)cls;
-    if (!request || (*env)->GetArrayLength(env, request) != 36)
-        return reject(env, "{\"status\":\"failed\"}");
-    jbyte *bytes = (*env)->GetByteArrayElements(env, request, NULL);
-    if (!bytes) return NULL;
-    char *value = CoreCloseConnection((char *)bytes, 36);
-    (*env)->ReleaseByteArrayElements(env, request, bytes, JNI_ABORT);
-    return take_result(env, value);
-}
-
-JNIEXPORT jstring JNICALL METHOD(processMemory)(JNIEnv *env, jclass cls) {
-    (void)cls;
-    return take_result(env, CoreProcessMemory());
-}
-
-JNIEXPORT jstring JNICALL METHOD(dnsQuery)(JNIEnv *env, jclass cls, jbyteArray request) {
-    (void)cls;
-    if (!request) return reject(env, "{\"error\":\"invalidRequest\"}");
-    jsize length = (*env)->GetArrayLength(env, request);
-    if (length <= 0 || length > APP_DNS_REQUEST_BYTES) return reject(env, "{\"error\":\"invalidRequest\"}");
-    jbyte *bytes = (*env)->GetByteArrayElements(env, request, NULL);
-    if (!bytes) return NULL;
-    char *value = CoreDNSQuery((char *)bytes, length);
-    (*env)->ReleaseByteArrayElements(env, request, bytes, JNI_ABORT);
-    return take_result(env, value);
-}
-
-JNIEXPORT void JNICALL METHOD(cancelDnsQuery)(JNIEnv *env, jclass cls, jlong request_id) {
-    (void)env; (void)cls;
-    CoreCancelDNSQuery((long long)request_id);
-}
-
-JNIEXPORT jstring JNICALL METHOD(clearDnsCache)(JNIEnv *env, jclass cls) {
-    (void)cls;
-    return take_result(env, CoreClearDNSCache());
-}
-
-JNIEXPORT jstring JNICALL METHOD(flushFakeIp)(JNIEnv *env, jclass cls) {
-    (void)cls;
-    return take_result(env, CoreFlushFakeIP());
-}
-
-JNIEXPORT jstring JNICALL METHOD(snapshot)(JNIEnv *env, jclass cls) {
-    (void)cls;
-    return take_result(env, CoreSnapshot());
+    if (operation < APP_CORE_OPERATION_PREPARE || operation > APP_CORE_OPERATION_VPN_SPEC || request_id <= 0 || !input || !output || !callback)
+        return reject(env, "invalid JNI invocation");
+    if ((operation == APP_CORE_OPERATION_ATTACH) != (tun != NULL)) return reject(env, "TUN descriptor must be supplied only for attach");
+    jclass pfd = (*env)->FindClass(env, "android/os/ParcelFileDescriptor");
+    jmethodID get = pfd ? (*env)->GetMethodID(env, pfd, "getFd", "()I") : NULL;
+    jmethodID detach = get ? (*env)->GetMethodID(env, pfd, "detachFd", "()I") : NULL;
+    if (!pfd || !get || !detach || !(*env)->IsInstanceOf(env, input, pfd) || !(*env)->IsInstanceOf(env, output, pfd) || (tun && !(*env)->IsInstanceOf(env, tun, pfd))) {
+        if (pfd) (*env)->DeleteLocalRef(env, pfd);
+        return reject(env, "invalid ParcelFileDescriptor");
+    }
+    jint in = (*env)->CallIntMethod(env, input, get);
+    jint out = !(*env)->ExceptionCheck(env) ? (*env)->CallIntMethod(env, output, get) : -1;
+    jint device = tun && !(*env)->ExceptionCheck(env) ? (*env)->CallIntMethod(env, tun, get) : -1;
+    if ((*env)->ExceptionCheck(env) || in < 0 || out < 0 || (tun && device <= 0) || in == out || (tun && (device == in || device == out)) || !bind_callbacks(env, callback)) {
+        (*env)->DeleteLocalRef(env, pfd); return reject(env, "descriptor or callback identity is invalid");
+    }
+    in = (*env)->CallIntMethod(env, input, detach);
+    if ((*env)->ExceptionCheck(env) || in < 0) { (*env)->DeleteLocalRef(env, pfd); return reject(env, "input descriptor handoff failed"); }
+    out = (*env)->CallIntMethod(env, output, detach);
+    if ((*env)->ExceptionCheck(env) || out < 0) { (*env)->DeleteLocalRef(env, pfd); return reject_handoff(env, "output descriptor handoff failed", in, -1, -1); }
+    device = tun ? (*env)->CallIntMethod(env, tun, detach) : -1;
+    if ((*env)->ExceptionCheck(env) || (tun && device <= 0)) { (*env)->DeleteLocalRef(env, pfd); return reject_handoff(env, "TUN descriptor handoff failed", in, out, (*env)->ExceptionCheck(env) ? -1 : device); }
+    (*env)->DeleteLocalRef(env, pfd);
+    /* 交给Go后，C不再按这些整数关闭任何描述符。 */
+    return take_result(env, CoreInvoke(operation, request_id, in, out, device));
 }

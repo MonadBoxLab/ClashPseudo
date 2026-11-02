@@ -284,8 +284,8 @@ func TestProvenanceNoEnabledOverridesPreservesRawTextAndLoadedMetadata(t *testin
 	}
 }
 
-func TestProvenanceRejectsInvalidInputWithoutPartialPublication(t *testing.T) {
-	badBodies := []string{"[]", "proxies: [{name: same}, {name: same}]", "proxies: [{}]", "proxies: [{name: 1}]", "dns: {x: 1, x: 2}", "dns: *missing", "dns: &loop [*loop]", "dns: {}\n---\ndns: {}", "dns: {1: value}"}
+func TestProvenanceDoesNotPublishAnIncompleteComposition(t *testing.T) {
+	badBodies := []string{"[]", "dns: [", "dns: *missing", "dns: {}\n---\ndns: {}"}
 	for _, bad := range badBodies {
 		for _, mainBad := range []bool{false, true} {
 			body := []byte("rules: ['MATCH,DIRECT']\n")
@@ -299,9 +299,21 @@ func TestProvenanceRejectsInvalidInputWithoutPartialPublication(t *testing.T) {
 			}
 		}
 	}
+	if text, provenance, err := ComposeWithProvenance([]byte("{}"), []Override{{Mode: "unknown", Body: "{}"}}, provenanceMain); err == nil || text != nil || provenance != nil {
+		t.Fatal("unknown composition operation published output")
+	}
+}
+
+func TestProvenanceMetadataDoesNotGateTheInput(t *testing.T) {
+	body := []byte("# original\r\nproxies: [{name: retained, type: direct}]\n")
 	for _, main := range []ConfigOrigin{{ID: "main", Revision: 0}, {Revision: 1}, {Name: "name without identity"}, {ID: "main", Revision: -1}} {
-		if text, provenance, err := ComposeWithProvenance([]byte("{}"), nil, main); err == nil || text != nil || provenance != nil {
-			t.Fatalf("invalid main origin accepted: %+v", main)
+		text, provenance, err := ComposeWithProvenance(body, nil, main)
+		if err != nil || !bytes.Equal(text, body) {
+			t.Fatalf("source metadata changed runtime eligibility: %+v: %v", main, err)
+		}
+		contribution := provenance.Definition("proxies", "retained").Contributors[0]
+		if contribution.ID != main.ID || contribution.Revision != main.Revision || contribution.Name != main.Name {
+			t.Fatalf("source metadata was invented: %+v", contribution)
 		}
 	}
 	valid := provenancePart("plugin", "prepend", "{}")
@@ -309,10 +321,19 @@ func TestProvenanceRejectsInvalidInputWithoutPartialPublication(t *testing.T) {
 		{valid, valid},
 		{{ID: "", Revision: 1, Mode: "prepend", Body: "{}"}},
 		{{ID: "p", Revision: 0, Mode: "prepend", Body: "{}"}},
-		{{ID: "p", Revision: 1, Mode: "unknown", Body: "{}"}},
 	} {
-		if text, provenance, err := ComposeWithProvenance([]byte("{}"), parts, provenanceMain); err == nil || text != nil || provenance != nil {
-			t.Fatalf("invalid override metadata accepted: %+v", parts)
+		if _, _, err := ComposeWithProvenance(body, parts, provenanceMain); err != nil {
+			t.Fatalf("diagnostic identity rejected composition: %+v: %v", parts, err)
+		}
+	}
+}
+
+func TestUnchangedInputDoesNotDependOnDiagnosticParsing(t *testing.T) {
+	for _, input := range []string{"[]", "dns: [", "dns: *missing", "dns: &loop [*loop]", "proxies: null", "proxies: [null, {}, {name: 2}]", "rules: []\n---\nother: value"} {
+		body := []byte(input)
+		text, _, err := ComposeWithProvenance(body, nil, provenanceMain)
+		if err != nil || !bytes.Equal(text, body) {
+			t.Fatalf("unchanged core input was rejected or rewritten by diagnostics: %q: %v", text, err)
 		}
 	}
 }

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import 'src/app/app.dart';
-import 'src/logic/background_entry.dart';
-import 'src/app/app_legal.dart';
+import 'src/platform/app_bootstrap.dart';
+import 'src/ui/app/app.dart';
+import 'src/ui/legal/app_legal.dart';
 
 void main() {
   registerAppLicenses();

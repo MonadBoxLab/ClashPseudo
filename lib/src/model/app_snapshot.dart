@@ -1,8 +1,8 @@
 import 'package:clash_pseudo/src/model/core_snapshot.dart';
 
-import '../features/mode/tunnel_mode.dart';
+import 'tunnel_mode.dart';
 import 'app_preferences.dart';
-import '../l10n/messages.dart';
+import 'messages.dart';
 
 class RunningApplicationAccess {
   RunningApplicationAccess({
@@ -51,8 +51,15 @@ class RunningApplicationAccess {
 class AppSnapshot {
   const AppSnapshot({
     this.phase = 'UNKNOWN',
+    this.stale = false,
     this.generation = 0,
     this.alwaysOn,
+    this.vpnIntent = false,
+    this.lanIntent = false,
+    this.lanRunning = false,
+    this.lanListeners = const [],
+    this.recoveryRequired = false,
+    this.coreLifecycle = const {},
     this.runningSinceElapsedMs,
     this.elapsedRealtimeMs,
     this.observationClock,
@@ -67,9 +74,17 @@ class AppSnapshot {
     this.storageReady = true,
     this.storageRestoring = false,
     this.storageEpoch = 0,
+    this.storageError,
+    this.backup = const {},
+    this.coreCleanup = const {},
     this.dnsBusy = false,
+    this.dnsOperation = const {},
     this.networkEpoch,
     this.writerBusy = false,
+    this.operationId,
+    this.operationAdmittedAt,
+    this.operationDeadline,
+    this.operationRemainingMs,
     AppMessage? operation,
     AppMessage? error,
     this.resultId,
@@ -93,8 +108,15 @@ class AppSnapshot {
        modeErrorMessage = modeError;
 
   final String phase;
+  final bool stale;
   final int generation;
   final bool? alwaysOn;
+  final bool vpnIntent;
+  final bool lanIntent;
+  final bool lanRunning;
+  final List<Map<String, dynamic>> lanListeners;
+  final bool recoveryRequired;
+  final Map<String, dynamic> coreLifecycle;
   final int? runningSinceElapsedMs;
   final int? elapsedRealtimeMs;
   // Local monotonic age of the observed platform snapshot.
@@ -126,16 +148,22 @@ class AppSnapshot {
   final bool storageReady;
   final bool storageRestoring;
   final int storageEpoch;
+  final AppMessage? storageError;
+  final Map<String, dynamic> backup;
+  final Map<String, dynamic> coreCleanup;
+  bool get coreDataReady => coreCleanup['ready'] != false;
   final bool dnsBusy;
+  final Map<String, dynamic> dnsOperation;
   final int? networkEpoch;
   final bool writerBusy;
+  final String? operationId;
+  final int? operationAdmittedAt;
+  final int? operationDeadline;
+  final int? operationRemainingMs;
   final AppMessage? operationMessage;
   final AppMessage? errorMessage;
   final String? resultId;
   final AppMessage? resultMessageDescription;
-  String? get operation => operationMessage?.text;
-  String? get error => errorMessage?.text;
-  String? get resultMessage => resultMessageDescription?.text;
   final String? connectionStatus;
   final String? configStatus;
   final String? overrideStatus;
@@ -147,11 +175,12 @@ class AppSnapshot {
   final bool resultSuccess;
   final TunnelMode? mode;
   final AppMessage? modeErrorMessage;
-  String? get modeError => modeErrorMessage?.text;
   final CoreSnapshot core;
   final CoreSnapshot? logSource;
 
   bool get running => phase == 'RUNNING';
+  bool get forwarding =>
+      core.ready && core.purpose == 'RUNNING' && (running || lanRunning);
   bool get busy =>
       !storageReady ||
       storageRestoring ||
@@ -164,13 +193,76 @@ class AppSnapshot {
       operationMessage != null ||
       core.busy ||
       ['STARTING', 'STOPPING'].contains(phase);
-  bool get confirmed => ['STOPPED', 'RUNNING'].contains(phase);
+  bool get confirmed => !stale && ['STOPPED', 'RUNNING'].contains(phase);
+
+  AppSnapshot asStale({
+    bool? storageReady,
+    bool? storageRestoring,
+    int? storageEpoch,
+  }) => AppSnapshot(
+    phase: phase,
+    stale: true,
+    generation: generation,
+    alwaysOn: alwaysOn,
+    vpnIntent: vpnIntent,
+    lanIntent: lanIntent,
+    lanRunning: lanRunning,
+    lanListeners: lanListeners,
+    recoveryRequired: recoveryRequired,
+    coreLifecycle: coreLifecycle,
+    runningSinceElapsedMs: runningSinceElapsedMs,
+    elapsedRealtimeMs: elapsedRealtimeMs,
+    observationClock: observationClock,
+    configId: configId,
+    revision: revision,
+    scheduleBusy: scheduleBusy,
+    resourceBusy: resourceBusy,
+    runningApplicationAccess: runningApplicationAccess,
+    pendingSystemStart: pendingSystemStart,
+    pendingStart: pendingStart,
+    pendingRestore: pendingRestore,
+    storageReady: storageReady ?? this.storageReady,
+    storageRestoring: storageRestoring ?? this.storageRestoring,
+    storageEpoch: storageEpoch ?? this.storageEpoch,
+    storageError: storageError,
+    backup: backup,
+    coreCleanup: coreCleanup,
+    dnsBusy: dnsBusy,
+    dnsOperation: dnsOperation,
+    networkEpoch: networkEpoch,
+    writerBusy: writerBusy,
+    operationId: operationId,
+    operationAdmittedAt: operationAdmittedAt,
+    operationDeadline: operationDeadline,
+    operationRemainingMs: operationRemainingMs,
+    operation: operationMessage,
+    error: errorMessage,
+    resultId: resultId,
+    resultMessage: resultMessageDescription,
+    connectionStatus: connectionStatus,
+    configStatus: configStatus,
+    overrideStatus: overrideStatus,
+    resourceStatus: resourceStatus,
+    scheduleStatus: scheduleStatus,
+    backupResult: backupResult,
+    targetId: targetId,
+    savedRevision: savedRevision,
+    resultSuccess: resultSuccess,
+    mode: mode,
+    modeError: modeErrorMessage,
+    core: core,
+    logSource: logSource,
+  );
 
   factory AppSnapshot.fromMap(Map<String, dynamic> data) {
     final phase = data['phase'] as String? ?? 'UNKNOWN';
+    final core = data['core'] is Map
+        ? CoreSnapshot.fromMap(Map<String, dynamic>.from(data['core'] as Map))
+        : const CoreSnapshot();
     TunnelMode? mode;
     AppMessage? modeError;
-    if (phase == 'RUNNING') {
+    if (phase == 'RUNNING' ||
+        (core.phase != 'EMPTY' && core.purpose == 'RUNNING')) {
       try {
         mode = TunnelMode.parse(data['mode']);
       } on FormatException {
@@ -182,6 +274,20 @@ class AppSnapshot {
     return AppSnapshot(
       observationClock: Stopwatch()..start(),
       phase: phase,
+      vpnIntent: data['vpnIntent'] == true,
+      lanIntent: data['lanIntent'] == true,
+      lanRunning: data['lanRunning'] == true,
+      lanListeners: data['lanListeners'] is List
+          ? List.unmodifiable(
+              (data['lanListeners'] as List).map(
+                (row) => Map<String, dynamic>.unmodifiable(row as Map),
+              ),
+            )
+          : const [],
+      recoveryRequired: data['recoveryRequired'] == true,
+      coreLifecycle: data['coreLifecycle'] is Map
+          ? Map<String, dynamic>.unmodifiable(data['coreLifecycle'] as Map)
+          : const {},
       generation: data['generation'] as int? ?? 0,
       alwaysOn: data['alwaysOn'] is bool ? data['alwaysOn'] as bool : null,
       runningSinceElapsedMs: data['runningSinceElapsedMs'] is int
@@ -211,12 +317,30 @@ class AppSnapshot {
       storageEpoch: data['storageEpoch'] is int
           ? data['storageEpoch'] as int
           : 0,
+      storageError: AppMessage.fromNullable(data['storageError']),
+      backup: data['backup'] is Map
+          ? Map<String, dynamic>.unmodifiable(
+              Map<String, dynamic>.from(data['backup'] as Map),
+            )
+          : const {},
+      coreCleanup: data['coreCleanup'] is Map
+          ? Map<String, dynamic>.unmodifiable(
+              Map<String, dynamic>.from(data['coreCleanup'] as Map),
+            )
+          : const {},
       dnsBusy: data['dnsBusy'] == true,
       networkEpoch:
           data['networkEpoch'] is int && (data['networkEpoch'] as int) >= 0
           ? data['networkEpoch'] as int
           : null,
+      dnsOperation: data['dnsOperation'] is Map
+          ? Map<String, dynamic>.unmodifiable(data['dnsOperation'] as Map)
+          : const {},
       writerBusy: data['writerBusy'] == true,
+      operationId: data['operationId'] as String?,
+      operationAdmittedAt: data['operationAdmittedAt'] as int?,
+      operationDeadline: data['operationDeadline'] as int?,
+      operationRemainingMs: data['operationRemainingMs'] as int?,
       operation: AppMessage.fromNullable(data['operation']),
       error: AppMessage.fromNullable(data['error']),
       resultId: data['resultId'] as String?,
@@ -241,9 +365,7 @@ class AppSnapshot {
               Map<String, dynamic>.from(data['logSource'] as Map),
             )
           : null,
-      core: data['core'] is Map
-          ? CoreSnapshot.fromMap(Map<String, dynamic>.from(data['core'] as Map))
-          : const CoreSnapshot(),
+      core: core,
     );
   }
 }

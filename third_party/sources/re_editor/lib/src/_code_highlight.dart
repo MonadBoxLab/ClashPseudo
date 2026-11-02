@@ -1,4 +1,4 @@
-part of re_editor;
+part of 're_editor.dart';
 
 class _CodeHighlighter extends ValueNotifier<List<_HighlightResult>> {
 

@@ -1,5 +1,7 @@
 package io.github.monadboxlab.clashpseudo.app
 
+import io.github.monadboxlab.clashpseudo.message.AppStrings
+
 import io.github.monadboxlab.clashpseudo.bridge.AppBridge
 import io.github.monadboxlab.clashpseudo.controls.SystemControls
 
@@ -42,14 +44,14 @@ class VpnTileService : TileService() {
     override fun onClick() {
         super.onClick()
         val click = ++clickSerial
-        unlockAndRun {
-            if (destroyed || click != clickSerial) return@unlockAndRun
-            // A prepared start may still be STOPPED; read the admission owner's live
-            // intent.
-            val action = AppBridge.systemControlAction()
+        // Capture the explicit intent before an unlock can yield. A Stop click must
+        // never become a Start if preparation finishes or is cancelled meanwhile.
+        val action = AppBridge.systemControlAction()
+        val perform = Runnable {
+            if (destroyed || click != clickSerial) return@Runnable
             if (action == null) {
                 open(SystemControls.openIntent(this), 1040)
-                return@unlockAndRun
+                return@Runnable
             }
             SystemControls.request(this, action) { admission ->
                 if (destroyed || click != clickSerial) return@request
@@ -63,6 +65,7 @@ class VpnTileService : TileService() {
                 SystemControls.refresh(this)
             }
         }
+        if (SystemControls.requiresUnlock(action) && isLocked) unlockAndRun(perform) else perform.run()
     }
 
     private fun readState() {

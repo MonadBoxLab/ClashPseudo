@@ -6,7 +6,6 @@ import android.app.backup.BackupAgent
 import android.app.backup.BackupDataInput
 import android.app.backup.BackupDataOutput
 import android.app.backup.FullBackupDataOutput
-import android.os.Build
 import android.os.ParcelFileDescriptor
 import java.io.EOFException
 import java.io.File
@@ -22,7 +21,6 @@ open class PseudoBackupAgent : BackupAgent() {
     @Volatile private var destroyed = false
 
     protected open fun backupFiles(): BackupFiles = BackupFiles.get(this)
-    protected open val sdkInt: Int get() = Build.VERSION.SDK_INT
     protected open fun frameworkBackup(data: FullBackupDataOutput?) { super.onFullBackup(data) }
     protected open fun frameworkRestore(data: ParcelFileDescriptor, size: Long, target: File,
         type: Int, mode: Long, mtime: Long) { super.onRestoreFile(data, size, target, type, mode, mtime) }
@@ -51,7 +49,7 @@ open class PseudoBackupAgent : BackupAgent() {
                 destination.absolutePath == File(files.stores, it.fileName).absolutePath ||
                     destination.absolutePath == File(files.platformStores, it.fileName).absolutePath
             }
-            if (sdkInt < 28 || type != TYPE_FILE || kind == null) {
+            if (type != TYPE_FILE || kind == null) {
                 // The SDK File overload applies eligibility to its destination.
                 // Consume exactly this entry while retaining the framework-owned PFD
                 // and canonical target.

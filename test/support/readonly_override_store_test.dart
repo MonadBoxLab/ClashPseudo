@@ -1,5 +1,7 @@
-import 'package:clash_pseudo/src/features/configs/config_entry.dart';
-import 'package:clash_pseudo/src/features/overrides/override_entry.dart';
+import 'dart:io';
+
+import 'package:clash_pseudo/src/model/config_entry.dart';
+import 'package:clash_pseudo/src/model/override_entry.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'readonly_override_store.dart';
@@ -20,6 +22,30 @@ void main() {
       await expectLater(store.save([]), throwsUnsupportedError);
       expect(await store.read(), [entry]);
       expect(store.entries, [entry]);
+    },
+  );
+
+  test(
+    'read-only override stub rejects clear before any disk access',
+    () async {
+      final store = ReadOnlyOverrideStore()..entries = [entry];
+      var diskAttempts = 0;
+      await IOOverrides.runZoned(
+        () async {
+          await expectLater(store.clear(), throwsUnsupportedError);
+          expect(await store.read(), [entry]);
+          expect(store.entries, [entry]);
+        },
+        createFile: (_) {
+          diskAttempts++;
+          throw StateError('read-only stub attempted file access');
+        },
+        createDirectory: (_) {
+          diskAttempts++;
+          throw StateError('read-only stub attempted directory access');
+        },
+      );
+      expect(diskAttempts, 0);
     },
   );
 

@@ -2,67 +2,43 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:clash_pseudo/src/logic/app_runtime.dart';
-import 'package:clash_pseudo/src/platform/app_bridge.dart';
-import 'package:flutter/services.dart';
+import 'package:clash_pseudo/src/model/application_contract.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../support/core_runtime_fixture.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  const codec = StandardMethodCodec();
-  final messenger =
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-  late Directory directory;
-  late Map<String, Object?> state;
-  late Map<String, Object?> input;
-  late Map<String, Object?> command;
-  final starts = <Map<String, dynamic>>[];
-  final written = <Map<String, dynamic>>[];
-  var stops = 0;
-  Completer<void>? inputWait;
+  late CoreRuntimeFixture fixture;
+  late Map<String, dynamic> input;
+  late Map<String, dynamic> command;
 
-  Future<Map> send(String method, Object? arguments) async {
-    final reply = Completer<ByteData?>();
-    ServicesBinding.instance.channelBuffers.push(
-      AppBridge.channel.name,
-      codec.encodeMethodCall(MethodCall(method, arguments)),
-      reply.complete,
-    );
-    return (codec.decodeEnvelope((await reply.future)!) as Map?) ?? {};
+  Future<void> pendingRefresh() async {
+    fixture.emit({
+      'event': 'networkChanged',
+      ...fixture.identity(),
+      'nextNetworkRevision': fixture.core.networkRevision + 1,
+      'changed': true,
+    });
+    await fixture.flush();
   }
 
   setUp(() async {
-    directory = await Directory.systemTemp.createTemp('runtime-refresh-');
-    // A refresh must work from the actual lease even if all saved stores are
-    // unreadable. This also catches an accidental normal-start implementation.
-    for (final name in ['configurations', 'overrides', 'preferences']) {
-      await File('${directory.path}/$name.json').writeAsString('broken');
-    }
-    stops = 0;
-    starts.clear();
-    written.clear();
-    inputWait = null;
+    fixture = await CoreRuntimeFixture.create();
     final composition = jsonEncode([
       'running',
       3,
       ['part', 7, 'replace'],
     ]);
-    state = {
-      'phase': 'RUNNING',
-      'generation': 9,
-      'configId': 'running',
-      'revision': 3,
-      'mode': 'global',
-      'core': {
-        'phase': 'READY',
-        'purpose': 'VPN',
-        'generation': 12,
-        'configId': 'running',
-        'revision': 3,
-        'composition': composition,
-      },
-    };
+    fixture.replaceCore(
+      configId: 'running',
+      revision: 3,
+      composition: composition,
+      generation: 12,
+    );
+    fixture.actualMode = 'global';
     input = {
+      'inputId': fixture.core.inputId,
       'id': 'running',
       'revision': 3,
       'name': 'Actual main',
@@ -84,118 +60,152 @@ void main() {
       'choices': {},
       'access': 'except',
       'packages': ['test.controlled.client'],
+      'vpnIntent': true,
+      'lanIntent': false,
     };
-    command = {
-      'owner': 'refresh',
-      'action': 'refreshRuntime',
-      'sessionGeneration': 9,
-      'coreGeneration': 12,
-      'composition': composition,
+    await fixture.writeRecord(input);
+    fixture.beforePlatformCall = (call) {
+      if (call.method == 'submit') return const PlatformCallResult(null);
+      return null;
     };
-    messenger.setMockMethodCallHandler(AppBridge.channel, (call) async {
-      final args = Map<String, dynamic>.from(call.arguments as Map? ?? {});
-      switch (call.method) {
-        case 'ready':
-        case 'checkOperation':
-          return null;
-        case 'paths':
-          return {
-            'configs': directory.path,
-            'runInput': '${directory.path}/run.json',
-          };
-        case 'snapshot':
-          return state;
-        case 'runningInput':
-          await inputWait?.future;
-          return Uint8List.fromList(utf8.encode(jsonEncode(input)));
-        case 'strategies':
-          return jsonEncode({
-            ...state['core'] as Map,
-            'globalReferenced': false,
-            'groups': [],
-            'unrestored': [],
-          });
-        case 'stop':
-          stops++;
-          state = {...state, 'phase': 'STOPPED'};
-          return null;
-        case 'start':
-          starts.add(args);
-          written.add(
-            jsonDecode(await File('${directory.path}/run.json').readAsString())
-                as Map<String, dynamic>,
-          );
-          return null;
-        default:
-          throw MissingPluginException(call.method);
-      }
-    });
-    await AppRuntime().start();
-  });
-
-  tearDown(() async {
-    if (inputWait != null && !inputWait!.isCompleted) inputWait!.complete();
-    AppBridge.channel.setMethodCallHandler(null);
-    messenger.setMockMethodCallHandler(AppBridge.channel, null);
-    await directory.delete(recursive: true);
-  });
-
-  test('refresh uses only the running composition and actual mode', () async {
-    final result = await send('execute', command);
-    expect(result['success'], isTrue);
-    expect(stops, 1);
-    expect(starts, hasLength(1));
-    final prepared = written.single;
-    expect(prepared['id'], input['id']);
-    expect(prepared['revision'], input['revision']);
-    expect(prepared['body'], input['body']);
-    expect(prepared['composition'], input['composition']);
-    expect(prepared['mode'], 'direct');
-    expect(prepared['routingOverride'], 'global');
-    expect(prepared['access'], 'except');
-    expect(prepared['packages'], input['packages']);
-    final part = (prepared['overrides'] as List).single as Map;
-    final original = (input['overrides'] as List).single as Map;
-    for (final field in ['id', 'revision', 'body', 'mode']) {
-      expect(part[field], original[field], reason: field);
+    await fixture.startAppRuntime();
+    await fixture.runInput.delete();
+    for (final name in ['configurations', 'overrides', 'preferences']) {
+      await File('${fixture.directory.path}/$name.json')
+          .writeAsString('broken');
     }
-    expect(await File('${directory.path}/run.json').exists(), isFalse);
+    command = {
+      'action': 'refreshRuntime',
+      ...fixture.identity(),
+      'sessionGeneration': fixture.snapshot.generation,
+    };
+    await pendingRefresh();
+  });
+  tearDown(() => fixture.dispose());
+
+  test('refresh 只使用实际运行记录与 actual mode，不读取损坏的已保存文件', () async {
+    final result = await fixture.execute(command);
+    expect(result['success'], isTrue);
+    expect(fixture.exits, hasLength(1));
+    final request = fixture
+        .calls(ApplicationContract.coreOperationPrepare)
+        .single;
+    expect(request.arguments['explicitStart'], isFalse);
+    expect(request.arguments['vpnIntent'], isTrue);
+    expect(request.arguments['lanIntent'], isFalse);
+    final prepared = (await fixture.runtime.inputFor(fixture.core))!;
+    for (final field in [
+      'id',
+      'revision',
+      'body',
+      'composition',
+      'mode',
+      'access',
+      'packages',
+      'overrides',
+    ]) {
+      expect(prepared[field], input[field], reason: field);
+    }
+    expect(prepared['routingOverride'], 'global');
+    expect(prepared['inputId'], isNot(input['inputId']));
+    expect(await fixture.runInput.exists(), isFalse);
+    expect(fixture.authorizations, 0);
     for (final name in ['configurations', 'overrides', 'preferences']) {
       expect(
-        await File('${directory.path}/$name.json').readAsString(),
+        await File('${fixture.directory.path}/$name.json').readAsString(),
         'broken',
       );
     }
   });
 
-  for (final field in ['sessionGeneration', 'coreGeneration', 'composition']) {
-    test('refresh rejects missing or changed $field before stopping', () async {
-      for (final value in [null, field == 'composition' ? 'other' : 999]) {
-        command[field] = value;
-        expect((await send('execute', command))['success'], isFalse);
-        expect(stops, 0);
-        expect(starts, isEmpty);
+  for (final field in [
+    'sessionGeneration',
+    'generation',
+    'composition',
+    'processId',
+    'inputId',
+    'networkRevision',
+  ]) {
+    test('refresh 在 Stop 前拒绝缺失或变化的 $field', () async {
+      for (final value in [
+        null,
+        field.contains('Id') || field == 'composition' ? 'other' : 999,
+      ]) {
+        final result = await fixture.execute({...command, field: value});
+        expect(result['success'], isFalse);
+        expect(fixture.exits, isEmpty);
+        expect(
+          fixture.calls(ApplicationContract.coreOperationPrepare),
+          isEmpty,
+        );
       }
     });
   }
 
-  test('a stopped lease cannot be started by a delayed refresh', () async {
-    state = {...state, 'phase': 'STOPPED'};
-    expect((await send('execute', command))['success'], isFalse);
-    expect(stops, 0);
-    expect(starts, isEmpty);
+  test('已停止的运行记录不能被迟到 refresh 重新启动', () async {
+    fixture.phase = 'STOPPED';
+    fixture.vpnIntent = false;
+    fixture.replaceCore(phase: 'EMPTY');
+    expect((await fixture.execute(command))['success'], isFalse);
+    expect(fixture.exits, isEmpty);
+    expect(fixture.calls(ApplicationContract.coreOperationPrepare), isEmpty);
   });
 
-  test('cancel during running-input read cannot restart the lease', () async {
-    inputWait = Completer<void>();
-    final pending = send('execute', command);
-    await Future<void>.delayed(Duration.zero);
-    await send('cancel', 'refresh');
-    expect((await pending)['success'], isFalse);
-    inputWait!.complete();
-    await Future<void>.delayed(Duration.zero);
-    expect(stops, 0);
-    expect(starts, isEmpty);
-    expect(await File('${directory.path}/run.json').exists(), isFalse);
+  test('读取实际运行选择期间取消 refresh，等待真实读完且不重启运行记录', () async {
+    final entered = fixture.next(ApplicationContract.coreOperationStrategies);
+    final gate = Completer<void>();
+    fixture.script(ApplicationContract.coreOperationStrategies, (
+      request,
+    ) async {
+      await gate.future;
+      request.strategies([fixture.strategyRecord()]);
+    });
+    final result = FutureProbe(fixture.execute(command));
+    await entered;
+    await fixture.abandon();
+    expect(result.settled, isFalse);
+    final concurrent = await fixture.execute({'action': 'stop'});
+    expect(concurrent['success'], isFalse);
+    expect(fixture.exits, isEmpty);
+    gate.complete();
+    await result.done;
+    expect(result.value!['success'], isFalse);
+    expect(result.replies, 1);
+    expect(fixture.exits, isEmpty);
+    expect(fixture.calls(ApplicationContract.coreOperationPrepare), isEmpty);
+    expect(await fixture.runInput.exists(), isFalse);
   });
+
+  test(
+    'captured Stop cancelRefresh 清当前 pending，同 identity 迟到 event 不重新启动',
+    () async {
+      expect(fixture.runtime.refreshCurrent(command), isTrue);
+      fixture.emit({'event': 'cancelRefresh', ...fixture.identity()});
+      expect(fixture.runtime.refreshCurrent(command), isFalse);
+      await pendingRefresh();
+      expect(fixture.runtime.refreshCurrent(command), isFalse);
+      expect((await fixture.execute(command))['success'], isTrue);
+      expect(fixture.exits, isEmpty);
+      expect(fixture.calls(ApplicationContract.coreOperationPrepare), isEmpty);
+    },
+  );
+
+  test(
+    'stale Stop cancelRefresh 不清当前 pending，普通 restore cancel 不清其他 refresh',
+    () async {
+      fixture.emit({
+        'event': 'cancelRefresh',
+        ...fixture.identity(),
+        'processId': 'old-process',
+      });
+      await fixture.invokeRuntime('cancel', 'unrelated-restore-owner');
+      expect(fixture.runtime.refreshCurrent(command), isTrue);
+      expect((await fixture.execute(command))['success'], isTrue);
+      expect(fixture.exits, hasLength(1));
+      expect(
+        fixture.calls(ApplicationContract.coreOperationPrepare),
+        hasLength(1),
+      );
+    },
+  );
 }

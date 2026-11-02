@@ -1,555 +1,540 @@
 package io.github.monadboxlab.clashpseudo.nativecore
 
-import io.github.monadboxlab.clashpseudo.R
-import io.github.monadboxlab.clashpseudo.app.AppStrings
-import io.github.monadboxlab.clashpseudo.app.AppMessage
-import io.github.monadboxlab.clashpseudo.bridge.AppBridge
-import io.github.monadboxlab.clashpseudo.app.AppTrust
-import io.github.monadboxlab.clashpseudo.nativecore.BundledGeo
 import android.content.Context
-import org.json.JSONObject
-import org.json.JSONArray
-import java.io.File
-import io.github.monadboxlab.clashpseudo.vpn.PseudoVpnService
-import io.github.monadboxlab.clashpseudo.vpn.UnderlyingNetworks
-import io.github.monadboxlab.clashpseudo.vpn.UnderlyingSnapshot
-import android.os.Handler
-import android.os.Looper
+import android.os.Build
+import android.os.Bundle
+import android.os.ParcelFileDescriptor
+import android.os.Process
 import android.os.SystemClock
 import androidx.annotation.Keep
-import io.github.monadboxlab.clashpseudo.vpn.NativeSession
-import java.util.concurrent.Executor
+import io.github.monadboxlab.clashpseudo.app.AppProcess
+import io.github.monadboxlab.clashpseudo.app.ApplicationContract as Contract
+import io.github.monadboxlab.clashpseudo.nativecore.assets.BundledGeo
+import io.github.monadboxlab.clashpseudo.nativecore.vpn.VpnSpecification
+import io.github.monadboxlab.clashpseudo.storage.AppFiles
+import io.github.monadboxlab.clashpseudo.trust.AppTrust
+import io.github.monadboxlab.clashpseudo.vpn.PseudoVpnService
+import io.github.monadboxlab.clashpseudo.vpn.network.AndroidSystemDns
+import io.github.monadboxlab.clashpseudo.vpn.network.UnderlyingNetworks
+import io.github.monadboxlab.clashpseudo.vpn.network.UnderlyingSnapshot
+import io.github.monadboxlab.clashpseudo.vpn.network.LocalInterfaces
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.io.IOException
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
-/** Owns one loaded configuration, separately from the VPN/TUN lifecycle. */
-class CoreHost(
-    private val session: NativeSession,
-    private val changed: () -> Unit,
-    val worker: Executor = Executors.newSingleThreadExecutor { task -> Thread(task, "pseudo-native") },
-    private val idleMs: Long = 30000,
-    private val prepareNative: (String, ByteArray, String, Any, ByteArray, ByteArray) -> String =
-        { home, body, mode, protector, choices, overrides ->
-            initializeAndroidTrust()
-            NativeCore.prepare(home, body, mode, protector, choices, overrides)
-        },
-    private val stopNative: () -> String = { NativeCore.stop() },
-    private val cancelNative: () -> Unit = { NativeCore.cancel() },
-    private val readLogWindow: () -> String? = { null },
-    private val bindUnderlying: (Int) -> Boolean = { UnderlyingNetworks.bindSocket(it) },
-    private val requestRuntimeRefresh: (Long, Long, String, Long, String) -> Unit = AppBridge::requestRuntimeRefresh,
-    private val updateNativeNetwork: (ByteArray) -> String = NativeCore::updateNetwork,
+/** :core 进程中的唯一系统资源宿主，不保存正文、测速批次或业务历史。 */
+class CoreHost internal constructor(
+    private val context: Context,
+    private val statusChanged: (Bundle) -> Unit,
+    private val requestExited: (Long, ByteArray) -> Unit,
 ) {
     enum class Phase { EMPTY, LOADING, READY, RELEASING, FAILED }
-    enum class Purpose { PREVIEW, VPN }
+    enum class Purpose { PREVIEW, VPN, RUNNING }
     data class Snapshot(
-        val generation: Long = 0,
-        val phase: Phase = Phase.EMPTY,
-        val purpose: Purpose? = null,
-        val configId: String? = null,
-        val revision: Int? = null,
-        val error: AppMessage? = null,
-        val composition: String? = null,
-        val logWindow: String? = null,
+        val generation: Long = 0, val phase: Phase = Phase.EMPTY, val purpose: Purpose? = null,
+        val configId: String? = null, val revision: Int? = null,
+        val error: io.github.monadboxlab.clashpseudo.message.AppMessage? = null,
+        val composition: String? = null, val logWindow: String? = null,
+        val processId: String? = null, val inputId: String? = null,
     ) {
-        fun toMap(): Map<String, Any?> = mapOf(
-            "generation" to generation, "phase" to phase.name, "purpose" to purpose?.name,
-            "configId" to configId, "revision" to revision, "error" to error?.toMap(),
-            "composition" to composition, "logWindow" to logWindow,
-        )
+        fun toMap(): Map<String, Any?> = mapOf("generation" to generation, "phase" to phase.name,
+            "purpose" to purpose?.name, "configId" to configId, "revision" to revision,
+            "error" to error?.toMap(), "composition" to composition, "logWindow" to logWindow,
+            "processId" to processId, "inputId" to inputId)
     }
 
-    private class Lease(val state: Snapshot, val owner: String?, val vpnGeneration: Long?,
-                        private val session: NativeSession, private val host: CoreHost) :
-        NativeCore.PreparationCallbacks, BundledGeo.Owner {
-        val active = AtomicBoolean(true)
-        var protector: Any? = null
-        var home: String = ""
-        var input: CoreInput? = null
-        var options: ByteArray = ByteArray(0)
-        var routeRevision = 1L
-        var routesNeedRefresh = false
-        var networkRevision = 0L
-        var systemDnsNeedsRefresh = false
-        var dispatchedRouteRevision = 0L
-        var dispatchedNetworkRevision = 0L
-        override fun preparationOptions(): ByteArray = options
+    val processId: String = UUID.randomUUID().toString()
+    private val io = Executors.newCachedThreadPool { runnable -> Thread(runnable, "core-pipe") }
+    private val workers = Executors.newCachedThreadPool { runnable -> Thread(runnable, "core-call") }
+    private val control = Executors.newSingleThreadScheduledExecutor { runnable -> Thread(runnable, "core-control") }
+    private val transport = CoreNativeTransport(context, io)
+    private class Call : AtomicBoolean(true) {
+        var started = false
+    }
+    private val calls = ConcurrentHashMap<Long, Call>()
+    private val drained = Object()
+    private val requestIds = CoreRequestIds()
+    private val stopping = AtomicBoolean(false)
+    private val prepared = AtomicBoolean(false)
+    private var trustInitialized = false
+    @Volatile private var phase = Contract.CORE_PHASE_CONNECTED
+    @Volatile private var inputId: String? = null
+    @Volatile private var generation = 0L
+    @Volatile private var network: UnderlyingSnapshot = UnderlyingNetworks.snapshot()
+    @Volatile private var callbacks: PlatformCallbacks? = null
+    @Volatile private var vpnIntent = false
+    @Volatile private var lanIntent = false
+    @Volatile private var vpnRunning = false
+    @Volatile private var runningSince: Long? = null
+    @Volatile private var configId: String? = null
+    @Volatile private var revision = 0
+    @Volatile private var lastError: JSONObject? = null
+    @Volatile private var access: Map<String, Any?>? = null
+    @Volatile private var pathsState: JSONObject? = null
+    @Volatile private var listenerState = JSONArray()
+    @Volatile private var lanRunning = false
+    @Volatile private var purpose: String? = null
+    private data class LanBinding(val listenerName: String, val interfaceName: String, val interfaceIndex: Int, val address: String)
+    private var lanBindings = emptyList<LanBinding>()
+    private val invalidListeners = mutableSetOf<String>()
+    private val localInterfaces = LocalInterfaces(context) { workers.execute { checkLanInterfaces() } }
 
-        @Keep override fun protectSocket(fd: Int): Boolean {
-            if (!active.get()) return false
-            val service = protector as? PseudoVpnService
-            return if (service != null) service.protectSocket(fd)
-                else session.snapshot().phase == NativeSession.Phase.STOPPED && host.bindUnderlying(fd)
-        }
+    init { AppProcess.requireCore(context) }
 
-        @Keep override fun protectSocketOnNetwork(fd: Int, handle: String): Boolean {
-            if (!active.get()) return false
-            val service = protector as? PseudoVpnService
-            return if (service != null) service.protectSocketOnNetwork(fd, handle)
-                else session.snapshot().phase == NativeSession.Phase.STOPPED && UnderlyingNetworks.bindSocket(fd, handle)
-        }
+    internal fun allocateRequestId(): Long = requestIds.next()
+    internal fun document(bytes: ByteArray): ParcelFileDescriptor = transport.document(bytes)
 
-        override fun checkCurrent() = synchronized(host) {
-            check(active.get() && host.lease === this && host.state.generation == state.generation &&
-                host.state.composition == input?.composition) { "Geo installation preparation was cancelled" }
-        }
-        override fun publishIfCurrent(block: () -> Unit) = synchronized(host) { checkCurrent(); block() }
+    fun status(): Bundle = Bundle().apply {
+        putInt(Contract.CORE_FIELD_PROTOCOL, Contract.CORE_IPC_VERSION)
+        putString(Contract.CORE_FIELD_PROCESS_ID, processId)
+        putInt("pid", Process.myPid())
+        putString(Contract.CORE_FIELD_PHASE, phase)
+        putString("purpose", purpose)
+        putLong(Contract.CORE_FIELD_GENERATION, generation)
+        putString(Contract.CORE_FIELD_INPUT_ID, inputId)
+        putLong(Contract.CORE_FIELD_NETWORK_REVISION, network.revision)
+        putString("configId", configId)
+        putInt("revision", revision)
+        putBoolean("vpnIntent", vpnIntent)
+        putBoolean("lanIntent", lanIntent)
+        putBoolean("vpnRunning", vpnRunning)
+        putBoolean("lanRunning", lanRunning)
+        pathsState?.let { putString("cleanupCandidates", it.toString()) }
+        runningSince?.let { putLong("runningSinceElapsedMs", it) }
+        PseudoVpnService.instance?.systemState()?.forEach { (key, value) -> if (value != null) putBoolean(key, value) }
+        lastError?.let { putString(Contract.CORE_FIELD_ERROR, it.toString()) }
+    }
 
-        @Keep override fun seedGeo(request: String): String = try {
-            checkCurrent()
-            val values = JSONArray(request)
-            val requests = (0 until values.length()).map { index ->
-                val item = values.getJSONObject(index)
-                val kind = BundledGeo.Kind.entries.single { it.geoxKey == item.getString("kind") }
-                BundledGeo.Request(kind, item.getString("targetName"))
+    fun submit(request: Bundle, input: ParcelFileDescriptor, output: ParcelFileDescriptor): Bundle {
+        CoreControl.identity(request, processId)
+        val id = allocateRequestId()
+        request.putLong(Contract.CORE_FIELD_REQUEST_ID, id)
+        val operation = request.getInt(Contract.CORE_FIELD_OPERATION)
+        check(request.getLong(Contract.CORE_FIELD_NETWORK_REVISION) == network.revision) { "请求不属于捕获的 Network revision" }
+        if (phase == Contract.CORE_PHASE_READY) {
+            check(request.getLong(Contract.CORE_FIELD_GENERATION) == generation && request.getString(Contract.CORE_FIELD_INPUT_ID) == inputId) {
+                "请求不属于当前 inputId/generation"
             }
-            BundledGeo(androidContext()).install(File(home), requests, this)
-            checkCurrent()
-            ""
-        } catch (_: Exception) { "Bundled Geo initialization failed or its preparation was cancelled" }
-
-        @Keep override fun specificationChanged(generation: Long, composition: String, revision: Long, needed: Boolean) {
-            synchronized(host) {
-                if (!active.get() || host.lease !== this || vpnGeneration == null ||
-                    generation != state.generation || composition != input?.composition || revision <= routeRevision) return
-                routeRevision = revision
-                routesNeedRefresh = needed
+        } else if (operation == Contract.CORE_OPERATION_PREPARE || operation == Contract.CORE_OPERATION_LOGS) {
+            check(request.getLong(Contract.CORE_FIELD_GENERATION) == 1L && !request.getString(Contract.CORE_FIELD_INPUT_ID).isNullOrEmpty()) {
+                "装载及启动 LOGS 需要新的 inputId/generation"
             }
-            if (needed) host.postRuntimeRefresh(this, "routes")
         }
-    }
-
-    private val main = Handler(Looper.getMainLooper())
-    @Volatile private var state = Snapshot()
-    @Volatile private var lease: Lease? = null
-    // Identity of the single native current/recent observation window.
-    @Volatile private var retainedLogs: Snapshot? = null
-
-    fun logSource(): Snapshot? {
-        val source = retainedLogs ?: return null
-        return source.copy(phase = if (current(source.generation)) Phase.READY else Phase.EMPTY)
-    }
-
-    fun logsCurrent(generation: Long, composition: String?, window: String?): Boolean {
-        val source = retainedLogs ?: return false
-        return window != null && source.logWindow == window &&
-            source.generation == generation && source.composition == composition
-    }
-    // Retain the immutable actual input for this VPN lease and its periodic updates.
-    private var vpnInput: ByteArray? = null
-    @Volatile private var vpnAccess: Pair<String, List<String>>? = null
-    @Volatile private var vpnAccessConfigured = false
-
-    internal fun recordApplicationAccess(generation: Long, access: String, packages: List<String>, configured: Boolean) {
-        val token = lease ?: return
-        check(token.active.get() && token.vpnGeneration == generation && session.canStart(generation))
-        vpnAccess = access to packages.toList()
-        vpnAccessConfigured = configured
-    }
-
-    /** Only the policy of the established, still-current VPN may reach the UI. */
-    fun applicationAccess(generation: Long): Map<String, Any?>? {
-        val loaded = lease ?: return null
-        if (loaded.vpnGeneration != generation || state.purpose != Purpose.VPN || !current(state.generation)) return null
-        val policy = vpnAccess ?: return null
-        return mapOf("generation" to generation, "access" to policy.first, "packages" to policy.second.toMutableList(),
-            "source" to if (vpnAccessConfigured) "configuration" else "preferences")
-    }
-
-    private var resourceUpdates = 0
-
-    // Serialize admission and completion on worker. Stop may enter native immediately;
-    // a lease remains reserved through its pending JNI entry.
-    fun beginResourceUpdate(generation: Long, composition: String): Boolean {
-        if (!current(generation) || state.composition != composition) return false
-        resourceUpdates++
-        return true
-    }
-
-    fun endResourceUpdate() {
-        check(resourceUpdates > 0)
-        resourceUpdates--
-    }
-
-    fun recordChoice(generation: Long, name: String, choice: Map<*, *>) {
-        if (!current(generation) || state.purpose != Purpose.VPN) return
-        val value = vpnInput?.let { org.json.JSONObject(it.toString(Charsets.UTF_8)) } ?: return
-        value.getJSONObject("choices").put(name, org.json.JSONObject(choice))
-        vpnInput = value.toString().toByteArray(Charsets.UTF_8)
-    }
-    @Volatile private var visible = false
-    @Volatile private var operationBusy = false
-    @Volatile private var visibilityRevision = 0L
-    private var hiddenAt = SystemClock.elapsedRealtime()
-    private val idle = Runnable { expirePreview() }
-
-    fun snapshot(): Snapshot = state
-
-    // Called on worker, like prepare/release. Return bytes rather than codec
-    // strings so an original UTF-8 BOM in a body survives the bridge.
-    fun runningInput(generation: Long, composition: String): ByteArray? {
-        if (!current(generation) || state.purpose != Purpose.VPN ||
-            state.composition != composition) return null
-        return vpnInput?.copyOf()
-    }
-
-    fun current(generation: Long): Boolean {
-        val loaded = lease ?: return false
-        val now = state
-        if (now.generation != generation || now.phase != Phase.READY || !loaded.active.get()) return false
-        val vpn = session.snapshot()
-        return when (now.purpose) {
-            Purpose.PREVIEW -> vpn.phase == NativeSession.Phase.STOPPED
-            Purpose.VPN -> vpn.phase == NativeSession.Phase.RUNNING && vpn.generation == loaded.vpnGeneration
-            null -> false
+        if (id <= 0L || operation !in Contract.CORE_OPERATION_PREPARE..Contract.CORE_OPERATION_VPN_SPEC ||
+            operation == Contract.CORE_OPERATION_ATTACH ||
+            operation == Contract.CORE_OPERATION_SHUTDOWN || operation == Contract.CORE_OPERATION_STOP) {
+            input.close(); output.close()
+            throw IllegalArgumentException("内核请求操作或标识无效")
         }
-    }
-
-    // These lifecycle inputs are delivered on the main thread.
-    fun setVisible(value: Boolean) {
-        if (visible == value) return
-        visible = value
-        visibilityRevision++
-        if (!value) {
-            hiddenAt = SystemClock.elapsedRealtime()
-            try { NativeCore.cancelDnsQuery(0) } catch (_: Exception) { } catch (_: LinkageError) { }
-        }
-        scheduleIdle()
-    }
-
-    fun setOperationBusy(value: Boolean) {
-        operationBusy = value
-        scheduleIdle()
-    }
-
-    private fun scheduleIdle() {
-        main.removeCallbacks(idle)
-        if (visible || operationBusy || state.purpose != Purpose.PREVIEW || state.phase != Phase.READY) return
-        main.postDelayed(idle, (hiddenAt + idleMs - SystemClock.elapsedRealtime()).coerceAtLeast(0))
-    }
-
-    private fun expirePreview() {
-        val revision = visibilityRevision
-        val generation = state.generation
-        worker.execute {
-            if (visible || operationBusy || revision != visibilityRevision || state.generation != generation ||
-                session.snapshot().phase != NativeSession.Phase.STOPPED) return@execute
-            releasePreview()
-        }
-    }
-
-    // Prepare/query/change/release callers all use worker; cancellation only invalidates a lease.
-    fun preparePreview(owner: String, id: String, revision: Int, home: String,
-                       active: () -> Boolean, input: () -> CoreInput): Snapshot {
-        check(active() && session.snapshot().phase == NativeSession.Phase.STOPPED)
-        // A reused preview must match the saved fragments too, so the
-        // composition is compared before the context is handed back.
-        val reusableContext = state.phase == Phase.READY && state.purpose == Purpose.PREVIEW &&
-            state.configId == id && state.revision == revision
-        var candidate: CoreInput? = null
-        if (reusableContext) {
-            candidate = input()
-            check(candidate.id == id && candidate.revision == revision && active())
-            val loaded = lease?.input
-            val reusable = loaded != null && loaded.mode == candidate.mode &&
-                loaded.routingOverride == candidate.routingOverride && loaded.name == candidate.name &&
-                loaded.overrides.contentEquals(candidate.overrides) && loaded.choices.contentEquals(candidate.choices)
-            if (reusable && candidate.composition == state.composition && current(state.generation)) return state
-        }
-        return prepare(owner, id, revision, Purpose.PREVIEW, null, home,
-            { active() && session.snapshot().phase == NativeSession.Phase.STOPPED }, { candidate ?: input() }, null)
-    }
-
-    fun prepareVpn(generation: Long, id: String?, revision: Int?, home: String,
-                   input: () -> CoreInput, protector: Any): Snapshot =
-        prepare(null, id, revision, Purpose.VPN, generation, home,
-            { session.canStart(generation) }, input, protector)
-
-    private fun prepare(owner: String?, id: String?, revision: Int?, purpose: Purpose,
-                        vpnGeneration: Long?, home: String, active: () -> Boolean,
-                        input: () -> CoreInput, protector: Any?): Snapshot {
-        check(active() && state.phase != Phase.FAILED)
-        check(resourceUpdates == 0) { "Previous resource update is still draining" }
-        check(state.purpose != Purpose.VPN || state.phase == Phase.EMPTY) { "VPN context is still owned" }
-        check(releaseOwned() == null) { "Previous cleanup is unconfirmed" }
-        check(active())
-        val loading = Snapshot(state.generation + 1, Phase.LOADING, purpose, id, revision)
-        val token = Lease(loading, owner, vpnGeneration, session, this)
-        lease = token
-        publish(loading)
+        check(!stopping.get()) { "内核进程正在退出" }
+        val token = Call()
+        check(calls.putIfAbsent(id, token) == null) { "内核请求标识重复" }
         try {
-            val value = input()
-            check(value.id == id && value.revision == revision)
-            check(active() && token.active.get())
-            publish(loading.copy(composition = value.composition))
-            token.home = home
-            token.input = value
-            token.protector = protector
-            val network = UnderlyingNetworks.snapshot()
-            synchronized(this) { token.networkRevision = network.revision }
-            token.options = value.preparationOptions(purpose.name, loading.generation, network.json())
-            check(active() && token.active.get())
-            // Bind an attempt only when the actual bounded log window changes,
-            // including failed preparation.
-            var knownBefore = true
-            val previousWindow = try { readLogWindow() }
-                catch (_: Exception) { knownBefore = false; null }
-                catch (_: LinkageError) { knownBefore = false; null }
+            workers.execute {
+                var receipt = JSONObject().put(Contract.CORE_FIELD_EXITED, true).toString().toByteArray(Charsets.UTF_8)
+                var failure: Throwable? = null
+                var preparationStarted = false
+                try {
+                    input.use { source ->
+                        val target = output
+                        val parts = ParcelFileDescriptor.AutoCloseInputStream(source).use(CoreParts::read)
+                        val metadata = JSONObject(CoreFrames.utf8(parts.getValue(Contract.CORE_PART_REQUEST)))
+                        verifyMetadata(request, metadata)
+                        synchronized(token) {
+                            if (!token.get()) throw CoreTransportException(Contract.CORE_ERROR_CANCELLED, "请求在进入内核前已取消")
+                            token.started = true
+                        }
+                        if (operation == Contract.CORE_OPERATION_PREPARE) {
+                            check(prepared.compareAndSet(false, true)) { "每个内核进程只允许装载一个上下文" }
+                            preparationStarted = true
+                            prepare(id, request, metadata, parts, target)
+                        } else if (operation == Contract.CORE_OPERATION_PATHS) queryPaths(id, parts, target)
+                        else if (operation == Contract.CORE_OPERATION_SNAPSHOT) querySnapshot(id, parts, target)
+                        else {
+                            CoreProcessResources.acquire(context)
+                            if (operation == Contract.CORE_OPERATION_CANCEL) {
+                                val targetId = metadata.getJSONObject("arguments").getLong("targetRequestId")
+                                require(targetId > 0 && targetId != id) { "CANCEL targetRequestId 无效" }
+                                val started = calls[targetId]?.let { target -> synchronized(target) {
+                                    val actual = target.started
+                                    target.set(false)
+                                    actual
+                                } }
+                                if (started != null) {
+                                    ParcelFileDescriptor.AutoCloseOutputStream(ParcelFileDescriptor.dup(target.fileDescriptor)).use {
+                                        CoreFrames.write(it, CoreFrames.Frame(Contract.CORE_IPC_FRAME_METADATA,
+                                            JSONObject().put(Contract.CORE_FIELD_STARTED, started).toString().toByteArray(Charsets.UTF_8)))
+                                    }
+                                }
+                            } else initializeTrust()
+                            receipt = transport.stream(operation, id, parts, target, null, callback())
+                        }
+                    }
+                } catch (error: Throwable) {
+                    failure = error
+                    lastError = CoreErrors.json(error)
+                    receipt = CoreErrors.receipt(error)
+                    try { writeFailure(output, error) } catch (close: Throwable) { if (close !== error) error.addSuppressed(close) }
+                    if (preparationStarted) {
+                        val expectedCancellation = error is CoreTransportException &&
+                            error.code == Contract.CORE_ERROR_CANCELLED && stopping.get()
+                        if (!expectedCancellation) {
+                            phase = Contract.CORE_PHASE_RECOVERY_REQUIRED
+                            statusChanged(status())
+                            control.schedule({ selfExit() }, 100, TimeUnit.MILLISECONDS)
+                        }
+                    }
+                } finally {
+                    for (descriptor in listOf(input, output)) try { descriptor.close() } catch (error: Throwable) {
+                        if (failure == null) failure = error else if (failure !== error) failure!!.addSuppressed(error)
+                    }
+                    failure?.let { lastError = CoreErrors.json(it); receipt = CoreErrors.receipt(it) }
+                    try {
+                        // callback 来自实际 invoke、平台调用和 FD close 返回，不来自 EOF 或取消意图。
+                        requestExited(id, receipt)
+                    } finally {
+                        calls.remove(id, token)
+                        synchronized(drained) { drained.notifyAll() }
+                    }
+                }
+            }
+        } catch (error: Throwable) {
+            calls.remove(id, token)
+            input.close(); output.close()
+            throw error
+        }
+        return Bundle().apply { putBoolean(Contract.CORE_FIELD_ACCEPTED, true); putLong(Contract.CORE_FIELD_REQUEST_ID, id) }
+    }
+
+    private fun verifyMetadata(control: Bundle, request: JSONObject) {
+        if (request.getString(Contract.CORE_FIELD_PROCESS_ID) != processId ||
+            request.getInt(Contract.CORE_FIELD_PROTOCOL) != Contract.CORE_IPC_VERSION ||
+            request.getInt(Contract.CORE_FIELD_OPERATION) != control.getInt(Contract.CORE_FIELD_OPERATION) ||
+            request.getLong(Contract.CORE_FIELD_NETWORK_REVISION) != control.getLong(Contract.CORE_FIELD_NETWORK_REVISION) ||
+            request.getLong(Contract.CORE_FIELD_REQUEST_ID) != control.getLong(Contract.CORE_FIELD_REQUEST_ID) ||
+            request.getLong(Contract.CORE_FIELD_GENERATION) != control.getLong(Contract.CORE_FIELD_GENERATION) ||
+            request.optString(Contract.CORE_FIELD_INPUT_ID) != control.getString(Contract.CORE_FIELD_INPUT_ID).orEmpty()) {
+            throw CoreTransportException(Contract.CORE_ERROR_IDENTITY_MISMATCH, "管道请求与控制身份不一致")
+        }
+    }
+
+    private fun prepare(id: Long, controlRequest: Bundle, request: JSONObject,
+                        originalParts: Map<String, ByteArray>, output: ParcelFileDescriptor) {
+        CoreProcessResources.acquire(context)
+        check(controlRequest.getLong(Contract.CORE_FIELD_GENERATION) == 1L) { "新 core process 的 generation 必须为 1" }
+        val arguments = request.getJSONObject("arguments")
+        val purpose = arguments.getString("purpose")
+        this.purpose = purpose
+        check(purpose in setOf(Contract.CORE_PURPOSE_PREVIEW, Contract.CORE_PURPOSE_RUNNING)) { "内核用途无效" }
+        inputId = controlRequest.getString(Contract.CORE_FIELD_INPUT_ID)?.takeIf { it.isNotBlank() }
+            ?: throw IllegalArgumentException("内核装载缺少 inputId")
+        generation = controlRequest.getLong(Contract.CORE_FIELD_GENERATION).coerceAtLeast(1L)
+        configId = arguments.optStringOrNull("configId") ?: arguments.optStringOrNull("id")
+        revision = arguments.optInt("revision")
+        vpnIntent = purpose == Contract.CORE_PURPOSE_RUNNING && arguments.optBoolean("vpnIntent")
+        lanIntent = purpose == Contract.CORE_PURPOSE_RUNNING && arguments.optBoolean("lanIntent")
+        val selected = arguments.optJSONArray("lanInterfaces") ?: JSONArray()
+        lanBindings = (0 until selected.length()).map { index ->
+            val row = selected.getJSONObject(index)
+            LanBinding(row.getString("listenerName"), row.getString("interfaceName"), row.getInt("interfaceIndex"), row.getString("address"))
+        }
+        check(!lanIntent || lanBindings.isNotEmpty()) { "局域网代理没有选中的接口地址" }
+        check(lanBindings.map { it.listenerName }.distinct().size == lanBindings.size) { "局域网 listenerName 重复" }
+        lanBindings.forEach { selectedAddress ->
+            check(localInterfaces.available(selectedAddress.interfaceName, selectedAddress.interfaceIndex, selectedAddress.address)) { "所选局域网接口地址已失效：${selectedAddress.address}" }
+        }
+        check(UnderlyingNetworks.snapshot().key == network.key) { "底层网络已变化，需要新的内核进程" }
+        phase = Contract.CORE_PHASE_LOADING
+        statusChanged(status())
+        CorePreparationObserver.beforeNativePrepare(context, processId, checkNotNull(inputId), configId,
+            revision, id, arguments.getLong(Contract.CORE_FIELD_DEADLINE)) { stopping.get() || calls[id]?.get() != true }
+        if (stopping.get() || calls[id]?.get() != true) {
+            throw CoreTransportException(Contract.CORE_ERROR_CANCELLED, "PREPARE 在 native 装载前已取消")
+        }
+        val options = JSONObject(CoreFrames.utf8(originalParts.getValue(Contract.CORE_PART_OPTIONS)))
+        options.put("purpose", purpose).put("generation", generation).put("network", network.json())
+            .put("vpnIntent", vpnIntent).put("lanIntent", lanIntent)
+        val home = AppFiles.core(context)
+        check(home.isDirectory || home.mkdirs()) { "无法创建私有内核数据目录" }
+        arguments.put("home", home.path)
+        request.put("generation", generation).put("networkRevision", network.revision)
+        val parts = originalParts.toMutableMap().apply {
+            put(Contract.CORE_PART_OPTIONS, options.toString().toByteArray(Charsets.UTF_8))
+            put(Contract.CORE_PART_REQUEST, request.toString().toByteArray(Charsets.UTF_8))
+        }
+        val accessMode = arguments.optString("access", "all")
+        val packages = arguments.optJSONArray("packages")?.let { list -> (0 until list.length()).map(list::getString) }.orEmpty()
+        callback()
+        if (vpnIntent) PseudoVpnService.awaitResourceHost(context, arguments.getLong(Contract.CORE_FIELD_DEADLINE))
+        initializeTrust()
+        val pathsId = allocateRequestId()
+        pathsState = readPaths(pathsId, nativeParts(Contract.CORE_OPERATION_PATHS, pathsId, JSONObject().put("home", home.path)))
+        statusChanged(status())
+        val preparedResult = transport.result(Contract.CORE_OPERATION_PREPARE, id, parts, null, callback())
+        ensureSuccess(preparedResult)
+        val value = preparedResult.value
+        listenerState = value.optJSONArray("listeners") ?: JSONArray()
+        lanRunning = lanIntent && listenersRunning(listenerState)
+        localInterfaces.setActive(lanIntent)
+        if (vpnIntent) {
+            val specification = VpnSpecification.read(value.getJSONObject("vpnSpec").toString())
+            check(specification.generation == generation && specification.networkKey == network.key) { "VPN 规格与当前装载不一致" }
+            val service = checkNotNull(PseudoVpnService.instance) { "VPN 系统资源宿主不可用" }
+            val attached = service.establish(specification, accessMode, packages, network)
+            access = attached.second
+            val attachId = allocateRequestId()
+            val attachParts = nativeParts(Contract.CORE_OPERATION_ATTACH, attachId, JSONObject().put("revision", specification.revision))
+            ensureSuccess(transport.result(Contract.CORE_OPERATION_ATTACH, attachId, attachParts, attached.first, callback()))
+            vpnRunning = true
+            runningSince = SystemClock.elapsedRealtime()
+            service.running()
+        }
+        phase = Contract.CORE_PHASE_READY
+        value.put("platform", JSONObject().put("vpn", JSONObject().put("running", vpnRunning)
+            .put("applicationAccess", access?.let(::JSONObject) ?: JSONObject.NULL))
+            .put("lan", JSONObject().put("running", lanRunning)))
+            .put(Contract.CORE_FIELD_PROCESS_ID, processId).put(Contract.CORE_FIELD_INPUT_ID, inputId)
+            .put(Contract.CORE_FIELD_GENERATION, generation).put(Contract.CORE_FIELD_NETWORK_REVISION, network.revision)
+        val sink = ParcelFileDescriptor.AutoCloseOutputStream(ParcelFileDescriptor.dup(output.fileDescriptor))
+        sink.use {
+            CoreFrames.write(it, CoreFrames.Frame(Contract.CORE_IPC_FRAME_DATA, value.toString().toByteArray(Charsets.UTF_8)))
+            CoreFrames.write(it, CoreFrames.Frame(Contract.CORE_IPC_FRAME_TERMINAL,
+                preparedResult.terminal.put(Contract.CORE_FIELD_EXITED, true).toString().toByteArray(Charsets.UTF_8)))
+        }
+        statusChanged(status())
+    }
+
+    private fun listenersRunning(listeners: JSONArray): Boolean {
+        val rows = (0 until listeners.length()).map(listeners::getJSONObject)
+        return lanBindings.isNotEmpty() && lanBindings.all { binding ->
+            val selected = rows.filter { it.optString("name") == binding.listenerName }
+            selected.isNotEmpty() && selected.all { it.optString("state") == "bound" }
+        }
+    }
+
+    @Synchronized private fun checkLanInterfaces() {
+        if (!lanIntent || phase != Contract.CORE_PHASE_READY || stopping.get()) return
+        val invalid = lanBindings.filter { it.listenerName !in invalidListeners &&
+            !localInterfaces.available(it.interfaceName, it.interfaceIndex, it.address) }.map { it.listenerName }
+        if (invalid.isEmpty()) return
+        invalidListeners.addAll(invalid)
+        val id = allocateRequestId()
+        try {
+            val result = transport.result(Contract.CORE_OPERATION_RESOURCE_UPDATE, id,
+                nativeParts(Contract.CORE_OPERATION_RESOURCE_UPDATE, id,
+                    JSONObject().put("action", "closeListeners").put("names", JSONArray(invalid))), null, callback())
+            ensureSuccess(result)
+            val outcomes = result.value.getJSONArray("listeners")
+            for (index in 0 until outcomes.length()) {
+                val outcome = outcomes.getJSONObject(index)
+                for (rowIndex in 0 until listenerState.length()) {
+                    val listener = listenerState.getJSONObject(rowIndex)
+                    if (listener.optString("name") == outcome.getString("name")) {
+                        listener.put("state", if (outcome.optBoolean("closed")) "closed" else "closeFailed")
+                        listener.put("error", outcome.opt("error") ?: JSONObject.NULL)
+                    }
+                }
+            }
+            lanRunning = false
+            statusChanged(status().apply { putString("event", "listenersChanged") })
+        } catch (error: Throwable) {
+            lanRunning = false
+            lastError = CoreErrors.json(error)
+            statusChanged(status().apply { putString("event", "listenersChanged") })
+        }
+    }
+
+    private fun readPaths(id: Long, parts: Map<String, ByteArray>): JSONObject {
+        CoreProcessResources.acquire(context)
+        val result = transport.result(Contract.CORE_OPERATION_PATHS, id, parts, null, callback())
+        ensureSuccess(result)
+        return result.value.put("home", AppFiles.core(context).path)
+    }
+
+    private fun queryPaths(id: Long, parts: Map<String, ByteArray>, output: ParcelFileDescriptor) {
+        val request = JSONObject(CoreFrames.utf8(parts.getValue(Contract.CORE_PART_REQUEST)))
+        request.getJSONObject("arguments").put("home", AppFiles.core(context).path)
+        val actual = parts + (Contract.CORE_PART_REQUEST to request.toString().toByteArray(Charsets.UTF_8))
+        val value = readPaths(id, actual)
+        pathsState = value
+        statusChanged(status())
+        ParcelFileDescriptor.AutoCloseOutputStream(ParcelFileDescriptor.dup(output.fileDescriptor)).use {
+            CoreFrames.write(it, CoreFrames.Frame(Contract.CORE_IPC_FRAME_DATA, value.toString().toByteArray(Charsets.UTF_8)))
+            CoreFrames.write(it, CoreFrames.Frame(Contract.CORE_IPC_FRAME_TERMINAL,
+                JSONObject().put("complete", true).put("exited", true).toString().toByteArray(Charsets.UTF_8)))
+        }
+    }
+
+    private fun querySnapshot(id: Long, parts: Map<String, ByteArray>, output: ParcelFileDescriptor) {
+        val result = transport.result(Contract.CORE_OPERATION_SNAPSHOT, id, parts, null, callback())
+        ensureSuccess(result)
+        val value = result.value.put("listeners", listenerState)
+            .put("platform", JSONObject().put("vpn", JSONObject().put("running", vpnRunning)
+                .put("applicationAccess", access?.let(::JSONObject) ?: JSONObject.NULL))
+                .put("lan", JSONObject().put("running", lanRunning)))
+        ParcelFileDescriptor.AutoCloseOutputStream(ParcelFileDescriptor.dup(output.fileDescriptor)).use {
+            CoreFrames.write(it, CoreFrames.Frame(Contract.CORE_IPC_FRAME_DATA, value.toString().toByteArray(Charsets.UTF_8)))
+            CoreFrames.write(it, CoreFrames.Frame(Contract.CORE_IPC_FRAME_TERMINAL, result.terminal.toString().toByteArray(Charsets.UTF_8)))
+        }
+    }
+
+    private fun ensureSuccess(result: CoreNativeTransport.Result) {
+        val receipt = JSONObject(CoreFrames.utf8(result.receipt))
+        val error = receipt.optJSONObject(Contract.CORE_FIELD_ERROR) ?: result.terminal.optJSONObject(Contract.CORE_FIELD_ERROR)
+            ?: result.value.optJSONObject(Contract.CORE_FIELD_ERROR)
+        if (error != null) throw CoreNativeResultException(result, error)
+        if (!result.terminal.optBoolean(Contract.CORE_FIELD_COMPLETE)) throw IOException("内核资源调用没有完整终态")
+    }
+
+    @Synchronized private fun initializeTrust() {
+        if (trustInitialized) return
+        val id = allocateRequestId()
+        val parts = nativeParts(Contract.CORE_OPERATION_INITIALIZE_TRUST, id, JSONObject()) +
+            (Contract.CORE_PART_TRUST to AppTrust.pem(context).toByteArray(Charsets.UTF_8))
+        ensureSuccess(transport.result(Contract.CORE_OPERATION_INITIALIZE_TRUST, id, parts, null, callback()))
+        trustInitialized = true
+    }
+
+    private fun nativeParts(operation: Int, id: Long, arguments: JSONObject): Map<String, ByteArray> =
+        mapOf(Contract.CORE_PART_REQUEST to JSONObject().put(Contract.CORE_FIELD_PROTOCOL, Contract.CORE_IPC_VERSION)
+            .put(Contract.CORE_FIELD_PROCESS_ID, processId).put(Contract.CORE_FIELD_INPUT_ID, inputId.orEmpty())
+            .put(Contract.CORE_FIELD_GENERATION, generation).put(Contract.CORE_FIELD_REQUEST_ID, id)
+            .put(Contract.CORE_FIELD_OPERATION, operation).put(Contract.CORE_FIELD_NETWORK_REVISION, network.revision)
+            .put("arguments", arguments).toString().toByteArray(Charsets.UTF_8))
+
+    private fun callback(): PlatformCallbacks = callbacks ?: synchronized(this) {
+        callbacks ?: PlatformCallbacks(context, network, AppFiles.core(context), { vpnIntent }) { version, changed ->
+            if (!stopping.get()) statusChanged(status().apply {
+                putString("event", "specificationChanged"); putLong("specificationRevision", version); putBoolean("changed", changed)
+            })
+        }.also { callbacks = it }
+    }
+
+    fun exit(request: Bundle) {
+        CoreControl.identity(request, processId)
+        val admittedAt = request.getLong(Contract.CORE_FIELD_ADMITTED_AT)
+        val deadline = request.getLong(Contract.CORE_FIELD_DEADLINE)
+        require(admittedAt >= 0 && deadline >= admittedAt && deadline - admittedAt <= Contract.OPERATION_BACKUP_TIMEOUT_MS) {
+            "退出请求没有有效的原受理预算"
+        }
+        if (!stopping.compareAndSet(false, true)) return
+        transport.closeAdmission()
+        phase = Contract.CORE_PHASE_STOPPING
+        val remaining = (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+        control.schedule({ selfExit() }, remaining, TimeUnit.MILLISECONDS)
+        try { statusChanged(status()) } catch (error: Throwable) { lastError = CoreErrors.json(error) }
+        try { workers.execute {
+            var failure: Throwable? = null
+            fun record(error: Throwable) { if (failure == null) failure = error else if (failure !== error) failure!!.addSuppressed(error) }
             try {
-                val error = prepareNative(home, value.body, value.mode.orEmpty(), token, value.choices, value.overrides)
-                if (error.isNotEmpty()) throw NativePreparationFailure.from(error)
+                calls.values.forEach { it.set(false) }
+                try { callbacks?.close() } catch (error: Throwable) { record(error) }
+                try { PseudoVpnService.instance?.closeResources() } catch (error: Throwable) { record(error) }
+                if (trustInitialized) {
+                    try {
+                        val id = allocateRequestId()
+                        ensureSuccess(transport.result(Contract.CORE_OPERATION_SHUTDOWN, id, nativeParts(Contract.CORE_OPERATION_SHUTDOWN, id,
+                            JSONObject().put("reason", request.getString("reason")).put(Contract.CORE_FIELD_DEADLINE, deadline)), null, callback()))
+                    } catch (error: Throwable) { record(error) }
+                }
+                failure?.let { lastError = CoreErrors.json(it); statusChanged(status()) }
             } finally {
-                val window = try { readLogWindow() }
-                    catch (_: Exception) { null }
-                    catch (_: LinkageError) { null }
-                if (knownBefore && window != null && window != previousWindow) {
-                    retainedLogs = loading.copy(phase = Phase.EMPTY,
-                        composition = value.composition, logWindow = window)
+                synchronized(drained) {
+                    while (calls.isNotEmpty()) {
+                        val left = deadline - SystemClock.elapsedRealtime()
+                        if (left <= 0) break
+                        drained.wait(left)
+                    }
                 }
+                transport.awaitIdle(deadline)
+                callbacks?.awaitIdle(deadline)
+                selfExit(normal = calls.isEmpty() && callbacks?.idle != false && transport.sealIfIdle())
             }
-            return synchronized(this) {
-                check(active() && token.active.get())
-                vpnInput = if (purpose == Purpose.VPN) value.snapshotBytes() else null
-                vpnAccess = if (purpose == Purpose.VPN) value.access to value.packages.toList() else null
-                publish(loading.copy(phase = Phase.READY, composition = value.composition))
-                state
-            }
-        } catch (error: Exception) {
-            failedPreparation(token)
-            throw error
-        } catch (error: LinkageError) {
-            failedPreparation(token)
+        } } catch (error: Throwable) {
+            lastError = CoreErrors.json(error)
+            try { statusChanged(status()) } catch (report: Throwable) { if (report !== error) error.addSuppressed(report) }
             throw error
         }
     }
 
-    private fun failedPreparation(token: Lease) {
-        if (lease !== token) return
-        if (releaseOwned() == null) {
-            publish(state.copy(purpose = token.state.purpose, configId = token.state.configId,
-                revision = token.state.revision, error = AppStrings.message(R.string.error_strategy_prepare)))
+    fun revoked(error: Throwable? = null) {
+        vpnRunning = false
+        access = null
+        if (error != null) lastError = CoreErrors.json(error)
+        statusChanged(status().apply { putString("event", "revoked") })
+    }
+
+    fun networkChanged() {
+        val changed = UnderlyingNetworks.snapshot()
+        if (stopping.get() || !prepared.get()) return
+        statusChanged(status().apply {
+            putString("event", "networkChanged"); putLong("nextNetworkRevision", changed.revision)
+            putBoolean("changed", changed.key != network.key)
+        })
+    }
+
+    private fun selfExit(normal: Boolean = false) = CoreProcessExit.exit(context, processId, normal)
+
+    private fun writeFailure(output: ParcelFileDescriptor, error: Throwable) {
+        ParcelFileDescriptor.AutoCloseOutputStream(ParcelFileDescriptor.dup(output.fileDescriptor)).use {
+            CoreFrames.write(it, CoreFrames.Frame(Contract.CORE_IPC_FRAME_TERMINAL,
+                JSONObject().put(Contract.CORE_FIELD_COMPLETE, false).put(Contract.CORE_FIELD_ERROR, CoreErrors.json(error))
+                    .put(Contract.CORE_FIELD_EXITED, true).toString().toByteArray(Charsets.UTF_8)))
         }
     }
 
-    @Synchronized
-    fun cancelPreparation(owner: String) {
-        val token = lease ?: return
-        if (token.owner == owner && token.state.purpose == Purpose.PREVIEW) {
-            token.active.set(false)
-            // After a waiter expires, queue cleanup matched to the prepared owner's
-            // identity.
-            if (state.phase == Phase.READY) worker.execute {
-                if (lease === token) releaseOwned()
+    @Keep
+    private class PlatformCallbacks(
+        private val context: Context,
+        private val network: UnderlyingSnapshot,
+        private val home: File,
+        private val vpnIntent: () -> Boolean,
+        private val specification: (Long, Boolean) -> Unit,
+    ) : BundledGeo.Owner {
+        private val active = AtomicBoolean(true)
+        private val dnsExecutor = Executors.newCachedThreadPool { runnable -> Thread(runnable, "core-system-dns") }
+        private val dns = AndroidSystemDns(network, dnsExecutor)
+        override fun checkCurrent() = check(active.get()) { "内核资源所属上下文已结束" }
+        override fun publishIfCurrent(block: () -> Unit) = synchronized(this) { checkCurrent(); block() }
+        @Keep fun protect(fd: Int): ByteArray = protectResult {
+            checkCurrent()
+            if (vpnIntent()) check(checkNotNull(PseudoVpnService.instance).protect(fd)) { "Android 拒绝保护入站 socket" }
+        }
+        @Keep fun protectNetwork(fd: Int, networkHandle: String): ByteArray = protectResult {
+            checkCurrent()
+            if (vpnIntent()) check(checkNotNull(PseudoVpnService.instance).protect(fd)) { "Android 拒绝保护出站 socket" }
+            check(network.bindSocket(fd, networkHandle)) { "出站 socket 不属于捕获的底层网络" }
+        }
+        private fun protectResult(action: () -> Unit): ByteArray = try {
+            action(); JSONObject().put("ok", true).put("error", JSONObject.NULL).toString().toByteArray(Charsets.UTF_8)
+        } catch (error: Throwable) { JSONObject().put("ok", false).put("error", CoreErrors.json(error)).toString().toByteArray(Charsets.UTF_8) }
+        @Keep fun systemDns(requestId: Long, wire: ByteArray): ByteArray = dns.raw(requestId, wire)
+        @Keep fun systemLookup(requestId: Long, host: String, family: Int): ByteArray = dns.lookup(requestId, host, family)
+        @Keep fun cancelSystemDns(requestId: Long): ByteArray = dns.cancel(requestId)
+        @Keep fun specificationChanged(revision: Long, changed: Boolean) { if (active.get()) specification(revision, changed) }
+        @Keep fun seedGeo(request: ByteArray): ByteArray = try {
+            checkCurrent()
+            val values = JSONArray(CoreFrames.utf8(request))
+            val requests = (0 until values.length()).map { index ->
+                val value = values.getJSONObject(index)
+                BundledGeo.Request(BundledGeo.Kind.entries.single { it.geoxKey == value.getString("kind") }, value.getString("targetName"))
             }
-        }
-    }
-
-    @Synchronized
-    fun cancelVpn(generation: Long) {
-        val token = lease ?: return
-        if (token.state.purpose == Purpose.VPN && token.vpnGeneration == generation) {
-            token.active.set(false)
-            cancelSafely()
-        }
-    }
-
-    private fun cancelSafely() {
-        try { cancelNative() } catch (_: LinkageError) { }
-    }
-
-    fun releasePreview(): AppMessage? {
-        if (state.purpose != Purpose.PREVIEW) return null
-        if (state.phase == Phase.EMPTY) {
-            publish(Snapshot(generation = state.generation))
-            return null
-        }
-        return releaseOwned()
-    }
-
-    fun stopVpn(generation: Long): AppMessage? {
-        val token = lease ?: return null
-        if (token.state.purpose != Purpose.VPN || token.vpnGeneration != generation) return null
-        return releaseOwned()
-    }
-
-    private fun releaseOwned(): AppMessage? {
-        vpnInput = null
-        vpnAccess = null
-        vpnAccessConfigured = false
-        if (state.phase == Phase.FAILED) return state.error ?: AppStrings.message(R.string.error_native_release_unconfirmed)
-        val token = lease ?: return null
-        synchronized(this) { token.active.set(false) }
-        publish(state.copy(phase = Phase.RELEASING))
-        val error = try { stopNative().takeIf { it.isNotEmpty() }?.let { AppStrings.message(R.string.error_native_release_unconfirmed) } }
-            catch (_: Exception) { AppStrings.message(R.string.error_native_release_unconfirmed) }
-            catch (_: LinkageError) { AppStrings.message(R.string.error_native_release_unconfirmed) }
-        if (error == null) {
-            lease = null
-            publish(Snapshot(generation = state.generation))
-        } else {
-            publish(state.copy(phase = Phase.FAILED, error = error))
-        }
-        return error
-    }
-
-    /** Worker access to the STARTING input snapshot. */
-    internal fun vpnSpecification(vpnGeneration: Long): VpnSpecification {
-        val token = lease ?: error("VPN preparation was released")
-        check(token.active.get() && token.vpnGeneration == vpnGeneration &&
-            state.phase == Phase.READY && state.purpose == Purpose.VPN && session.canStart(vpnGeneration))
-        val specification = VpnSpecification.read(NativeCore.vpnSpec())
-        check(specification.generation == state.generation && specification.composition == state.composition) {
-            "VPN specification belongs to another preparation"
-        }
-        return specification
-    }
-
-    /**
-     * Retain pending STARTING revisions until RUNNING, then recheck the latest tuple
-     * on main-thread delivery.
-     */
-    fun sessionRunning(vpnGeneration: Long) {
-        val token = lease ?: return
-        if (token.vpnGeneration != vpnGeneration) return
-        postRuntimeRefresh(token, "routes")
-        postRuntimeRefresh(token, "systemDns")
-    }
-
-    private fun postRuntimeRefresh(token: Lease, reason: String) {
-        main.post {
-            synchronized(this) {
-                if (lease !== token) return@synchronized
-                val vpn = token.vpnGeneration ?: return@synchronized
-                val composition = token.input?.composition ?: return@synchronized
-                val revision = if (reason == "routes") token.routeRevision else token.networkRevision
-                val dispatched = if (reason == "routes") token.dispatchedRouteRevision else token.dispatchedNetworkRevision
-                if (revision == dispatched || !runtimeRefreshCurrent(vpn, token.state.generation, composition, revision, reason))
-                    return@synchronized
-                requestRuntimeRefresh(vpn, token.state.generation, composition, revision, reason)
-                if (reason == "routes") token.dispatchedRouteRevision = revision
-                else token.dispatchedNetworkRevision = revision
-            }
-        }
-    }
-
-    @Synchronized
-    fun runtimeRefreshCurrent(sessionGeneration: Long, coreGeneration: Long, composition: String,
-                              revision: Long, reason: String): Boolean {
-        val token = lease ?: return false
-        if (token.vpnGeneration != sessionGeneration || state.generation != coreGeneration ||
-            state.composition != composition || !current(coreGeneration)) return false
-        return when (reason) {
-            "routes" -> token.routesNeedRefresh && token.routeRevision == revision
-            "systemDns" -> token.systemDnsNeedsRefresh && token.networkRevision == revision
-            else -> false
-        }
-    }
-
-    internal fun underlyingChanged(network: UnderlyingSnapshot = UnderlyingNetworks.snapshot()) {
-        val token = lease ?: return
-        worker.execute {
-            synchronized(this) {
-                if (lease !== token || !token.active.get() || state.phase != Phase.READY ||
-                    network.revision <= token.networkRevision) return@execute
-            }
-            val restart = try {
-                JSONObject(updateNativeNetwork(network.json().toString().toByteArray(Charsets.UTF_8))).let {
-                    check(it.get("changed") is Boolean && it.get("requiresRestart") is Boolean)
-                    it.getBoolean("requiresRestart")
-                }
-            } catch (_: Exception) {
-                networkUpdateFailed(token)
-                return@execute
-            } catch (_: LinkageError) {
-                networkUpdateFailed(token)
-                return@execute
-            }
-            synchronized(this) {
-                if (lease !== token || !token.active.get()) return@execute
-                token.networkRevision = network.revision
-                token.systemDnsNeedsRefresh = restart
-            }
-            if (!restart) return@execute
-            if (token.state.purpose == Purpose.PREVIEW) { releasePreview(); return@execute }
-            postRuntimeRefresh(token, "systemDns")
-        }
-    }
-
-    private fun networkUpdateFailed(token: Lease) {
-        if (lease !== token || !token.active.get()) return
-        if (token.state.purpose == Purpose.PREVIEW) {
-            releasePreview()
-            return
-        }
-        val vpn = token.vpnGeneration ?: return
-        main.post {
-            // Match the callback owner before stopping its preparation.
-            if (lease === token && token.active.get()) {
-                PseudoVpnService.instance?.nativeNetworkUpdateFailed(vpn)
-            }
-        }
-    }
-
-    private fun publish(value: Snapshot) {
-        state = value
-        main.post { changed(); scheduleIdle() }
-    }
-
-    companion object {
-        @Volatile private var context: Context? = null
-        fun installAndroid(appContext: Context) {
-            context = appContext.applicationContext
-            UnderlyingNetworks.install(appContext) {
-                // The immutable platform epoch is already published. Notify now,
-                // even while native DNS cancellation waits behind worker work.
-                PseudoVpnService.core.changed()
-                PseudoVpnService.instance?.underlyingNetworkChanged()
-                PseudoVpnService.core.underlyingChanged()
-            }
-        }
-        private fun initializeAndroidTrust() {
-            try {
-                val result = NativeCore.initializeTrust(AppTrust.pem(androidContext()).toByteArray(Charsets.UTF_8))
-                if (result.isNotEmpty()) throw NativePreparationFailure(AppMessage("trustedRootsUnavailable"))
-            } catch (error: NativePreparationFailure) { throw error }
-            catch (_: Exception) { throw NativePreparationFailure(AppMessage("trustedRootsUnavailable")) }
-        }
-        private fun androidContext(): Context = checkNotNull(context) { "Android core environment is not initialized" }
-    }
-}
-
-internal class NativePreparationFailure(val detail: AppMessage?) : IllegalStateException("Native preparation failed") {
-    companion object {
-        private val fields = setOf("tun", "tun.enable", "tun.stack", "tun.mtu", "tun.dns-hijack", "tun.inet6-address",
-            "tun.file-descriptor", "tun.device", "tun.route-address", "tun.gso", "tun.gso-max-size", "tun.auto-redirect", "tun.strict-route",
-            "tun.iproute2-table-index", "tun.iproute2-rule-index", "tun.auto-redirect-input-mark", "tun.auto-redirect-output-mark",
-            "tun.auto-redirect-iproute2-fallback-rule-index", "tun.include-interface", "tun.exclude-interface",
-            "tun.include-mac-address", "tun.exclude-mac-address", "tun.exclude-src-port", "tun.exclude-dst-port",
-            "tun.include-android-user", "tun.include-uid", "tun.exclude-uid", "tun.include-uid-range", "tun.exclude-uid-range",
-            "external-controller", "external-controller-tls", "external-controller-unix", "external-controller-pipe",
-            "external-ui", "external-ui-url", "external-ui-name", "external-doh-server", "redir-port", "tproxy-port",
-            "interface-name", "routing-mark", "iptables.enable", "ntp.write-to-system", "provider.path", "proxies.state-dir",
-            "proxies.interface-name", "proxies.routing-mark", "proxies.tfo", "listeners.type", "listeners.routing-mark",
-            "dns.listen-routing-mark", "dns.fake-ip-range6", "system-dns")
-        fun from(error: String): NativePreparationFailure {
-            val detail = try {
-                val value = JSONObject(error)
-                if (value.optString("id") != "nativeConfigurationUnsupported") null
-                else value.getJSONObject("args").let {
-                    val reason = it.getJSONObject("reason").getString("id")
-                    check(reason in setOf("nativeReasonTunDisabled", "nativeReasonControllerUnavailable", "nativeReasonRootRedirection",
-                        "nativeReasonTransparentSockets", "nativeReasonInterfaceBinding", "nativeReasonRoutingMark", "nativeReasonTcpFastOpen",
-                        "nativeReasonFirewall", "nativeReasonSystemClock", "nativeReasonExternalFd", "nativeReasonInterfaceName", "nativeReasonGso",
-                        "nativeReasonAutoRedirect", "nativeReasonLinuxRouting", "nativeReasonInterfaceFilter", "nativeReasonMacFilter",
-                        "nativeReasonPortFilter", "nativeReasonStrictRoute", "nativeReasonDnsHijackConflict", "nativeReasonIpv6Unavailable",
-                        "nativeReasonInvalidMtu", "nativeReasonInvalidAddress", "nativeReasonSystemDnsUnavailable",
-                        "nativeReasonPrivateDnsUnavailable", "nativeReasonProviderPath", "nativeReasonAndroidUserUnavailable"))
-                    val field = it.getString("field")
-                    check(field in fields)
-                    AppMessage("nativeConfigurationUnsupported", mapOf("field" to field, "reason" to AppMessage(reason)))
-                }
-            } catch (_: Exception) { null }
-            return NativePreparationFailure(detail)
+            BundledGeo(context).install(home, requests, this)
+            JSONObject().put("ok", true).put("error", JSONObject.NULL).toString().toByteArray(Charsets.UTF_8)
+        } catch (error: Throwable) { JSONObject().put("ok", false).put("error", CoreErrors.json(error)).toString().toByteArray(Charsets.UTF_8) }
+        val idle: Boolean get() = dns.idle
+        fun awaitIdle(deadline: Long) = dns.awaitIdle(deadline)
+        fun close() {
+            synchronized(this) { active.set(false) }
+            val receipt = JSONObject(CoreFrames.utf8(dns.close()))
+            receipt.optJSONObject("error")?.let { throw IOException(it.toString()) }
         }
     }
 }

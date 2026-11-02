@@ -1,10 +1,12 @@
+import 'package:clash_pseudo/src/model/application_contract.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:clash_pseudo/src/logic/app_runtime.dart';
+import 'package:clash_pseudo/src/platform/app_bootstrap.dart';
 import 'package:clash_pseudo/src/model/app_preferences.dart';
-import 'package:clash_pseudo/src/platform/app_bridge.dart';
+import 'package:clash_pseudo/src/platform/channel/app_bridge.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -15,6 +17,7 @@ void main() {
   const names = ['configurations.json', 'overrides.json', 'preferences.json'];
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  late AppBootstrap bootstrap;
   late Directory root;
   late Directory candidate;
   var epoch = 7;
@@ -59,6 +62,10 @@ void main() {
     messenger.setMockMethodCallHandler(AppBridge.channel, (call) async {
       calls.add(call.method);
       switch (call.method) {
+        case ApplicationContract.coreChannelStatus:
+          return {'phase': 'disconnected', 'generation': 0};
+        case ApplicationContract.coreChannelRuntimeChanged:
+          return null;
         case 'ready':
         case 'checkOperation':
         case 'stage':
@@ -119,11 +126,12 @@ void main() {
           throw MissingPluginException(call.method);
       }
     });
-    await AppRuntime().start();
+    bootstrap = AppBootstrap();
+    await bootstrap.start();
   });
 
   tearDown(() async {
-    AppBridge.channel.setMethodCallHandler(null);
+    bootstrap.dispose();
     messenger.setMockMethodCallHandler(AppBridge.channel, null);
     await root.delete(recursive: true);
   });

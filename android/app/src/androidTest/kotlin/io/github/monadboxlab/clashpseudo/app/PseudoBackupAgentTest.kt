@@ -4,6 +4,7 @@ import io.github.monadboxlab.clashpseudo.backup.BackupFiles
 import io.github.monadboxlab.clashpseudo.backup.BackupFixture
 import io.github.monadboxlab.clashpseudo.backup.BackupLease
 import io.github.monadboxlab.clashpseudo.backup.backupRejects
+import io.github.monadboxlab.clashpseudo.fixture.HardlinkPrerequisites
 
 import android.app.backup.BackupAgent
 import android.app.backup.FullBackupDataOutput
@@ -23,7 +24,7 @@ import org.junit.Test
  * doubles.
  */
 class PseudoBackupAgentTest {
-    private class Agent(private val files: BackupFiles, override val sdkInt: Int = 36) : PseudoBackupAgent() {
+    private class Agent(private val files: BackupFiles) : PseudoBackupAgent() {
         var backups = 0
         var restores = 0
         var beforeBackup: () -> Unit = {}
@@ -164,23 +165,65 @@ class PseudoBackupAgentTest {
         }
     }
 
-    @Test fun lowApiAndUnmanagedEntriesAreOnlyDrainedExactlyWithoutClosingFrameworkDescriptor() = BackupFixture.use { f ->
+    @Test fun managedFilesAreRestoredOnTheSupportedSdkAndUnmanagedEntriesAreOnlyDrainedExactly() = BackupFixture.use { f ->
         f.old()
-        val old = f.current()
-        for (api in listOf(24, 25, 27)) {
-            val agent = Agent(f.files, api)
-            val remaining = restore(f, agent, BackupFiles.Kind.CONFIGURATIONS, "ignored".toByteArray(), trailer = "next-entry".toByteArray())
-            assertArrayEquals("next-entry".toByteArray(), remaining)
-            assertEquals(0, agent.restores)
-            agent.onRestoreFinished()
-            assertEquals(old, f.current())
-        }
-        val outside = File(f.root, "outside").apply { writeText("untouched") }
         val agent = Agent(f.files)
-        restore(f, agent, BackupFiles.Kind.PREFERENCES, "ignored".toByteArray(), destination = outside)
-        assertEquals("untouched", outside.readText())
-        assertEquals(0, agent.restores)
+        for (kind in BackupFiles.Kind.entries) {
+            val remaining = restore(f, agent, kind, BackupFixture.values().getValue(kind), trailer = "next-entry".toByteArray())
+            assertArrayEquals("next-entry".toByteArray(), remaining)
+        }
+        assertEquals(3, agent.restores)
         agent.onRestoreFinished()
+        assertEquals(BackupFixture.values().mapValues { it.value.toList() }, f.current())
+        val outside = File(f.root, "outside").apply { writeText("untouched") }
+        val unmanaged = Agent(f.files)
+        val remaining = restore(f, unmanaged, BackupFiles.Kind.PREFERENCES, "ignored".toByteArray(),
+            destination = outside, trailer = "unmanaged-next-entry".toByteArray())
+        assertArrayEquals("unmanaged-next-entry".toByteArray(), remaining)
+        assertEquals("untouched", outside.readText())
+        assertEquals(0, unmanaged.restores)
+        unmanaged.onRestoreFinished()
+    }
+
+    @Test fun systemBusinessRestoreKeepsTheInstallationMarkerAndDrainsAnIncomingMarkerWithoutWritingIt() = BackupFixture.use { f ->
+        f.old()
+        val marker = File(f.root, "privacy-notice-shown").apply { writeBytes(byteArrayOf(1)) }
+        val agent = Agent(f.files)
+        for (kind in BackupFiles.Kind.entries) {
+            restore(f, agent, kind, BackupFixture.values().getValue(kind))
+            assertArrayEquals(byteArrayOf(1), marker.readBytes())
+        }
+        val trailer = "next-system-entry".toByteArray()
+        val remaining = restore(f, agent, BackupFiles.Kind.PREFERENCES, byteArrayOf(0),
+            destination = marker, trailer = trailer)
+        assertArrayEquals(trailer, remaining)
+        assertArrayEquals(byteArrayOf(1), marker.readBytes())
+        assertEquals(3, agent.restores)
+        agent.onRestoreFinished()
+        assertTrue(f.storage.snapshot().ready)
+        assertEquals(BackupFixture.values().mapValues { it.value.toList() }, f.current())
+        assertArrayEquals(byteArrayOf(1), marker.readBytes())
+    }
+
+    @Test fun systemRestoreCannotImportOrOverwriteAnInstallationPrivacyMarkerAndStillDrainsItsEntryExactly() {
+        for (shown in listOf(false, true)) BackupFixture.use { f ->
+            f.old()
+            val marker = File(f.root, "privacy-notice-shown")
+            if (shown) marker.writeBytes(byteArrayOf(1))
+            val agent = Agent(f.files)
+            for (kind in BackupFiles.Kind.entries) restore(f, agent, kind, BackupFixture.values().getValue(kind))
+            val remaining = restore(f, agent, BackupFiles.Kind.PREFERENCES, "foreign installation marker".toByteArray(),
+                destination = marker, trailer = "next-system-entry".toByteArray())
+            assertArrayEquals("next-system-entry".toByteArray(), remaining)
+            assertEquals(3, agent.restores)
+            assertEquals(shown, marker.exists())
+            if (shown) assertArrayEquals(byteArrayOf(1), marker.readBytes())
+            agent.onRestoreFinished()
+            assertTrue(f.storage.snapshot().ready)
+            assertEquals(BackupFixture.values().mapValues { it.value.toList() }, f.current())
+            assertEquals(shown, marker.exists())
+            if (shown) assertArrayEquals(byteArrayOf(1), marker.readBytes())
+        }
     }
 
     @Test fun sdkFailureOrShortOutputKeepsGateClosedAndDoesNotRollBackNewSystemBytes() = BackupFixture.use { f ->
@@ -237,7 +280,9 @@ class PseudoBackupAgentTest {
         f.old()
         val outside = File(f.root, "outside-hardlink").apply { writeText("untouched") }
         val target = File(f.stores, BackupFiles.Kind.CONFIGURATIONS.fileName)
-        check(target.delete()); Os.link(outside.path, target.path)
+        check(target.delete())
+        HardlinkPrerequisites.link(outside, target,
+            "io.github.monadboxlab.clashpseudo.app.PseudoBackupAgentTest#hardLinkedBusinessTargetCannotModifyAnotherNameThroughSdkTruncation")
         val agent = Agent(f.files)
         backupRejects<IOException> { restore(f, agent, BackupFiles.Kind.CONFIGURATIONS, "must not overwrite".toByteArray()) }
         assertEquals(0, agent.restores)

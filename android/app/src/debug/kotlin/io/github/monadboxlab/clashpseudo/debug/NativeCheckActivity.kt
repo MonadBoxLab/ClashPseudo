@@ -16,7 +16,19 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import io.github.monadboxlab.clashpseudo.nativecore.NativeCore
+import io.flutter.plugin.common.MethodCall
+import io.flutter.plugin.common.MethodChannel
+import io.github.monadboxlab.clashpseudo.app.ApplicationContract as Contract
+import io.github.monadboxlab.clashpseudo.controls.SystemControls
+import io.github.monadboxlab.clashpseudo.nativecore.CoreClient
+import io.github.monadboxlab.clashpseudo.nativecore.CoreFrames
+import io.github.monadboxlab.clashpseudo.nativecore.CorePrivateFiles
+import io.github.monadboxlab.clashpseudo.nativecore.input.CoreInput
+import io.github.monadboxlab.clashpseudo.storage.AppFiles
+import org.json.JSONObject
+import java.io.File
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 import io.github.monadboxlab.clashpseudo.vpn.PseudoVpnService
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -25,15 +37,13 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.UUID
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
 
 class NativeCheckActivity : Activity() {
     private lateinit var status: TextView
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newFixedThreadPool(2)
-    private val refreshing = AtomicBoolean(false)
     private var pending: String? = null
-    private var message = "原生接入验证工具。"
+    private var message = "原生接口测试工具。"
     private var host = ""
     private var port = 0
     private var closed = false
@@ -57,7 +67,7 @@ class NativeCheckActivity : Activity() {
         fun button(text: String, action: () -> Unit) {
             content.addView(Button(this).apply { this.text = text; setOnClickListener { action() } })
         }
-        content.addView(TextView(this).apply { text = "原生接入验证 · debug only"; textSize = 20f })
+        content.addView(TextView(this).apply { text = "原生接口测试（仅调试版）"; textSize = 20f })
         button("请求通知权限") {
             if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
@@ -65,20 +75,18 @@ class NativeCheckActivity : Activity() {
         }
         button("启动直连测试") { requestStart("direct") }
         button("启动代理测试") { requestStart("proxy") }
-        button("启动 Provider 测试") { requestStart("provider") }
-        button("启动失败 Provider 测试") { requestStart("missing") }
-        button("启动慢 Provider 测试") { requestStart("slow") }
+        button("测试代理订阅下载") { requestStart("provider") }
+        button("测试代理订阅下载失败") { requestStart("missing") }
+        button("测试代理订阅下载缓慢") { requestStart("slow") }
         button("启动无效配置测试") { requestStart("invalid") }
         button("停止接管") {
-            if (PseudoVpnService.session.snapshot().phase != io.github.monadboxlab.clashpseudo.vpn.NativeSession.Phase.STOPPED) {
-                startService(Intent(this, PseudoVpnService::class.java).setAction(PseudoVpnService.ACTION_STOP))
-            }
+            SystemControls.request(this, "stop") { admission -> report("停止请求：$admission") }
         }
         button("流量检查") { worker.execute { runProbe(false) } }
         button("仅检查 TCP") { worker.execute { runProbe(false, tcpOnly = true) } }
         button("保持长连接") { worker.execute { runProbe(true) } }
         button("刷新状态") { refresh() }
-        button("关闭验证页") { finish() }
+        button("关闭测试页") { finish() }
         status = TextView(this).apply { textSize = 13f; setTextIsSelectable(true) }
         content.addView(status)
         setContentView(ScrollView(this).apply {
@@ -93,9 +101,9 @@ class NativeCheckActivity : Activity() {
     }
 
     private fun fixtureAddress(): String {
-        require(host.matches(Regex("[0-9.]+"))) { "请通过开发命令指定局域网 IPv4 host" }
+        require(host.matches(Regex("[0-9.]+"))) { "请在启动测试页的命令中指定局域网 IPv4 地址" }
         val address = InetAddress.getByName(host)
-        require(address.isSiteLocalAddress && port in 1024..65529) { "需要局域网地址及 1024..65529 端口" }
+        require(address.isSiteLocalAddress && port in 1024..65529) { "请指定局域网 IPv4 地址和 1024 至 65529 之间的端口" }
         return address.hostAddress!!
     }
 
@@ -110,11 +118,10 @@ class NativeCheckActivity : Activity() {
                 val resource = when (scene) { "missing" -> "missing"; "slow" -> "slow-provider"; else -> "provider" }
                 body += "\nproxy-providers:\n  fixture:\n    type: http\n    url: http://$ip:$port/$resource\n    path: ./fixture-$scene.yaml\n    interval: 2\n    health-check: {enable: false}\n"
             }
-            // The controlled SOCKS fixture supports TCP only; UDP remains direct.
+            // 固定 SOCKS fixture 只处理 TCP，UDP 保持 DIRECT。
             body += "\nrules:\n  - DST-PORT,${port + 4},REJECT\n  - DST-PORT,$port,$route\n  - MATCH,DIRECT\n"
             if (scene == "invalid") body += "  - NOT-A-VALID-RULE,invalid\n"
             pending = body
-            NativeCore.version()
             val consent = VpnService.prepare(this)
             if (consent == null) startPending() else {
                 message = "等待系统 VPN 授权；取消不会启动接管。"
@@ -127,11 +134,43 @@ class NativeCheckActivity : Activity() {
     private fun startPending() {
         val body = pending ?: return
         pending = null
-        val request = Intent(this, PseudoVpnService::class.java)
-            .setAction(PseudoVpnService.ACTION_START).putExtra(PseudoVpnService.EXTRA_CONFIG, body)
-            .putExtra(PseudoVpnService.EXTRA_MODE, "rule")
-        if (Build.VERSION.SDK_INT >= 26) startForegroundService(request) else startService(request)
-        report("已请求启动，状态以服务确认结果为准。")
+        worker.execute {
+            val inputId = UUID.randomUUID().toString()
+            val stage = File(AppFiles.work(this), "run-input-native-check-${UUID.randomUUID()}")
+            try {
+                check(stage.parentFile!!.isDirectory || stage.parentFile!!.mkdirs())
+                check(stage.createNewFile())
+                val input = CoreInput("native-check", 1, "rule", body.toByteArray(Charsets.UTF_8),
+                    "{}".toByteArray(Charsets.UTF_8), name = "Native check")
+                CorePrivateFiles.write(stage, input.snapshotBytes())
+                val published = channel(Contract.CORE_CHANNEL_PUBLISH_RUN_INPUT, mapOf("path" to stage.path, "inputId" to inputId)) as Map<*, *>
+                check(published["saved"] == true && published["durable"] == true)
+                val identity = channel(Contract.CORE_CHANNEL_HANDSHAKE) as Map<*, *>
+                val admittedAt = android.os.SystemClock.elapsedRealtime()
+                val admission = channel(Contract.CORE_CHANNEL_SUBMIT, mapOf("operation" to Contract.CORE_OPERATION_PREPARE,
+                    "identity" to identity + mapOf("generation" to 1L, "inputId" to inputId), "inputId" to inputId,
+                    "arguments" to mapOf("purpose" to Contract.CORE_PURPOSE_RUNNING, "vpnIntent" to true,
+                        "lanIntent" to false, "explicitStart" to true, "admittedAt" to admittedAt,
+                        "deadline" to admittedAt + Contract.OPERATION_ORDINARY_TIMEOUT_MS))) as Map<*, *>
+                check(admission["accepted"] == true)
+                while (true) {
+                    val frame = channel(Contract.CORE_CHANNEL_READ, mapOf("processId" to admission["processId"],
+                        "requestId" to admission["requestId"])) as Map<*, *>
+                    if ((frame["kind"] as Number).toInt() == Contract.CORE_IPC_FRAME_TERMINAL) {
+                        val terminal = JSONObject(CoreFrames.utf8(frame["payload"] as ByteArray))
+                        val receipt = frame["nativeReceipt"] as? Map<*, *>
+                        check(receipt?.get("exited") == true) { "实际调用尚未退出：$frame" }
+                        check(terminal.optBoolean("complete")) { "启动失败：$terminal\n$receipt" }
+                        report("启动已完成；processId=${admission["processId"]}，请查看 VPN 状态并执行流量检查。")
+                        break
+                    }
+                }
+            } catch (error: Throwable) {
+                report(error.stackTraceToString())
+            } finally {
+                if (stage.exists() && !stage.delete()) report("无法删除本次输入暂存文件：${stage.name}")
+            }
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -145,15 +184,23 @@ class NativeCheckActivity : Activity() {
 
     private fun refresh() {
         if (closed) return
-        status.text = "$message\npid=${android.os.Process.myPid()}\n${PseudoVpnService.session.snapshot()}\ncore=${PseudoVpnService.core.snapshot()}"
-        if (!refreshing.compareAndSet(false, true)) return
-        worker.execute {
-            val native = try { NativeCore.snapshot() } catch (error: LinkageError) { error.toString() }
-            main.post {
-                if (!closed) status.text = "$message\npid=${android.os.Process.myPid()}\n${PseudoVpnService.session.snapshot()}\ncore=${PseudoVpnService.core.snapshot()}\n$native"
-                refreshing.set(false)
-            }
+        status.text = "$message\npid=${android.os.Process.myPid()}\n${PseudoVpnService.session.snapshot()}\ncore=${CoreClient.get(this).status()}"
+    }
+
+    private fun channel(method: String, arguments: Any? = null): Any? {
+        check(Looper.myLooper() != Looper.getMainLooper())
+        val reply = CompletableFuture<Any?>()
+        main.post {
+            CoreClient.get(this).handle(MethodCall(method, arguments), object : MethodChannel.Result {
+                override fun success(value: Any?) { reply.complete(value) }
+                override fun error(code: String, message: String?, details: Any?) {
+                    reply.completeExceptionally(java.io.IOException("$code: $message\n$details"))
+                }
+                override fun notImplemented() { reply.completeExceptionally(IllegalStateException("接口未实现：$method")) }
+            })
         }
+        return try { reply.get(130, TimeUnit.SECONDS) }
+        catch (error: java.util.concurrent.ExecutionException) { throw error.cause ?: error }
     }
 
     private fun report(text: String) {

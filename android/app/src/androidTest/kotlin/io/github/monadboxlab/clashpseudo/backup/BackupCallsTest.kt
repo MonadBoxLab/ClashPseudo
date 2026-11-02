@@ -31,7 +31,7 @@ class BackupCallsTest {
         fun runOne() { tasks.removeFirst().run() }
     }
     private data class Launch(val activity: Activity, val intent: Intent, val code: Int)
-    private class Harness(val f: BackupFixture, realDocumentWorker: Executor? = null) {
+    private class Harness(val f: BackupFixture, realDocumentWorker: Executor? = null, realStorageWorker: Executor? = null) {
         val storage = Queue()
         val documents = Queue()
         val posts = ConcurrentLinkedQueue<Runnable>()
@@ -52,7 +52,7 @@ class BackupCallsTest {
             },
             openInput = { uri -> assertEquals("content", uri.scheme); opens++; input() },
             openOutput = { uri -> assertEquals("content", uri.scheme); opens++; output() },
-            documentWorker = realDocumentWorker ?: documents, storageWorker = storage,
+            documentWorker = realDocumentWorker ?: documents, storageWorker = realStorageWorker ?: storage,
             post = { posts.add(it); Unit }, delay = { task, millis -> timers[task] = now + millis },
             remove = { timers.remove(it); Unit }, clock = { now },
         )
@@ -126,7 +126,7 @@ class BackupCallsTest {
         assertEquals(Intent.ACTION_CREATE_DOCUMENT, launch.intent.action)
         assertEquals("application/zip", launch.intent.type)
         assertTrue(launch.intent.hasCategory(Intent.CATEGORY_OPENABLE))
-        assertTrue(launch.intent.getBooleanExtra(Intent.EXTRA_LOCAL_ONLY, false))
+        assertFalse(launch.intent.hasExtra(Intent.EXTRA_LOCAL_ONLY))
         assertEquals("backup.zip", launch.intent.getStringExtra(Intent.EXTRA_TITLE))
         assertTrue(launch.code in BackupCalls.FIRST_CODE..BackupCalls.LAST_CODE)
         assertEquals(0, launch.intent.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
@@ -158,7 +158,7 @@ class BackupCallsTest {
         val intent = h.launches.single().intent
         assertEquals(Intent.ACTION_OPEN_DOCUMENT, intent.action)
         assertTrue(intent.hasCategory(Intent.CATEGORY_OPENABLE))
-        assertTrue(intent.getBooleanExtra(Intent.EXTRA_LOCAL_ONLY, false))
+        assertFalse(intent.hasExtra(Intent.EXTRA_LOCAL_ONLY))
         assertFalse(capturing(h))
         assertTrue(h.timers.isEmpty())
         h.select()
@@ -255,26 +255,29 @@ class BackupCallsTest {
         val h = Harness(f)
         h.calls.prepareExport("capture", 1L, f.storage.snapshot().epoch, defaults(), BackupLease(), h::reply)
         h.expire()
-        assertEquals("expired", status(h))
+        assertTrue(h.replies.isEmpty())
         assertEquals(true, h.calls.snapshot()["draining"])
         assertTrue(capturing(h))
         h.calls.pickImport("blocked", h::reply)
         assertEquals("busy", status(h))
         assertTrue(h.launches.isEmpty())
         h.storage()
+        assertEquals("expired", status(h))
+        assertEquals("backupTimedOut", h.replies.last()["errorCode"])
+        assertTrue(h.replies.last()["errorDetail"].toString().contains("Document request ended"))
         assertFalse(busy(h))
         assertFalse(capturing(h))
         assertEquals(2, h.replies.size)
     }
 
-    @Test fun latePreparedCandidateIsDiscardedOnlyAfterRealCaptureReturnedAndNeverRepliesReady() = BackupFixture.use { f ->
+    @Test fun latePreparedCandidateKeepsTheActualReadOnlyResultAndIsDiscardedAfterRealCaptureReturns() = BackupFixture.use { f ->
         val h = Harness(f)
         h.calls.prepareExport("capture", 1L, f.storage.snapshot().epoch, defaults(), BackupLease(), h::reply)
         h.storage.runOne() // native capture has exited; its main-thread completion is deliberately delayed
         val parent = File(f.privateRoot, "candidates")
         assertEquals(1, parent.listFiles()!!.size)
         h.calls.cancel("capture")
-        assertEquals("cancelled", status(h))
+        assertTrue(h.replies.isEmpty())
         assertTrue(capturing(h))
         h.drain()
         assertTrue(capturing(h)) // necessary cleanup still belongs to the old capture
@@ -282,6 +285,10 @@ class BackupCallsTest {
         assertEquals(0, parent.listFiles()!!.size)
         assertFalse(busy(h))
         assertEquals(1, h.replies.size)
+        assertEquals("ready", status(h))
+        assertEquals(true, h.replies.single()["retired"])
+        assertEquals("cancelled", (h.replies.single()["retirement"] as Map<*, *>)["status"])
+        assertEquals(3, (h.replies.single()["parts"] as Map<*, *>).size)
     }
 
     @Test fun providerCloseFailureIsReportedAndNeverMislabelsOrDeletesExternalBytes() = BackupFixture.use { f ->
@@ -294,6 +301,7 @@ class BackupCallsTest {
         h.documents()
         assertEquals("failed", status(h))
         assertEquals("backupDocumentIoFailed", h.replies.last()["errorCode"])
+        assertTrue(h.replies.last()["errorDetail"].toString().contains("Injected close failure"))
         assertEquals(true, h.replies.last()["externalMayBePartial"])
         assertTrue(output.size() > 0)
         assertEquals(candidate.parts, f.files.prepareImport(output.toByteArray().inputStream(), BackupFiles.Operation(BackupLease())).parts)
@@ -311,6 +319,7 @@ class BackupCallsTest {
         h.select()
         h.documents()
         assertEquals("failed", status(h))
+        assertTrue(h.replies.last()["errorDetail"].toString().contains("Injected input close failure"))
         assertEquals(before, parent.list()!!.toSet())
         assertFalse(busy(h))
     }
@@ -356,11 +365,13 @@ class BackupCallsTest {
             h.select()
             assertTrue(entered.await(5, TimeUnit.SECONDS))
             h.expire()
-            assertEquals("expired", status(h))
+            assertTrue(h.replies.isEmpty())
             assertEquals(true, h.calls.snapshot()["draining"])
             assertFalse(capturing(h))
-            h.calls.discardCandidate(source.token)
-            assertTrue(h.storage.tasks.isEmpty()) // no ordinary-lane wait on a provider-held record
+            var discarded = false
+            h.calls.discardCandidate(source.token) { error -> assertNull(error); discarded = true }
+            assertFalse(discarded)
+            assertTrue(h.storage.tasks.isEmpty()) // Discard does not queue file I/O while the provider still owns this record.
             h.calls.pickImport("blocked", h::reply)
             assertEquals("busy", status(h))
             val kind = BackupFiles.Kind.PREFERENCES
@@ -369,6 +380,8 @@ class BackupCallsTest {
             releaseWrite.countDown()
             assertTrue(closing.await(5, TimeUnit.SECONDS))
             assertTrue(busy(h))
+            assertFalse(discarded)
+            assertEquals(1, h.replies.size)
             assertTrue(h.storage.tasks.isEmpty())
             assertTrue(File(f.privateRoot, "candidates/${source.token}").exists())
             releaseClose.countDown()
@@ -376,8 +389,12 @@ class BackupCallsTest {
             h.drain()
             h.storage()
             assertFalse(busy(h))
+            assertTrue(discarded)
             assertFalse(File(f.privateRoot, "candidates/${source.token}").exists())
-            assertEquals(2, h.replies.size) // no late saved/failed reply overwrites expired/new state
+            assertEquals(2, h.replies.size)
+            assertEquals("expired", status(h))
+            assertEquals(true, h.replies.last()["externalMayBePartial"])
+            assertTrue(h.replies.last()["errorDetail"].toString().contains("Document request ended"))
             h.calls.pickImport("next", h::reply)
             assertEquals(2, h.launches.size)
             assertTrue(h.launches.last().code > h.launches.first().code)
@@ -385,6 +402,104 @@ class BackupCallsTest {
             assertEquals(2, h.replies.size)
             h.calls.cancel("next")
         } finally { releaseWrite.countDown(); releaseClose.countDown(); executor.shutdownNow() }
+    }
+
+    @Test fun cancellationDuringActualProviderCloseKeepsTheWaiterAndTheActualSavedResult() = BackupFixture.use { f ->
+        val candidate = f.candidate()
+        val executor = Executors.newSingleThreadExecutor()
+        val closing = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val bytes = ByteArrayOutputStream()
+        val h = Harness(f, executor)
+        h.output = { object : OutputStream() {
+            override fun write(value: Int) = bytes.write(value)
+            override fun write(buffer: ByteArray, offset: Int, length: Int) = bytes.write(buffer, offset, length)
+            override fun close() { closing.countDown(); check(release.await(10, TimeUnit.SECONDS)) }
+        } }
+        try {
+            h.save(candidate)
+            h.select()
+            assertTrue(closing.await(5, TimeUnit.SECONDS))
+            h.calls.cancel("save")
+            assertTrue(busy(h))
+            assertTrue(h.replies.isEmpty())
+            assertEquals(true, h.calls.snapshot()["draining"])
+            release.countDown()
+            executor.submit { }.get(5, TimeUnit.SECONDS)
+            h.drain()
+            assertFalse(busy(h))
+            assertEquals("saved", status(h))
+            assertEquals(true, h.replies.single()["retired"])
+            assertEquals("cancelled", (h.replies.single()["retirement"] as Map<*, *>)["status"])
+            assertNull(h.replies.single()["errorCode"])
+            assertEquals(candidate.parts, f.files.prepareImport(bytes.toByteArray().inputStream(), BackupFiles.Operation(BackupLease())).parts)
+        } finally { release.countDown(); executor.shutdownNow() }
+    }
+
+    @Test fun actualCloseFailureAfterCancellationKeepsItsWholeCauseAndSuppressedCleanup() = BackupFixture.use { f ->
+        val h = Harness(f)
+        val failure = IOException("provider original", IOException("provider original cause"))
+        failure.addSuppressed(IOException("provider suppressed cleanup"))
+        h.output = { object : ByteArrayOutputStream() {
+            override fun close() { h.calls.cancel("save"); throw failure }
+        } }
+        h.save(f.candidate())
+        h.select(); h.documents()
+        assertEquals("failed", status(h))
+        assertEquals(true, h.replies.single()["retired"])
+        val detail = h.replies.single()["errorDetail"].toString()
+        for (text in listOf("provider original", "provider original cause", "provider suppressed cleanup")) assertTrue(detail.contains(text))
+    }
+
+    @Test fun discardWaitsForRealCleanupAndItsFailureCannotEraseTheSavedExternalDocument() {
+        var failCleanup = false
+        val failure = IOException("original candidate cleanup fsync failure")
+        BackupFixture.use(sync = { fd -> if (failCleanup) throw failure; android.system.Os.fsync(fd) }) { f ->
+            val candidate = f.candidate()
+            val output = ByteArrayOutputStream()
+            val h = Harness(f)
+            h.output = { output }
+            h.save(candidate)
+            h.select()
+            var cleanupReply: Throwable? = null
+            var callbacks = 0
+            h.calls.discardCandidate(candidate.token) { cleanupReply = it; callbacks++ }
+            h.documents()
+            assertTrue(h.replies.isEmpty())
+            assertEquals(0, callbacks)
+            assertTrue(busy(h))
+            failCleanup = true
+            h.storage()
+            assertSame(failure, cleanupReply)
+            assertEquals(1, callbacks)
+            assertEquals("saved", status(h))
+            assertTrue(h.replies.single()["cleanupError"].toString().contains(failure.message!!))
+            assertEquals("backupCleanupFailed", h.calls.snapshot()["errorCode"])
+            assertTrue(h.calls.snapshot()["errorDetail"].toString().contains(failure.message!!))
+            assertTrue(output.size() > 0)
+            failCleanup = false
+            assertEquals(candidate.parts, f.files.prepareImport(output.toByteArray().inputStream(), BackupFiles.Operation(BackupLease())).parts)
+            h.calls.discardCandidate(candidate.token) { assertNull(it); callbacks++ }
+            h.storage()
+            assertEquals(2, callbacks)
+            assertFalse(File(f.privateRoot, "candidates/${candidate.token}").exists())
+        }
+    }
+
+    @Test fun rejectedStorageAndDocumentWorkersReturnTheirActualCausesWithoutOrphaningWaiters() = BackupFixture.use { f ->
+        val cause = java.util.concurrent.RejectedExecutionException("original worker refusal")
+        val rejected = Executor { throw cause }
+        val capture = Harness(f, realStorageWorker = rejected)
+        capture.calls.prepareExport("rejected-capture", 1L, f.storage.snapshot().epoch, defaults(), BackupLease(), capture::reply)
+        assertEquals("failed", status(capture))
+        assertTrue(capture.replies.single()["errorDetail"].toString().contains(cause.message!!))
+        assertFalse(busy(capture))
+        val document = Harness(f, rejected)
+        document.calls.pickImport("rejected-document", document::reply)
+        document.select()
+        assertEquals("failed", status(document))
+        assertTrue(document.replies.single()["errorDetail"].toString().contains(cause.message!!))
+        assertFalse(busy(document))
     }
 
     @Test fun launchOpenAndArchiveErrorsAreExplicitAndMissingActivityNeverStartsWork() = BackupFixture.use { f ->
@@ -396,12 +511,14 @@ class BackupCallsTest {
         h.launchError = true
         h.calls.pickImport("launch", h::reply)
         assertEquals("backupPickerUnavailable", h.replies.last()["errorCode"])
+        assertTrue(h.replies.last()["errorDetail"].toString().contains("Injected missing picker"))
         assertFalse(busy(h))
         h.launchError = false
         h.calls.pickImport("open", h::reply)
         h.select()
         h.documents()
         assertEquals("backupDocumentIoFailed", h.replies.last()["errorCode"])
+        assertTrue(h.replies.last()["errorDetail"].toString().contains("No fixture input"))
         h.input = { "not a ZIP".byteInputStream() }
         h.calls.pickImport("invalid", h::reply)
         h.select()

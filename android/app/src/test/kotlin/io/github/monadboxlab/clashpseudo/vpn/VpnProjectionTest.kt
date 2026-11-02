@@ -1,7 +1,7 @@
 package io.github.monadboxlab.clashpseudo.vpn
 
 import io.github.monadboxlab.clashpseudo.nativecore.NativePreparationFailure
-import io.github.monadboxlab.clashpseudo.nativecore.VpnPacketFilter
+import io.github.monadboxlab.clashpseudo.nativecore.vpn.VpnPacketFilter
 import org.junit.Assert.*
 import org.junit.Test
 

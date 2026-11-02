@@ -135,4 +135,11 @@
     <string name="widget_mode_unknown">—</string>
     <string name="widget_capacity">空间不足\n打开应用</string>
     <string name="widget_open_description">%1$s，%2$s。打开应用。</string>
+    <string name="lan_service_channel">局域网代理</string>
+    <string name="lan_service_running">局域网代理已启用</string>
+    <string name="core_recovery_channel">内核恢复</string>
+    <string name="core_recovery_title">内核已退出</string>
+    <string name="core_recovery_body">打开应用后重新启动或更换配置。</string>
+    <string name="lan_service_preparing">正在建立局域网代理</string>
+    <string name="lan_service_unavailable">局域网代理不可用，请打开应用检查所选接口。</string>
 </resources>

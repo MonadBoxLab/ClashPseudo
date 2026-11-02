@@ -33,14 +33,14 @@ func TestModePrecedenceAtPublicInputBoundary(t *testing.T) {
 			}
 			if tc.invalid {
 				if err == nil || body != nil || presence != nil {
-					t.Fatalf("invalid mode published an input: %q %v %v", body, presence, err)
+					t.Fatalf("invalid mode published an input: %v %v %v", body, presence, err)
 				}
 				return
 			}
 			if err != nil {
 				t.Fatal(err)
 			}
-			raw, err := config.UnmarshalRawConfig(body)
+			raw := body
 			if err != nil || raw.Mode.String() != tc.want {
 				t.Fatalf("mode = %v, want %s; error = %v", raw, tc.want, err)
 			}
@@ -70,66 +70,55 @@ func TestModeValueParserDoesNotNormalizeInvalidInput(t *testing.T) {
 	}
 }
 
-func TestEncryptedMainUsesPublicAgeBoundaryBeforeComposition(t *testing.T) {
+func TestEncryptedMainUsesOnlyPublicDecodeBoundary(t *testing.T) {
 	secret, public, err := age.GenX25519KeyPair()
 	if err != nil {
 		t.Fatal(err)
 	}
-	plain := []byte("\xef\xbb\xbf# synthetic encrypted input\r\nmode: rule\r\nrules: ['MATCH,DIRECT']\r\n")
+	plain := []byte("\xef\xbb\xbf# synthetic encrypted input\r\nmode: global\r\ntun: {enable: false, mtu: 0}\r\ndns: {enable: false}\r\nrules: ['MATCH,DIRECT']\r\n")
 	encrypted, err := age.EncryptBytes(plain, public)
 	if err != nil {
 		t.Fatal(err)
 	}
 	before := bytes.Clone(encrypted)
-	origin := configinput.ConfigOrigin{ID: "encrypted-main", Revision: 3, Name: "Encrypted main"}
+	origin := configinput.ConfigOrigin{ID: "encrypted-main", Revision: 3, Name: "测试主配置"}
 	age.SetGlobalSecretKeys()
 	t.Cleanup(func() { age.SetGlobalSecretKeys() })
-	if text, provenance, err := configinput.ComposeWithProvenance(encrypted, nil, origin); err == nil || text != nil || provenance != nil {
-		t.Fatal("missing identity published an encrypted input or invented origins")
+	text, provenance, err := configinput.ComposeWithProvenance(encrypted, nil, origin)
+	if err != nil || !bytes.Equal(text, before) || provenance != nil {
+		t.Fatal("无插件路径改变了加密原字节")
+	}
+	_, original := config.UnmarshalRawConfig(encrypted)
+	if original == nil {
+		t.Fatal("测试正文未要求解密密钥")
+	}
+	if _, _, err := configinput.RunningDefaults(text, "", ""); err == nil || err.Error() != original.Error() {
+		t.Fatalf("公开解码错误改变：%v，期望%v", err, original)
 	}
 	age.SetGlobalSecretKeys(secret)
-	text, provenance, err := configinput.ComposeWithProvenance(encrypted, nil, origin)
-	if err != nil || !bytes.Equal(text, before) {
-		t.Fatalf("no-override path rewrote encrypted source: %v", err)
+	text, provenance, err = configinput.ComposeWithProvenance(encrypted, nil, origin)
+	if err != nil || !bytes.Equal(text, before) || provenance != nil {
+		t.Fatal("应用在Compose阶段解密了正文")
 	}
-	if rule := provenance.Rule("", 0); rule == nil || len(rule.Contributors) != 1 || rule.Contributors[0].ID != origin.ID {
-		t.Fatal("decrypted main rule lost its loaded origin")
+	raw, presence, err := configinput.RunningDefaults(text, "direct", "")
+	if err != nil || !presence.Has("$opaque") {
+		t.Fatalf("公开解密未完成：%v", err)
 	}
-	prepared, presence, err := configinput.RunningDefaults(text, "direct", "")
-	if err != nil || !presence.Has("mode") {
-		t.Fatalf("encrypted explicit mode lost at defaults boundary: %v", err)
+	if raw.Mode != tunnel.Global || raw.Tun.Enable || raw.Tun.MTU != 0 || raw.DNS.Enable || len(raw.Rule) != 1 || raw.Rule[0] != "MATCH,DIRECT" {
+		t.Fatal("应用覆盖了无法读取字段来源的上游值")
 	}
-	raw, err := config.UnmarshalRawConfig(prepared)
-	if err != nil || raw.Mode != tunnel.Rule || len(raw.Rule) != 1 || raw.Rule[0] != "MATCH,DIRECT" {
-		t.Fatalf("encrypted no-override input did not reach the public raw parser: %v", err)
+	raw, _, err = configinput.RunningDefaults(text, "", "rule")
+	if err != nil || raw.Mode != tunnel.Rule {
+		t.Fatal("显式operation未应用到同一RawConfig")
 	}
 	for _, mode := range []string{"prepend", "replace"} {
-		t.Run(mode, func(t *testing.T) {
-			part := configinput.Override{ID: "plugin", Revision: 1, Mode: mode,
-				Body: "rules: ['DOMAIN,added.test,REJECT']\n"}
-			merged, origins, err := configinput.ComposeWithProvenance(encrypted, []configinput.Override{part}, origin)
-			if err != nil || bytes.HasPrefix(merged, []byte(age.FileHeader)) {
-				t.Fatalf("encrypted main was not decrypted before fragment composition: %v", err)
-			}
-			prepared, _, err := configinput.RunningDefaults(merged, "direct", "")
-			if err != nil {
-				t.Fatal(err)
-			}
-			raw, err := config.UnmarshalRawConfig(prepared)
-			want := 1
-			if mode == "prepend" {
-				want = 2
-			}
-			if err != nil || raw.Mode != tunnel.Rule || len(raw.Rule) != want || raw.Rule[0] != "DOMAIN,added.test,REJECT" {
-				t.Fatalf("decryption/composition/default/parser order changed: %v", err)
-			}
-			if rule := origins.Rule("", 0); rule == nil || len(rule.Contributors) != 1 || rule.Contributors[0].ID != part.ID {
-				t.Fatal("composed first rule lost its plugin origin")
-			}
-		})
+		_, _, err := configinput.ComposeWithProvenance(encrypted, []configinput.Override{{ID: "plugin", Revision: 1, Mode: mode, Body: "rules: ['DOMAIN,added.test,REJECT']\n"}}, origin)
+		if err == nil {
+			t.Fatal("插件合成越过了加密输入的公开解码边界")
+		}
 	}
 	if !bytes.Equal(encrypted, before) {
-		t.Fatal("decryption or composition changed saved encrypted bytes")
+		t.Fatal("保存的加密正文被修改")
 	}
 }
 
@@ -150,7 +139,7 @@ func TestDefaultsDoNotBecomeUserContributions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, err := config.UnmarshalRawConfig(prepared)
+	raw := prepared
 	if err != nil || raw.Mode != tunnel.Direct || !presence.Has("mode") || presence.Has("tun.stack") {
 		t.Fatalf("composition/default order changed: %+v %v %v", raw, presence, err)
 	}

@@ -1,7 +1,8 @@
-// Package engine owns one embedded mihomo session. Calls that mutate it are serialized.
+// Package engine在一个内核进程中装载一个mihomo上下文。
 package engine
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,320 +16,308 @@ import (
 
 	"github.com/metacubex/mihomo/component/dialer"
 	"github.com/metacubex/mihomo/component/resolver"
+	"github.com/metacubex/mihomo/component/updater"
 	"github.com/metacubex/mihomo/config"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/dns"
-	"github.com/metacubex/mihomo/hub/executor"
+	"github.com/metacubex/mihomo/hub"
+	"github.com/metacubex/mihomo/hub/route"
+	"github.com/metacubex/mihomo/listener"
+	"github.com/metacubex/mihomo/log"
 	"github.com/metacubex/mihomo/ntp/ntp"
 	RP "github.com/metacubex/mihomo/rules/provider"
 	"github.com/metacubex/mihomo/tunnel"
 	"github.com/metacubex/mihomo/tunnel/statistic"
 
+	"clashpseudo/native/internal/androidnet"
 	"clashpseudo/native/internal/configinput"
+	"clashpseudo/native/internal/coreview"
+	"clashpseudo/native/internal/ingress"
+	"clashpseudo/native/internal/logstream"
 )
 
-// Android builds inject the version resolved from go.mod.
 var Version = "development"
-
 var ErrStopped = errors.New("native session is not accepting sockets")
 
 type socketOwner struct {
-	active         atomic.Bool
-	protect        func(int) bool
-	protectNetwork func(int, string) bool
-	accepted       atomic.Uint64
-	refused        atomic.Uint64
+	id              uint64
+	ctx             context.Context
+	cancel          context.CancelFunc
+	active          atomic.Bool
+	protect         func(int) bool
+	protectNetwork  func(int, string) bool
+	protectSocket   func(int) error
+	protectOutbound func(int, string) error
+	network         string
+	vpnIntent       bool
+	accepted        atomic.Uint64
+	refused         atomic.Uint64
 }
 
 var current atomic.Pointer[socketOwner]
+var socketOwnerSequence atomic.Uint64
 
+func newSocketOwner(protect func(int) bool, network func(int, string) bool) *socketOwner {
+	ctx, cancel := context.WithCancel(context.Background())
+	o := &socketOwner{id: socketOwnerSequence.Add(1), ctx: ctx, cancel: cancel, protect: protect, protectNetwork: network, vpnIntent: true}
+	o.active.Store(true)
+	return o
+}
+func (o *socketOwner) revoke() { o.active.Store(false); o.cancel() }
+func (o *socketOwner) socket(fd int, outbound bool) error {
+	if !o.active.Load() {
+		return ErrStopped
+	}
+	if !outbound && !o.vpnIntent {
+		return nil
+	}
+	var err error
+	switch {
+	case outbound && o.protectOutbound != nil:
+		err = o.protectOutbound(fd, o.network)
+	case !outbound && o.protectSocket != nil:
+		err = o.protectSocket(fd)
+	case outbound && o.protectNetwork != nil:
+		if !o.protectNetwork(fd, o.network) {
+			err = errors.New("Android network socket protection was refused")
+		}
+	case o.protect != nil:
+		if !o.protect(fd) {
+			err = errors.New("VpnService.protect refused socket")
+		}
+	default:
+		err = errors.New("Android socket callback is unavailable")
+	}
+	if err != nil {
+		o.refused.Add(1)
+	} else if o.vpnIntent {
+		o.accepted.Add(1)
+	}
+	return err
+}
 func init() {
-	// Keep the concurrent dialer hook stable and switch its owner atomically.
 	dialer.DefaultSocketHook = func(_, _ string, raw syscall.RawConn) error {
-		owner := current.Load()
-		if owner == nil || !owner.active.Load() {
+		o := current.Load()
+		if o == nil || !o.active.Load() {
 			return ErrStopped
 		}
 		var protectErr error
-		err := raw.Control(func(fd uintptr) {
-			if !owner.active.Load() || !owner.protect(int(fd)) {
-				owner.refused.Add(1)
-				protectErr = errors.New("VpnService.protect refused socket")
-				return
-			}
-			owner.accepted.Add(1)
-		})
+		err := raw.Control(func(fd uintptr) { protectErr = o.socket(int(fd), true) })
 		return errors.Join(err, protectErr)
 	}
 }
 
 type Engine struct {
 	mu             sync.Mutex
-	geoMu          sync.Mutex
 	updateMu       sync.Mutex
 	updates        sync.WaitGroup
+	used           bool
+	cancelled      atomic.Bool
+	cancelOwner    atomic.Pointer[socketOwner]
+	pathsHome      string
+	cachePath      string
 	provenance     *configinput.Provenance
 	cfg            *config.Config
 	tun            io.Closer
 	owner          *socketOwner
 	failed         bool
-	unrestored     []UnrestoredChoice
-	ruleSources    map[string]ruleSource
-	sources        diagnosticSources
-	logs           *logBuffer
-	delays         map[string]*delayBatch
-	delaySeq       int
-	geo            *geoUpdater
+	stopError      error
+	sources        coreview.DiagnosticSources
+	logs           *logstream.Buffer
 	geoPaths       [4]string
-	geoResults     map[string]geoUpdateState
-	spec           *VPNSpec
+	spec           *androidnet.VPNSpec
 	specError      error
 	specChanged    func(uint64, bool)
 	routeWatch     io.Closer
 	ingress        []io.Closer
+	listenerStates ingress.Observer
 	options        PrepareOptions
 	usesSystemDNS  bool
 	attachedRoutes []netip.Prefix
 	traffic        *trafficBaseline
 	dnsOperation   atomic.Pointer[dnsOperation]
-	cancelledDNS   atomic.Uint64
 	networkEpoch   atomic.Uint64
+	systemDNS      *androidnet.NetworkResolver
 }
 
-func (e *Engine) Prepare(home string, body []byte, mode string, choices map[string]Choice, protect func(int) bool, overrides ...configinput.Override) error {
-	return e.PrepareWithOptions(home, body, mode, choices, protect, PrepareOptions{Purpose: "PREVIEW"}, overrides...)
+func (e *Engine) Prepare(home string, body []byte, mode string, protect func(int) bool, overrides ...configinput.Override) error {
+	return e.PrepareWithOptions(home, body, mode, protect, PrepareOptions{Purpose: "PREVIEW"}, overrides...)
 }
-
-func (e *Engine) PrepareWithOptions(home string, body []byte, mode string, choices map[string]Choice, protect func(int) bool, options PrepareOptions, overrides ...configinput.Override) error {
+func (e *Engine) PrepareWithOptions(home string, body []byte, mode string, protect func(int) bool, options PrepareOptions, overrides ...configinput.Override) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.owner != nil || e.failed {
-		return errors.New("native session is busy or cleanup is unconfirmed")
+	if e.used || e.owner != nil || e.failed {
+		return errors.New("a core process can load only one context")
 	}
-	if protect == nil {
+	e.used = true
+	if protect == nil && options.ProtectSocket == nil {
 		return errors.New("socket protector is required")
 	}
-	for name, choice := range choices {
-		if name == "" || !choice.valid() {
-			return errors.New("invalid strategy choices")
-		}
-	}
-	if options.Purpose != "VPN" && options.Purpose != "PREVIEW" {
+	if options.Purpose != "PREVIEW" && options.Purpose != "RUNNING" {
 		return errors.New("invalid preparation purpose")
 	}
-	if mode != "" {
-		if _, err := configinput.ParseMode(mode); err != nil {
+	if options.Purpose == "RUNNING" && (options.Generation <= 0 || options.Composition == "") {
+		return errors.New("running preparation identity is required")
+	}
+	if e.logs == nil {
+		e.logs = logstream.NewBuffer()
+	}
+	body, provenance, err := configinput.ComposeWithProvenance(body, overrides, options.MainOrigin)
+	if err != nil {
+		return err
+	}
+	raw, presence, err := configinput.Decode(body, mode, options.RoutingOverride, options.VPNIntent)
+	if err != nil {
+		return err
+	}
+	if options.VPNIntent {
+		if err = androidnet.PlatformRuntime(raw, presence); err != nil {
 			return err
 		}
 	}
-	if options.Purpose == "VPN" && (options.Generation <= 0 || options.Composition == "") {
-		return errors.New("VPN preparation identity is required")
-	}
-	// Subscribe before parsing; closing a subscription retains this single
-	// bounded window until another real preparation replaces it.
-	if e.logs != nil {
-		e.logs.close()
-	}
-	buffer := newLogBuffer()
-	e.logs = buffer
-	fail := func(err error) error {
-		buffer.close()
-		return err
-	}
-	var err error
-	var provenance *configinput.Provenance
-	body, provenance, err = configinput.ComposeWithProvenance(body, overrides, options.MainOrigin)
-	if err != nil {
-		return fail(err)
-	}
-	body, presence, err := configinput.RunningDefaults(body, mode, options.RoutingOverride)
-	if err != nil {
-		return fail(err)
-	}
-	raw, err := config.UnmarshalRawConfig(body)
-	if err != nil {
-		return fail(err)
-	}
-	sources, err := readRuleSources(raw)
-	if err != nil {
-		return fail(err)
-	}
-	metadata, err := readDiagnosticSources(body, raw)
-	if err != nil {
-		return fail(err)
-	}
-	if options.Purpose == "VPN" {
-		if err := platformRuntime(raw, presence); err != nil {
-			return fail(err)
-		}
-	}
-	// Android handles system integration while Geo refresh follows user configuration.
-	geoAuto, geoHours := raw.GeoAutoUpdate, raw.GeoUpdateInterval
-	if err = configurePlatform(raw, home); err != nil {
-		return fail(err)
-	}
-	owner := &socketOwner{protect: protect, protectNetwork: options.ProtectNetwork}
-	owner.active.Store(true)
+	owner := newSocketOwner(protect, options.ProtectNetwork)
+	owner.vpnIntent = options.VPNIntent
+	owner.protectSocket, owner.protectOutbound, owner.network = options.ProtectSocket, options.ProtectOutbound, options.Network.ID
 	if !current.CompareAndSwap(nil, owner) {
-		return fail(errors.New("another native session exists"))
+		owner.revoke()
+		return errors.New("another native session exists")
 	}
 	e.owner = owner
-	C.SetHomeDir(home)
+	e.cancelOwner.Store(owner)
+	if e.cancelled.Load() {
+		owner.revoke()
+		return errors.Join(ErrStopped, e.stopLocked())
+	}
+	if err = e.capturePathsLocked(home); err != nil {
+		return errors.Join(err, e.stopLocked())
+	}
 	C.Version = Version
-	// Public Geo path getters also write global database names. Capture them
-	// before parsing can start providers and before any session consumers run.
-	e.geoPaths = geoFiles()
+	options.Network.Servers = slices.Clone(options.Network.Servers)
 	e.options = options
-	systemDNS.update(options.Network)
+	// 所有解析与provider启动之前安装一次捕获的系统解析和显式system服务器。
+	e.systemDNS = androidnet.NewNetworkResolver(options.Network, androidnet.DNSOwner{ID: owner.id, Revoked: owner.ctx, Stopped: ErrStopped, RawQuery: options.SystemDNSQuery, Lookup: options.SystemLookup})
+	resolver.SystemResolver = e.systemDNS
+	if err = initializeSystemDNS(options.Network); err != nil {
+		return errors.Join(err, e.stopLocked())
+	}
 	if options.SeedGeo != nil {
-		seeds, err := geoSeeds(e.geoPaths, presence)
-		if err == nil && len(seeds) > 0 {
-			err = options.SeedGeo(seeds)
+		seeds, seedErr := geoSeeds(e.geoPaths, presence)
+		if seedErr == nil && len(seeds) > 0 {
+			seedErr = options.SeedGeo(seeds)
 		}
-		if err != nil {
-			return errors.Join(err, e.stopLocked())
+		if seedErr != nil {
+			return errors.Join(seedErr, e.stopLocked())
 		}
 	}
 	if !owner.active.Load() {
 		return errors.Join(ErrStopped, e.stopLocked())
 	}
-	requested6 := append([]netip.Prefix(nil), raw.Tun.Inet6Address...)
+	requested6 := slices.Clone(raw.Tun.Inet6Address)
 	requestedFake6 := raw.DNS.FakeIPRange6
-	parseRaw := raw
-	disabledFakeIP := !raw.DNS.Enable && raw.DNS.EnhancedMode == C.DNSFakeIP
-	if disabledFakeIP {
-		// The fixed public parser otherwise allocates/restores persistent fake
-		// pools even with Enable=false. Suppress only that inactive allocation
-		// branch; keep the original composed values and restore its mode below.
-		copy := *raw
-		copy.DNS.EnhancedMode = C.DNSMapping
-		parseRaw = &copy
-	}
-	cfg, err := config.ParseRawConfig(parseRaw)
-	if err != nil {
-		// Parse failure may leave upstream allocations outside returned ownership; retain
-		// the uncertain cleanup state.
-		e.failed = true
-		e.geoPaths = [4]string{}
-		buffer.close()
-		owner.active.Store(false)
-		current.CompareAndSwap(owner, nil)
-		e.owner = nil
-		return err
-	}
+	cfg, err := config.ParseRawConfig(raw)
 	e.cfg = cfg
-	if disabledFakeIP {
-		cfg.DNS.EnhancedMode = raw.DNS.EnhancedMode
-	}
-	if presence.Has("tun.inet6-address") && len(requested6) > 0 && !slices.Equal(requested6, cfg.General.Tun.Inet6Address) {
-		return errors.Join(&PlatformError{Field: "tun.inet6-address", Reason: "ipv6Unavailable"}, e.stopLocked())
-	}
-	if presence.Has("dns.fake-ip-range6") && requestedFake6 != "" && !cfg.DNS.FakeIPRange6.IsValid() {
-		return errors.Join(&PlatformError{Field: "dns.fake-ip-range6", Reason: "ipv6Unavailable"}, e.stopLocked())
-	}
-	usedSystem, err := expandSystemDNS(cfg.DNS, options.Network)
-	e.usesSystemDNS = usedSystem
 	if err != nil {
 		return errors.Join(err, e.stopLocked())
 	}
-	e.ruleSources = sources
-	if options.Purpose == "VPN" {
-		if err := platformParsed(cfg); err != nil {
-			return errors.Join(err, e.stopLocked())
-		}
+	if presence.Has("tun.inet6-address") && len(requested6) > 0 && !slices.Equal(requested6, cfg.General.Tun.Inet6Address) {
+		return errors.Join(&androidnet.PlatformError{Field: "tun.inet6-address", Reason: "ipv6Unavailable"}, e.stopLocked())
 	}
-	e.sources = metadata
+	if presence.Has("dns.fake-ip-range6") && requestedFake6 != "" && !cfg.DNS.FakeIPRange6.IsValid() {
+		return errors.Join(&androidnet.PlatformError{Field: "dns.fake-ip-range6", Reason: "ipv6Unavailable"}, e.stopLocked())
+	}
+	e.usesSystemDNS, err = androidnet.CheckSystemDNS(cfg.DNS, options.Network)
+	if err != nil {
+		return errors.Join(err, e.stopLocked())
+	}
 	e.provenance = provenance
-	e.geoResults = nil
-	e.delays = make(map[string]*delayBatch)
-	if options.Purpose == "VPN" {
+	var diagnosticErr error
+	e.sources, diagnosticErr = coreview.ReadDiagnosticSources(body, raw)
+	if diagnosticErr != nil {
+		log.Warnln("配置来源信息读取失败: %v", diagnosticErr)
+	}
+	if options.Purpose == "RUNNING" {
 		up, down := statistic.DefaultManager.Total()
 		e.traffic = &trafficBaseline{upload: up, download: down}
 	}
-	executor.ApplyConfig(resourceConfig(cfg), true)
-	if options.Purpose == "VPN" {
-		if err := platformParsed(cfg); err != nil {
+	work := workingConfig(cfg, options.Purpose == "PREVIEW")
+	if options.Purpose == "RUNNING" {
+		if err = ingress.PrepareNamed(work, ingress.Options{Protect: func(fd int) error { return owner.socket(fd, false) }, Observer: &e.listenerStates}); err != nil {
 			return errors.Join(err, e.stopLocked())
 		}
 	}
-
-	if options.Purpose == "VPN" {
-		e.spec, err = makeVPNSpec(cfg, presence, options, usedSystem)
+	// hub同时装载Controller和executor；不再重复Apply或provider.Initial。
+	hub.ApplyConfig(work)
+	if err = e.listenerStates.Errors(); err != nil {
+		return errors.Join(err, e.stopLocked())
+	}
+	if cfg.General.GeoAutoUpdate {
+		updater.RegisterGeoUpdater()
+	}
+	if options.VPNIntent {
+		e.spec, err = makeVPNSpec(cfg, presence, options)
 		if err != nil {
 			return errors.Join(err, e.stopLocked())
 		}
+		e.spec.UsesSystemDNS = e.spec.UsesSystemDNS || e.usesSystemDNS
 		e.specChanged = options.SpecificationChanged
 		e.routeWatch = e.watchRouteSets()
 	}
-	e.restoreCoreCache()
+	if options.Purpose == "RUNNING" {
+		if err = e.activateIngress(); err != nil {
+			return errors.Join(err, e.stopLocked())
+		}
+	}
 	if !owner.active.Load() {
 		return errors.Join(ErrStopped, e.stopLocked())
 	}
-	e.restoreChoices(choices)
-	e.startGeo(geoAuto, geoHours)
 	return nil
 }
 
-// Cancel revokes preparation authority immediately. Stop must then complete before the
-// next start.
 func (e *Engine) Cancel() {
+	e.cancelled.Store(true)
 	e.CancelDNSQuery()
-	if owner := current.Load(); owner != nil {
-		owner.active.Store(false)
-		if snapshot := systemDNS.value.Load(); snapshot != nil && snapshot.owner == owner {
-			snapshot.cancel()
-		}
+	if owner := e.cancelOwner.Load(); owner != nil {
+		owner.revoke()
 	}
 }
-
 func (e *Engine) Stop() error {
 	e.Cancel()
-	// Retain ownership through every accepted update's actual return.
-	e.geoMu.Lock()
-	defer e.geoMu.Unlock()
 	e.mu.Lock()
-	geo := e.takeGeo()
-	if geo != nil {
-		geo.cancelUpdates()
-	}
-	// Close TUN and cancel provider requests before waiting for outstanding I/O,
-	// including Geo writes.
 	err := e.suspendLocked()
 	e.mu.Unlock()
-	if geo != nil {
-		geo.stop()
-	}
 	e.updates.Wait()
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.finishStopLocked(err)
 }
-
 func (e *Engine) stopLocked() error {
+	if e.owner != nil {
+		e.owner.revoke()
+	}
 	return e.finishStopLocked(e.suspendLocked())
 }
-
 func (e *Engine) suspendLocked() error {
+	if e.owner == nil {
+		return nil
+	}
 	tunnel.OnSuspend()
+	route.ReCreateServer(&route.Config{})
 	var errs []error
 	if e.routeWatch != nil {
 		errs = append(errs, e.routeWatch.Close())
 		e.routeWatch = nil
 	}
-	for i := len(e.ingress) - 1; i >= 0; i-- {
-		errs = append(errs, e.ingress[i].Close())
-	}
+	errs = append(errs, e.listenerStates.CloseAll())
 	e.ingress = nil
-	if e.options.Purpose == "VPN" {
-		ntp.ReCreateNTPService("", 0, "", nil, false)
-	}
 	if e.tun != nil {
 		errs = append(errs, e.tun.Close())
 		e.tun = nil
 	}
+	listener.PatchInboundListeners(nil, tunnel.Tunnel, true)
+	listener.ReCreateRedir(0, tunnel.Tunnel)
+	listener.ReCreateTProxy(0, tunnel.Tunnel)
+	ntp.ReCreateNTPService("", 0, "", nil, false)
 	if e.cfg != nil {
-		// Provider Close signals background cancellation; goroutine completion has its own
-		// lifetime.
 		for _, p := range e.cfg.Providers {
 			errs = append(errs, closeResource(p))
 		}
@@ -338,75 +327,55 @@ func (e *Engine) suspendLocked() error {
 	}
 	return errors.Join(errs...)
 }
-
 func (e *Engine) finishStopLocked(suspendErr error) error {
-	e.unrestored = nil
-	e.ruleSources = nil
-	e.sources = diagnosticSources{}
+	e.sources = coreview.DiagnosticSources{}
 	e.provenance = nil
-	e.geoPaths = [4]string{}
-	e.geoResults = nil
 	e.spec, e.specError, e.specChanged = nil, nil, nil
-	e.options = PrepareOptions{}
-	e.usesSystemDNS = false
 	e.attachedRoutes = nil
 	e.traffic = nil
-	e.stopDelays()
 	if e.logs != nil {
-		// Capture cleanup events, then unsubscribe while retaining the current/recent
-		// window.
-		defer e.logs.close()
+		defer e.logs.Close()
 	}
 	errs := []error{suspendErr}
 	if e.cfg != nil {
 		statistic.DefaultManager.Range(func(c statistic.Tracker) bool {
-			err := c.Close()
-			if err != nil && !errors.Is(err, net.ErrClosed) {
+			if err := c.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 				errs = append(errs, err)
 			}
 			return true
 		})
-		// Close provider refresh/health checks and parsed nodes separately. Shared nodes use
-		// upstream's once-only Close wrapper; background tasks retain their own completion
-		// lifetime.
-		for _, provider := range e.cfg.Providers {
-			for _, p := range provider.Proxies() {
-				errs = append(errs, p.Close())
+		for _, p := range e.cfg.Providers {
+			for _, proxy := range p.Proxies() {
+				errs = append(errs, proxy.Close())
 			}
 		}
 		for _, p := range e.cfg.Proxies {
 			errs = append(errs, p.Close())
 		}
 		dns.ReCreateServer("", nil, nil)
-		resolver.ResetConnection()
 		resolver.StoreFakePoolState()
 		resolver.DefaultResolver = nil
 		resolver.DefaultHostMapper = nil
 		resolver.DefaultService = nil
 		resolver.ProxyServerHostResolver = nil
 		resolver.DirectHostResolver = nil
-		// Release session-owned state while retaining mihomo's process-wide runtime.
 		tunnel.UpdateProxies(nil, nil)
 		tunnel.UpdateRules(nil, nil, nil)
 		e.cfg = nil
 	}
 	if e.owner != nil {
+		e.owner.revoke()
 		current.CompareAndSwap(e.owner, nil)
 		e.owner = nil
 	}
 	err := errors.Join(errs...)
-	if e.failed && err == nil {
-		err = errors.New("previous native cleanup is still unconfirmed")
-	}
 	if err != nil {
 		e.failed = true
+		e.stopError = errors.Join(e.stopError, err)
 	}
-	return err
+	return e.stopError
 }
-
 func closeResource(value any) error {
-	// The selected inline rule provider owns immutable rules and has an empty Initial
-	// operation.
 	if _, ok := value.(*RP.InlineProvider); ok {
 		return nil
 	}
@@ -416,7 +385,6 @@ func closeResource(value any) error {
 	}
 	return closer.Close()
 }
-
 func (e *Engine) Snapshot() string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -425,22 +393,11 @@ func (e *Engine) Snapshot() string {
 		protected = e.owner.accepted.Load()
 		refused = e.owner.refused.Load()
 	}
-	upload, download := statistic.DefaultManager.Total()
-	var sessionUpload, sessionDownload *int64
-	if e.available() && e.tun != nil {
-		sessionUpload, sessionDownload = e.traffic.totals(upload, download)
+	up, down := statistic.DefaultManager.Total()
+	var sessionUp, sessionDown *int64
+	if e.available() && e.traffic != nil {
+		sessionUp, sessionDown = e.traffic.totals(up, down)
 	}
-	data, _ := json.Marshal(struct {
-		Version         string `json:"version"`
-		Prepared        bool   `json:"prepared"`
-		Attached        bool   `json:"attached"`
-		CleanupFailed   bool   `json:"cleanupFailed"`
-		Protected       uint64 `json:"protected"`
-		Refused         uint64 `json:"refused"`
-		UploadTotal     int64  `json:"uploadTotal"`
-		DownloadTotal   int64  `json:"downloadTotal"`
-		SessionUpload   *int64 `json:"sessionUploadBytes"`
-		SessionDownload *int64 `json:"sessionDownloadBytes"`
-	}{Version, e.cfg != nil, e.tun != nil, e.failed, protected, refused, upload, download, sessionUpload, sessionDownload})
+	data, _ := json.Marshal(map[string]any{"version": Version, "prepared": e.cfg != nil, "attached": e.tun != nil, "cleanupFailed": e.failed, "protected": protected, "refused": refused, "uploadTotal": up, "downloadTotal": down, "sessionUploadBytes": sessionUp, "sessionDownloadBytes": sessionDown, "listeners": e.listenerStates.Snapshot()})
 	return string(data)
 }

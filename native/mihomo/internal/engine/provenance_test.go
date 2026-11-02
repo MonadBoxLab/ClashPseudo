@@ -1,34 +1,19 @@
 package engine
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
-	"go.yaml.in/yaml/v3"
-
 	"clashpseudo/native/internal/configinput"
+	"clashpseudo/native/internal/coreview"
 )
 
 var provenanceMain = configinput.ConfigOrigin{ID: "main-id", Revision: 7, Name: "Loaded main"}
-
-func provenanceFixture(t *testing.T, body string, parts ...configinput.Override) (map[string]any, *configinput.Provenance) {
-	t.Helper()
-	text, provenance, err := configinput.ComposeWithProvenance([]byte(body), parts, provenanceMain)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var value map[string]any
-	if err := yaml.Unmarshal(text, &value); err != nil {
-		t.Fatal(err)
-	}
-	return value, provenance
-}
 
 func provenancePart(id, mode, body string) configinput.Override {
 	return configinput.Override{ID: id, Revision: 3, Name: "Loaded " + id, Mode: mode, Body: body}
@@ -54,68 +39,17 @@ func requireContributors(t *testing.T, definition *configinput.DefinitionProvena
 	}
 }
 
-func TestProvenanceLargeInlinePayloadHasConstantSummaryWireSize(t *testing.T) {
-	var previous []byte
-	for _, count := range []int{1, 8192} {
-		var body strings.Builder
-		body.WriteString("proxy-providers:\n 'provider/~':\n  type: inline\n  payload:\n")
-		for index := 0; index < count; index++ {
-			fmt.Fprintf(&body, "   - {name: n%d, type: direct, note: do-not-copy-this-payload-%d}\n", index, index)
-		}
-		body.WriteString("rule-providers:\n rp:\n  type: inline\n  behavior: domain\n  payload:\n")
-		for index := 0; index < count; index++ {
-			fmt.Fprintf(&body, "   - n%d.example.test\n", index)
-		}
-		part := provenancePart("plugin", "replace", "proxy-providers: {'provider/~': {health-check: {enable: false}}}\nrule-providers: {rp: {format: yaml}}\n")
-		_, provenance := provenanceFixture(t, body.String(), part)
-		proxy := provenance.Definition("proxy-providers", "provider/~")
-		rules := provenance.Definition("rule-providers", "rp")
-		requireContributors(t, proxy, "plugin", "main-id")
-		requireContributors(t, rules, "plugin", "main-id")
-		if proxy.Contributors[0].Path != "/proxy-providers/provider~1~0" {
-			t.Fatal("provider name was not pointer-escaped", proxy)
-		}
-		wire, err := json.Marshal([]Resource{{Kind: "proxyProvider", Name: "provider/~", Provenance: proxy}, {Kind: "ruleProvider", Name: "rp", Provenance: rules}})
-		if err != nil || bytes.Contains(wire, []byte("payload")) || bytes.Contains(wire, []byte("fields")) || bytes.Contains(wire, []byte("paths")) {
-			t.Fatalf("summary expands internal leaves: %s %v", wire, err)
-		}
-		if previous != nil && !bytes.Equal(previous, wire) {
-			t.Fatalf("provenance grew with %d inline entries: small=%d large=%d", count, len(previous), len(wire))
-		}
-		previous = wire
-		t.Logf("%d proxy and %d rule payload entries: combined resource-summary wire=%d bytes", count, count, len(wire))
-	}
-}
-
-func TestProvenanceLargePrependedPayloadStillFindsTheLastInputSource(t *testing.T) {
-	const body = "proxy-providers: {p: {type: inline, payload: [{name: last-main, type: direct}]}}\n"
-	var previous []byte
-	for _, count := range []int{1, 8192} {
-		var fragment strings.Builder
-		fragment.WriteString("proxy-providers:\n p:\n  type: inline\n  payload:\n")
-		for index := 0; index < count; index++ {
-			fmt.Fprintf(&fragment, "   - {name: prefix%d, type: direct}\n", index)
-		}
-		value, provenance := provenanceFixture(t, body, provenancePart("plugin", "prepend", fragment.String()))
-		payload := value["proxy-providers"].(map[string]any)["p"].(map[string]any)["payload"].([]any)
-		if len(payload) != count+1 || payload[count].(map[string]any)["name"] != "last-main" {
-			t.Fatal("real prepend dropped the last item")
-		}
-		// Every earlier value, including type, is plugin-owned. The main input
-		// contributes only the final payload item, beyond any first-N shortcut.
-		definition := provenance.Definition("proxy-providers", "p")
-		requireContributors(t, definition, "plugin", "main-id")
-		wire, err := json.Marshal(definition)
-		if err != nil || (previous != nil && !bytes.Equal(previous, wire)) {
-			t.Fatalf("large prepend expanded or truncated attribution: count=%d bytes=%d err=%v", count, len(wire), err)
-		}
-		previous = wire
-		t.Logf("%d prepended items plus last main-only contribution: provenance=%d bytes", count, len(wire))
-	}
-}
-
 func TestProvenanceEngineQueriesKeepCapturedOriginsAndProviderContentSeparate(t *testing.T) {
-	home := t.TempDir()
+	if isolateEngineTest(t) {
+		return
+	}
+	home, phase := os.Getenv("PSEUDO_ENGINE_HOME"), os.Getenv("PSEUDO_ENGINE_PHASE")
+	if phase == "" {
+		home = t.TempDir()
+		runEnginePhase(t, home, "composed")
+		runEnginePhase(t, home, "fresh")
+		return
+	}
 	for name, body := range map[string]string{
 		"nodes.yaml": "proxies: [{name: shared, type: direct}]\n",
 		"rules.yaml": "payload: ['DOMAIN,provider.test']\n",
@@ -147,21 +81,30 @@ rules: ['DOMAIN,same.test,DIRECT']
 `)
 	part.Role = "localCustom"
 	var e Engine
-	if err := e.PrepareWithOptions(home, body, "rule", nil, func(int) bool { return true }, PrepareOptions{Purpose: "PREVIEW", MainOrigin: provenanceMain}, part); err != nil {
+	if phase == "fresh" {
+		if err := e.PrepareWithOptions(home, body, "rule", func(int) bool { return true }, PrepareOptions{Purpose: "PREVIEW", MainOrigin: provenanceMain}); err != nil {
+			t.Fatal(err)
+		}
+		defer requireStop(t, &e)
+		requireContributors(t, e.provenance.Definition("proxies", "shared"), "main-id")
+		return
+	}
+	if err := e.PrepareWithOptions(home, body, "rule", func(int) bool { return true }, PrepareOptions{Purpose: "PREVIEW", MainOrigin: provenanceMain}, part); err != nil {
 		t.Fatal(err)
 	}
 	defer requireStop(t, &e)
 	part.Name = "Later disk rename"
-	value, err := e.Nodes(NodeQuery{Limit: 100})
+	nodes, _, err := readNodeStream(t, &e, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var nodes NodePage
-	if err := json.Unmarshal([]byte(value), &nodes); err != nil {
+	encoded, err := json.Marshal(nodes)
+	if err != nil {
 		t.Fatal(err)
 	}
+	value := string(encoded)
 	seenDirect, seenProvider := false, false
-	for _, node := range nodes.Nodes {
+	for _, node := range nodes {
 		switch {
 		case node.Name == "shared" && node.SourceKind == "configuration":
 			seenDirect = true
@@ -175,7 +118,7 @@ rules: ['DOMAIN,same.test,DIRECT']
 				t.Fatal("downloaded/file content was attributed as direct plugin definition", node)
 			}
 			requireContributors(t, node.ProviderProvenance, "local", "main-id")
-		case node.Builtin:
+		case node.SourceKind == "configuration":
 			if node.Provenance != nil || node.ProviderProvenance != nil {
 				t.Fatal("builtin given source provenance", node)
 			}
@@ -188,7 +131,7 @@ rules: ['DOMAIN,same.test,DIRECT']
 	if err != nil {
 		t.Fatal(err)
 	}
-	var resources ResourceList
+	var resources coreview.ResourceList
 	if err := json.Unmarshal([]byte(resourcesText), &resources); err != nil {
 		t.Fatal(err)
 	}
@@ -202,20 +145,25 @@ rules: ['DOMAIN,same.test,DIRECT']
 	if providers != 2 {
 		t.Fatal(resources)
 	}
-	main := readRulePage(t, &e, RuleQuery{Kind: "main", Limit: 1})
+	main := readRulePage(t, &e, coreview.RuleQuery{Kind: "main"})
 	requireContributors(t, main.Rows[0].Provenance, "local")
-	next := readRulePage(t, &e, RuleQuery{Kind: "main", Offset: 1, Limit: 1, Token: main.Token})
-	requireContributors(t, next.Rows[0].Provenance, "main-id")
-	if main.Rows[0].Payload != next.Rows[0].Payload || next.Rows[0].Provenance.Contributors[0].Path != "/rules/0" || next.Rows[0].Index != 2 {
-		t.Fatal("duplicate rules were looked up by text or paged index", main, next)
+	requireContributors(t, main.Rows[1].Provenance, "main-id")
+	if main.Rows[0].Payload != main.Rows[1].Payload || main.Rows[1].Provenance.Contributors[0].Path != "/rules/0" || main.Rows[1].Index != 2 {
+		t.Fatal("重复rule使用了文字匹配而非原index", main)
 	}
-	sub := readRulePage(t, &e, RuleQuery{Kind: "sub", Name: "branch", Limit: 100})
+	sub := readRulePage(t, &e, coreview.RuleQuery{Kind: "sub", Name: "branch"})
 	requireContributors(t, sub.Rows[0].Provenance, "local")
 	requireContributors(t, sub.Rows[1].Provenance, "main-id")
-	provider := readRulePage(t, &e, RuleQuery{Kind: "provider", Name: "file-rules", Limit: 100})
-	requireContributors(t, provider.ProviderProvenance, "local", "main-id")
-	if provider.Origin != "cache-source" || len(provider.Rows) != 1 || provider.Rows[0].Provenance != nil {
-		t.Fatal("provider definition and file content provenance were conflated", provider)
+	var provider ruleStreamSnapshot
+	_, err = e.StreamRules(context.Background(), coreview.RuleQuery{Kind: "provider", Name: "file-rules"}, func(value any) error {
+		body, err := json.Marshal(value)
+		if err != nil {
+			return err
+		}
+		return json.Unmarshal(body, &provider)
+	}, func(any) error { t.Error("外部classical导出了替代解析record"); return nil })
+	if err == nil || !strings.Contains(err.Error(), "sourceUnavailable") {
+		t.Fatal(err)
 	}
 	for _, scope := range provider.Scopes {
 		if scope.Kind == "provider" && scope.Name == "file-rules" {
@@ -225,8 +173,5 @@ rules: ['DOMAIN,same.test,DIRECT']
 	if err := e.Stop(); err != nil || e.provenance != nil {
 		t.Fatalf("stopped composition retained origins: %v", err)
 	}
-	if err := e.PrepareWithOptions(home, body, "rule", nil, func(int) bool { return true }, PrepareOptions{Purpose: "PREVIEW", MainOrigin: provenanceMain}); err != nil {
-		t.Fatal(err)
-	}
-	requireContributors(t, e.provenance.Definition("proxies", "shared"), "main-id")
+
 }

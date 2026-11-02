@@ -16,6 +16,9 @@ import (
 // Self-authored examples of the public Dart converter's output, consumed by actual
 // Compose.
 func TestLoonConvertedFragmentsComposeInBothModes(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	const main = "rules:\n  - DOMAIN,keep.test,DIRECT\n  - MATCH,DIRECT\ndns:\n  enable: false\n"
 	const zero = "# Loon: compatible [Rule] entries only; other content is inert.\n# [Rule]\n# FINAL,DIRECT\n{}\n"
 	const active = "# Loon: compatible [Rule] entries only; other content is inert.\n# [Rule]\nrules:\n  - \"DOMAIN,example.test,DIRECT\"\n  - \"NOT,((IP-CIDR,192.0.2.0/24,no-resolve)),DIRECT\"\n# [Script]\n# script = never-executed\\u0000\n"
@@ -55,6 +58,9 @@ func TestLoonConvertedFragmentsComposeInBothModes(t *testing.T) {
 }
 
 func TestLoonConvertedNOTUsesOneRealConditionAndNoResolveLeaf(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	const converted = "NOT,((IP-CIDR,192.0.2.0/24,no-resolve)),DIRECT"
 	tp, payload, target, params := RC.ParseRulePayload(converted, true)
 	rule, err := rules.ParseRule(tp, payload, target, params, nil)
@@ -96,6 +102,9 @@ func TestLoonConvertedNOTUsesOneRealConditionAndNoResolveLeaf(t *testing.T) {
 }
 
 func TestLoonConvertedNestedNOTPreservesANDAndPortSemantics(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	const converted = "NOT,((AND,((DOMAIN-SUFFIX,example.test),(DST-PORT,443),(IP-CIDR6,2001:db8::/32,no-resolve)))),DIRECT"
 	tp, payload, target, params := RC.ParseRulePayload(converted, true)
 	rule, err := rules.ParseRule(tp, payload, target, params, nil)

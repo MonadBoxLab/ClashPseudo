@@ -1,18 +1,15 @@
 package io.github.monadboxlab.clashpseudo.nativecore
 
-import io.github.monadboxlab.clashpseudo.app.AppTrust
-import io.github.monadboxlab.clashpseudo.vpn.NativeSession
-
-import android.os.ParcelFileDescriptor
-import android.system.ErrnoException
-import android.system.Os
-import android.system.OsConstants
+import android.util.Base64
 import android.util.Log
-import androidx.annotation.Keep
-import androidx.test.platform.app.InstrumentationRegistry
+import io.github.monadboxlab.clashpseudo.debug.CoreFixtureContract as Fixture
+import org.json.JSONObject
+import org.junit.Assert.*
+import org.junit.Test
+import org.junit.Rule
+import org.junit.rules.ErrorCollector
+import java.util.concurrent.Callable
 import java.io.Closeable
-import java.io.File
-import java.io.IOException
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -22,356 +19,261 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
-import org.json.JSONObject
-import org.junit.After
-import org.junit.Assert.*
-import org.junit.Before
-import org.junit.Test
 
 class NativeCoreFailureTest {
-    private val homes = mutableListOf<File>()
-    private var ownsSession = false
+    @get:Rule val failures = ErrorCollector()
 
-    @Before
-    fun requireIdleCore() {
-        // A failed cleanup marks this process unusable for subsequent cases.
-        assertFalse("Previous native cleanup was not confirmed", cleanupFailed.get())
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        CoreHost.installAndroid(context)
-        val material = io.github.monadboxlab.clashpseudo.app.AppTrust.pem(context).toByteArray(Charsets.UTF_8)
-        val error = NativeCore.initializeTrust(material)
-        // Report the native error code only.
-        assertEquals("AppTrust.pem -> NativeCore.initializeTrust raw error", "", error)
-        assertStopped()
-        ownsSession = true
+    @Test fun androidTrustPemInitializesNativeWithoutPreparingCore() {
+        runScene(Fixture.TRUST) { result ->
+            assertSuccess(result.getJSONObject("trust"))
+            assertTrue(result.getJSONObject("trust").getJSONObject("value").getBoolean("initialized"))
+            assertStopped(result.getJSONObject("before").getJSONObject("value"))
+        }
     }
 
-    @Test
-    fun androidTrustPemInitializesNativeWithoutPreparingCore() {
-        // The shared setup exercises the Java PEM, JNI and Go trust path.
-        assertStopped()
-    }
-
-    @After
-    fun cleanUp() {
-        if (ownsSession) stop()
-        homes.forEach { assertTrue("Cannot remove test directory $it", it.deleteRecursively()) }
-    }
-
-    @Test
-    fun invalidParametersKeepDescriptorInKotlinAndRecover() {
+    @Test fun invalidParametersKeepDescriptorInKotlinAndRecover() {
         repeat(3) { round ->
-            prepare(DIRECT, Protector(), vpn = true)
-            val revision = JSONObject(NativeCore.vpnSpec()).getLong("revision")
-            ParcelFileDescriptor.open(File("/dev/null"), ParcelFileDescriptor.MODE_READ_WRITE).use { descriptor ->
-                val fd = descriptor.fd
-                val error = NativeCore.attach(descriptor, revision + 1)
+            runScene(Fixture.BAD_REVISION) { result ->
+                assertSuccess(result.getJSONObject("prepare"))
+                val error = nativeError(result.getJSONObject("attach"))
                 assertTrue(error, error.contains("specification revision"))
-                assertEquals(fd, descriptor.fd)
-                Os.fstat(descriptor.fileDescriptor)
+                assertEquals(result.getLong("originalInode"), result.getLong("retainedInode"))
+                assertTrue(result.getInt("retainedFd") > 0)
+                assertTrue("Go 取得的独立副本必须关闭", result.getBoolean("transferredConsumed"))
+                assertFalse(result.getJSONObject("attachedState").getJSONObject("value").getBoolean("attached"))
+                assertDescriptorReleased(result)
             }
-            assertFalse(snapshot().getBoolean("attached"))
-            stop()
-            logResources("pre-detach-validation", round)
+            assertRecovery(round, "preflight-revision")
         }
     }
 
-    @Test
-    fun stackConstructionFailureConsumesDescriptorAndRecovers() {
+    @Test fun stackConstructionFailureConsumesDescriptorAndRecovers() {
         repeat(3) { round ->
-            // Trigger deterministic failure in the default mips constructor.
-            checkAttachFailure()
-            logResources("stack", round)
-        }
-    }
-
-    @Test
-    fun kernelForwarderInterfaceQueryFailureConsumesDescriptorAndRecovers() {
-        for (stack in listOf("system", "mixed")) repeat(3) { round ->
-            val home = prepare(DIRECT + "tun: {stack: $stack}\n", Protector(), vpn = true)
-            val revision = JSONObject(NativeCore.vpnSpec()).getLong("revision")
-            val marker = File(home, "interface-query-marker").apply { writeBytes(byteArrayOf()) }
-            val descriptor = ParcelFileDescriptor.open(marker, ParcelFileDescriptor.MODE_READ_WRITE)
-            val fd = descriptor.fd
-            val original = Os.fstat(descriptor.fileDescriptor)
-            val error = descriptor.use { NativeCore.attach(it, revision) }
-            assertTrue(error, error.contains("external TUN interface query"))
-            assertConsumed(fd, original, error)
-            assertFalse(snapshot().getBoolean("attached"))
-            stop()
-            prepare(DIRECT, Protector())
-            stop()
-            logResources("$stack-interface-query", round)
-        }
-    }
-
-    @Test
-    fun refusedProtectPreventsConnectionAndRecovers() {
-        checkProtectFailure(throws = false)
-    }
-
-    @Test
-    fun throwingProtectIsContainedAndRecovers() {
-        checkProtectFailure(throws = true)
-    }
-
-    @Test
-    fun connectionJniRejectsUnavailableCoreAndSummaryHasNoFullSnapshot() {
-        val query = """{"limit":1000,"previousActiveIds":[]}""".toByteArray(Charsets.UTF_8)
-        assertTrue(JSONObject(NativeCore.connections(query)).has("error"))
-        assertTrue(JSONObject(NativeCore.connections(ByteArray(65537))).has("error"))
-        assertEquals("failed", JSONObject(NativeCore.closeConnection("invalid".toByteArray()))
-            .getString("status"))
-        prepare(DIRECT, Protector())
-        assertTrue(JSONObject(NativeCore.connections(query)).has("error"))
-        val summary = snapshot()
-        assertFalse(summary.has("traffic"))
-        assertFalse(summary.has("connections"))
-        assertTrue(summary.has("uploadTotal"))
-        assertTrue(summary.has("downloadTotal"))
-    }
-
-    @Test
-    fun modeRoundTripRejectsInvalidInputAndClearsOnStop() {
-        prepare(DIRECT, Protector())
-        assertEquals("rule", NativeCore.mode())
-        for (mode in listOf("global", "direct", "rule")) {
-            assertEquals("", NativeCore.setMode(mode))
-            assertEquals(mode, NativeCore.mode())
-        }
-        assertTrue(NativeCore.setMode("follow").isNotEmpty())
-        assertEquals("rule", NativeCore.mode())
-        stop()
-        assertEquals("", NativeCore.mode())
-        assertTrue(NativeCore.setMode("direct").isNotEmpty())
-    }
-
-    @Test
-    fun previewUsesRealJniUtf8AndRestoresWithoutTun() {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val session = io.github.monadboxlab.clashpseudo.vpn.NativeSession()
-        lateinit var host: CoreHost
-        instrumentation.runOnMainSync {
-            host = CoreHost(session, {})
-            host.setVisible(true)
-        }
-        val home = File(instrumentation.targetContext.cacheDir, "native-strategy-${UUID.randomUUID()}")
-        assertTrue(home.mkdir())
-        homes.add(home)
-        val body = DIRECT + """
-            proxies:
-              - {name: 节点🌐, type: direct}
-            proxy-groups:
-              - {name: 出口🌐, type: select, proxies: [DIRECT, 节点🌐, REJECT]}
-        """.trimIndent() + "\n"
-        val choice = JSONObject().put("type", "select").put("member", "节点🌐")
-        val choices = JSONObject().put("出口🌐", choice).toString().toByteArray(Charsets.UTF_8)
-        fun selected(): String {
-            val groups = JSONObject(NativeCore.strategies()).getJSONArray("groups")
-            return (0 until groups.length()).map { groups.getJSONObject(it) }
-                .single { it.getString("name") == "出口🌐" }.getString("now")
-        }
-        try {
-            val loaded = host.preparePreview("first", "one", 1, home.path, { true }) {
-                CoreInput("one", 1, "rule", body.toByteArray(Charsets.UTF_8), choices)
+            runScene(Fixture.BAD_STACK) { result ->
+                assertSuccess(result.getJSONObject("prepare"))
+                val error = nativeError(result.getJSONObject("attach"))
+                assertTrue(error, error.contains("invalid TCP congestion control"))
+                assertTrue(result.getBoolean("transferredConsumed"))
+                assertEquals(result.getLong("originalInode"), result.getLong("retainedInode"))
+                assertFalse(result.getJSONObject("attachedState").getJSONObject("value").getBoolean("attached"))
+                assertDescriptorReleased(result)
             }
-            assertTrue(host.current(loaded.generation))
-            assertEquals("节点🌐", selected())
-            assertFalse(snapshot().getBoolean("attached"))
-            assertEquals(io.github.monadboxlab.clashpseudo.vpn.NativeSession.Phase.STOPPED,
-                session.snapshot().phase)
-            val request = JSONObject().put("name", "出口🌐")
-                .put("choice", JSONObject().put("type", "select").put("member", "REJECT"))
-            assertEquals("", NativeCore.setStrategy(request.toString().toByteArray(Charsets.UTF_8)))
-            assertEquals("REJECT", selected())
-            request.put("choice", choice)
-            assertEquals("", NativeCore.setStrategy(request.toString().toByteArray(Charsets.UTF_8)))
-            assertEquals("节点🌐", selected())
-            assertNull(host.releasePreview())
-            assertStopped()
-        } finally {
-            assertNull(host.releasePreview())
+            assertRecovery(round, "stack")
         }
     }
 
-    @Test
-    fun descriptorConsumptionChecksOriginalResourceAfterNumberReuse() {
-        val cache = InstrumentationRegistry.getInstrumentation().targetContext.cacheDir
-        val home = File(cache, "native-fd-probe-${UUID.randomUUID()}")
-        assertTrue(home.mkdir())
-        homes.add(home)
-        val originalFile = File(home, "original").apply { writeBytes(byteArrayOf()) }
-        val replacementFile = File(home, "replacement").apply { writeBytes(byteArrayOf()) }
-        val descriptor = ParcelFileDescriptor.open(originalFile, ParcelFileDescriptor.MODE_READ_WRITE)
-        val fd = descriptor.fd
-        val original = Os.fstat(descriptor.fileDescriptor)
-        try {
-            val failure = try {
-                assertConsumed(fd, original, "probe-only")
-                null
-            } catch (error: AssertionError) { error }
-            assertNotNull("The probe accepted the still-open original resource", failure)
-            assertTrue(failure!!.message.orEmpty().contains("still owns the original resource"))
-        } finally { descriptor.close() }
-        ParcelFileDescriptor.open(replacementFile, ParcelFileDescriptor.MODE_READ_WRITE).use {
-            assertEquals("The fixture must actually reuse the descriptor number", fd, it.fd)
-            assertNotEquals(original.st_ino, Os.fstat(it.fileDescriptor).st_ino)
-            // The old EBADF-only criterion rejects this valid, independently owned reuse.
-            ParcelFileDescriptor.fromFd(fd).use { duplicate -> Os.fstat(duplicate.fileDescriptor) }
-            assertConsumed(fd, original, "probe-only")
+    @Test fun kernelForwarderInterfaceQueryFailureConsumesDescriptorAndRecovers() {
+        for (scene in listOf(Fixture.SYSTEM_INTERFACE, Fixture.MIXED_INTERFACE)) repeat(3) { round ->
+            runScene(scene) { result ->
+                assertSuccess(result.getJSONObject("prepare"))
+                val error = nativeError(result.getJSONObject("attach"))
+                assertTrue(error, error.contains("interface not found"))
+                assertTrue(result.getBoolean("transferredConsumed"))
+                assertEquals(result.getLong("originalInode"), result.getLong("retainedInode"))
+                assertFalse(result.getJSONObject("attachedState").getJSONObject("value").getBoolean("attached"))
+                assertDescriptorReleased(result)
+            }
+            assertRecovery(round, "interface-$scene")
         }
-        assertConsumed(fd, original, "probe-only")
     }
 
-    private fun checkAttachFailure() {
-        val home = prepare(DIRECT + "tun: {congestion-controller: invalid-native-test-controller}\n", Protector(), vpn = true)
-        val revision = JSONObject(NativeCore.vpnSpec()).getLong("revision")
-        val marker = File(home, "descriptor-marker").apply { writeBytes(byteArrayOf()) }
-        val descriptor = ParcelFileDescriptor.open(marker, ParcelFileDescriptor.MODE_READ_WRITE)
-        val fd = descriptor.fd
-        val original = Os.fstat(descriptor.fileDescriptor)
-        val error = descriptor.use { NativeCore.attach(it, revision) }
-        assertConsumed(fd, original, error)
-        assertTrue(error, error.contains("invalid TCP congestion control"))
-        assertFalse(snapshot().getBoolean("attached"))
-        stop()
-        prepare(DIRECT, Protector())
-        stop()
-    }
+    @Test fun refusedProtectPreventsConnectionAndRecovers() = checkProtectFailure(Fixture.REFUSE_PROTECT)
+    @Test fun throwingProtectIsContainedAndRecovers() = checkProtectFailure(Fixture.THROW_PROTECT)
 
-    private fun assertConsumed(fd: Int, original: android.system.StructStat, attachmentError: String) {
-        val current = try {
-            // fromFd duplicates the descriptor; inspect and close only that duplicate.
-            ParcelFileDescriptor.fromFd(fd).use { Os.fstat(it.fileDescriptor) }
-        } catch (error: IOException) {
-            val errno = generateSequence<Throwable>(error) { it.cause }
-                .filterIsInstance<ErrnoException>().firstOrNull()
-            assertNotNull("Expected EBADF, got $error", errno)
-            assertEquals(OsConstants.EBADF, errno!!.errno)
-            return
+    @Test fun connectionJniRejectsUnavailableCoreAndSummaryHasNoFullSnapshot() {
+        runScene(Fixture.CONNECTIONS) { result ->
+            for (name in listOf("unavailable", "oversized", "close", "previewConnections")) {
+                assertTrue("$name 必须保留实际调用错误", nativeError(result.getJSONObject(name)).isNotEmpty())
+                assertTrue(result.getJSONObject(name).getJSONObject("receipt").getBoolean("exited"))
+            }
+            assertSuccess(result.getJSONObject("prepare"))
+            val summary = result.getJSONObject("summary").getJSONObject("value")
+            assertFalse(summary.has("traffic"))
+            assertFalse(summary.has("connections"))
+            assertTrue(summary.has("uploadTotal"))
+            assertTrue(summary.has("downloadTotal"))
         }
-        assertFalse("Transferred descriptor $fd still owns the original resource; " +
-            "original=${original.st_dev}/${original.st_ino}/${original.st_mode}, " +
-            "current=${current.st_dev}/${current.st_ino}/${current.st_mode}, " +
-            "attachment=$attachmentError",
-            current.st_dev == original.st_dev && current.st_ino == original.st_ino)
     }
 
-    private fun checkProtectFailure(throws: Boolean) {
+    @Test fun modeRoundTripRejectsInvalidInputAndClearsOnStop() {
+        runScene(Fixture.MODES) { result ->
+            assertEquals("rule", result.getJSONObject("initial").getJSONObject("value").getString("mode"))
+            val changes = result.getJSONArray("changes")
+            assertEquals(3, changes.length())
+            for ((index, mode) in listOf("global", "direct", "rule").withIndex()) {
+                val change = changes.getJSONObject(index)
+                assertSuccess(change.getJSONObject("set"))
+                assertEquals(mode, change.getJSONObject("read").getJSONObject("value").getString("mode"))
+            }
+            assertTrue(nativeError(result.getJSONObject("invalid")).isNotEmpty())
+            assertEquals("rule", result.getJSONObject("afterInvalid").getJSONObject("value").getString("mode"))
+            assertSuccess(result.getJSONObject("stop"))
+            assertEquals("", result.getJSONObject("stoppedMode").getJSONObject("value").getString("mode"))
+            assertTrue(nativeError(result.getJSONObject("stoppedSet")).isNotEmpty())
+        }
+    }
+
+    @Test fun previewUsesRealJniUtf8AndRestoresWithoutTun() {
+        runScene(Fixture.UTF8_STRATEGIES) { result ->
+            assertSuccess(result.getJSONObject("prepare"))
+            val sequence = result.getJSONArray("sequence")
+            assertEquals(3, sequence.length())
+            for ((index, expected) in listOf("节点🌐", "REJECT", "节点🌐").withIndex()) {
+                val item = sequence.getJSONObject(index)
+                assertSuccess(item.getJSONObject("select"))
+                val stream = item.getJSONObject("groups")
+                assertSuccess(stream)
+                val records = stream.getJSONArray("records")
+                val group = (0 until records.length()).map(records::getJSONObject).single { it.getString("name") == "出口🌐" }
+                assertEquals(expected, group.getJSONObject("raw").getString("now"))
+                assertEquals(records.length().toLong(), stream.getJSONObject("terminal").getLong("recordCount"))
+            }
+            assertFalse(result.getJSONObject("snapshot").getJSONObject("value").getBoolean("attached"))
+        }
+    }
+
+    @Test fun descriptorConsumptionChecksOriginalResourceAfterNumberReuse() {
+        CoreIpcTestDriver.fixture().use { driver ->
+            val reply = driver.fixture(Fixture.FD_REUSE).await()
+            assertTrue(reply.terminal.toString(), reply.terminal.getBoolean("complete"))
+            val result = reply.value
+            assertTrue("ownership probe 必须拒绝仍打开的原资源", result.getBoolean("liveOriginalOwned"))
+            assertTrue("必须实际复用 FD number", result.getBoolean("reusedNumber"))
+            assertTrue(result.getBoolean("differentInode"))
+            assertFalse(result.getBoolean("oldOwnedAfterReuse"))
+            assertFalse(result.getBoolean("oldOwnedAfterClose"))
+            driver.exit()
+            CoreIpcTestDriver.removeFixtureHome(driver.context, result)
+        }
+    }
+
+    @Test fun outputDetachFailureClosesOnlyTransferredInputAndKeepsJavaOwners() =
+        assertPartialHandoff(Fixture.OUTPUT_HANDOFF_FAILURE, "output", listOf("input", "output"))
+
+    @Test fun tunDetachFailureClosesTransferredInputAndOutputAndKeepsJavaOwner() =
+        assertPartialHandoff(Fixture.TUN_HANDOFF_FAILURE, "TUN", listOf("input", "output", "TUN"))
+
+    private fun assertPartialHandoff(scene: Int, failedName: String, order: List<String>) {
+        runScene(scene) { result ->
+            val receipt = result.getJSONObject("handoffReceipt")
+            assertFalse(receipt.toString(), receipt.getBoolean("accepted"))
+            assertFalse(receipt.toString(), receipt.getBoolean("ok"))
+            assertTrue(receipt.toString(), receipt.getBoolean("exited"))
+            val error = receipt.getJSONObject("error")
+            assertEquals("callFailed", error.getString("code"))
+            val trace = error.getString("message")
+            assertEquals(result.getString("expectedException"), trace)
+            assertTrue(trace, trace.contains("Caused by: java.io.IOException: $failedName detach cause 原文"))
+            assertTrue(trace, trace.contains("Suppressed: java.lang.IllegalStateException: $failedName detach suppressed 原文"))
+            assertFalse("native cleanup 不应产生重复 close 的 EBADF", error.has("suppressed"))
+            val actualOrder = result.getJSONArray("detachOrder")
+            assertEquals(order, (0 until actualOrder.length()).map(actualOrder::getString))
+            val before = result.getJSONArray("beforeJavaClose")
+            val after = result.getJSONArray("afterJavaClose")
+            assertEquals(3, before.length())
+            assertEquals(3, after.length())
+            val transferredNumbers = mutableSetOf<Int>()
+            for (index in 0 until before.length()) {
+                val descriptor = before.getJSONObject(index)
+                val name = descriptor.getString("name")
+                val transferred = name == "input" || (name == "output" && failedName == "TUN")
+                assertEquals(name, transferred, descriptor.getBoolean("transferred"))
+                assertEquals(name, if (name in order) 1 else 0, descriptor.getInt("detachCalls"))
+                assertEquals(name, 0, descriptor.getInt("javaCloseCalls"))
+                assertEquals("未转移的 FD 必须仍由 Java 持有：$name", !transferred, descriptor.getBoolean("originalOwned"))
+                if (transferred) {
+                    transferredNumbers += descriptor.getInt("fd")
+                    assertEquals(name, android.system.OsConstants.EBADF, descriptor.getInt("closedErrno"))
+                }
+                val closed = after.getJSONObject(index)
+                assertEquals(name, closed.getString("name"))
+                assertEquals("每个 Java owner 只执行一次 close：$name", 1, closed.getInt("javaCloseCalls"))
+                assertFalse(name, closed.getBoolean("originalOwned"))
+            }
+            val replacements = result.getJSONArray("replacementsAfterJavaClose")
+            assertEquals(if (failedName == "TUN") 2 else 1, replacements.length())
+            assertEquals(transferredNumbers, (0 until replacements.length()).map {
+                replacements.getJSONObject(it).getInt("fd")
+            }.toSet())
+            for (index in 0 until replacements.length()) {
+                val replacement = replacements.getJSONObject(index)
+                assertTrue("FD number 必须属于不同资源", replacement.getBoolean("differentResource"))
+                assertTrue("已 detach 的 Java wrapper 不得误关复用后的 FD", replacement.getBoolean("replacementOwned"))
+            }
+            assertEquals("reject_handoff 不产生 frames；reader 必须读到真实 EOF", 0, result.getInt("outputBytesAfterDrain"))
+            assertSuccess(result.getJSONObject("handoffSnapshot"))
+            assertStopped(result.getJSONObject("handoffSnapshot").getJSONObject("value"))
+            assertTrue(result.getBoolean("unrelatedZeroBefore"))
+            assertTrue("reject_handoff 不得关闭未交接的 FD0：${result.getString("unrelatedZeroPath")}",
+                result.getBoolean("unrelatedZeroAfterNativeReturn"))
+        }
+    }
+
+    private fun checkProtectFailure(scene: Int) {
         repeat(3) { round ->
             ProviderServer().use { server ->
-                val rejected = Protector(accept = false, throws = throws)
-                try {
-                    // Preparation may succeed with an unavailable provider.
-                    prepare(providerConfig(server), rejected)
-                    rejected.assertCalled()
-                    val state = snapshot()
-                    assertEquals(rejected.calls.get().toLong(), state.getLong("refused"))
+                runScene(scene, JSONObject().put("port", server.port).put("token", server.requestId)) { result ->
+                    val callbacks = result.getJSONObject("callbacks")
+                    assertTrue("JNI 未调用 socket callback", callbacks.getInt("calls") > 0)
+                    assertTrue(callbacks.isNull("invalidSocket"))
+                    val state = result.getJSONObject("snapshot").getJSONObject("value")
+                    assertEquals(callbacks.getInt("calls").toLong(), state.getLong("refused"))
                     assertEquals(0L, state.getLong("protected"))
                     assertEquals(0, server.accepted.get())
-                } finally {
-                    stop()
                 }
             }
             ProviderServer().use { server ->
-                val accepted = Protector()
-                try {
-                    val home = prepare(providerConfig(server), accepted)
-                    assertTrue("Provider response not sent", server.served.await(3, TimeUnit.SECONDS))
+                runScene(Fixture.ACCEPT_PROTECT, JSONObject().put("port", server.port).put("token", server.requestId)) { result ->
+                    assertSuccess(result.getJSONObject("prepare"))
+                    assertTrue("provider response 未发送", server.served.await(3, TimeUnit.SECONDS))
                     server.assertHealthy()
-                    accepted.assertCalled()
-                    assertTrue(snapshot().getLong("protected") > 0)
-                    assertEquals(0L, snapshot().getLong("refused"))
-                    assertTrue("Explicit managed remote cache path was discarded", File(home, "provider.yaml").isFile)
-                    val expected = server.body.toByteArray(Charsets.UTF_8)
-                    assertEquals(1, home.walkTopDown().filter { it.isFile }
-                        .count { it.readBytes().contentEquals(expected) })
-                } finally {
-                    stop()
+                    assertTrue(result.getJSONObject("callbacks").getInt("calls") > 0)
+                    assertTrue(result.getJSONObject("callbacks").isNull("invalidSocket"))
+                    val state = result.getJSONObject("snapshot").getJSONObject("value")
+                    assertTrue(state.getLong("protected") > 0)
+                    assertEquals(0L, state.getLong("refused"))
+                    assertTrue("显式 provider cache path 未保留", result.getBoolean("providerExists"))
+                    assertArrayEquals(server.body.toByteArray(Charsets.UTF_8), Base64.decode(result.getString("provider"), Base64.DEFAULT))
+                    assertEquals(1, result.getInt("matchingFiles"))
                 }
             }
-            logResources(if (throws) "throw" else "refuse", round)
+            assertEquals("provider test thread 未退出", 0, Thread.getAllStackTraces().keys.count { it.name == "native-test-provider" && it.isAlive })
+            Log.i("NativeCoreFailureTest", "scene=$scene round=$round appPid=${android.os.Process.myPid()}")
         }
     }
 
-    private fun prepare(body: String, protector: Protector, vpn: Boolean = false): File {
-        val cache = InstrumentationRegistry.getInstrumentation().targetContext.cacheDir
-        val home = File(cache, "native-failure-${UUID.randomUUID()}")
-        assertTrue(home.mkdir())
-        homes.add(home)
-        val options = JSONObject().put("purpose", if (vpn) "VPN" else "PREVIEW")
-            .put("generation", 1).put("composition", "native-failure-test").toString().toByteArray(Charsets.UTF_8)
-        assertEquals("", NativeCore.prepare(home.path, body.toByteArray(Charsets.UTF_8), "rule", protector,
-            options = options))
-        assertTrue(snapshot().getBoolean("prepared"))
-        return home
+    private fun assertDescriptorReleased(result: JSONObject) {
+        val retained = result.getJSONArray("matchingDescriptorsAfterAttach")
+        assertEquals(result.toString(), 1, retained.length())
+        assertEquals(result.getInt("retainedFd"), retained.getInt(0))
+        assertEquals(result.toString(), 0, result.getJSONArray("matchingDescriptorsAfterRetainedClose").length())
     }
 
-    private fun stop() {
-        try {
-            NativeCore.cancel()
-            assertEquals("", NativeCore.stop())
-            assertStopped()
-        } catch (failure: Throwable) {
-            cleanupFailed.set(true)
-            throw failure
+    private fun assertRecovery(round: Int, scene: String) {
+        runScene(Fixture.UTF8_STRATEGIES) { result ->
+            assertSuccess(result.getJSONObject("prepare"))
+            assertTrue(result.getJSONObject("snapshot").getJSONObject("value").getBoolean("prepared"))
         }
+        Log.i("NativeCoreFailureTest", "$scene round=$round recoveryProcessExited=true")
     }
 
-    private fun assertStopped() {
-        val state = snapshot()
-        assertFalse(state.toString(), state.getBoolean("prepared"))
-        assertFalse(state.toString(), state.getBoolean("attached"))
-        assertFalse(state.toString(), state.getBoolean("cleanupFailed"))
-    }
-
-    private fun snapshot() = JSONObject(NativeCore.snapshot())
-
-    private fun logResources(scene: String, round: Int) {
-        val workers = Thread.getAllStackTraces().keys.count { it.name == "native-test-provider" && it.isAlive }
-        assertEquals("Provider test thread survived cleanup", 0, workers)
-        Log.i("NativeCoreFailureTest", "$scene round=$round pid=${android.os.Process.myPid()} " +
-            "fds=${File("/proc/self/fd").list()!!.size} providerThreads=$workers")
-    }
-
-    private fun providerConfig(server: ProviderServer) = DIRECT + """
-        proxy-providers:
-          fixture:
-            type: http
-            url: http://127.0.0.1:${server.port}/${server.requestId}
-            path: ./provider.yaml
-            interval: 0
-            health-check: {enable: false}
-    """.trimIndent() + "\n"
-
-    class Protector(private val accept: Boolean = true, private val throws: Boolean = false) : NativeCore.PreparationCallbacks {
-        val calls = AtomicInteger()
-        private val invalidSocket = AtomicReference<Throwable?>()
-
-        @Keep // JNI looks up this method by name, not through Kotlin call sites.
-        override fun protectSocket(fd: Int): Boolean {
-            calls.incrementAndGet()
-            try {
-                ParcelFileDescriptor.fromFd(fd).use {
-                    check(OsConstants.S_ISSOCK(Os.fstat(it.fileDescriptor).st_mode))
-                }
-            } catch (failure: Throwable) {
-                // JNI clears callback exceptions, so preserve validation failures separately.
-                invalidSocket.compareAndSet(null, failure)
-                return false
-            }
-            if (throws) throw IllegalStateException("Injected protect callback failure")
-            return accept
-        }
-
-        @Keep override fun protectSocketOnNetwork(fd: Int, handle: String): Boolean = protectSocket(fd)
-        override fun preparationOptions(): ByteArray = "{\"purpose\":\"PREVIEW\"}".toByteArray()
-        @Keep override fun seedGeo(request: String): String = error("Unexpected Geo request in a test with explicit geox-url keys")
-        @Keep override fun specificationChanged(generation: Long, composition: String, revision: Long, needed: Boolean) = Unit
-
-        fun assertCalled() {
-            assertTrue("JNI never called protectSocket", calls.get() > 0)
-            invalidSocket.get()?.let { throw AssertionError("Callback did not receive a socket", it) }
+    private fun runScene(scene: Int, args: JSONObject = JSONObject(), assertResult: (JSONObject) -> Unit) {
+        CoreIpcTestDriver.fixture().use { driver ->
+            val reply = driver.fixture(scene, args).await()
+            assertTrue(reply.terminal.toString(), reply.terminal.getBoolean("complete"))
+            assertTrue(reply.terminal.getBoolean("exited"))
+            val result = reply.value
+            for (assertion in listOf<() -> Unit>(
+                { assertSuccess(result.getJSONObject("shutdown")) },
+                { assertStopped(result.getJSONObject("after").getJSONObject("value")) },
+                { assertResult(result) },
+            )) failures.checkSucceeds(Callable {
+                try { assertion() }
+                catch (error: AssertionError) { throw AssertionError(result.toString(), error) }
+            })
+            driver.exit()
+            assertTrue(driver.deathConfirmed)
+            CoreIpcTestDriver.removeFixtureHome(driver.context, result)
         }
     }
 
@@ -384,52 +286,53 @@ class NativeCoreFailureTest {
         private val failure = AtomicReference<Throwable?>()
         private val listener = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         private val client = AtomicReference<Socket?>()
-        val port: Int = listener.localPort
+        val port = listener.localPort
         private val worker = Thread({
             try {
                 listener.soTimeout = 15000
                 listener.accept().use { socket ->
-                    client.set(socket)
-                    socket.soTimeout = 3000
-                    accepted.incrementAndGet()
+                    client.set(socket); socket.soTimeout = 3000; accepted.incrementAndGet()
                     val input = socket.getInputStream().bufferedReader(Charsets.US_ASCII)
                     check(input.readLine() == "GET /$requestId HTTP/1.1")
-                    while (true) {
-                        val line = input.readLine() ?: error("Incomplete HTTP headers")
-                        if (line.isEmpty()) break
-                    }
+                    while (true) { val line = input.readLine() ?: error("HTTP headers 未完成"); if (line.isEmpty()) break }
                     val bytes = body.toByteArray(Charsets.UTF_8)
-                    val output = socket.getOutputStream()
-                    output.write(("HTTP/1.1 200 OK\r\nContent-Length: ${bytes.size}\r\n" +
-                        "Connection: close\r\n\r\n").toByteArray(Charsets.US_ASCII))
-                    output.write(bytes)
-                    output.flush()
+                    socket.getOutputStream().apply {
+                        write(("HTTP/1.1 200 OK\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n").toByteArray(Charsets.US_ASCII))
+                        write(bytes); flush()
+                    }
                     served.countDown()
                 }
-            } catch (error: Throwable) {
-                if (!closing.get()) failure.set(error)
-            }
+            } catch (error: Throwable) { if (!closing.get()) failure.set(error) }
         }, "native-test-provider").apply { start() }
-
-        fun assertHealthy() {
-            failure.get()?.let { throw AssertionError("Provider server failed", it) }
-        }
-
+        fun assertHealthy() { failure.get()?.let { throw AssertionError("provider server 失败", it) } }
         override fun close() {
             closing.set(true)
-            try {
-                listener.close()
-                client.get()?.close()
-            } finally {
-                worker.join(5000)
-            }
-            assertFalse("Provider thread did not exit", worker.isAlive)
+            try { listener.close(); client.get()?.close() } finally { worker.join(5000) }
+            assertFalse("provider thread 未退出", worker.isAlive)
             assertHealthy()
         }
     }
 
     companion object {
-        private const val DIRECT = "mode: rule\nfind-process-mode: off\nlog-level: info\ngeox-url: {geoip: '', geosite: '', mmdb: '', asn: ''}\nrules:\n  - MATCH,DIRECT\n"
-        private val cleanupFailed = AtomicBoolean()
+        fun assertSuccess(call: JSONObject) {
+            val terminal = call.getJSONObject("terminal")
+            val receipt = call.getJSONObject("receipt")
+            assertTrue(terminal.toString(), terminal.getBoolean("complete"))
+            assertTrue(terminal.getBoolean("exited"))
+            assertTrue(receipt.toString(), receipt.getBoolean("exited"))
+            assertTrue(receipt.toString(), receipt.isNull("error"))
+            assertTrue(terminal.toString(), terminal.isNull("error"))
+        }
+        fun nativeError(call: JSONObject): String {
+            val receipt = call.getJSONObject("receipt")
+            assertTrue("必须保留实际 invoke 返回", receipt.getBoolean("exited"))
+            assertFalse(receipt.toString(), receipt.isNull("error"))
+            return receipt.get("error").toString()
+        }
+        fun assertStopped(state: JSONObject) {
+            assertFalse(state.toString(), state.getBoolean("prepared"))
+            assertFalse(state.toString(), state.getBoolean("attached"))
+            assertFalse(state.toString(), state.getBoolean("cleanupFailed"))
+        }
     }
 }

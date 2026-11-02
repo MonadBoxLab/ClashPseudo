@@ -1,8 +1,11 @@
-import '../l10n/messages.dart';
+import 'messages.dart';
 
 class CoreSnapshot {
   const CoreSnapshot({
     this.generation = 0,
+    this.processId,
+    this.inputId,
+    this.networkRevision = 0,
     this.phase = 'EMPTY',
     this.purpose,
     this.configId,
@@ -12,6 +15,9 @@ class CoreSnapshot {
     AppMessage? error,
   }) : errorMessage = error;
   final int generation;
+  final String? processId;
+  final String? inputId;
+  final int networkRevision;
   final String phase;
   final String? purpose;
   final String? configId;
@@ -19,7 +25,6 @@ class CoreSnapshot {
   final String? composition;
   final String? logWindow;
   final AppMessage? errorMessage;
-  String? get error => errorMessage?.text;
 
   bool get ready => phase == 'READY';
   bool get busy => phase == 'LOADING' || phase == 'RELEASING';
@@ -31,10 +36,17 @@ class CoreSnapshot {
       revision != null &&
       revision! > 0 &&
       composition?.isNotEmpty == true &&
-      const ['VPN', 'PREVIEW'].contains(purpose);
+      const ['RUNNING', 'PREVIEW'].contains(purpose);
 
-  (int, String?, int?, String?, String?) get identity =>
-      (generation, configId, revision, composition, purpose);
+  (String?, String?, int, String?, int?, String?, String?) get identity => (
+    processId,
+    inputId,
+    generation,
+    configId,
+    revision,
+    composition,
+    purpose,
+  );
 
   bool matchesIdentity(CoreSnapshot other) =>
       hasIdentity && identity == other.identity;
@@ -45,6 +57,8 @@ class CoreSnapshot {
       value['revision'] is int &&
       identity ==
           (
+            value['processId'],
+            value['inputId'],
             value['generation'],
             value['configId'],
             value['revision'],
@@ -54,18 +68,31 @@ class CoreSnapshot {
 
   factory CoreSnapshot.fromMap(Map<String, dynamic> value) {
     try {
-      final phase = value['phase'] as String;
+      final wirePhase = value['phase'] as String;
+      final phase = switch (wirePhase) {
+        'ready' => 'READY',
+        'loading' || 'starting' => 'LOADING',
+        'stopping' => 'RELEASING',
+        'disconnected' || 'exited' || 'revoked' => 'EMPTY',
+        'recoveryRequired' => 'FAILED',
+        'communicationLost' => 'UNKNOWN',
+        _ => wirePhase,
+      };
       if (!const [
         'EMPTY',
         'LOADING',
         'READY',
         'RELEASING',
         'FAILED',
+        'UNKNOWN',
       ].contains(phase)) {
         throw const FormatException('Invalid core phase');
       }
       return CoreSnapshot(
         generation: value['generation'] as int,
+        processId: value['processId'] as String?,
+        inputId: value['inputId'] as String?,
+        networkRevision: value['networkRevision'] as int? ?? 0,
         phase: phase,
         purpose: value['purpose'] as String?,
         configId: value['configId'] as String?,

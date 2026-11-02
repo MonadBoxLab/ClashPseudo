@@ -2,162 +2,95 @@ package configinput
 
 import (
 	"errors"
-	"fmt"
-	"strings"
 
-	"github.com/metacubex/mihomo/component/age"
 	"github.com/metacubex/mihomo/config"
 	"github.com/metacubex/mihomo/tunnel"
 	"go.yaml.in/yaml/v3"
 )
 
-// Capture field presence after Compose and before RawConfig defaults; the public
-// mihomo parser validates values.
+// Presence记录合成正文中的字段，不把应用缺省值记作用户输入。
 type Presence map[string]bool
 
 func (p Presence) Has(path string) bool { return p[path] }
 
-// RunningDefaults adds only application-required fields that are absent.
-func RunningDefaults(body []byte, fallback, operation string) ([]byte, Presence, error) {
-	plain, err := age.DecryptBytes(body)
+// Decode仅调用一次上游RawConfig解码；补缺省直接修改同一对象，不重新编码正文。
+func Decode(body []byte, fallback, operation string, vpn bool) (*config.RawConfig, Presence, error) {
+	raw, err := config.UnmarshalRawConfig(body)
 	if err != nil {
 		return nil, nil, err
 	}
-	root, err := configurationMapping(plain)
-	if err != nil {
+	present := fieldPresence(body)
+	if err := ApplyDefaults(raw, present, fallback, operation, vpn); err != nil {
 		return nil, nil, err
 	}
+	return raw, present, nil
+}
+
+// RunningDefaults保留VPN准备的调用入口，返回实际交给ParseRawConfig的对象。
+func RunningDefaults(body []byte, fallback, operation string) (*config.RawConfig, Presence, error) {
+	return Decode(body, fallback, operation, true)
+}
+
+func fieldPresence(body []byte) Presence {
 	present := Presence{}
-	var visit func(*yaml.Node, string)
-	visit = func(node *yaml.Node, path string) {
-		if node.Kind != yaml.MappingNode {
-			return
-		}
-		for i := 0; i < len(node.Content); i += 2 {
-			name := node.Content[i].Value
-			if path != "" {
-				name = path + "." + name
-			}
-			present[name] = true
-			visit(node.Content[i+1], name)
-		}
+	var document yaml.Node
+	// 这里只读取明文来源。加密正文的语义与错误由上游解码器处理。
+	if yaml.Unmarshal(body, &document) != nil || len(document.Content) == 0 {
+		present["$opaque"] = true
+		return present
 	}
-	visit(root, "")
-	put := func(path string, value any) error {
-		parts := strings.Split(path, ".")
-		node := root
-		for _, key := range parts[:len(parts)-1] {
-			var child *yaml.Node
-			for i := 0; i < len(node.Content); i += 2 {
-				if node.Content[i].Value == key {
-					child = node.Content[i+1]
-					break
+	root := configMapping(document.Content[0])
+	if root.Kind != yaml.MappingNode {
+		present["$opaque"] = true
+		return present
+	}
+	for i := 0; i < len(root.Content); i += 2 {
+		name, value := root.Content[i].Value, root.Content[i+1]
+		present[name] = true
+		switch name {
+		case "tun", "dns", "geox-url":
+			fields := configMapping(value)
+			if fields.Kind == yaml.MappingNode {
+				present[name+".$mapping"] = true
+				for j := 0; j < len(fields.Content); j += 2 {
+					present[name+"."+fields.Content[j].Value] = true
 				}
 			}
-			if child == nil {
-				child = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-				node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, child)
-			}
-			if child.Kind != yaml.MappingNode {
-				return fmt.Errorf("%s must be a mapping", key)
-			}
-			node = child
-		}
-		var encoded yaml.Node
-		if err := encoded.Encode(value); err != nil {
-			return err
-		}
-		key := parts[len(parts)-1]
-		for i := 0; i < len(node.Content); i += 2 {
-			if node.Content[i].Value == key {
-				node.Content[i+1] = &encoded
-				return nil
-			}
-		}
-		node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, &encoded)
-		return nil
-	}
-	defaults := []struct {
-		path  string
-		value any
-	}{
-		{"tun.enable", true}, {"tun.stack", "mips"}, {"tun.mtu", 1500},
-		{"tun.auto-route", true}, {"dns.enable", true}, {"profile.store-selected", false},
-	}
-	missing := func(path string) bool {
-		if present.Has(path) {
-			return false
-		}
-		node := root
-		parts := strings.Split(path, ".")
-		for _, key := range parts[:len(parts)-1] {
-			position, exists := mappingIndex(node)[key]
-			if !exists {
-				return true
-			}
-			node = node.Content[position+1]
-			// Pass explicit null containers and other original value types through to the
-			// public parser.
-			if node.Kind != yaml.MappingNode {
-				return false
-			}
-		}
-		return true
-	}
-	for _, d := range defaults {
-		if missing(d.path) {
-			if err := put(d.path, d.value); err != nil {
-				return nil, nil, err
-			}
 		}
 	}
-	if operation != "" || !present.Has("mode") {
+	return present
+}
+
+// ApplyDefaults保留显式false、0和null，只补VPN实际需要的三个缺省。
+func ApplyDefaults(raw *config.RawConfig, p Presence, fallback, operation string, vpn bool) error {
+	if operation != "" || (!p.Has("$opaque") && !p.Has("mode") && fallback != "") {
 		mode := operation
 		if mode == "" {
 			mode = fallback
 		}
-		if mode == "" {
-			mode = "rule"
+		parsed, err := ParseMode(mode)
+		if err != nil {
+			return err
 		}
-		if _, err := ParseMode(mode); err != nil {
-			return nil, nil, err
+		raw.Mode = parsed
+	}
+	missing := func(section, field string) bool {
+		return !p.Has("$opaque") && !p.Has(section+"."+field) && (!p.Has(section) || p.Has(section+".$mapping"))
+	}
+	if vpn {
+		if missing("tun", "enable") {
+			raw.Tun.Enable = true
 		}
-		if err := put("mode", mode); err != nil {
-			return nil, nil, err
+		if missing("tun", "mtu") {
+			raw.Tun.MTU = 1500
+		}
+		if missing("dns", "enable") {
+			raw.DNS.Enable = true
 		}
 	}
-	encode := func() ([]byte, error) {
-		output := &limitedConfigBuffer{}
-		encoder := yaml.NewEncoder(output)
-		encoder.SetIndent(2)
-		if err := encoder.Encode(root); err != nil {
-			return nil, err
-		}
-		if err := encoder.Close(); err != nil {
-			return nil, err
-		}
-		return output.Bytes(), nil
-	}
-	output, err := encode()
-	if err != nil {
-		return nil, nil, err
-	}
-	// Unmarshal once to inspect the *effective* enable flag, including an explicit
-	// false. The same public parser is used below for the formal RawConfig.
-	raw, err := config.UnmarshalRawConfig(output)
-	if err != nil {
-		return nil, nil, err
-	}
-	if missing("tun.dns-hijack") && !raw.DNS.Enable {
-		if err = put("tun.dns-hijack", []string{}); err != nil {
-			return nil, nil, err
-		}
-		output, err = encode()
-	}
-	return output, present, err
+	return nil
 }
 
-// ParseMode accepts the three routing modes supported by this app.
 func ParseMode(value string) (tunnel.TunnelMode, error) {
 	switch value {
 	case "rule":

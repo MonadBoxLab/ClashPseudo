@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<full-backup-content>
-    <!-- Include the committed file only, never its in-progress temporary sibling. -->
-    <include domain="file" path="configurations/configurations.json" requireFlags="clientSideEncryption" />
-    <include domain="file" path="configurations/preferences.json" requireFlags="clientSideEncryption" />
-    <include domain="file" path="configurations/overrides.json" requireFlags="clientSideEncryption" />
-</full-backup-content>

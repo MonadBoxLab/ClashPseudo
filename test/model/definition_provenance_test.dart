@@ -148,6 +148,35 @@ void main() {
     );
   });
 
+  test(
+    'optional projection preserves empty names and ignores extra diagnostics',
+    () {
+      for (final name in ['', '  ']) {
+        final raw = {
+          ...definitionProvenanceWire([
+            {
+              ...sourceContributorWire(name: name),
+              'paths': ['/proxies/0/server'],
+              'future': [false, 0, null],
+            },
+          ]),
+          'fields': <String, Object?>{},
+        };
+        final original = jsonEncode(raw);
+        final value = DefinitionProvenance.tryFromValue(raw)!;
+        expect(value.contributors.single.name, name);
+        expect(value.contributors.single.id, sourceContributorWire()['id']);
+        expect(jsonEncode(raw), original);
+      }
+      final unknown = definitionProvenanceWire([
+        {...sourceContributorWire(), 'kind': 'future-kind'},
+      ]);
+      final original = jsonEncode(unknown);
+      expect(DefinitionProvenance.tryFromValue(unknown), isNull);
+      expect(jsonEncode(unknown), original);
+    },
+  );
+
   final invalidContributors = <Map<String, dynamic>>[
     {...sourceContributorWire(), 'kind': 'unknown'},
     {...sourceContributorWire(), 'kind': 'configuration'},
@@ -157,16 +186,10 @@ void main() {
     {...sourceContributorWire(), 'revision': -1},
     {...sourceContributorWire(), 'revision': 1.0},
     {...sourceContributorWire(), 'name': null},
-    {...sourceContributorWire(), 'name': ''},
-    {...sourceContributorWire(), 'name': '  '},
     {...sourceContributorWire(), 'name': 1},
     {...sourceContributorWire(), 'role': 'unknown'},
     {...sourceContributorWire(), 'role': true},
     {...sourceContributorWire(), 'kind': 'config', 'role': 'localCustom'},
-    {
-      ...sourceContributorWire(),
-      'paths': ['/proxies/0/server'],
-    },
     {'kind': 'config', 'revision': 1, 'path': '/rules/0'},
     {'kind': 'config', 'id': 'main', 'path': '/rules/0'},
     {'kind': 'config', 'name': 'Invented main', 'path': '/rules/0'},
@@ -185,7 +208,7 @@ void main() {
     );
   }
 
-  test('rejects duplicate identities, reordered main, old field tables and non-wire values', () {
+  test('rejects duplicate identities, reordered main and non-wire values', () {
     final plugin = sourceContributorWire();
     final main = sourceContributorWire(
       kind: 'config',
@@ -212,10 +235,6 @@ void main() {
         {...plugin, 'revision': 4},
       ]),
       definitionProvenanceWire([main, plugin]),
-      {
-        ...definitionProvenanceWire([plugin]),
-        'fields': {},
-      },
     ]) {
       expect(() => DefinitionProvenance.fromValue(raw), throwsFormatException);
     }

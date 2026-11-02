@@ -12,6 +12,9 @@ import (
 )
 
 func TestFileProvidersAutomaticallyWatchSavedFiles(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	home := t.TempDir()
 	files := []struct{ name, initial, updated string }{
 		{"local-proxies.yaml", "proxies: [{name: initial, type: direct}]\n", "proxies: [{name: updated, type: direct}]\n"},
@@ -29,7 +32,7 @@ rule-providers:
 `
 	var e Engine
 	t.Cleanup(func() { requireStop(t, &e) })
-	if err := e.Prepare(home, []byte(body), "rule", nil, func(int) bool { return true }); err != nil {
+	if err := e.Prepare(home, []byte(body), "rule", func(int) bool { return true }); err != nil {
 		t.Fatal(err)
 	}
 	proxy, rule := e.cfg.Providers["fixture"], e.cfg.RuleProviders["fixture"]

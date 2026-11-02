@@ -3,77 +3,91 @@ package engine
 import (
 	"encoding/json"
 	"errors"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/metacubex/mihomo/component/dialer"
 )
 
-func TestPartialParseDoesNotClaimCleanupOrAllowReuse(t *testing.T) {
+func TestParseFailureKeepsTheErrorAndRequiresANewEngine(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	for _, fixture := range []struct {
-		name         string
-		body         string
+		name, body   string
 		afterRestart bool
 	}{
 		{"fresh", "rules: [NOT-A-RULE,invalid]\n", false},
-		{"after-reusable-decode-failure", "rules:\n  - UNKNOWN,invalid\n", true},
+		{"after-decode-failure", "rules:\n - UNKNOWN,invalid\n", true},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
+			if isolateEngineTest(t) {
+				return
+			}
+			home, phase := os.Getenv("PSEUDO_ENGINE_HOME"), os.Getenv("PSEUDO_ENGINE_PHASE")
+			if phase == "" {
+				home = t.TempDir()
+				if fixture.afterRestart {
+					runEnginePhase(t, home, "decode")
+					requireFreshEngineProcess(t, home)
+				}
+				for i := 0; i < 2; i++ {
+					runEnginePhase(t, home, "parse")
+					requireFreshEngineProcess(t, home)
+				}
+				return
+			}
 			var e Engine
-			home := t.TempDir()
-			if fixture.afterRestart {
-				// Exercise decode failure, restart and parse failure consecutively on the same
-				// Engine.
-				if err := e.Prepare(home, []byte("[invalid yaml"), "rule", nil, func(int) bool { return true }); err == nil {
-					t.Fatal("malformed YAML accepted")
-				}
-				if current.Load() != nil || e.owner != nil {
-					t.Fatal("failed prepare retained protector")
-				}
-				requireStop(t, &e)
-				if err := e.Prepare(home, []byte(validConfig), "rule", nil, func(int) bool { return true }); err != nil {
-					t.Fatal(err)
-				}
-				requireStop(t, &e)
+			body := fixture.body
+			if phase == "decode" {
+				body = "[invalid yaml"
 			}
-			if err := e.Prepare(home, []byte(fixture.body), "rule", nil, func(int) bool { return true }); err == nil {
-				t.Fatal("invalid rules accepted")
+			err := e.Prepare(home, []byte(body), "rule", func(int) bool { return true })
+			if err == nil {
+				t.Fatal("invalid configuration accepted")
 			}
-			// After parse-stage ownership loss, retain the uncertain state and reject sockets
-			// and reuse.
-			for range 2 {
-				if current.Load() != nil || e.owner != nil {
-					t.Fatal("failed prepare retained protector")
-				}
-				if err := dialer.DefaultSocketHook("tcp", "unused", rawSocket{}); !errors.Is(err, ErrStopped) {
-					t.Fatalf("parse failure accepted a socket: %v", err)
-				}
-				if err := e.Stop(); err == nil {
-					t.Fatal("partial parse cleanup was reported as confirmed")
-				}
-				var snapshot struct {
-					Prepared      bool `json:"prepared"`
-					CleanupFailed bool `json:"cleanupFailed"`
-				}
-				if err := json.Unmarshal([]byte(e.Snapshot()), &snapshot); err != nil {
-					t.Fatal(err)
-				}
-				if snapshot.Prepared || !snapshot.CleanupFailed {
-					t.Fatalf("unconfirmed parse cleanup lost: %+v", snapshot)
-				}
-				if err := e.Prepare(home, []byte(validConfig), "rule", nil, func(int) bool { return true }); err == nil {
-					t.Fatal("engine with unconfirmed cleanup reused")
-				}
+			if phase == "parse" && !strings.Contains(err.Error(), "invalid") {
+				t.Fatalf("original rule error lost: %v", err)
+			}
+			if current.Load() != nil || e.owner != nil || e.cfg != nil {
+				t.Fatal("failed prepare retained a session")
+			}
+			if err := dialer.DefaultSocketHook("tcp", "unused", rawSocket{}); !errors.Is(err, ErrStopped) {
+				t.Fatalf("parse failure accepted a socket: %v", err)
+			}
+			if err := e.Stop(); err != nil {
+				t.Fatalf("parser rejection was treated as a cleanup failure: %v", err)
+			}
+			var snapshot struct {
+				Prepared      bool `json:"prepared"`
+				CleanupFailed bool `json:"cleanupFailed"`
+			}
+			if err := json.Unmarshal([]byte(e.Snapshot()), &snapshot); err != nil {
+				t.Fatal(err)
+			}
+			if snapshot.Prepared || snapshot.CleanupFailed {
+				t.Fatalf("parser rejection poisoned the engine: %+v", snapshot)
+			}
+			if err := e.Prepare(home, []byte(validConfig), "rule", func(int) bool { return true }); err == nil {
+				t.Fatal("同一Engine在parse失败后再次装载")
 			}
 		})
 	}
 }
 
-func TestDecodeFailureBeforeAllocationRemainsReusable(t *testing.T) {
+func TestDecodeFailureBeforeAllocationStillConsumesTheEngine(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	for _, body := range []string{"dns: [", "[invalid yaml"} {
 		t.Run(body, func(t *testing.T) {
+			if isolateEngineTest(t) {
+				return
+			}
 			var e Engine
 			home := t.TempDir()
-			if err := e.Prepare(home, []byte(body), "rule", nil, func(int) bool { return true }); err == nil {
+			if err := e.Prepare(home, []byte(body), "rule", func(int) bool { return true }); err == nil {
 				t.Fatal("malformed YAML accepted")
 			}
 			if current.Load() != nil || e.owner != nil {
@@ -95,9 +109,10 @@ func TestDecodeFailureBeforeAllocationRemainsReusable(t *testing.T) {
 			if snapshot.Prepared || snapshot.CleanupFailed {
 				t.Fatalf("decode failure poisoned the engine: %+v", snapshot)
 			}
-			if err := e.Prepare(home, []byte(validConfig), "rule", nil, func(int) bool { return true }); err != nil {
-				t.Fatal(err)
+			if err := e.Prepare(home, []byte(validConfig), "rule", func(int) bool { return true }); err == nil {
+				t.Fatal("同一Engine在decode失败后再次装载")
 			}
+			requireFreshEngineProcess(t, home)
 			requireStop(t, &e)
 		})
 	}

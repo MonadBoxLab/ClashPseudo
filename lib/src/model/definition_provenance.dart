@@ -23,18 +23,6 @@ class SourceContribution {
       kind == ContributorKind.plugin && role == 'localCustom';
 
   factory SourceContribution.fromMap(Map<String, dynamic> value) {
-    if (value.keys.any(
-      (key) => !const {
-        'kind',
-        'id',
-        'revision',
-        'name',
-        'role',
-        'path',
-      }.contains(key),
-    )) {
-      throw const FormatException('Unexpected provenance contribution field');
-    }
     final kind = switch (value['kind']) {
       'config' => ContributorKind.config,
       'plugin' => ContributorKind.plugin,
@@ -47,7 +35,7 @@ class SourceContribution {
     final path = value['path'];
     if ((id != null && (id is! String || id.isEmpty)) ||
         (revision != null && (revision is! int || revision < 1)) ||
-        (name != null && (name is! String || name.trim().isEmpty)) ||
+        (name != null && name is! String) ||
         (role != null && role != 'localCustom') ||
         (kind == ContributorKind.config && role != null) ||
         ((id == null) != (revision == null)) ||
@@ -113,10 +101,18 @@ class DefinitionProvenance {
   Iterable<SourceContribution> get plugins =>
       contributors.where((source) => source.kind == ContributorKind.plugin);
 
+  /// Optional projection only; callers retain the original feedback separately.
+  static DefinitionProvenance? tryFromValue(Object? value, {String? section}) {
+    try {
+      return fromValue(value, section: section);
+    } on FormatException {
+      return null;
+    }
+  }
+
   static DefinitionProvenance? fromValue(Object? value, {String? section}) {
     if (value == null) return null;
     if (value is! Map ||
-        value.keys.any((key) => key != 'contributors') ||
         value['contributors'] is! List ||
         (value['contributors'] as List).isEmpty) {
       throw const FormatException('Invalid definition provenance');

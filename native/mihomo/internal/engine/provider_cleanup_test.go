@@ -22,6 +22,9 @@ func wireguardWorkers() int {
 }
 
 func TestParseFailureClosesAllocatedNodes(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	// Run unrecoverable allocation regressions in an isolated process.
 	if os.Getenv("CLASH_PSEUDO_PARSE_FAILURE_CHILD") != "1" {
 		command := exec.Command(os.Args[0], "-test.run=^TestParseFailureClosesAllocatedNodes$", "-test.v")
@@ -51,7 +54,7 @@ rules:
 `
 	baseline := wireguardWorkers()
 	var e Engine
-	if err := e.Prepare(t.TempDir(), []byte(body), "rule", nil, func(int) bool { return true }); err == nil {
+	if err := e.Prepare(t.TempDir(), []byte(body), "rule", func(int) bool { return true }); err == nil {
 		requireStop(t, &e)
 		t.Fatal("invalid rule was accepted")
 	}
@@ -62,6 +65,9 @@ rules:
 }
 
 func TestStopClosesProviderNodes(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	const body = `mode: rule
 proxy-providers:
   wg:
@@ -83,7 +89,7 @@ rules:
 	baseline := wireguardWorkers()
 	var e Engine
 	t.Cleanup(func() { requireStop(t, &e) })
-	if err := e.Prepare(t.TempDir(), []byte(body), "rule", nil, func(int) bool { return true }); err != nil {
+	if err := e.Prepare(t.TempDir(), []byte(body), "rule", func(int) bool { return true }); err != nil {
 		t.Fatal(err)
 	}
 	nodes := e.cfg.Providers["wg"].Proxies()
@@ -121,25 +127,24 @@ rules:
 	runtime.KeepAlive(nodes)
 }
 
-func TestInlineRuleProviderStopsAndCanPrepareAgain(t *testing.T) {
-	body := []byte(`rule-providers:
- inline:
-  type: inline
-  behavior: classical
-  payload: ['DOMAIN,example.test']
-rules:
- - RULE-SET,inline,DIRECT
- - MATCH,DIRECT
-`)
+func TestInlineRuleProviderStopsAndNewEngineCanPrepare(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
+	home, phase := os.Getenv("PSEUDO_ENGINE_HOME"), os.Getenv("PSEUDO_ENGINE_PHASE")
+	if phase == "" {
+		home = t.TempDir()
+		runEnginePhase(t, home, "first")
+		runEnginePhase(t, home, "replacement")
+		return
+	}
+	body := []byte("rule-providers:\n inline:\n  type: inline\n  behavior: classical\n  payload: ['DOMAIN,example.test']\nrules:\n - RULE-SET,inline,DIRECT\n - MATCH,DIRECT\n")
 	var e Engine
-	home := t.TempDir()
-	for range 2 {
-		if err := e.Prepare(home, body, "rule", nil, func(int) bool { return true }); err != nil {
-			t.Fatal(err)
-		}
-		requireStop(t, &e)
-		if e.failed || e.cfg != nil || e.owner != nil || e.ruleSources != nil {
-			t.Fatal("inline provider left an unconfirmed session")
-		}
+	if err := e.Prepare(home, body, "rule", func(int) bool { return true }); err != nil {
+		t.Fatal(err)
+	}
+	requireStop(t, &e)
+	if e.failed || e.cfg != nil || e.owner != nil {
+		t.Fatal("inline provider left an unconfirmed session")
 	}
 }

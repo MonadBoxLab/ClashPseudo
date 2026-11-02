@@ -1,29 +1,5 @@
 package io.github.monadboxlab.clashpseudo.bridge
 
-import io.github.monadboxlab.clashpseudo.backup.backupProjection
-
-import io.github.monadboxlab.clashpseudo.backup.restoreStatus
-
-import io.github.monadboxlab.clashpseudo.backup.backupInteger
-
-import io.github.monadboxlab.clashpseudo.backup.savedMode
-
-import io.github.monadboxlab.clashpseudo.app.ApplicationContract
-import io.github.monadboxlab.clashpseudo.app.AppFiles
-import io.github.monadboxlab.clashpseudo.app.AppMessage
-import io.github.monadboxlab.clashpseudo.app.AppStrings
-import io.github.monadboxlab.clashpseudo.app.AppTrust
-import io.github.monadboxlab.clashpseudo.app.AppWorkService
-import io.github.monadboxlab.clashpseudo.app.OperationBudget
-import io.github.monadboxlab.clashpseudo.app.PseudoApplication
-import io.github.monadboxlab.clashpseudo.backup.BackupCalls
-import io.github.monadboxlab.clashpseudo.backup.BackupFiles
-import io.github.monadboxlab.clashpseudo.backup.RestoreTransaction
-import io.github.monadboxlab.clashpseudo.controls.SystemControls
-import io.github.monadboxlab.clashpseudo.logic.LogicEngineHost
-import io.github.monadboxlab.clashpseudo.nativecore.CoreHost
-import io.github.monadboxlab.clashpseudo.schedule.ScheduleManager
-
 import android.content.Context
 import android.content.Intent
 import android.net.VpnService
@@ -37,29 +13,47 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.github.monadboxlab.clashpseudo.MainActivity
 import io.github.monadboxlab.clashpseudo.R
+import io.github.monadboxlab.clashpseudo.app.AppWorkService
+import io.github.monadboxlab.clashpseudo.app.PseudoApplication
+import io.github.monadboxlab.clashpseudo.backup.BackupCalls
+import io.github.monadboxlab.clashpseudo.backup.BackupFiles
+import io.github.monadboxlab.clashpseudo.backup.RestoreTransaction
+import io.github.monadboxlab.clashpseudo.backup.backupInteger
+import io.github.monadboxlab.clashpseudo.backup.savedMode
+import io.github.monadboxlab.clashpseudo.bridge.backup.BackupCoordinator
+import io.github.monadboxlab.clashpseudo.bridge.core.ApplicationsCalls
+import io.github.monadboxlab.clashpseudo.bridge.operation.OperationState
+import io.github.monadboxlab.clashpseudo.bridge.runtime.ScheduledRuns
+import io.github.monadboxlab.clashpseudo.bridge.runtime.SystemRestore
+import io.github.monadboxlab.clashpseudo.controls.SystemControls
+import io.github.monadboxlab.clashpseudo.logic.LogicEngineHost
+import io.github.monadboxlab.clashpseudo.message.AppMessage
+import io.github.monadboxlab.clashpseudo.message.AppStrings
+import io.github.monadboxlab.clashpseudo.nativecore.CoreHost
+import io.github.monadboxlab.clashpseudo.nativecore.CoreClient
+import io.github.monadboxlab.clashpseudo.nativecore.CoreLifecycleCalls
+import io.github.monadboxlab.clashpseudo.app.ApplicationContract as Contract
+import io.github.monadboxlab.clashpseudo.vpn.network.LocalInterfaces
+import io.github.monadboxlab.clashpseudo.schedule.ScheduleManager
+import io.github.monadboxlab.clashpseudo.storage.AppFiles
+import io.github.monadboxlab.clashpseudo.storage.CoreCleanupCalls
+import io.github.monadboxlab.clashpseudo.storage.CoreDataCleanup
+import io.github.monadboxlab.clashpseudo.trust.AppTrust
 import io.github.monadboxlab.clashpseudo.vpn.NativeSession
-import io.github.monadboxlab.clashpseudo.vpn.UnderlyingNetworks
 import io.github.monadboxlab.clashpseudo.vpn.PseudoVpnService
-import java.lang.ref.WeakReference
-import java.util.UUID
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.CancellationException
+import io.github.monadboxlab.clashpseudo.vpn.network.UnderlyingNetworks
 import java.io.File
 import java.io.InputStreamReader
+import java.lang.ref.WeakReference
 import java.nio.charset.CodingErrorAction
+import java.util.UUID
 
 object AppBridge {
     const val CHANNEL = "io.github.monadboxlab.clashpseudo/app"
     private lateinit var context: Context
     private lateinit var applications: ApplicationsCalls
-    private lateinit var native: NativeCalls
-    private lateinit var modes: ModeCalls
-    private lateinit var strategies: StrategyCalls
-    private lateinit var connections: ConnectionsCalls
-    private lateinit var coreReads: CoreReadCalls
-    private lateinit var delays: DelayCalls
+    private lateinit var native: CoreLifecycleCalls
+    private lateinit var localInterfaces: LocalInterfaces
     private lateinit var backups: BackupCalls
     lateinit var logic: LogicEngineHost
         private set
@@ -70,148 +64,28 @@ object AppBridge {
     private var overviewRequested = false
     private var overviewSending = false
     private var ui: MethodChannel? = null
-    private var authorization: MethodChannel.Result? = null
-    private var authorizationCode = 100
-    private var operation: AppMessage? = null
-    private var resultMessage: AppMessage? = null
-    private var resultId: String? = null
-    private var resultSuccess = false
-    private var connectionStatus: String? = null
-    private var configStatus: String? = null
-    private var overrideStatus: String? = null
-    private var resourceStatus: String? = null
-    private var scheduleStatus: String? = null
-    private var backupResult: Map<*, *>? = null
+    internal val operations = OperationState()
     private var storagePublishing = false
-    private val backupUses = mutableMapOf<String, String>()
-    private val preparedBackups = mutableMapOf<String, String>()
-    private val retiredBackups = mutableSetOf<String>()
-    @Volatile private var restoreStopRequested = false
-    private var restoreStopOwner: String? = null
-    private var restoreStopReply: MethodChannel.Result? = null
-    private var restoreInterruption: AppMessage? = null
-    private var installedBackup: Pair<String, Map<String, Any?>>? = null
-    private val pendingRestore: Boolean get() = command?.get("action") == "restoreBackup"
-    private val backupCapturing: Boolean
-        get() = ::backups.isInitialized && backups.snapshot()["capturing"] == true
-    private val resourceBusy: Boolean
-        get() = command?.get("action") == "updateResource" || (::coreReads.isInitialized && coreReads.updating)
-    private var targetId: String? = null
-    private var savedRevision: Int? = null
-    var command: Map<String, Any?>? = null
-        private set
-    internal class ScheduledRun(
-        val workerStopped: () -> Boolean,
-        private val now: () -> Long = SystemClock::elapsedRealtime,
-    ) {
-        val owner: String = UUID.randomUUID().toString()
-        val done = CountDownLatch(1)
-        val cancelled = AtomicBoolean(false)
-        @Volatile private var admittedAt: Long? = null
-        val deadline: Long get() = admittedAt?.plus(ApplicationContract.OPERATION_SCHEDULED_NETWORK_TIMEOUT_MS) ?: Long.MAX_VALUE
-        private val operationDeadline: Long get() = admittedAt?.plus(ApplicationContract.OPERATION_ORDINARY_TIMEOUT_MS) ?: Long.MIN_VALUE
-        @Volatile var outcome: Map<*, *> = mapOf("success" to false)
-            private set
-        var applicationTimeout: Runnable? = null
-        private var applicationOwned = false
-
-        @Synchronized fun admit(at: Long = now()) {
-            check(admittedAt == null)
-            admittedAt = at
-        }
-
-        // The shared monitor arbitrates Worker exit and local application;
-        // LogicEngineHost retains its writer gate until execution returns.
-        @Synchronized fun handoff(): Boolean {
-            if (admittedAt == null || done.count == 0L || cancelled.get() || workerStopped() ||
-                now() >= deadline) return false
-            outcome = mapOf("success" to true, "scheduleStatus" to "saved")
-            applicationOwned = true
-            done.countDown()
-            return true
-        }
-
-        @Synchronized fun authorized(): Boolean = admittedAt != null && !cancelled.get() &&
-            if (applicationOwned) now() < operationDeadline
-            else done.count != 0L && !workerStopped() && now() < deadline
-
-        @Synchronized fun remainingMs(): Long = if (!authorized()) 0L
-            else ((if (applicationOwned) operationDeadline else deadline) - now()).coerceAtLeast(0L)
-
-        @Synchronized fun publishIfAuthorized(block: () -> Unit) {
-            check(authorized())
-            block()
-        }
-
-        @Synchronized fun applicationRemainingMs(): Long = if (admittedAt == null) 0L
-            else (operationDeadline - now()).coerceAtLeast(0L)
-
-        @Synchronized fun finish(value: Map<*, *>) {
-            applicationOwned = false
-            if (done.count == 0L) return
-            if (!cancelled.get()) outcome = value
-            done.countDown()
-        }
-
-        @Synchronized fun cancelWorker(): Boolean {
-            if (done.count == 0L) return false
-            cancel()
-            return true
-        }
-
-        @Synchronized fun cancel() {
-            applicationOwned = false
-            cancelled.set(true)
-            if (done.count != 0L) {
-                outcome = mapOf("success" to false, "scheduleStatus" to "cancelled")
-                done.countDown()
-            }
-        }
-    }
-    @Volatile private var scheduled: ScheduledRun? = null
-    private var systemRestoreOwner: String? = null
-    private var discardedSystemInput: String? = null
-    private class RuntimeRefresh(
-        val sessionGeneration: Long,
-        val coreGeneration: Long,
-        val composition: String,
-        val revisions: MutableMap<String, Long> = mutableMapOf(),
-    ) {
-        fun current() = revisions.any { (reason, revision) ->
-            PseudoVpnService.core.runtimeRefreshCurrent(
-                sessionGeneration, coreGeneration, composition, revision, reason)
-        }
-    }
-    private var pendingRuntimeRefresh: RuntimeRefresh? = null
-    private var activeRuntimeRefresh: RuntimeRefresh? = null
-    private var runtimeRefreshTimeout: Runnable? = null
-    private val drainRuntimeRefresh = Runnable { drainRuntimeRefresh() }
-    val pendingSystemRestore: Boolean get() = systemRestoreOwner != null
-
-    private val publicationGate = Any()
-    private var operationAdmittedAt: Long? = null
-    @Volatile var operationId: String? = null
-        private set(value) {
-            synchronized(publicationGate) {
-                if (field != value) {
-                    operationAdmittedAt = value?.let { SystemClock.elapsedRealtime() }
-                }
-                if (value != null && field != value) {
-                    // Keep the completed receipt paired with resultId until finish replaces it.
-                    installedBackup = null
-                    restoreStopRequested = false
-                    restoreInterruption = null
-                }
-                field = value
-            }
-        }
-
-    fun operationRemainingMs(owner: String): Long = synchronized(publicationGate) {
-        val admittedAt = operationAdmittedAt
-        if (operationId != owner || admittedAt == null) 0L
-        else scheduled?.takeIf { it.owner == owner }?.remainingMs()
-            ?: OperationBudget.remainingMs(command?.get("action"), admittedAt, SystemClock.elapsedRealtime())
-    }
+    private lateinit var backupCoordinator: BackupCoordinator
+    private lateinit var scheduledRuns: ScheduledRuns
+    private lateinit var systemRestore: SystemRestore
+    private lateinit var cleanupCalls: CoreCleanupCalls
+    private val exitingForCleanup: Boolean get() = ::cleanupCalls.isInitialized && cleanupCalls.exitingForCleanup
+    private val pendingRestore: Boolean get() = backupCoordinator.pendingRestore
+    private val backupCapturing: Boolean get() = ::backups.isInitialized && backups.snapshot()["capturing"] == true
+    private val resourceBusy: Boolean get() = CoreClient.get(context).resourceBusy
+    val operationAdmittedAt: Long? get() = operations.operationAdmittedAt
+    val operationDeadline: Long? get() = operations.operationDeadline
+    val operationId: String? get() = operations.operationId
+    val command: Map<String, Any?>? get() = operations.command
+    val pendingSystemRestore: Boolean get() = ::systemRestore.isInitialized && systemRestore.pending
+    fun operationRemainingMs(owner: String): Long = operations.remainingMs(owner)
+    fun executorStarted(owner: String) = operations.executorStarted(owner)
+    private fun replaceOwner(owner: String?) = operations.replaceOwner(owner)
+    private fun refreshBusy() = PseudoVpnService.core.setOperationBusy(
+        operationId != null || logic.busy || operations.executorBusy || resourceBusy || storagePublishing || backupCapturing)
+    private fun canAdmit() = !exitingForCleanup && operationId == null && !logic.busy && !operations.executorBusy &&
+        !resourceBusy && !storagePublishing && !backupCapturing
 
     private fun admission(owner: String): Map<String, Any> = mapOf(
         "operationId" to owner,
@@ -221,21 +95,32 @@ object AppBridge {
     fun initialize(appContext: Context) {
         context = appContext
         applications = ApplicationsCalls(context, PseudoVpnService.worker)
-        native = NativeCalls(context)
-        modes = ModeCalls(PseudoVpnService.session, PseudoVpnService.worker, { notifyUi() })
-        strategies = StrategyCalls(PseudoVpnService.core, { notifyUi() })
-        connections = ConnectionsCalls(PseudoVpnService.core)
-        coreReads = CoreReadCalls(PseudoVpnService.core, updateChanged = {
-            PseudoVpnService.core.setOperationBusy(operationId != null || logic.busy || resourceBusy || storagePublishing || backupCapturing)
-            notifyUi()
-        })
-        delays = DelayCalls(PseudoVpnService.core)
+        native = CoreLifecycleCalls(context)
+        localInterfaces = LocalInterfaces(context) { notifyUi() }
         logic = LogicEngineHost(appContext.applicationContext as PseudoApplication)
         backups = BackupCalls.get(context) {
-            PseudoVpnService.core.setOperationBusy(operationId != null || logic.busy || resourceBusy || storagePublishing || backupCapturing)
+            refreshBusy()
             notifyUi()
         }
+        backupCoordinator = BackupCoordinator(
+            context, main, operations, { backups }, { native }, logic,
+            { owner -> activity.get() === owner && uiVisible }, { exitingForCleanup }, ::refreshBusy,
+            { storagePublishing }, { storagePublishing = it }, { authorizationResult(false) },
+            ::cancelPendingRuntimeRefresh, ::cancelSystemRestore, { systemRestore.owner }, ::notifyUi)
+        scheduledRuns = ScheduledRuns(
+            context, main, operations, logic, { native },
+            { canAdmit() && !pendingSystemRestore }, ::refreshBusy, ::notifyUi)
+        systemRestore = SystemRestore(
+            context, main, operations, logic, { exitingForCleanup }, ::canAdmit, ::refreshBusy, ::notifyUi, ::executorDrained)
+        cleanupCalls = CoreCleanupCalls(
+            context, main, operations, { backupCoordinator.backupOwner(it) },
+            { storagePublishing = it }, ::cancelPendingRuntimeRefresh, ::cancelSystemRestore,
+            { backups.snapshot()["busy"] == true }, ::notifyUi)
+        CoreClient.get(context).changed = { statusChanged -> nativeChanged(statusChanged) }
+        CoreClient.get(context).onEvent = { event -> logic.coreEvent(event); notifyUi() }
     }
+
+    internal fun requireCoreDataReady() = CoreDataCleanup.get(context).requireReady()
 
     fun attachBackupActivity(owner: MainActivity, savedState: Bundle?) = backups.attach(owner, savedState)
 
@@ -246,244 +131,20 @@ object AppBridge {
     fun backupActivityResult(owner: MainActivity, code: Int, result: Int, data: Intent?): Boolean =
         backups.onActivityResult(owner, code, result, data)
 
-    private fun backupUi(call: MethodCall, owner: MainActivity, result: MethodChannel.Result) {
-        val arguments = call.arguments as? Map<*, *> ?: emptyMap<Any, Any>()
-        val requestId = arguments["requestId"] as? String
-        if (call.method == "backupDiscard") {
-            discardBackup(arguments["token"] as? String)
-            result.success(null)
-            return
-        }
-        if (call.method == "backupCancel") {
-            if (requestId != null) cancelBackup(requestId)
-            result.success(null)
-            return
-        }
-        if (activity.get() !== owner || !uiVisible || requestId.isNullOrBlank()) {
-            result.error("expired", null, AppMessage("operationFinished").toMap())
-            return
-        }
-        when (call.method) {
-            "backupPickImport" -> backups.pickImport(requestId) { result.success(it) }
-            "backupSaveExport" -> {
-                val token = arguments["token"] as? String
-                val title = arguments["title"] as? String
-                if (token == null || title == null || token in retiredBackups || token in backupUses.values) {
-                    result.error("backup", null, AppMessage("backupInvalid").toMap())
-                } else {
-                    // The UI now knows this token; its new save request owns explicit cleanup.
-                    preparedBackups.entries.removeAll { it.value == token }
-                    backups.saveExport(requestId, token, title) { result.success(it) }
-                }
-            }
-        }
-    }
-
-    private fun cancelBackup(requestId: String) {
-        backups.cancel(requestId)
-        val owner = operationId
-        if (owner != null && command?.get("requestId") == requestId &&
-            command?.get("action") in setOf("prepareBackup", "inspectBackup", "restoreBackup")) {
-            backupUses[owner]?.let { retiredBackups.add(it) }
-            if (pendingRestore) requestRestoreStop(owner, stopNetwork = false)
-            else if (!logic.cancelBeforeExecution(owner)) logic.cancel(owner)
-        }
-        preparedBackups[requestId]?.let { discardBackup(it) }
-        if (backupResult?.get("requestId") == requestId) {
-            discardBackup(backupResult?.get("token") as? String)
-        }
-    }
-
-    private fun discardBackup(token: String?) {
-        if (token == null || !BackupFiles.isToken(token)) return
-        preparedBackups.entries.removeAll { it.value == token }
-        if (token in backupUses.values) retiredBackups.add(token)
+    /** Revoke future work without replacing an executing command's actual result. */
+    fun interruptOperation(owner: String, message: AppMessage): Boolean {
+        if (operationId != owner || !logic.ownsOperation(owner)) return false
+        if (pendingRestore) backupCoordinator.interrupted(owner, message)
         else {
-            retiredBackups.remove(token)
-            backups.discardCandidate(token)
-        }
-    }
-
-    private fun backupOwner(id: String, restore: Boolean = false) = object : RestoreTransaction.Owner {
-        override fun checkCurrent() {
-            if (operationId != id || operationRemainingMs(id) == 0L || (restore && restoreStopRequested)) {
-                throw CancellationException("Backup operation ended")
+            if (!operations.interrupt(owner, message)) return false
+            authorizationResult(false)
+            if (!logic.cancelBeforeExecution(owner, message)) {
+                logic.cancel(owner)
+                CoreClient.get(context).cancelOwner(owner)
+                native.abandon()
             }
+            notifyUi()
         }
-        override fun runIfCurrent(block: () -> Unit) {
-            synchronized(publicationGate) { checkCurrent(); block() }
-        }
-    }
-
-    private fun backupWork(call: MethodCall, owner: String, result: MethodChannel.Result) {
-        val arguments = call.arguments as? Map<*, *> ?: emptyMap<Any, Any>()
-        val action = command?.get("action")
-        when (call.method) {
-            "backupPrepareExport" -> {
-                val requestId = arguments["requestId"] as? String
-                val created = backupInteger(arguments["createdAtMillis"])
-                val epoch = backupInteger(arguments["expectedEpoch"])
-                val rawDefaults = arguments["defaults"] as? Map<*, *>
-                if (action != "prepareBackup" || requestId == null || requestId != command?.get("requestId") ||
-                    created == null || created != backupInteger(command?.get("createdAtMillis")) ||
-                    epoch == null || epoch != backupInteger(command?.get("storageEpoch")) ||
-                    rawDefaults == null || rawDefaults.keys.any { it !is String } || rawDefaults.values.any { it !is String }) {
-                    result.error("backup", null, AppMessage("backupInvalid").toMap())
-                    return
-                }
-                val defaults = rawDefaults.entries.associate { it.key as String to it.value as String }
-                backups.prepareExport(requestId, created, epoch, defaults, backupOwner(owner)) { value ->
-                    val token = (value["token"] as? String)?.takeIf { BackupFiles.isToken(it) }
-                    if (operationId != owner || (token != null && backupUses[owner]?.let { it != token } == true)) {
-                        if (token != null) backups.discardCandidate(token)
-                        result.error("expired", null, AppMessage("operationFinished").toMap())
-                    } else {
-                        if (value["status"] == "ready" && token != null) {
-                            backupUses[owner] = token
-                            preparedBackups[requestId] = token
-                        }
-                        result.success(value)
-                    }
-                }
-            }
-            "backupCandidate" -> {
-                val token = arguments["token"] as? String
-                if (action !in setOf("inspectBackup", "restoreBackup") || token == null ||
-                    token != command?.get("token") || !BackupFiles.isToken(token) || token in retiredBackups ||
-                    backupUses[owner]?.let { it != token } == true) {
-                    result.error("backup", null, AppMessage("backupInvalid").toMap())
-                    return
-                }
-                // The pin covers all asynchronous Dart Store reads and native
-                // withRecord access.
-                backupUses[owner] = token
-                backups.candidate(token) { value ->
-                    if (operationId != owner) result.error("expired", null, AppMessage("operationFinished").toMap())
-                    else result.success(value)
-                }
-            }
-            "backupInstall" -> installBackup(arguments, owner, result)
-        }
-    }
-
-    private fun installBackup(arguments: Map<*, *>, owner: String, result: MethodChannel.Result) {
-        val token = arguments["token"] as? String
-        val epoch = backupInteger(arguments["expectedEpoch"])
-        if (!pendingRestore || token == null || token != command?.get("token") || backupUses[owner] != token ||
-            epoch == null || epoch != backupInteger(command?.get("storageEpoch")) || storagePublishing || backupCapturing) {
-            result.error("backup", null, AppMessage("backupInvalid").toMap())
-            return
-        }
-        val files = BackupFiles.get(context)
-        val operation = BackupFiles.Operation(backupOwner(owner, restore = true))
-        storagePublishing = true
-        PseudoVpnService.core.setOperationBusy(true)
-        try {
-            files.ioExecutor.execute {
-                var attempted = false
-                val actual = try {
-                    operation.check()
-                    check(PseudoVpnService.session.snapshot().phase == NativeSession.Phase.STOPPED &&
-                        PseudoVpnService.core.snapshot().phase == io.github.monadboxlab.clashpseudo.nativecore.CoreHost.Phase.EMPTY)
-                    attempted = true
-                    val installed = files.transaction.install(token, epoch, operation)
-                    mapOf("committed" to installed.committed, "rolledBack" to installed.rolledBack,
-                        "ready" to installed.ready, "epoch" to installed.epoch, "errorCode" to installed.error)
-                } catch (error: Exception) {
-                    val state = files.transaction.snapshot()
-                    mapOf("committed" to (if (!attempted || error is CancellationException) false else null),
-                        "rolledBack" to false, "ready" to state.ready, "epoch" to state.epoch,
-                        "errorCode" to if (error is CancellationException) "restoreCancelled" else "storageInstallUnconfirmed")
-                }
-                main.post {
-                    storagePublishing = false
-                    installedBackup = owner to actual
-                    if (operationId == owner && pendingRestore && actual["ready"] == true) {
-                        // Only this restore owner receives the trusted native epoch continuation.
-                        command = command!! + ("storageEpoch" to actual["epoch"])
-                    } else if (resultId == owner && operationId == null) {
-                        // Preserve a real commit received after transport or engine
-                        // failure.
-                        val detail = (backupResult ?: emptyMap<Any, Any>()) + actual + mapOf(
-                            "token" to token, "status" to restoreStatus(actual["committed"]))
-                        backupResult = backupProjection(detail)
-                        resultSuccess = actual["committed"] == true
-                        resultMessage = AppMessage(if (resultSuccess) "backupRestoreUnconfirmed" else "backupNotRestored")
-                    }
-                    // Raw actual result, including commit, even after cancellation or owner retirement.
-                    result.success(actual)
-                    PseudoVpnService.core.setOperationBusy(operationId != null || logic.busy || resourceBusy || storagePublishing || backupCapturing)
-                    notifyUi()
-                }
-            }
-        } catch (_: Exception) {
-            storagePublishing = false
-            result.error("storage", null, AppMessage("storageUnavailable").toMap())
-            PseudoVpnService.core.setOperationBusy(operationId != null || logic.busy || resourceBusy || storagePublishing || backupCapturing)
-        }
-        notifyUi()
-    }
-
-    /** Stop/cancel keeps the restore owner and commit reply. The same arbitration gates admission. */
-    private fun requestRestoreStop(owner: String, stopNetwork: Boolean) {
-        synchronized(publicationGate) {
-            if (operationId != owner || !pendingRestore) return
-            restoreStopRequested = true
-        }
-        // Retire the permission waiter while retaining executing restore and
-        // Stop/install replies; discard late grants.
-        authorizationResult(false)
-        if (stopNetwork) {
-            pendingRuntimeRefresh = null
-            main.removeCallbacks(drainRuntimeRefresh)
-            PseudoVpnService.instance?.cancelSystemStart(terminal = true)
-            // A waiting Android start is distinct from this admitted backup restore.
-            if (systemRestoreOwner != owner) cancelSystemRestore()
-        }
-        // Retain the Dart waiter through actual Stop/read/install completion.
-        // Subsequent checks observe the Stop intent.
-        if (restoreStopOwner != owner) {
-            // Keep an in-flight Stop waiter alive; cancel a pending reconnect before
-            // requesting normal network Stop.
-            native.abandon()
-            if (stopNetwork && PseudoVpnService.session.snapshot().phase != NativeSession.Phase.STOPPING &&
-                PseudoVpnService.core.snapshot().phase != io.github.monadboxlab.clashpseudo.nativecore.CoreHost.Phase.RELEASING) {
-                restoreNetworkStop(owner, null, internalReconnect = false)
-            }
-        }
-        logic.cancelBeforeExecution(owner)
-        notifyUi()
-    }
-
-    private fun restoreNetworkStop(owner: String, reply: MethodChannel.Result?, internalReconnect: Boolean) {
-        if (restoreStopOwner == owner) {
-            if (reply != null) {
-                if (restoreStopReply == null) restoreStopReply = reply
-                else reply.error("busy", null, AppStrings.message(R.string.error_busy).toMap())
-            }
-            return
-        }
-        restoreStopOwner = owner
-        restoreStopReply = reply
-        native.stop(object : MethodChannel.Result {
-            private fun take(): MethodChannel.Result? {
-                if (restoreStopOwner != owner) return null
-                restoreStopOwner = null
-                val receiver = restoreStopReply
-                restoreStopReply = null
-                return receiver
-            }
-            override fun success(value: Any?) { take()?.success(value) }
-            override fun error(code: String, message: String?, details: Any?) { take()?.error(code, message, details) }
-            override fun notImplemented() { take()?.notImplemented() }
-        }, internalReconnect)
-    }
-
-    /** Service timeout/destruction waits for the actual restore result. */
-    fun interruptBackupRestore(owner: String, message: AppMessage): Boolean {
-        if (operationId != owner || !pendingRestore) return false
-        restoreInterruption = message
-        requestRestoreStop(owner, stopNetwork = false)
         return true
     }
 
@@ -495,14 +156,44 @@ object AppBridge {
                     result.error("expired", null, AppStrings.message(R.string.error_logic_expired).toMap())
                 } else roots.fold(
                     onSuccess = { result.success(it) },
-                    onFailure = { result.error("trust", null, AppMessage("trustedRootsUnavailable").toMap()) },
+                    onFailure = { result.error("trust", null, AppMessage("trustedRootsUnavailable").withDetail(it).toMap()) },
                 )
             }
         }
     }
 
+    private fun privacyNotice(call: MethodCall, result: MethodChannel.Result, current: () -> Boolean) {
+        if (!current()) {
+            result.error("expired", null, AppMessage("operationFinished").toMap())
+            return
+        }
+        fun failed(error: Throwable) {
+            val message = if (call.method == "markPrivacyNoticeShown") "privacyNoticeNotSaved"
+                else "operationNotCompletedRetry"
+            result.error("privacyNotice", null, AppMessage(message).withDetail(error).toMap())
+        }
+        try {
+            // Share the file lane, not the native-core worker. Return only after
+            // the marker's real read/write, sync and descriptor close have drained.
+            BackupFiles.get(context).ioExecutor.execute {
+                val outcome = runCatching {
+                    if (call.method == "privacyNoticeShown") AppFiles.privacyNoticeShown(context)
+                    else {
+                        AppFiles.markPrivacyNoticeShown(context)
+                        null
+                    }
+                }
+                main.post { outcome.fold(onSuccess = { result.success(it) }, onFailure = ::failed) }
+            }
+        } catch (error: Exception) {
+            failed(error)
+        } catch (error: LinkageError) {
+            failed(error)
+        }
+    }
+
     fun attachUi(owner: MainActivity, engine: FlutterEngine) {
-        delays.setVisible(false)
+        if (uiVisible) logic.retainPlatform(false)
         activity = WeakReference(owner)
         uiVisible = false
         uiReady = false
@@ -520,81 +211,31 @@ object AppBridge {
                         }
                     }
                     "paths" -> storagePaths(result)
+                    "storageUsage" -> BackupFiles.get(context).ioExecutor.execute {
+                        val usage = AppFiles.usage(context)
+                        main.post { result.success(usage) }
+                    }
                     "trustRoots" -> trustedRoots(result) { activity.get() === owner }
+                    "privacyNoticeShown", "markPrivacyNoticeShown" ->
+                        privacyNotice(call, result) { activity.get() === owner }
                     "appInfo" -> applications.appInfo(result)
                     "snapshot" -> snapshot(null, result)
-                    "strategies" -> strategies.read(call.argument<Number>("generation")?.toLong() ?: -1L,
-                        null, strategyReply(result))
-                    "rules" -> coreReads.rules(
-                        call.argument<Number>("generation")?.toLong() ?: -1L,
-                        call.argument<String>("composition"),
-                        call.argument<Map<String, Any?>>("query") ?: emptyMap()) { value, error ->
-                            if (error != null) result.error("rules", null, error.toMap())
-                            else result.success(value)
-                        }
-                    "nodes" -> coreReads.nodes(
-                        call.argument<Number>("generation")?.toLong() ?: -1L,
-                        call.argument<String>("composition"),
-                        call.argument<Map<String, Any?>>("query") ?: emptyMap()) { value, error ->
-                            if (error != null) result.error("nodes", null, error.toMap())
-                            else result.success(value)
-                        }
-                    "runtimeConfig" -> coreReads.read(
-                        call.argument<Number>("generation")?.toLong() ?: -1L,
-                        call.argument<String>("composition")) { value, error ->
-                            if (error != null) result.error("runtimeConfig", null, error.toMap())
-                            else result.success(value)
-                        }
-                    "resources" -> coreReads.resources(
-                        call.argument<Number>("generation")?.toLong() ?: -1L,
-                        call.argument<String>("composition")) { value, error ->
-                            if (error != null) result.error("resources", null, error.toMap())
-                            else result.success(value)
-                        }
-                    "logs" -> coreReads.logs(
-                        call.argument<Number>("generation")?.toLong() ?: -1L,
-                        call.argument<String>("composition"),
-                        call.argument<Map<String, Any?>>("query") ?: emptyMap()) { value, error ->
-                            if (error != null) result.error("logs", null, error.toMap())
-                            else result.success(value)
-                        }
-                    "delayStart" -> delays.start(
-                        call.argument<Number>("generation")?.toLong() ?: -1L,
-                        call.argument<String>("composition"),
-                        call.argument<Map<String, Any?>>("query") ?: emptyMap()) { value, error ->
-                            if (error != null) result.error("delay", null, error.toMap())
-                            else result.success(value)
-                        }
-                    "delayRead" -> delays.read(
-                        call.argument<Number>("generation")?.toLong() ?: -1L,
-                        call.argument<String>("composition"),
-                        call.argument<String>("batch").orEmpty()) { value, error ->
-                            if (error != null) result.error("delay", null, error.toMap())
-                            else result.success(value)
-                        }
-                    "delayCancel" -> {
-                        delays.cancel(call.argument<String>("batch").orEmpty())
-                        result.success(null)
-                    }
-                    "connections" -> logic.connections(call.argument<Map<*, *>>("detail"), result)
+                    "strategies", "rules", "nodes", "runtimeConfig", "resources", "logs",
+                    "delayStart", "delayRead", "delayCancel", "appMemory", "coreMemory", "dnsQuery",
+                    "clearDnsCache", "flushFakeIp", "cancelDnsQuery", "coreCleanupCandidates" ->
+                        logic.read(call.method, call.arguments as? Map<String, Any?> ?: emptyMap(), result)
+                    "connections" -> logic.connections(call.argument<Map<*, *>>("detail"), call.argument<String>("detailOwner"), result)
+                    "clearInactiveConnections" -> logic.clearInactiveConnections(call.argument<Map<*, *>>("detail"), call.argument<String>("detailOwner"), result)
                     "traffic" -> logic.traffic(result)
-                    "processMemory" -> connections.processMemory { value, error ->
-                        if (error != null) result.error("memory", null, error.toMap())
-                        else result.success(value)
-                    }
-                    "dnsQuery", "clearDnsCache", "flushFakeIp", "cancelDnsQuery" -> {
-                        if (activity.get() !== owner || (!uiVisible && call.method != "cancelDnsQuery")) {
-                            result.error("expired", null, AppStrings.message(R.string.error_logic_expired).toMap())
-                        } else coreReads.handleDns(call, result)
-                    }
-                    "releaseDetail" -> { logic.releaseDetail(); result.success(null) }
+                    "releaseDetail" -> logic.releaseDetail(call.argument<String>("detailOwner").orEmpty(), result)
                     "openVpnSettings" -> openVpnSettings(result)
                     "vpnStatus" -> result.success(vpnStatus())
                     "applications" -> applications.applications(result)
                     "applicationIcon" -> applications.applicationIcon(call, result)
+                    Contract.CORE_CHANNEL_LOCAL_INTERFACES -> readLocalInterfaces(result)
                     "syncSchedules" -> syncSchedules(call, result)
                     "backupPickImport", "backupSaveExport", "backupCancel", "backupDiscard" ->
-                        backupUi(call, owner, result)
+                        backupCoordinator.backupUi(call, owner, result)
                     "submit" -> submit(call, result)
                     else -> result.notImplemented()
                 }
@@ -602,12 +243,17 @@ object AppBridge {
         }
     }
 
+    internal fun syncUiVisibility() {
+        logic.coreEvent(mapOf("event" to "uiVisibility", "visible" to (activity.get() != null && uiVisible)))
+    }
+
     fun setUiVisible(owner: MainActivity, visible: Boolean) {
-        // Match the Activity identity before cancelling its work.
+        // 旧 Activity 的回调不能撤销当前 Activity 的工作和 runtime 引用。
         if (activity.get() !== owner) return
+        if (uiVisible != visible) logic.retainPlatform(visible)
         uiVisible = visible
-        delays.setVisible(visible)
-        if (!visible) coreReads.cancelDnsForBackground()
+        logic.coreEvent(mapOf("event" to "uiVisibility", "visible" to visible))
+        localInterfaces.setActive(visible)
         PseudoVpnService.core.setVisible(visible)
     }
 
@@ -635,6 +281,14 @@ object AppBridge {
                         main.post { logic.ready(runtime) }
                         return@setMethodCallHandler
                     }
+                    "submit" -> {
+                        submit(call, result)
+                        return@setMethodCallHandler
+                    }
+                    "snapshot" -> if (call.argument<String>("owner") == null) {
+                        snapshot(null, result)
+                        return@setMethodCallHandler
+                    }
                     "runtimeState" -> {
                         result.success(runtimeState())
                         return@setMethodCallHandler
@@ -649,28 +303,52 @@ object AppBridge {
                             PseudoVpnService.instance?.refreshNotification()
                             AppWorkService.instance?.refreshNotification()
                             SystemControls.refresh(context)
-                            result.success(null)
-                        } catch (_: Exception) {
-                            result.error("notification", null, AppStrings.message(R.string.error_notification_update).toMap())
+                            CoreClient.get(context).refreshPresentation { error ->
+                                if (error == null) result.success(null)
+                                else result.error("notification", null, AppStrings.message(R.string.error_notification_update).withDetail(error).toMap())
+                            }
+                        } catch (error: Exception) {
+                            result.error("notification", null, AppStrings.message(R.string.error_notification_update).withDetail(error).toMap())
+                        } catch (error: LinkageError) {
+                            result.error("notification", null, AppStrings.message(R.string.error_notification_update).withDetail(error).toMap())
                         }
                         return@setMethodCallHandler
                     }
-                    "sampleConnections" -> {
-                        connections.read(call.argument<Number>("generation")?.toLong() ?: -1L,
-                            call.argument<String>("configId").orEmpty(), call.argument<Int>("revision") ?: -1,
-                            call.argument<Map<String, Any?>>("query") ?: emptyMap()) { value, error ->
-                            if (error != null) result.error("connections", null, error.toMap()) else result.success(value)
-                        }
+                    Contract.CORE_CHANNEL_HANDSHAKE, Contract.CORE_CHANNEL_SUBMIT,
+                    Contract.CORE_CHANNEL_READ, Contract.CORE_CHANNEL_CANCEL, Contract.CORE_CHANNEL_STATUS,
+                    Contract.CORE_CHANNEL_EXIT, Contract.CORE_CHANNEL_PUBLISH_RUN_INPUT,
+                    Contract.CORE_CHANNEL_READ_RUN_INPUT_RECORD -> {
+                        CoreClient.get(context).handle(call, result)
+                        return@setMethodCallHandler
+                    }
+                    Contract.CORE_CHANNEL_LOCAL_INTERFACES -> {
+                        readLocalInterfaces(result)
+                        return@setMethodCallHandler
+                    }
+                    Contract.CORE_CHANNEL_RUNTIME_CHANGED -> {
+                        val changed = logic.updateProjection(call.arguments as? Map<*, *> ?: emptyMap<Any, Any>())
+                        result.success(null)
+                        if (changed) notifyUi()
                         return@setMethodCallHandler
                     }
                     "backupDiscard" -> {
-                        discardBackup((call.arguments as? Map<*, *>)?.get("token") as? String)
-                        result.success(null)
+                        val token = (call.arguments as? Map<*, *>)?.get("token") as? String
+                        val caller = call.argument<String>("owner")
+                        // This writer requests retirement only after its Store reads returned.
+                        backupCoordinator.releaseAndDiscard(caller, token) { error ->
+                            if (error == null) result.success(null)
+                            else result.error("backupCleanup", null, AppMessage("backupFailed").withDetail(error).toMap())
+                        }
                         return@setMethodCallHandler
                     }
                     "retain" -> {
-                        logic.retain(runtime, call.argument<Boolean>("value") == true)
-                        result.success(null)
+                        val observationOwner = call.argument<String>("observationOwner")
+                        if (observationOwner.isNullOrEmpty()) {
+                            result.error("connections", null, AppStrings.message(R.string.error_invalid_result).toMap())
+                        } else {
+                            logic.retain(runtime, call.argument<Boolean>("value") == true, observationOwner)
+                            result.success(null)
+                        }
                         return@setMethodCallHandler
                     }
                 }
@@ -679,13 +357,15 @@ object AppBridge {
                     result.error("expired", null, AppStrings.message(R.string.error_operation_ended).toMap())
                     return@setMethodCallHandler
                 }
-                val scheduledRun = scheduled?.takeIf { it.owner == owner }
-                if (scheduledRun != null && !scheduledRun.authorized()) {
-                    cancelScheduledOperation(scheduledRun)
+                val scheduledRun = scheduledRuns.current?.takeIf { it.owner == owner }
+                if (scheduledRun != null && !scheduledRun.authorized() && call.method != "snapshot") {
+                    scheduledRuns.cancelScheduledOperation(scheduledRun)
                     result.error("expired", null, AppMessage("operationFinished").toMap())
                     return@setMethodCallHandler
                 }
-                if (pendingRestore && restoreStopRequested && call.method !in setOf("stop", "snapshot")) {
+                if ((operationRemainingMs(owner) == 0L || (pendingRestore && backupCoordinator.stopRequested)) &&
+                    call.method !in setOf("stop", "snapshot")) {
+
                     result.error("expired", null, AppMessage("operationFinished").toMap())
                     return@setMethodCallHandler
                 }
@@ -696,67 +376,40 @@ object AppBridge {
                     result.error("expired", null, AppMessage("storageContextChanged").toMap())
                     return@setMethodCallHandler
                 }
+                if (call.method in setOf("start", "prepareStrategies", "updateResource") && !CoreDataCleanup.get(context).ready) {
+                    result.error("coreCleanup", null, AppMessage("coreCleanupRequired").toMap())
+                    return@setMethodCallHandler
+                }
                 when (call.method) {
+                    "scheduleCoreCleanup" -> cleanupCalls.scheduleCoreCleanup(call, owner, result)
                     "checkOperation" -> {
                         if (operationRemainingMs(owner) > 0L) result.success(null)
                         else result.error("expired", null, AppMessage("operationFinished").toMap())
                     }
                     "operationRemaining" -> result.success(operationRemainingMs(owner))
-                    "finishScheduledDownload" -> finishScheduledDownload(call, owner, result)
-                    "backupPrepareExport", "backupCandidate", "backupInstall" -> backupWork(call, owner, result)
+                    "finishScheduledDownload" -> scheduledRuns.finishScheduledDownload(call, owner, result)
+                    "backupPrepareExport", "backupCandidate", "backupInstall" -> backupCoordinator.backupWork(call, owner, result)
                     "publishStore" -> publishStore(call, owner, result)
                     "paths" -> storagePaths(result)
                     "snapshot" -> snapshot(owner, result)
-                    "runningInput" -> runningInput(call, owner, result)
-                    "updateResource" -> coreReads.handleResourceUpdate(call, result, authorized = { operationId == owner })
                     "syncSchedules" -> syncSchedules(call, result)
                     "stage" -> {
                         val message = AppMessage.fromMap(call.argument<Any>("message"))
                         if (message == null) result.error("stage", null, AppStrings.message(R.string.error_invalid_result).toMap())
-                        else { operation = message; notifyUi(); result.success(null) }
+                        else { operations.operation = message; notifyUi(); result.success(null) }
                     }
                     "authorize" -> authorize(result)
-                    "start" -> native.start(call.argument<String>("id")!!,
-                        call.argument<Int>("revision")!!, call.argument<String>("mode"), owner, result)
-                    "prepareStrategies" -> strategies.prepare(context, owner, call.argument<String>("id").orEmpty(),
-                        call.argument<Int>("revision") ?: 0, call.argument<String>("mode"), strategyReply(result))
-                    "releasePreview" -> strategies.release(owner, strategyReply(result))
-                    "strategies" -> strategies.read(call.argument<Number>("generation")?.toLong() ?: -1L,
-                        owner, strategyReply(result))
-                    "setStrategy" -> strategies.change(call.argument<Number>("generation")?.toLong() ?: -1L,
-                        owner, call.argument<String>("name").orEmpty(),
-                        call.argument<Map<String, Any?>>("choice") ?: emptyMap<String, Any?>(), strategyReply(result))
                     "stop" -> {
                         if (pendingRestore) {
-                            restoreNetworkStop(owner, result, internalReconnect = true)
-                            return@setMethodCallHandler
-                        }
-                        if (command?.get("action") == "refreshRuntime" &&
-                            activeRuntimeRefresh?.current() != true) {
-                            result.error("expired", null, AppStrings.message(R.string.error_session_changed).toMap())
+                            backupCoordinator.restoreNetworkStop(owner, result, internalReconnect = true)
                             return@setMethodCallHandler
                         }
                         // This owner is already authorized. Its non-stop command
                         // releases only as part of an application apply/reconnect.
-                        val internalReconnect = scheduled?.owner == owner ||
+                        val internalReconnect = scheduledRuns.current?.owner == owner ||
                             command?.get("action")?.let { it != "stop" } == true
                         if (!internalReconnect) cancelSystemRestore()
                         native.stop(result, internalReconnect)
-                    }
-                    "closeConnection" -> {
-                        connections.disconnect(call.argument<Number>("generation")?.toLong() ?: -1L,
-                            call.argument<String>("configId").orEmpty(), call.argument<Int>("revision") ?: -1,
-                            call.argument<String>("connectionId").orEmpty(), owner) { value, error ->
-                            if (error != null) result.error("closeConnection", null, error.toMap()) else result.success(value)
-                        }
-                        return@setMethodCallHandler
-                    }
-                    "setMode" -> {
-                        val generation = call.argument<Number>("generation")?.toLong() ?: -1L
-                        modes.change(generation, owner, call.argument<String>("mode").orEmpty()) { mode, error ->
-                            if (error != null) result.error("mode", null, error.toMap())
-                            else result.success(mode)
-                        }
                     }
                     else -> result.notImplemented()
                 }
@@ -764,181 +417,59 @@ object AppBridge {
         }
     }
 
-    private fun syncSchedules(call: MethodCall, result: MethodChannel.Result) {
-        @Suppress("UNCHECKED_CAST")
-        val targets = (call.argument<List<Map<*, *>>>("targets") ?: emptyList())
-        PseudoVpnService.worker.execute {
-            try {
-                ScheduleManager.sync(context, targets) {
-                    main.post { result.success(null) }
-                }
-            } catch (_: Exception) {
-                main.post { result.error("schedule", null, AppStrings.message(R.string.error_schedule_save).toMap()) }
-            }
+    private fun readLocalInterfaces(result: MethodChannel.Result) {
+        CoreClient.get(context).io.execute {
+            val value = localInterfaces.snapshot()
+            main.post { result.success(value) }
         }
     }
 
-    private fun runningInput(call: MethodCall, owner: String, result: MethodChannel.Result) {
-        val generation = call.argument<Number>("generation")?.toLong() ?: -1L
-        val composition = call.argument<String>("composition").orEmpty()
-        val core = PseudoVpnService.core
-        core.worker.execute {
-            val value = if (owner == operationId) core.runningInput(generation, composition) else null
-            main.post {
-                if (owner != operationId || value == null || !core.current(generation) ||
-                    core.snapshot().composition != composition) {
-                    result.error("expired", null, AppStrings.message(R.string.error_operation_ended).toMap())
-                } else result.success(value)
+    private fun syncSchedules(call: MethodCall, result: MethodChannel.Result) {
+        @Suppress("UNCHECKED_CAST")
+        val targets = (call.argument<List<Map<*, *>>>("targets") ?: emptyList())
+        val kind = call.argument<String>("kind")
+        fun failed(error: Throwable) {
+            result.error("schedule", null,
+                AppStrings.message(R.string.error_schedule_save).withDetail(error).toMap())
+        }
+        try {
+            PseudoVpnService.worker.execute {
+                try {
+                    require(kind in setOf("config", "override"))
+                    ScheduleManager.sync(context, targets, kind) {
+                        main.post { result.success(null) }
+                    }
+                } catch (error: Exception) {
+                    main.post { failed(error) }
+                } catch (error: LinkageError) {
+                    main.post { failed(error) }
+                }
             }
+        } catch (error: Exception) {
+            failed(error)
+        } catch (error: LinkageError) {
+            failed(error)
         }
     }
 
     fun runSchedule(kind: String, id: String, cancelled: () -> Boolean = { false }): Map<*, *> =
-        runScheduled(mapOf("action" to "refreshSchedule", "kind" to kind, "id" to id), cancelled)
+        scheduledRuns.runScheduled(mapOf("action" to "refreshSchedule", "kind" to kind, "id" to id), cancelled)
 
     /** Reconcile from saved Dart settings. */
     fun reconcileSchedules(cancelled: () -> Boolean = { false }): Map<*, *> =
-        runScheduled(mapOf("action" to "syncSchedules"), cancelled)
-
-    private fun runScheduled(request: Map<String, Any?>,
-                             cancelled: () -> Boolean = { false }): Map<*, *> {
-        val run = ScheduledRun(cancelled)
-        main.post {
-            if (run.cancelled.get() || cancelled()) {
-                run.cancel()
-                return@post
-            }
-            val storage = BackupFiles.get(context).transaction.snapshot()
-            if (!storage.ready || storage.restoring ||
-                operationId != null || logic.busy || resourceBusy || storagePublishing || backupCapturing || pendingSystemRestore ||
-                PseudoVpnService.session.snapshot().phase in setOf(
-                    NativeSession.Phase.STARTING, NativeSession.Phase.STOPPING)) {
-                run.finish(mapOf("success" to false, "scheduleStatus" to "busy"))
-                return@post
-            }
-            scheduled = run
-            operationId = run.owner
-            run.admit(operationAdmittedAt!!)
-            command = request + ("storageEpoch" to storage.epoch)
-            PseudoVpnService.core.setOperationBusy(true)
-            notifyUi()
-            val settle: (Map<*, *>) -> Unit = { value ->
-                main.post {
-                    if (operationId == run.owner || (scheduled === run && operationId == null)) {
-                        operationId = null
-                        command = null
-                        operation = null
-                    }
-                    if (scheduled === run) scheduled = null
-                    run.applicationTimeout?.let { main.removeCallbacks(it) }
-                    run.applicationTimeout = null
-                    PseudoVpnService.core.setOperationBusy(operationId != null || logic.busy || resourceBusy || storagePublishing || backupCapturing)
-                    notifyUi()
-                    run.finish(value)
-                }
-            }
-            try {
-                logic.execute(run.owner, command!!, settle)
-            } catch (_: Exception) {
-                settle(mapOf("success" to false))
-            }
-        }
-        try {
-            while (!run.done.await(100, TimeUnit.MILLISECONDS)) {
-                if (cancelled() || SystemClock.elapsedRealtime() >= run.deadline) break
-            }
-        } catch (_: InterruptedException) {
-            Thread.currentThread().interrupt()
-        }
-        if (run.cancelWorker()) {
-            main.post { if (scheduled === run && run.cancelled.get()) cancelScheduledOperation() }
-        }
-        return run.outcome
-    }
-
-    /** The network Worker ends before reconnect can change its own constraints.
-     * The same Dart executor still owns local application and its real drain. */
-    private fun finishScheduledDownload(call: MethodCall, owner: String, result: MethodChannel.Result) {
-        val run = scheduled
-        val session = PseudoVpnService.session.snapshot()
-        val core = PseudoVpnService.core.snapshot()
-        if (run == null || run.owner != owner || command?.get("action") != "refreshSchedule" ||
-            command?.get("kind") != call.argument<String>("kind") ||
-            command?.get("id") != call.argument<String>("id") ||
-            session.phase != NativeSession.Phase.RUNNING ||
-            session.generation != call.argument<Number>("sessionGeneration")?.toLong() ||
-            session.configId != call.argument<String>("configId") ||
-            session.revision != call.argument<Int>("revision") ||
-            core.generation != call.argument<Number>("generation")?.toLong() ||
-            core.composition != call.argument<String>("composition") ||
-            core.configId != session.configId || core.revision != session.revision ||
-            core.purpose != CoreHost.Purpose.VPN || !PseudoVpnService.core.current(core.generation) ||
-            !run.handoff()) {
-            result.error("expired", null, AppMessage("operationFinished").toMap())
-            return
-        }
-        val timeout = Runnable {
-            if (scheduled === run && operationId == owner) cancelScheduledOperation()
-        }
-        run.applicationTimeout = timeout
-        main.postDelayed(timeout, run.applicationRemainingMs())
-        result.success(null)
-    }
-
-    /** VpnService revocation may arrive on a binder thread. Revoke only its
-     * current scheduled publication authority now; clean up that run on main. */
-    fun revokeScheduledOperation(service: PseudoVpnService): Long? {
-        val revoked = synchronized(publicationGate) {
-            if (PseudoVpnService.instance !== service) return@synchronized null
-            val current = scheduled?.takeIf { operationId == it.owner }
-            if (current != null) {
-                current.cancel()
-                operationId = null
-            }
-            current to PseudoVpnService.session.snapshot().generation
-        } ?: return null
-        val run = revoked.first
-        if (run != null) {
-            if (Looper.myLooper() == Looper.getMainLooper()) cancelScheduledOperation(run)
-            else main.post { cancelScheduledOperation(run) }
-        }
-        return revoked.second
-    }
-
-    /** Main-thread final stop/revoke/timeout. Invalidates authority immediately;
-     * LogicEngineHost keeps its writer gate closed until execute really drains.
-     */
-    fun cancelScheduledOperation(): Boolean = scheduled?.let { cancelScheduledOperation(it) } ?: false
-
-    private fun cancelScheduledOperation(run: ScheduledRun): Boolean {
-        val current = scheduled === run
-        if (current) scheduled = null
-        run.cancel()
-        run.applicationTimeout?.let { main.removeCallbacks(it) }
-        run.applicationTimeout = null
-        val ownsCommand = current && (operationId == run.owner || operationId == null)
-        val starting = if (ownsCommand) PseudoVpnService.session.snapshot()
-            .takeIf { it.phase == NativeSession.Phase.STARTING } else null
-        val service = PseudoVpnService.instance
-        if (ownsCommand) {
-            operationId = null
-            command = null
-            operation = null
-        }
-        logic.cancel(run.owner)
-        modes.abandon(run.owner)
-        strategies.abandon(run.owner)
-        connections.abandon(run.owner)
-        if (ownsCommand) native.abandon()
-        if (starting != null) service?.requestStop(starting.generation)
-        PseudoVpnService.core.setOperationBusy(operationId != null || logic.busy || resourceBusy || storagePublishing || backupCapturing)
-        notifyUi()
-        return current
-    }
+        scheduledRuns.runScheduled(mapOf("action" to "syncSchedules"), cancelled)
 
     private fun submit(call: MethodCall, result: MethodChannel.Result) {
         @Suppress("UNCHECKED_CAST")
         val request = call.arguments as? Map<String, Any?>
+        if (exitingForCleanup && request?.get("action") != "stop") {
+            result.error("busy", null, AppStrings.message(R.string.error_busy).toMap())
+            return
+        }
+        if (request?.get("action") == "scheduleCoreCleanup" && backups.snapshot()["busy"] == true) {
+            result.error("busy", null, AppStrings.message(R.string.error_busy).toMap())
+            return
+        }
         val storage = BackupFiles.get(context).transaction.snapshot()
         if (request?.get("action") != "stop" && (!storage.ready || storage.restoring)) {
             result.error("storage", null, AppMessage("storageUnavailable").toMap())
@@ -951,11 +482,25 @@ object AppBridge {
             result.error("expired", null, AppMessage("storageContextChanged").toMap())
             return
         }
+        if (request?.get("action") == "refreshRuntime") {
+            val captured = CoreClient.get(context).status()
+            val matches = listOf(Contract.CORE_FIELD_PROCESS_ID, Contract.CORE_FIELD_INPUT_ID).all {
+                request[it] is String && request[it] == captured[it]
+            } && listOf(Contract.CORE_FIELD_GENERATION, Contract.CORE_FIELD_NETWORK_REVISION).all {
+                val expected = request[it]
+                val actual = captured[it]
+                (expected is Int || expected is Long) && actual is Number && (expected as Number).toLong() == actual.toLong()
+            }
+            if (!matches || captured[Contract.CORE_FIELD_PHASE] != Contract.CORE_PHASE_READY) {
+                result.error("expired", null, AppMessage("operationNotCompletedRetry").toMap())
+                return
+            }
+        }
         if (request?.get("action") == "stop" && pendingRestore) {
             val restoreOwner = operationId
             if (restoreOwner != null) {
                 val alwaysOn = PseudoVpnService.alwaysOnState() == true
-                requestRestoreStop(restoreOwner, stopNetwork = !alwaysOn)
+                backupCoordinator.requestRestoreStop(restoreOwner, stopNetwork = !alwaysOn)
                 if (alwaysOn) result.error("alwaysOn", null, AppMessage("alwaysOnNotice").toMap())
                 else result.success(admission(restoreOwner))
                 return
@@ -967,46 +512,37 @@ object AppBridge {
         }
         if (request?.get("action") == "stop" &&
             (command?.get("action") == "stop" ||
-                (scheduled == null && PseudoVpnService.core.snapshot().phase == io.github.monadboxlab.clashpseudo.nativecore.CoreHost.Phase.RELEASING))) {
+                (command?.get("action") != "systemRevoked" && scheduledRuns.current == null &&
+                    PseudoVpnService.core.snapshot().phase == CoreHost.Phase.RELEASING))) {
             result.error("busy", null, AppStrings.message(R.string.error_busy).toMap())
             return
         }
         if (request?.get("action") == "stop") {
-            pendingRuntimeRefresh = null
-            main.removeCallbacks(drainRuntimeRefresh)
+            cancelPendingRuntimeRefresh()
         }
-        if (request?.get("action") == "stop" && (scheduled != null || resourceBusy || pendingSystemRestore || backupCapturing ||
-            command?.get("action") in setOf("start", "refreshRuntime", "prepareBackup", "inspectBackup") ||
-            PseudoVpnService.instance?.pendingSystemStart == true ||
+        if (request?.get("action") == "stop" && (scheduledRuns.current != null || resourceBusy || pendingSystemRestore || backupCapturing ||
+            command?.get("action") in setOf("start", "refreshRuntime", "systemRevoked", "prepareBackup", "inspectBackup", "scheduleCoreCleanup") ||
             PseudoVpnService.session.snapshot().phase == NativeSession.Phase.STARTING)) {
-            PseudoVpnService.instance?.cancelSystemStart(terminal = true)
+            val interruptedAt = operations.operationAdmittedAt
+            val interruptedDeadline = operations.operationDeadline
             cancelSystemRestore()
             cancelScheduledOperation()
             operationId?.let { previous ->
-                if (command?.get("action") == "prepareBackup") backupUses[previous]?.let { token ->
-                    retiredBackups.add(token)
-                    preparedBackups.entries.removeAll { it.value == token }
-                }
-                operationId = null
-                command = null
-                operation = null
+                if (command?.get("action") == "prepareBackup") backupCoordinator.retirePreparation(previous)
+                replaceOwner(null)
+                operations.command = null
+                operations.operation = null
                 authorizationResult(false)
                 logic.cancel(previous)
-                modes.abandon(previous)
-                strategies.abandon(previous)
-                connections.abandon(previous)
-                native.abandon()
-                activeRuntimeRefresh = null
-                runtimeRefreshTimeout?.let { main.removeCallbacks(it) }
-                runtimeRefreshTimeout = null
+                native.abandon(previous)
             }
             // Stop can preempt a download; other commands remain serialized by
             // logic.busy.
             val owner = UUID.randomUUID().toString()
-            operationId = owner
-            command = request
-            resultId = null
-            resultMessage = null
+            operations.replaceOwner(owner, interruptedAt, interruptedDeadline)
+            operations.command = request
+            operations.resultId = null
+            operations.resultMessage = null
             PseudoVpnService.core.setOperationBusy(true)
             result.success(admission(owner))
             notifyUi()
@@ -1021,11 +557,11 @@ object AppBridge {
             })
             return
         }
-        if (operationId != null || logic.busy || resourceBusy || storagePublishing || backupCapturing || pendingSystemRestore) {
+        if (!canAdmit() || pendingSystemRestore) {
             result.error("busy", null, AppStrings.message(R.string.error_busy).toMap())
             return
         }
-        if (request?.get("action") !in setOf("import", "updateConfig", "renameConfig", "saveLocal", "start", "stop", "select", "delete", "setMode", "prepareStrategies", "setStrategy", "closeConnection", "setPreference", "saveOverride", "importOverride", "updateOverride", "changeOverrideSource", "changeOverride", "reorderOverrides", "deleteOverride", "setApplicationAccess", "setConfigUpdate", "setOverrideUpdate", "syncSchedules", "updateResource", "saveLocalDefinition", "deleteLocalDefinition", "prepareBackup", "inspectBackup", "restoreBackup")) {
+        if (request?.get("action") !in setOf("import", "updateConfig", "renameConfig", "saveLocal", "start", "stop", "select", "delete", "clearConfigurations", "clearOverrides", "setMode", "prepareStrategies", "setStrategy", "closeConnection", "setPreference", "saveOverride", "importOverride", "updateOverride", "changeOverrideSource", "changeOverride", "reorderOverrides", "deleteOverride", "setApplicationAccess", "setConfigUpdate", "setOverrideUpdate", "syncSchedules", "updateResource", "saveLocalDefinition", "deleteLocalDefinition", "prepareBackup", "inspectBackup", "restoreBackup", "scheduleCoreCleanup", "saveLanProxy", "setLanProxyEnabled", "refreshRuntime")) {
             result.error("command", null, AppStrings.message(R.string.error_unknown_command).toMap())
             return
         }
@@ -1035,175 +571,81 @@ object AppBridge {
             val created = backupInteger(request?.get("createdAtMillis"))
             if (requestId.isNullOrBlank() || requestId.length > 128 ||
                 (request?.get("action") == "prepareBackup" && (created == null || created > 8_640_000_000_000_000L)) ||
-                (request?.get("action") != "prepareBackup" && (token == null || !BackupFiles.isToken(token) || token in retiredBackups))) {
+                (request?.get("action") != "prepareBackup" && (token == null || !BackupFiles.isToken(token) || backupCoordinator.isRetired(token)))) {
                 result.error("backup", null, AppMessage("backupInvalid").toMap())
                 return
             }
         }
         val owner = UUID.randomUUID().toString()
-        operationId = owner
+        replaceOwner(owner)
         PseudoVpnService.core.setOperationBusy(true)
-        command = request
-        operation = AppStrings.message(R.string.operation_accepting)
-        resultMessage = null
-        resultId = null
-        connectionStatus = null
-        configStatus = null
-        overrideStatus = null
-        resourceStatus = null
-        scheduleStatus = null
-        targetId = null
-        savedRevision = null
+        operations.command = request
+        operations.operation = AppStrings.message(R.string.operation_accepting)
+        operations.resultMessage = null
+        operations.resultId = null
+        operations.connectionStatus = null
+        operations.configStatus = null
+        operations.overrideStatus = null
+        operations.resourceStatus = null
+        operations.scheduleStatus = null
+        operations.targetId = null
+        operations.savedRevision = null
         try {
             val intent = Intent(context, AppWorkService::class.java).putExtra(AppWorkService.EXTRA_OWNER, owner)
             if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
             else context.startService(intent)
             result.success(admission(owner))
             notifyUi()
-        } catch (_: Exception) {
-            finish(owner, notExecutedResult(request, AppStrings.message(R.string.error_service_start)))
-            result.error("service", null, AppStrings.message(R.string.error_service_not_allowed).toMap())
+        } catch (error: Exception) {
+            finish(owner, notExecutedResult(request, AppStrings.message(R.string.error_service_start).withDetail(error)))
+            result.error("service", null, AppStrings.message(R.string.error_service_not_allowed).withDetail(error).toMap())
+        } catch (error: LinkageError) {
+            finish(owner, notExecutedResult(request, AppStrings.message(R.string.error_service_start).withDetail(error)))
+            result.error("service", null, AppStrings.message(R.string.error_service_not_allowed).withDetail(error).toMap())
         }
     }
 
     fun restoreActivityState(state: Bundle?) {
         val previous = state?.getInt("pseudo.vpn.authorizationCode", 100) ?: 100
-        if (previous in 100..0x3fff) authorizationCode = maxOf(authorizationCode, previous)
+        if (previous in 100..0x3fff) operations.authorizationCode = maxOf(operations.authorizationCode, previous)
     }
 
     fun saveActivityState(state: Bundle) {
-        state.putInt("pseudo.vpn.authorizationCode", authorizationCode)
+        state.putInt("pseudo.vpn.authorizationCode", operations.authorizationCode)
     }
 
     private fun authorize(result: MethodChannel.Result) {
         if (VpnService.prepare(context) == null) { result.success(true); return }
         val owner = activity.get()
-        if (owner == null || !uiVisible || owner.isFinishing || authorization != null) {
+        if (owner == null || !uiVisible || owner.isFinishing || operations.authorization != null) {
             result.error("permission", null, AppStrings.message(R.string.error_vpn_permission_return).toMap())
             return
         }
-        if (authorizationCode >= 0x3fff) {
+        if (operations.authorizationCode >= 0x3fff) {
             result.error("permission", null, AppStrings.message(R.string.error_vpn_permission_requests).toMap())
             return
         }
-        authorization = result
+        operations.authorization = result
         // Reserve separate monotonic code ranges for file_selector 221–223 and backup
         // 0x4000–0x7fff.
-        authorizationCode++
-        if (authorizationCode in 221..223) authorizationCode = 224
-        owner.requestVpnPermission(authorizationCode)
+        operations.authorizationCode++
+        if (operations.authorizationCode in 221..223) operations.authorizationCode = 224
+        owner.requestVpnPermission(operations.authorizationCode)
     }
 
     fun authorizationResult(requestCode: Int, granted: Boolean) {
-        if (requestCode == authorizationCode) authorizationResult(granted)
+        if (requestCode == operations.authorizationCode) authorizationResult(granted)
     }
 
     private fun authorizationResult(granted: Boolean) {
-        val result = authorization ?: return
-        authorization = null
+        val result = operations.authorization ?: return
+        operations.authorization = null
         result.success(granted && VpnService.prepare(context) == null)
     }
 
-    /** Handles explicit Stop and revocation. */
-    fun cancelRuntimeRefresh(): Boolean {
-        val hadPending = pendingRuntimeRefresh != null
-        pendingRuntimeRefresh = null
-        main.removeCallbacks(drainRuntimeRefresh)
-        if (command?.get("action") != "refreshRuntime") return hadPending
-        val owner = operationId ?: return hadPending
-        operationId = null
-        command = null
-        operation = null
-        activeRuntimeRefresh = null
-        runtimeRefreshTimeout?.let { main.removeCallbacks(it) }
-        runtimeRefreshTimeout = null
-        authorizationResult(false)
-        logic.cancel(owner)
-        modes.abandon(owner)
-        strategies.abandon(owner)
-        connections.abandon(owner)
-        native.abandon()
-        if (!logic.busy) clearInput(owner)
-        PseudoVpnService.core.setOperationBusy(logic.busy || resourceBusy || storagePublishing || backupCapturing)
-        notifyUi()
-        return true
-    }
-
-    /** Coalesce network/route changes using the captured running input. */
-    fun requestRuntimeRefresh(sessionGeneration: Long, coreGeneration: Long,
-                              composition: String, revision: Long, reason: String) {
-        if (reason !in setOf("routes", "systemDns")) return
-        main.post {
-            if (!PseudoVpnService.core.runtimeRefreshCurrent(
-                    sessionGeneration, coreGeneration, composition, revision, reason)) return@post
-            val previous = pendingRuntimeRefresh
-            val request = if (previous != null && previous.sessionGeneration == sessionGeneration &&
-                previous.coreGeneration == coreGeneration && previous.composition == composition) previous
-                else RuntimeRefresh(sessionGeneration, coreGeneration, composition)
-            request.revisions[reason] = revision
-            pendingRuntimeRefresh = request
-            main.removeCallbacks(drainRuntimeRefresh)
-            main.post(drainRuntimeRefresh)
-        }
-    }
-
-    private fun drainRuntimeRefresh() {
-        val request = pendingRuntimeRefresh ?: return
-        if (!request.current()) {
-            pendingRuntimeRefresh = null
-            return
-        }
-        if (operationId != null || logic.busy || resourceBusy || storagePublishing || backupCapturing || pendingSystemRestore) return
-        pendingRuntimeRefresh = null
-        activeRuntimeRefresh = request
-        val owner = UUID.randomUUID().toString()
-        val refresh = mapOf(
-            "action" to "refreshRuntime", "sessionGeneration" to request.sessionGeneration,
-            "coreGeneration" to request.coreGeneration, "composition" to request.composition,
-            "storageEpoch" to BackupFiles.get(context).transaction.snapshot().epoch,
-        )
-        operationId = owner
-        command = refresh
-        operation = AppStrings.message(R.string.operation_accepting)
-        resultId = null
-        resultMessage = null
-        connectionStatus = null
-        configStatus = null
-        overrideStatus = null
-        resourceStatus = null
-        scheduleStatus = null
-        targetId = null
-        savedRevision = null
-        PseudoVpnService.core.setOperationBusy(true)
-        val timeout = Runnable {
-            if (operationId == owner) {
-                logic.cancel(owner)
-                finish(owner, mapOf("success" to false,
-                    "message" to AppStrings.message(R.string.error_operation_incomplete).toMap()))
-            }
-        }
-        runtimeRefreshTimeout = timeout
-        main.postDelayed(timeout, operationRemainingMs(owner))
-        notifyUi()
-        // Reuse the VPN Service's foreground lifetime and LogicEngineHost's actual
-        // drain.
-        logic.execute(owner, refresh) { outcome -> finish(owner, outcome) }
-    }
-
-    fun nativeChanged() {
-        native.changed()
-        if (operationId == null) {
-            // A system revocation or service exit supersedes earlier UI results.
-            resultMessage = null
-            resultId = null
-            connectionStatus = null
-            configStatus = null
-            overrideStatus = null
-            resourceStatus = null
-            scheduleStatus = null
-            targetId = null
-            savedRevision = null
-        }
+    fun nativeChanged(statusChanged: Boolean = true) {
+        if (statusChanged) operations.clearResultFeedback()
+        advanceSystemRevoked()
         notifyUi()
     }
 
@@ -1226,81 +668,46 @@ object AppBridge {
     fun finish(id: String, outcome: Map<*, *>) {
         if (operationId != id) return
         val action = command?.get("action")
-        val backupAction = action in setOf("prepareBackup", "inspectBackup", "restoreBackup")
-        val nativeInstall = installedBackup?.takeIf { it.first == id }?.second
-        var detail = backupProjection(outcome["backupResult"])
-        if (action == "restoreBackup" && nativeInstall != null) {
-            detail = backupProjection((detail ?: emptyMap()) + nativeInstall +
-                ("status" to restoreStatus(nativeInstall["committed"])))
-        }
-        val token = backupUses[id]
-        val cancelledPreparation = action == "prepareBackup" && token != null && token in retiredBackups
-        val retirePreparation = action == "prepareBackup" && token != null &&
-            (cancelledPreparation || outcome["success"] != true || detail?.get("status") != "prepared" ||
-                detail?.get("token") != token || detail?.get("summary") !is Map<*, *>)
-        if (retirePreparation) {
-            retiredBackups.add(token!!)
-            preparedBackups.entries.removeAll { it.value == token }
-            detail = mapOf("status" to if (cancelledPreparation) "cancelled" else "failed")
-        }
-        backupResult = if (backupAction && detail != null) backupProjection(detail + ("requestId" to command?.get("requestId"))) else null
-        activeRuntimeRefresh = null
-        runtimeRefreshTimeout?.let { main.removeCallbacks(it) }
-        runtimeRefreshTimeout = null
+        backupCoordinator.finishDetail(id, outcome)
         authorizationResult(false)
-        if (action != "restoreBackup" || restoreStopOwner != id) native.abandon()
-        modes.abandon(id)
-        strategies.abandon(id)
-        connections.abandon(id)
+        if (action != "restoreBackup" || !backupCoordinator.hasStopOwner(id)) native.abandon()
         if (!logic.busy) clearInput(id)
-        resultId = id
-        connectionStatus = (outcome["connectionStatus"] as? String)?.takeIf {
-            it in setOf("closed", "absent", "failed", "unconfirmed")
-        }
-        configStatus = (outcome["configStatus"] as? String)?.takeIf {
-            it in setOf("notSaved", "saved", "applied", "applyFailed", "unconfirmed")
-        } ?: if (command?.get("action") == "saveLocal") "unconfirmed" else null
-        overrideStatus = (outcome["overrideStatus"] as? String)?.takeIf {
-            it in setOf("notSaved", "saved", "applied", "applyFailed", "unconfirmed")
-        } ?: if (command?.get("action") == "saveOverride") "unconfirmed" else null
-        resourceStatus = if (command?.get("action") == "updateResource") outcome["resourceStatus"] as? String else null
-        scheduleStatus = (outcome["scheduleStatus"] as? String)?.takeIf {
-            it in setOf("synced", "failed")
-        }
-        targetId = outcome["targetId"] as? String ?: command?.get("id") as? String
-        savedRevision = (outcome["savedRevision"] as? Number)?.toInt()?.takeIf { it > 0 }
-        resultSuccess = !retirePreparation && if (action == "restoreBackup" && nativeInstall != null)
-            nativeInstall["committed"] == true else outcome["success"] == true
-        resultMessage = AppMessage.fromMap(outcome["message"])
-            ?: if (outcome["message"] == null && resultSuccess) null
-            else AppStrings.message(R.string.error_result_unconfirmed)
-        if (cancelledPreparation) resultMessage = AppMessage("operationFinished")
-        else if (retirePreparation && outcome["success"] == true) resultMessage = AppMessage("backupInvalid")
-        if (action == "restoreBackup" && backupResult?.get("committed") != true && restoreInterruption != null) {
-            resultMessage = restoreInterruption
-        }
-        operationId = null
-        command = null
-        operation = null
-        PseudoVpnService.core.setOperationBusy(logic.busy || resourceBusy || storagePublishing || backupCapturing)
+        operations.finish(id, outcome) { AppStrings.message(R.string.error_result_unconfirmed).withDetail(it) }
+        backupCoordinator.retainInterruption(action)
+        replaceOwner(null)
+        operations.command = null
+        operations.operation = null
+        refreshBusy()
         notifyUi()
     }
 
     fun executorDrained(id: String) {
-        val token = backupUses.remove(id)
-        if (token != null && token in retiredBackups && token !in backupUses.values) {
-            retiredBackups.remove(token)
-            preparedBackups.entries.removeAll { it.value == token }
-            backups.discardCandidate(token)
-        }
+        operations.executorDrained(id)
+        backupCoordinator.executorDrained(id)
         clearInput(id)
-        if (discardedSystemInput == id) {
-            discardedSystemInput = null
-            try { AppFiles.systemInput(context).delete() } catch (_: Exception) { }
-        }
-        PseudoVpnService.core.setOperationBusy(operationId != null || logic.busy || resourceBusy || storagePublishing || backupCapturing)
+        systemRestore.inputDrained(id)
+        advanceSystemRevoked()
+        refreshBusy()
         notifyUi()
     }
+
+    fun cancelScheduledOperation(): Boolean = scheduledRuns.cancelScheduledOperation()
+    private fun cancelPendingRuntimeRefresh() {
+        val captured = CoreClient.get(context).status()
+        logic.coreEvent(mapOf("event" to "cancelRefresh") +
+            listOf(Contract.CORE_FIELD_PROCESS_ID, Contract.CORE_FIELD_INPUT_ID,
+                Contract.CORE_FIELD_GENERATION, Contract.CORE_FIELD_NETWORK_REVISION)
+                .associateWith { captured[it] })
+    }
+    fun cancelRuntimeRefresh(): Boolean {
+        cancelPendingRuntimeRefresh()
+        if (command?.get("action") != "refreshRuntime") return false
+        val owner = operationId ?: return false
+        return interruptOperation(owner, AppStrings.message(R.string.error_operation_ended))
+    }
+
+    fun cancelSystemRestore(): Boolean = systemRestore.cancelSystemRestore()
+    fun restoreSystemStart(reply: (Map<String, Any?>?) -> Unit) = systemRestore.restoreSystemStart(reply)
 
     private fun clearInput(id: String) {
         try { AppFiles.runInput(context, id).delete() } catch (_: Exception) { }
@@ -1314,10 +721,6 @@ object AppBridge {
         logic.reconcile()
         ui?.invokeMethod("changed", null)
         SystemControls.refresh(context)
-        if (pendingRuntimeRefresh != null) {
-            main.removeCallbacks(drainRuntimeRefresh)
-            main.post(drainRuntimeRefresh)
-        }
     }
 
     private fun strategyReply(result: MethodChannel.Result): (String?, AppMessage?) -> Unit =
@@ -1353,8 +756,7 @@ object AppBridge {
         if (pendingRestore) return "stop"
         val phase = PseudoVpnService.session.snapshot().phase
         if (phase == NativeSession.Phase.STARTING || phase == NativeSession.Phase.RUNNING ||
-            command?.get("action") in setOf("start", "refreshRuntime") || pendingSystemRestore ||
-            PseudoVpnService.instance?.pendingSystemStart == true) return "stop"
+            command?.get("action") in setOf("start", "refreshRuntime", "systemRevoked") || pendingSystemRestore) return "stop"
         if (phase == NativeSession.Phase.STOPPED && operationId == null && !logic.busy &&
             !resourceBusy && !storagePublishing && !backupCapturing) return "start"
         return null
@@ -1369,14 +771,14 @@ object AppBridge {
             val owner = operationId
             if (action == "stop" && owner != null) {
                 val alwaysOn = PseudoVpnService.alwaysOnState() == true
-                requestRestoreStop(owner, stopNetwork = !alwaysOn)
+                backupCoordinator.requestRestoreStop(owner, stopNetwork = !alwaysOn)
                 reply(if (alwaysOn) SystemControls.Admission.VPN_SETTINGS else SystemControls.Admission.ACCEPTED)
             } else reply(SystemControls.Admission.OPEN_APP)
             return
         }
         val state = PseudoVpnService.session.snapshot()
         val preparing = command?.get("action") in setOf("start", "refreshRuntime") ||
-            pendingSystemRestore || PseudoVpnService.instance?.pendingSystemStart == true
+            pendingSystemRestore
         if (action == "stop" && PseudoVpnService.alwaysOnState() == true) {
             reply(SystemControls.Admission.VPN_SETTINGS)
             return
@@ -1387,10 +789,29 @@ object AppBridge {
             reply(SystemControls.Admission.UNCHANGED)
             return
         }
-        if (action == "start" && VpnService.prepare(context) != null &&
-            (activity.get() == null || !uiVisible)) {
-            reply(SystemControls.Admission.OPEN_APP)
-            return
+        if (action == "start") {
+            fun permissionFailed(error: Throwable) {
+                if (operationId == null) {
+                    operations.resultSuccess = false
+                    operations.resultMessage = AppStrings.message(R.string.error_vpn_permission_invalid).withDetail(error)
+                    operations.resultId = UUID.randomUUID().toString()
+                    notifyUi()
+                }
+                reply(SystemControls.Admission.OPEN_APP)
+            }
+            val permission = try {
+                VpnService.prepare(context)
+            } catch (error: Exception) {
+                permissionFailed(error)
+                return
+            } catch (error: LinkageError) {
+                permissionFailed(error)
+                return
+            }
+            if (permission != null && (activity.get() == null || !uiVisible)) {
+                reply(SystemControls.Admission.OPEN_APP)
+                return
+            }
         }
         val storage = BackupFiles.get(context).transaction.snapshot()
         if (action == "start" && (!storage.ready || storage.restoring)) {
@@ -1401,10 +822,10 @@ object AppBridge {
             override fun success(result: Any?) = reply(SystemControls.Admission.ACCEPTED)
             override fun error(code: String, message: String?, details: Any?) {
                 if (operationId == null) {
-                    resultSuccess = false
-                    resultMessage = AppMessage.fromMap(details)
+                    operations.resultSuccess = false
+                    operations.resultMessage = AppMessage.fromMap(details)
                         ?: AppStrings.message(R.string.error_result_unconfirmed)
-                    resultId = UUID.randomUUID().toString()
+                    operations.resultId = UUID.randomUUID().toString()
                     notifyUi()
                 }
                 reply(if (code == "alwaysOn") SystemControls.Admission.VPN_SETTINGS
@@ -1427,7 +848,7 @@ object AppBridge {
                             .onMalformedInput(CodingErrorAction.REPORT)
                             .onUnmappableCharacter(CodingErrorAction.REPORT)
                         pinned.inputStream().use { input ->
-                            savedMode(InputStreamReader(input, decoder), ModeCalls.VALUES)
+                            savedMode(InputStreamReader(input, decoder), setOf("rule", "global", "direct"))
                         }
                     }
                 }
@@ -1461,11 +882,9 @@ object AppBridge {
     }
 
     private fun vpnStatus(): Map<String, Any?> {
-        val service = PseudoVpnService.instance
-        val alwaysOn = PseudoVpnService.alwaysOnState()
-        val lockdown = try {
-            if (Build.VERSION.SDK_INT >= 29 && service != null) service.isLockdownEnabled else null
-        } catch (_: Exception) { null }
+        val remote = CoreClient.get(context).status()
+        val alwaysOn = remote["alwaysOn"] as? Boolean
+        val lockdown = remote["lockdown"] as? Boolean
         return mapOf(
             "alwaysOn" to alwaysOn,
             "lockdown" to lockdown,
@@ -1483,8 +902,10 @@ object AppBridge {
         try {
             owner.startActivity(Intent(android.provider.Settings.ACTION_VPN_SETTINGS))
             result.success(null)
-        } catch (_: Exception) {
-            result.error("settings", null, AppStrings.message(R.string.error_open_vpn_settings).toMap())
+        } catch (error: Exception) {
+            result.error("settings", null, AppStrings.message(R.string.error_open_vpn_settings).withDetail(error).toMap())
+        } catch (error: LinkageError) {
+            result.error("settings", null, AppStrings.message(R.string.error_open_vpn_settings).withDetail(error).toMap())
         }
     }
 
@@ -1493,114 +914,6 @@ object AppBridge {
      * The Dart business engine remains the only writable owner; the VPN service
      * starts afterwards with the prepared input identity.
      */
-    fun cancelSystemRestore(): Boolean {
-        val owner = systemRestoreOwner ?: return false
-        systemRestoreOwner = null
-        // Only an admitted restore owns input and requires drain-time cleanup.
-        if (operationId == owner) {
-            discardedSystemInput = owner
-            operationId = null
-            command = null
-            operation = null
-            logic.cancel(owner)
-            if (!logic.busy) executorDrained(owner)
-        }
-        PseudoVpnService.core.setOperationBusy(operationId != null || logic.busy || resourceBusy || storagePublishing || backupCapturing)
-        notifyUi()
-        return true
-    }
-
-    fun restoreSystemStart(reply: (Map<String, Any?>?) -> Unit) {
-        if (pendingSystemRestore) {
-            reply(null)
-            return
-        }
-        val owner = UUID.randomUUID().toString()
-        val before = PseudoVpnService.session.snapshot()
-        val deadline = SystemClock.elapsedRealtime() + 30_000L
-        systemRestoreOwner = owner
-        notifyUi()
-        fun attempt() {
-            if (systemRestoreOwner != owner) {
-                reply(null)
-                return
-            }
-            val state = PseudoVpnService.session.snapshot()
-            if (SystemClock.elapsedRealtime() >= deadline ||
-                state.generation != before.generation || state.phase != NativeSession.Phase.STOPPED) {
-                systemRestoreOwner = null
-                notifyUi()
-                reply(null)
-                return
-            }
-            val storage = BackupFiles.get(context).transaction.snapshot()
-            if (!storage.ready || storage.restoring || operationId != null || logic.busy || resourceBusy || storagePublishing || backupCapturing) {
-                // Keep one bounded intent waiting for the real writer; Stop
-                // invalidates its owner immediately and admission reserves its turn.
-                main.postDelayed({ attempt() }, 100L)
-                return
-            }
-            operationId = owner
-            command = mapOf("action" to "systemStart", "storageEpoch" to storage.epoch)
-            resultId = null
-            resultMessage = null
-            resultSuccess = false
-            connectionStatus = null
-            configStatus = null
-            overrideStatus = null
-            resourceStatus = null
-            scheduleStatus = null
-            targetId = null
-            savedRevision = null
-            operation = AppStrings.message(R.string.operation_preparing_system_start)
-            PseudoVpnService.core.setOperationBusy(true)
-            notifyUi()
-            try {
-                logic.execute(owner, command!!) { outcome ->
-                    main.post { completeSystemRestore(owner, outcome, reply) }
-                }
-            } catch (_: Exception) {
-                if (systemRestoreOwner == owner) systemRestoreOwner = null
-                if (operationId == owner) {
-                    resultId = owner
-                    resultSuccess = false
-                    resultMessage = AppStrings.message(R.string.error_system_start_prepare)
-                    operationId = null
-                    command = null
-                    operation = null
-                }
-                PseudoVpnService.core.setOperationBusy(operationId != null || logic.busy || resourceBusy || storagePublishing || backupCapturing)
-                notifyUi()
-                reply(null)
-            }
-        }
-        attempt()
-    }
-
-    private fun completeSystemRestore(owner: String, outcome: Map<*, *>, reply: (Map<String, Any?>?) -> Unit) {
-        if (operationId != owner || systemRestoreOwner != owner) {
-            reply(null)
-            return
-        }
-        systemRestoreOwner = null
-        val start = outcome["systemStart"] as? Map<*, *>
-        operationId = null
-        command = null
-        operation = null
-        resultSuccess = false
-        PseudoVpnService.core.setOperationBusy(logic.busy || resourceBusy || storagePublishing || backupCapturing)
-        if (outcome["success"] == true && start != null) {
-            resultId = null
-            resultMessage = null
-            reply(mapOf("start" to start))
-        } else {
-            resultId = owner
-            resultMessage = AppMessage.fromMap(outcome["message"])
-                ?: AppStrings.message(R.string.error_system_start_prepare)
-            notifyUi()
-            reply(null)
-        }
-    }
 
     private fun publishStore(call: MethodCall, owner: String, result: MethodChannel.Result) {
         val kind = BackupFiles.Kind.entries.firstOrNull { it.fileName == call.argument<String>("file") }
@@ -1610,47 +923,60 @@ object AppBridge {
             result.error("storage", null, AppMessage("storageUnavailable").toMap())
             return
         }
-        val scheduledRun = scheduled?.takeIf { it.owner == owner }
-        storagePublishing = true
-        PseudoVpnService.core.setOperationBusy(true)
-        BackupFiles.get(context).ioExecutor.execute {
-            val outcome = runCatching {
-                BackupFiles.get(context).transaction.publishStore(kind, epoch, object : RestoreTransaction.Owner {
-                    override fun checkCurrent() {
-                        check(operationId == owner && operationRemainingMs(owner) > 0L && scheduledRun?.authorized() != false)
-                    }
-                    override fun runIfCurrent(block: () -> Unit) {
-                        synchronized(publicationGate) {
-                            checkCurrent()
-                            if (scheduledRun == null) block() else scheduledRun.publishIfAuthorized(block)
-                        }
-                    }
-                })
-            }
-            main.post {
-                storagePublishing = false
+        val scheduledRun = scheduledRuns.current?.takeIf { it.owner == owner }
+        val files = BackupFiles.get(context)
+        fun complete(outcome: Result<RestoreTransaction.Publication>) {
+            storagePublishing = false
+            try {
                 outcome.fold(
                     onSuccess = { value ->
                         // A successful rename is a saved result, even when later
                         // cancellation or directory sync prevents confirmation.
                         result.success(mapOf("saved" to value.saved, "durable" to value.durable,
-                            "epoch" to value.epoch))
+                            "epoch" to value.epoch, "errorCode" to value.error,
+                            "errorDetail" to value.cause?.let { AppMessage("storageUnavailable").withDetail(it).toMap() }))
                     },
-                    onFailure = {
+                    onFailure = { error ->
                         result.error(if (operationId == owner) "storage" else "expired", null,
-                            AppMessage(if (operationId == owner) "storageUnavailable" else "operationFinished").toMap())
+                            AppMessage(if (operationId == owner) "storageUnavailable" else "operationFinished")
+                                .withDetail(error).toMap())
                     },
                 )
-                PseudoVpnService.core.setOperationBusy(operationId != null || logic.busy || resourceBusy || storagePublishing || backupCapturing)
+            } finally {
+                refreshBusy()
                 notifyUi()
             }
+        }
+        storagePublishing = true
+        PseudoVpnService.core.setOperationBusy(true)
+        try {
+            files.ioExecutor.execute {
+                val outcome = runCatching {
+                    files.transaction.publishStore(kind, epoch, object : RestoreTransaction.Owner {
+                        override fun checkCurrent() {
+                            check(operationId == owner && operationRemainingMs(owner) > 0L && scheduledRun?.authorized() != false)
+                        }
+                        override fun runIfCurrent(block: () -> Unit) {
+                            synchronized(operations.publicationGate) {
+                                checkCurrent()
+                                if (scheduledRun == null) block() else scheduledRun.publishIfAuthorized(block)
+                            }
+                        }
+                    })
+                }
+                main.post { complete(outcome) }
+            }
+        } catch (error: Exception) {
+            complete(Result.failure(error))
+        } catch (error: LinkageError) {
+            complete(Result.failure(error))
         }
     }
 
     private fun storagePaths(result: MethodChannel.Result) {
         val state = BackupFiles.get(context).transaction.snapshot()
         if (!state.ready || state.restoring) {
-            result.error("storage", null, AppMessage("storageUnavailable").toMap())
+            result.error("storage", null, (state.issue ?: AppMessage("storageUnavailable")).toMap())
             return
         }
         result.success(paths() + ("storageEpoch" to state.epoch))
@@ -1663,53 +989,168 @@ object AppBridge {
     )
 
     private fun snapshot(owner: String?, result: MethodChannel.Result) {
-        val before = PseudoVpnService.session.snapshot()
-        if (before.phase != NativeSession.Phase.RUNNING) {
-            result.success(snapshotMap(before))
+        result.success(snapshotMap(PseudoVpnService.session.snapshot()))
+    }
+
+    fun systemRevoked(event: Map<String, Any?>): Boolean {
+        val captured = CoreClient.get(context).status()
+        if (event["event"] != "revoked" || !revokedIdentityMatches(event, captured)) return false
+        if (command?.get("action") == "systemRevoked" && revokedIdentityMatches(command!!, captured)) return true
+        val previous = operationId
+        val admittedAt = operations.operationAdmittedAt ?: SystemClock.elapsedRealtime()
+        val deadline = operations.operationDeadline ?: (admittedAt + Contract.OPERATION_ORDINARY_TIMEOUT_MS)
+        val preserveLan = captured[Contract.CORE_FIELD_PHASE] == Contract.CORE_PHASE_READY && captured["lanIntent"] == true
+        val owner = UUID.randomUUID().toString()
+        val request = listOf(Contract.CORE_FIELD_PROCESS_ID, Contract.CORE_FIELD_INPUT_ID,
+            Contract.CORE_FIELD_GENERATION, Contract.CORE_FIELD_NETWORK_REVISION,
+            "configId", "revision", "composition", "purpose").associateWith { captured[it] } + mapOf(
+            "action" to "systemRevoked", "reason" to "revoked", "revokedOwner" to previous,
+            "admittedAt" to admittedAt, "deadline" to deadline, "preserveLan" to preserveLan,
+            "storageEpoch" to BackupFiles.get(context).transaction.snapshot().epoch,
+            "revocationState" to "cancelling",
+        )
+        cancelSystemRestore()
+        cancelPendingRuntimeRefresh()
+        operations.replaceOwner(owner, admittedAt, deadline)
+        operations.command = request
+        operations.operation = null
+        operations.clearResultFeedback()
+        operations.resultSuccess = false
+        authorizationResult(false)
+        // STARTING 先关闭 PREPARE admission，再取消原请求。
+        if (!preserveLan) exitSystemRevoked(owner, request)
+        // 新 owner 先占用 admission，旧 executor 的同步 drain 不会受理其他 writer。
+        cancelScheduledOperation()
+        previous?.let { logic.cancel(it); native.abandon(it) }
+        logic.coreEvent(event)
+        if (preserveLan) {
+            operations.command = request + ("revocationState" to "waiting")
+            awaitSystemRevoked(owner)
+        }
+        refreshBusy()
+        notifyUi()
+        return true
+    }
+
+    private fun revokedIdentityMatches(expected: Map<String, Any?>, actual: Map<String, Any?>): Boolean =
+        expected[Contract.CORE_FIELD_PROCESS_ID] is String &&
+            expected[Contract.CORE_FIELD_PROCESS_ID] == actual[Contract.CORE_FIELD_PROCESS_ID] &&
+            expected[Contract.CORE_FIELD_INPUT_ID] == actual[Contract.CORE_FIELD_INPUT_ID] &&
+            expected["purpose"] == actual["purpose"] &&
+            expected["configId"] == actual["configId"] &&
+            (expected["revision"] as? Number)?.toLong() == (actual["revision"] as? Number)?.toLong() &&
+            (!expected.containsKey("composition") || expected["composition"] == actual["composition"]) &&
+            listOf(Contract.CORE_FIELD_GENERATION, Contract.CORE_FIELD_NETWORK_REVISION).all {
+                val left = expected[it]
+                val right = actual[it]
+                (left is Int || left is Long) && right is Number && (left as Number).toLong() == right.toLong()
+            }
+
+    private fun awaitSystemRevoked(owner: String) {
+        if (operationId != owner || command?.get("revocationState") != "waiting") return
+        advanceSystemRevoked()
+        if (operationId == owner && command?.get("revocationState") == "waiting") {
+            main.postDelayed({ awaitSystemRevoked(owner) }, minOf(100L, operations.remainingMs(owner)).coerceAtLeast(1L))
+        }
+    }
+
+    private fun advanceSystemRevoked() {
+        val owner = operationId ?: return
+        val request = command ?: return
+        if (request["action"] != "systemRevoked" || request["revocationState"] != "waiting") return
+        val client = CoreClient.get(context)
+        if (!revokedIdentityMatches(request, client.status())) {
+            finish(owner, mapOf("success" to false, "message" to AppMessage("operationFinished").toMap()))
             return
         }
-        val loaded = PseudoVpnService.core.snapshot()
-        modes.read(before.generation, owner) { mode, error ->
-            val current = PseudoVpnService.session.snapshot()
-            val core = PseudoVpnService.core
-            val matches = current.generation == before.generation && current.phase == before.phase &&
-                core.current(loaded.generation) && core.snapshot().composition == loaded.composition &&
-                (owner == null || operationId == owner)
-            result.success(snapshotMap(current) + mapOf(
-                "mode" to mode.takeIf { matches },
-                "modeError" to (if (matches) error else AppStrings.message(R.string.error_session_changed))?.toMap(),
-            ))
+        if (operations.remainingMs(owner) == 0L) {
+            exitSystemRevoked(owner, request, AppMessage("operationNotCompletedRetry")
+                .withDetail("VPN revoke 的原受理期限已到，LAN 恢复尚未完成"))
+            return
         }
+        if (logic.busy || operations.executorBusy || client.requestBusy || resourceBusy || storagePublishing || backupCapturing) return
+        operations.command = request + ("revocationState" to "executing")
+        logic.execute(owner, operations.command!!) { outcome ->
+            if (operationId != owner) return@execute
+            if (outcome["success"] != true && (client.requestBusy || client.status()[Contract.CORE_FIELD_PHASE] in setOf(
+                    Contract.CORE_PHASE_LOADING, Contract.CORE_PHASE_STOPPING, Contract.CORE_PHASE_COMMUNICATION_LOST,
+                    Contract.CORE_PHASE_RECOVERY_REQUIRED))) {
+                recordIncompleteRevocation(owner, outcome)
+            } else finish(owner, outcome)
+        }
+    }
+
+    private fun exitSystemRevoked(owner: String, request: Map<String, Any?>, incomplete: AppMessage? = null) {
+        if (operationId != owner) return
+        val client = CoreClient.get(context)
+        if (!revokedIdentityMatches(request, client.status())) {
+            finish(owner, mapOf("success" to false, "message" to AppMessage("operationFinished").toMap()))
+            return
+        }
+        operations.command = request + ("revocationState" to "exiting")
+        client.exit(request[Contract.CORE_FIELD_PROCESS_ID] as String,
+            (request["admittedAt"] as Number).toLong(), (request["deadline"] as Number).toLong(), "revoked") { error ->
+            if (operationId != owner) return@exit
+            if (error != null) {
+                android.util.Log.e("PseudoRuntime", "VPN revoke 后 core 退出尚未确认", error)
+                recordIncompleteRevocation(owner, mapOf("success" to false, "message" to
+                    (incomplete ?: AppMessage("operationNotCompletedRetry")).withDetail(error).toMap()))
+            } else finish(owner, mapOf("success" to (incomplete == null), "message" to incomplete?.toMap()))
+        }
+    }
+
+    private fun recordIncompleteRevocation(owner: String, outcome: Map<*, *>) {
+        if (operationId != owner) return
+        operations.command = command!! + ("revocationState" to "incomplete")
+        operations.finish(owner, outcome) { AppStrings.message(R.string.error_result_unconfirmed).withDetail(it) }
+        // 未确认 process 与 FD I/O 退出时保留 admission；用户可通过 Stop 再次请求退出。
+        refreshBusy()
+        notifyUi()
     }
 
     private fun snapshotMap(state: NativeSession.Snapshot): Map<String, Any?> {
         val storage = BackupFiles.get(context).transaction.snapshot()
         return mapOf(
             "storageReady" to storage.ready, "storageRestoring" to storage.restoring,
-            "storageEpoch" to storage.epoch,
+            "storageEpoch" to storage.epoch, "storageError" to storage.issue?.toMap(),
+            "backup" to backups.snapshot(),
+            "coreCleanup" to CoreDataCleanup.get(context).snapshot(),
             "phase" to state.phase.name, "generation" to state.generation,
             "alwaysOn" to PseudoVpnService.alwaysOnState(),
             "runningSinceElapsedMs" to state.runningSinceElapsedMs,
             "elapsedRealtimeMs" to state.elapsedRealtimeMs,
             "configId" to state.configId, "revision" to state.revision, "error" to state.error?.toMap(),
-            "operation" to operation?.toMap(), "resultId" to resultId,
-            "scheduleBusy" to (scheduled != null),
+            "operation" to operations.operation?.toMap(), "resultId" to operations.resultId,
+            "operationId" to operationId,
+            "operationRemainingMs" to operationId?.let(::operationRemainingMs),
+            "operationAdmittedAt" to operations.operationAdmittedAt,
+            "operationDeadline" to operations.operationDeadline,
+            "scheduleBusy" to (scheduledRuns.current != null),
             "resourceBusy" to resourceBusy,
-            "dnsBusy" to coreReads.dnsBusy,
-            "networkEpoch" to UnderlyingNetworks.snapshot().revision,
-            "pendingSystemStart" to (pendingSystemRestore || PseudoVpnService.instance?.pendingSystemStart == true),
+            "dnsBusy" to (logic.runtimeProjection["dnsBusy"] == true),
+            "dnsOperation" to logic.runtimeProjection["dnsOperation"],
+            "networkEpoch" to CoreClient.get(context).status()["networkRevision"],
+            "pendingSystemStart" to pendingSystemRestore,
+            "mode" to (logic.runtimeProjection["mode"] as? Map<*, *>)?.get("actual"),
+            "modeError" to (logic.runtimeProjection["mode"] as? Map<*, *>)?.get("error"),
             "pendingStart" to (command?.get("action") in setOf("start", "refreshRuntime")),
             "pendingRestore" to pendingRestore,
-            "writerBusy" to (logic.busy || operationId != null || storagePublishing || backupCapturing),
-            "resultMessage" to resultMessage?.toMap(),
-            "resultSuccess" to resultSuccess, "connectionStatus" to connectionStatus,
-            "configStatus" to configStatus, "overrideStatus" to overrideStatus,
-            "resourceStatus" to resourceStatus, "scheduleStatus" to scheduleStatus,
-            "backupResult" to backupResult,
-            "targetId" to targetId, "savedRevision" to savedRevision,
+            "writerBusy" to (exitingForCleanup || logic.busy || operations.executorBusy || operationId != null || storagePublishing || backupCapturing),
+            "resultMessage" to operations.resultMessage?.toMap(),
+            "resultSuccess" to operations.resultSuccess, "connectionStatus" to operations.connectionStatus,
+            "configStatus" to operations.configStatus, "overrideStatus" to operations.overrideStatus,
+            "resourceStatus" to operations.resourceStatus, "scheduleStatus" to operations.scheduleStatus,
+            "backupResult" to operations.backupResult,
+            "targetId" to operations.targetId, "savedRevision" to operations.savedRevision,
             "runningApplicationAccess" to PseudoVpnService.core.applicationAccess(state.generation),
-            "core" to PseudoVpnService.core.snapshot().toMap(),
-            "logSource" to PseudoVpnService.core.logSource()?.toMap(),
+            "core" to (PseudoVpnService.core.snapshot().toMap() + mapOf("networkRevision" to CoreClient.get(context).status()["networkRevision"])),
+            "logSource" to logic.runtimeProjection["logSource"],
+            "vpnIntent" to CoreClient.get(context).status()["vpnIntent"],
+            "lanIntent" to CoreClient.get(context).status()["lanIntent"],
+            "lanRunning" to CoreClient.get(context).status()["lanRunning"],
+            "lanListeners" to CoreClient.get(context).status()["lanListeners"],
+            "recoveryRequired" to CoreClient.get(context).lifecycle.snapshot().recoveryRequired,
+            "coreLifecycle" to CoreClient.get(context).status()["coreLifecycle"],
         )
     }
 }

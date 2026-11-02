@@ -2,9 +2,12 @@ package configinput
 
 import (
 	"bytes"
-	"go.yaml.in/yaml/v3"
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/metacubex/mihomo/config"
+	"go.yaml.in/yaml/v3"
 )
 
 func composeFixture(t *testing.T, body string, parts ...Override) map[string]any {
@@ -100,19 +103,199 @@ func TestComposePriorityAliasesAndEmptyValues(t *testing.T) {
 	}
 }
 
-func TestComposeRejectsInvalidInput(t *testing.T) {
+func TestComposeReportsActualSyntaxAndReferenceErrors(t *testing.T) {
 	for _, body := range []string{
-		"", "[]", "dns: {}\n---\ndns: {}", "dns: {a: 1, a: 2}",
-		"dns: *missing", "dns: &loop [*loop]", "dns: {1: value}",
-		"proxies: [{name: same}, {name: same}]", "proxies: [{}]", "proxies: [{name: 2}]",
-		"proxies: null", "dns: " + strings.Repeat("[", 130) + "0" + strings.Repeat("]", 130),
+		"", "[]", "dns: {}\n---\ndns: {}", "dns: [",
+		"dns: *missing",
 	} {
 		if _, err := Compose([]byte("{}"), []Override{overrideFixture("replace", body)}); err == nil {
-			t.Errorf("invalid fragment accepted: %q", body)
+			t.Errorf("invalid composition accepted: %q", body)
 		}
 	}
 	if _, err := Compose([]byte("base: &base {}"), []Override{overrideFixture("replace", "dns: *base")}); err == nil {
 		t.Fatal("cross-document alias accepted")
+	}
+}
+
+func TestComposeLeavesNamesValueTypesAndDepthToTheCore(t *testing.T) {
+	for _, body := range []string{
+		"dns: {a: 1, a: 2}", "dns: {1: value}",
+		"proxies: [{name: same}, {name: same}]", "proxies: [{}]", "proxies: [{name: 2}]",
+		"proxies: null", "dns: " + strings.Repeat("[", 130) + "0" + strings.Repeat("]", 130),
+	} {
+		for _, mode := range []string{"prepend", "replace"} {
+			output, err := Compose([]byte("{}"), []Override{overrideFixture(mode, body)})
+			if err != nil {
+				t.Fatalf("composition prevalidated core fields: %q: %v", body, err)
+			}
+			var original, actual yaml.Node
+			if err := yaml.Unmarshal([]byte(body), &original); err != nil {
+				t.Fatal(err)
+			}
+			if err := yaml.Unmarshal(output, &actual); err != nil {
+				t.Fatal(err)
+			}
+			if yamlShape(original.Content[0]) != yamlShape(actual.Content[0]) {
+				t.Fatalf("core input was normalized: %q -> %q", body, output)
+			}
+		}
+	}
+}
+
+func yamlShape(node *yaml.Node) string {
+	var result strings.Builder
+	value := node.Value
+	if node.Kind == yaml.AliasNode {
+		value = "" // Anchor spelling is encoding, not a field value.
+	}
+	fmt.Fprintf(&result, "(%d,%q,%q", node.Kind, node.Tag, value)
+	if node.Kind == yaml.ScalarNode {
+		fmt.Fprintf(&result, ",%d", node.Style&^yaml.TaggedStyle)
+	}
+	for _, child := range node.Content {
+		result.WriteString(yamlShape(child))
+	}
+	result.WriteByte(')')
+	return result.String()
+}
+
+func TestComposeMergesNumericMappingKeysWithoutChangingTheirType(t *testing.T) {
+	for _, mode := range []string{"prepend", "replace"} {
+		output, err := Compose([]byte("unknown: {1: {changed: old, retained: value}, '1': separate}\n"), []Override{overrideFixture(mode, "unknown: {1: {changed: new}}\n")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var actual, expected yaml.Node
+		if err := yaml.Unmarshal(output, &actual); err != nil {
+			t.Fatal(err)
+		}
+		if err := yaml.Unmarshal([]byte("unknown: {1: {changed: new, retained: value}, '1': separate}\n"), &expected); err != nil {
+			t.Fatal(err)
+		}
+		if yamlShape(&actual) != yamlShape(&expected) {
+			t.Fatalf("numeric or string mapping keys, values or order changed: %q", output)
+		}
+	}
+}
+
+func TestComposeDoesNotCollapseAmbiguousNamedRows(t *testing.T) {
+	for _, mode := range []string{"prepend", "replace"} {
+		value := composeFixture(t, "proxies: [{name: same, type: direct}, {name: same, type: reject}]\n", overrideFixture(mode, "proxies: [{name: same, icon: original}]\n"))
+		rows := value["proxies"].([]any)
+		if len(rows) != 3 || rows[0].(map[string]any)["icon"] != "original" || rows[1].(map[string]any)["type"] != "direct" || rows[2].(map[string]any)["type"] != "reject" {
+			t.Fatal("composition removed ambiguous rows instead of leaving them for the core", rows)
+		}
+	}
+}
+
+func TestComposePreservesUntouchedScalarsAndIndependentAnchorScopes(t *testing.T) {
+	const body = `unknown: &same
+  quoted: "001"
+  integer: 0x0f
+  float: 1.2300
+  timestamp: 2001-12-15T02:59:43.123456789Z
+  binary: !!binary SGVsbG8=
+  tagged: !application-value original
+  empty: ~
+  3: numeric key
+unknown-copy: *same
+rules: [old]
+`
+	const fragment = `fragment: &same {quoted: "002", tagged: !application-value other}
+fragment-copy: *same
+rules: [new]
+`
+	for _, mode := range []string{"prepend", "replace"} {
+		output, err := Compose([]byte(body), []Override{overrideFixture(mode, fragment)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var before, after, part map[string]yaml.Node
+		for input, target := range map[string]*map[string]yaml.Node{body: &before, string(output): &after, fragment: &part} {
+			if err := yaml.Unmarshal([]byte(input), target); err != nil {
+				t.Fatal(err)
+			}
+		}
+		original, changed := before["unknown"], after["unknown"]
+		copy := after["unknown-copy"]
+		if yamlShape(&original) != yamlShape(&changed) || yamlShape(&original) != yamlShape(configValue(&copy)) {
+			t.Fatalf("unrelated field types, values or order changed: %q", output)
+		}
+		original, changed = part["fragment"], after["fragment-copy"]
+		if yamlShape(&original) != yamlShape(configValue(&changed)) {
+			t.Fatalf("fragment alias borrowed the main document's anchor: %q", output)
+		}
+	}
+}
+
+func TestComposeLeavesInvalidValuesToThePublicParser(t *testing.T) {
+	for _, body := range []string{"dns: &loop [*loop]", "dns: {<<: 3}"} {
+		output, err := Compose([]byte("{}"), []Override{overrideFixture("replace", body)})
+		if err != nil {
+			t.Fatalf("composition prevalidated a core field: %v", err)
+		}
+		if _, err := config.UnmarshalRawConfig(output); err == nil {
+			t.Fatalf("invalid field no longer reaches the public parser: %q", output)
+		}
+	}
+}
+
+func TestComposeDoesNotInspectUntouchedUnknownValues(t *testing.T) {
+	for _, field := range []string{
+		"unknown: &loop [*loop]\n",
+		"unknown: &same {duplicate: one, duplicate: two}\nunknown-copy: *same\n",
+		"unknown: {<<: 3}\n",
+		"unknown: {? [one, two]: value}\n",
+	} {
+		body := field + "rules: ['MATCH,DIRECT']\n"
+		if _, err := config.UnmarshalRawConfig([]byte(body)); err != nil {
+			t.Fatalf("fixture is not accepted by the public parser: %v", err)
+		}
+		for _, mode := range []string{"prepend", "replace"} {
+			output, err := Compose([]byte(body), []Override{overrideFixture(mode, "rules: ['DOMAIN,fixture.test,DIRECT']\n")})
+			if err != nil {
+				t.Fatalf("unrelated unknown value blocked composition: %q: %v", field, err)
+			}
+			if _, err := config.UnmarshalRawConfig(output); err != nil {
+				t.Fatalf("composition broke a core-accepted unknown value: %v", err)
+			}
+			var before, after map[string]yaml.Node
+			if err := yaml.Unmarshal([]byte(body), &before); err != nil {
+				t.Fatal(err)
+			}
+			if err := yaml.Unmarshal(output, &after); err != nil {
+				t.Fatal(err)
+			}
+			original, actual := before["unknown"], after["unknown"]
+			if yamlShape(&original) != yamlShape(&actual) {
+				t.Fatalf("unrelated unknown value changed: %q", output)
+			}
+			if actual.Kind == yaml.SequenceNode {
+				target := actual.Content[0].Alias
+				if target == nil || len(target.Content) != 1 || target.Content[0].Alias != target {
+					t.Fatal("cyclic alias changed its target")
+				}
+			}
+		}
+	}
+}
+
+func TestComposeKeepsAliasTargetsWhenTheirAnchorIsEditedOrRemoved(t *testing.T) {
+	for _, mode := range []string{"prepend", "replace"} {
+		value := composeFixture(t,
+			"dns: &dns {enable: true, nameserver: [original]}\ncopy: *dns\nmode: &mode rule\nmode-copy: *mode\n",
+			overrideFixture(mode, "dns: {nameserver: [changed]}\nmode: global\n"))
+		if value["mode"] != "global" || value["mode-copy"] != "rule" {
+			t.Fatal("changing a field also changed an unrelated alias", value)
+		}
+		copy := value["copy"].(map[string]any)
+		if copy["enable"] != true || len(copy["nameserver"].([]any)) != 1 || copy["nameserver"].([]any)[0] != "original" {
+			t.Fatal("replaced anchor lost its original alias target", copy)
+		}
+		dns := value["dns"].(map[string]any)
+		if dns["enable"] != true || dns["nameserver"].([]any)[0] != "changed" {
+			t.Fatal("requested mapping change was not applied", dns)
+		}
 	}
 }
 

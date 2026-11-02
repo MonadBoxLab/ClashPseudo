@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
-    <cloud-backup disableIfNoEncryptionCapabilities="true">
+    <!-- 云备份和设备迁移都只含三个业务文件，不携带 noBackupFilesDir 中的安装级隐私标记。 -->
+    <cloud-backup>
         <include domain="file" path="configurations/configurations.json" />
         <include domain="file" path="configurations/preferences.json" />
         <include domain="file" path="configurations/overrides.json" />

@@ -1,4 +1,4 @@
-part of re_editor;
+part of 're_editor.dart';
 
 class _CodeField extends SingleChildRenderObjectWidget {
 
@@ -927,7 +927,6 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
 
   @override
   void performLayout() {
-    // _Trace.begin('CodeField performLayout');
     assert(constraints.maxWidth > 0 && constraints.maxWidth != double.infinity,
       '_CodeField should have an explicit width.');
     assert(constraints.maxHeight > 0 && constraints.maxHeight != double.infinity,
@@ -940,12 +939,10 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     }
     _verticalViewport.applyViewportDimension(size.height);
     _updateDisplayRenderParagraphs();
-    // _Trace.end('CodeField performLayout');
   }
 
   @override
   void paint(PaintingContext context, Offset offset) {
-    // _Trace.begin('CodeField paint');
     context.paintChild(_backgroundRender, offset);
 
     final Canvas canvas = context.canvas;
@@ -966,7 +963,6 @@ class _CodeFieldRender extends RenderBox implements MouseTrackerAnnotation {
     if (endHandlePosition != null) {
       _drawHandleLayer(context, _endHandleLayerLink, endHandlePosition, offset + Offset(0, _preferredLineHeight));
     }
-    // _Trace.end('CodeField paint');
   }
 
   @override
@@ -1351,7 +1347,6 @@ class _CodeFieldExtraRender extends RenderBox {
   void paint(PaintingContext context, Offset offset) {
     final _CodeFieldRender? parent = this.parent;
     assert(parent != null);
-    // _Trace.begin('CodeField ExtraRender');
     final Canvas canvas = context.canvas;
     canvas.save();
     canvas.clipRect(Rect.fromLTWH(offset.dx, offset.dy, size.width, size.height));
@@ -1359,7 +1354,6 @@ class _CodeFieldExtraRender extends RenderBox {
       painter.paint(context.canvas, size, parent!);
     }
     canvas.restore();
-    // _Trace.end('CodeField ExtraRender');
   }
 
   @override
@@ -1424,7 +1418,7 @@ class _CodeCursorLinePainter extends _CodeFieldExtraPainter {
 
   @override
   void paint(Canvas canvas, Size size, _CodeFieldRender render) {
-    if (_color == null || _color == Colors.transparent || _color!.alpha == 0) {
+    if (_color == null || _color == Colors.transparent || (_color!.a * 255.0).round().clamp(0, 255) == 0) {
       return;
     }
     if (!_selection.isCollapsed) {
@@ -1478,7 +1472,7 @@ abstract class _CodeFieldSelectionsPainter extends _CodeFieldExtraPainter {
 
   @override
   void paint(Canvas canvas, Size size, _CodeFieldRender render) {
-    if (_color == Colors.transparent || _color.alpha == 0) {
+    if (_color == Colors.transparent || (_color.a * 255.0).round().clamp(0, 255) == 0) {
       return;
     }
     final List<CodeLineRenderParagraph> paragraphs = render.displayParagraphs;
@@ -1638,7 +1632,7 @@ class _CodeFieldCursorPainter extends _CodeFieldExtraPainter {
 
   @override
   void paint(Canvas canvas, Size size, _CodeFieldRender render) {
-    if (!_visible || !_willDraw || _color == Colors.transparent || _color.alpha == 0) {
+    if (!_visible || !_willDraw || _color == Colors.transparent || (_color.a * 255.0).round().clamp(0, 255) == 0) {
       return;
     }
     final CodeLineRenderParagraph? paragraph = render.findDisplayParagraphByLineIndex(_position.index);
@@ -1720,7 +1714,7 @@ class _CodeFieldFloatingCursorPainter extends _CodeFieldExtraPainter {
 
   @override
   void paint(Canvas canvas, Size size, _CodeFieldRender render) {
-    if (!_position.isActive() || _color == Colors.transparent || _color.alpha == 0) {
+    if (!_position.isActive() || _color == Colors.transparent || (_color.a * 255.0).round().clamp(0, 255) == 0) {
       return;
     }
     _drawFloatingCaret(canvas, _position.floatingCursorOffset!, size);

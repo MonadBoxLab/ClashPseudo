@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:clash_pseudo/src/features/connections/connection_snapshot.dart';
-import 'package:clash_pseudo/src/features/connections/connection_window.dart';
+import 'package:clash_pseudo/src/model/connection_snapshot.dart';
+import 'package:clash_pseudo/src/logic/connections/connection_window.dart';
 import 'package:clash_pseudo/src/model/core_snapshot.dart';
 
 // Host algorithm benchmark for local timing and allocation metrics.
@@ -12,7 +12,7 @@ void runConnectionBenchmark({bool timing = true}) {
   const core = CoreSnapshot(
     generation: 1,
     phase: 'READY',
-    purpose: 'VPN',
+    purpose: 'RUNNING',
     configId: 'benchmark',
     revision: 1,
     composition: 'benchmark-composition',

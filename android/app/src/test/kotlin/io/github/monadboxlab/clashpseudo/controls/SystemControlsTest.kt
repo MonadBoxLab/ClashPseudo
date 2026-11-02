@@ -234,6 +234,18 @@ class SystemControlsTest {
         for (busy in listOf(null, "false", 0)) assertFalse(state("busy" to busy).enabled)
     }
 
+    @Test fun explicitNotificationAndWidgetStopNeverNeedStartUnlockAuthority() {
+        // The notification and widget both carry this same fixed Stop action;
+        // the tile shares the policy before deciding whether to unlockAndRun.
+        val stop = VpnWidgetProvider.widgetAction(VpnWidgetProvider.ACTION_STOP)
+        assertEquals("stop", stop)
+        assertFalse(SystemControls.requiresUnlock(stop))
+        assertTrue(SystemControls.requiresUnlock(
+            VpnWidgetProvider.widgetAction(VpnWidgetProvider.ACTION_START)))
+        assertTrue(SystemControls.requiresUnlock(null))
+        assertTrue(SystemControls.requiresUnlock("toggle"))
+    }
+
     @Test fun onlyMissingAuthorizationCarriesAnUnacceptedStartIntoTheActivity() {
         for (admission in SystemControls.Admission.values()) {
             for (action in listOf("start", "stop")) {

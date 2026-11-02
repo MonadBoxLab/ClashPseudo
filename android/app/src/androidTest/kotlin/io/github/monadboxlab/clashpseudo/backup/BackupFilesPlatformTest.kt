@@ -85,12 +85,9 @@ class BackupFilesPlatformTest {
         val imported = f.files.prepareImport(archive(f, original).inputStream(), BackupFiles.Operation(BackupLease()))
         assertEquals(original.createdAtMillis, imported.createdAtMillis)
         assertEquals(original.parts, imported.parts)
-        assertEquals(1, imported.structure.configurations)
-        assertEquals(1, imported.structure.overrides)
+        val paths = f.files.candidateReadPaths(imported.token)
         for (kind in BackupFiles.Kind.entries) {
-            f.files.withPart(imported.token, kind, BackupFiles.Operation(BackupLease())) { input ->
-                assertArrayEquals(values.getValue(kind), input.readBytes())
-            }
+            assertArrayEquals(values.getValue(kind), File(paths.getValue(kind.fileName)).readBytes())
         }
         f.files.discard(original.token)
         f.files.discard(imported.token)
@@ -135,47 +132,51 @@ class BackupFilesPlatformTest {
         backupRejects<Exception> { f.files.prepareImport(corrupt.inputStream(), BackupFiles.Operation(BackupLease())) }
     }
 
-    @Test fun jsonDepthEntryAndTotalNodeBudgetsHaveExactBoundaries() = BackupFixture.use { f ->
-        fun values() = mapOf(
-            BackupFiles.Kind.CONFIGURATIONS to "{\"entries\":[]}".toByteArray(),
-            BackupFiles.Kind.OVERRIDES to "{\"entries\":[]}".toByteArray(),
-            BackupFiles.Kind.PREFERENCES to "{}".toByteArray(),
-        ).toMutableMap()
-        val collection = values()
-        collection[BackupFiles.Kind.CONFIGURATIONS] = ("{\"entries\":[" + List(4096) { "{}" }.joinToString(",") + "]}").toByteArray()
-        assertEquals(4096, f.candidate(collection).structure.configurations)
-        collection[BackupFiles.Kind.CONFIGURATIONS] = ("{\"entries\":[" + List(4097) { "{}" }.joinToString(",") + "]}").toByteArray()
-        backupRejects<IOException> { f.candidate(collection) }
-        val deep = values()
-        deep[BackupFiles.Kind.PREFERENCES] = ("{\"a\":" + "[".repeat(30) + "0" + "]".repeat(30) + "}").toByteArray()
-        assertEquals(32, f.candidate(deep).structure.depth)
-        deep[BackupFiles.Kind.PREFERENCES] = ("{\"a\":" + "[".repeat(31) + "0" + "]".repeat(31) + "}").toByteArray()
-        backupRejects<IOException> { f.candidate(deep) }
-        val nodes = values()
-        nodes[BackupFiles.Kind.PREFERENCES] = ("{\"a\":[" + List(199991) { "null" }.joinToString(",") + "]}").toByteArray()
-        assertEquals(200000, f.candidate(nodes).structure.nodes)
-        nodes[BackupFiles.Kind.PREFERENCES] = ("{\"a\":[" + List(199992) { "null" }.joinToString(",") + "]}").toByteArray()
-        backupRejects<IOException> { f.candidate(nodes) }
-    }
-
-    @Test fun full16MiBBodyIncludingBomIsPreservedAndOneByteOverRejected() = BackupFixture.use { f ->
-        val values = BackupFixture.values().toMutableMap()
-        val prefix = "{\"entries\":[{\"body\":\"﻿"
-        val suffix = "\"}]}"
-        values[BackupFiles.Kind.CONFIGURATIONS] = (prefix + "x".repeat(MAX_BODY.toInt() - 3) + suffix).toByteArray()
-        val accepted = f.candidate(values)
-        assertEquals(values.getValue(BackupFiles.Kind.CONFIGURATIONS).size.toLong(), accepted.parts.getValue(BackupFiles.Kind.CONFIGURATIONS).bytes)
-        f.files.discard(accepted.token)
-        values[BackupFiles.Kind.CONFIGURATIONS] = (prefix + "x".repeat(MAX_BODY.toInt() - 2) + suffix).toByteArray()
-        backupRejects<IOException> { f.candidate(values) }
-    }
-
-    @Test fun duplicateJsonKeysNullBodyAndMalformedUtf8CannotBeExported() = BackupFixture.use { f ->
-        for (invalid in listOf("{\"entries\":[],\"entries\":[]}".toByteArray(),
+    @Test fun nativeCandidatesKeepBusinessBytesForValidationByTheExistingDartStores() = BackupFixture.use { f ->
+        for (raw in listOf("{\"entries\":[],\"entries\":[]}".toByteArray(),
             "{\"entries\":[{\"body\":null}]}".toByteArray(), byteArrayOf(0xff.toByte()),
-            "{\"entries\":[{\"body\":\"\\uD800\"}]}".toByteArray(), "{} trailing".toByteArray())) {
-            val values = BackupFixture.values().toMutableMap().apply { this[BackupFiles.Kind.CONFIGURATIONS] = invalid }
-            backupRejects<Exception> { f.candidate(values) }
+            "{\"entries\":[{\"body\":\"\\uD800\"}]}".toByteArray(), "{} trailing".toByteArray(),
+            ("{\"entries\":[{\"body\":\"﻿" + "x".repeat(16 * 1024 * 1024 - 2) + "\"}]}").toByteArray())) {
+            val values = BackupFixture.values().toMutableMap().apply { this[BackupFiles.Kind.CONFIGURATIONS] = raw }
+            val captured = f.candidate(values)
+            val imported = f.files.prepareImport(archive(f, captured).inputStream(), BackupFiles.Operation(BackupLease()))
+            val path = f.files.candidateReadPaths(imported.token).getValue("configurations.json")
+            assertArrayEquals(raw, File(path).readBytes())
+            f.files.discard(captured.token)
+            f.files.discard(imported.token)
+        }
+    }
+
+    @Test fun actualFileByteBoundariesAreCheckedWithoutBusinessJsonDecoding() = BackupFixture.use { f ->
+        f.old()
+        val before = f.current()
+        for (target in BackupFiles.Kind.entries) {
+            for (over in listOf(false, true)) {
+                val size = target.maxBytes + if (over) 1 else 0
+                fun capture() = f.files.capture(1, f.storage.snapshot().epoch, BackupFiles.Operation(BackupLease())) { kind ->
+                    if (kind != target) BackupFixture.values().getValue(kind).inputStream()
+                    else object : java.io.InputStream() {
+                        var remaining = size
+                        override fun read(): Int = if (remaining-- > 0) 0 else -1
+                        override fun read(bytes: ByteArray, offset: Int, length: Int): Int {
+                            if (length == 0) return 0
+                            if (remaining == 0L) return -1
+                            val count = minOf(remaining, length.toLong()).toInt()
+                            bytes.fill(0, offset, offset + count)
+                            remaining -= count
+                            return count
+                        }
+                    }
+                }
+                if (over) backupRejects<IOException> { capture() }
+                else {
+                    val accepted = capture()
+                    assertEquals(size, accepted.parts.getValue(target).bytes)
+                    f.files.discard(accepted.token)
+                }
+                assertEquals(before, f.current())
+                assertTrue(File(f.privateRoot, "candidates").list()!!.isEmpty())
+            }
         }
     }
 
@@ -220,9 +221,11 @@ class BackupFilesPlatformTest {
         }
         val part = File(f.privateRoot, "candidates/${candidate.token}/preferences.json")
         part.appendText(" ")
-        backupRejects<IOException> {
-            f.files.withPart(candidate.token, BackupFiles.Kind.PREFERENCES, BackupFiles.Operation(BackupLease())) { it.readBytes() }
-        }
+        val before = f.current()
+        val refused = f.storage.install(candidate.token, f.storage.snapshot().epoch, BackupFiles.Operation(BackupLease()))
+        assertEquals(false, refused.committed)
+        assertEquals("restorePreparationFailed", refused.error)
+        assertEquals(before, f.current())
         f.files.discard(candidate.token)
         backupRejects<IOException> { f.files.candidate(candidate.token) }
     }

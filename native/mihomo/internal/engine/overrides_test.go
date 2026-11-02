@@ -7,6 +7,9 @@ import (
 )
 
 func TestPrepareAppliesOverridesBeforePlatformAndMode(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	var e Engine
 	body := []byte("rules:\n - MATCH,DIRECT\ndns:\n enable: false\n")
 	part := configinput.Override{ID: "part", Revision: 1, Mode: "replace", Body: `mode: global
@@ -22,7 +25,7 @@ proxy-groups:
 rules:
  - MATCH,composed-group
 `}
-	if err := e.Prepare(t.TempDir(), body, "direct", nil, func(int) bool { return true }, part); err != nil {
+	if err := e.Prepare(t.TempDir(), body, "direct", func(int) bool { return true }, part); err != nil {
 		t.Fatal(err)
 	}
 	defer requireStop(t, &e)
@@ -42,12 +45,15 @@ rules:
 	}
 }
 
-func TestComposeFailureDoesNotAllocateOrPoisonEngine(t *testing.T) {
+func TestComposeFailureDoesNotAllocateAndRequiresANewEngine(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	var e Engine
 	home := t.TempDir()
 	body := []byte("rules:\n - MATCH,DIRECT\n")
 	part := configinput.Override{ID: "bad", Revision: 1, Mode: "replace", Body: "dns: ["}
-	if err := e.Prepare(home, body, "rule", nil, func(int) bool { return true }, part); err == nil {
+	if err := e.Prepare(home, body, "rule", func(int) bool { return true }, part); err == nil {
 		t.Fatal("invalid fragment accepted")
 	}
 	if e.cfg != nil || e.owner != nil || e.failed {
@@ -56,8 +62,9 @@ func TestComposeFailureDoesNotAllocateOrPoisonEngine(t *testing.T) {
 	if err := e.Stop(); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.Prepare(home, body, "rule", nil, func(int) bool { return true }); err != nil {
-		t.Fatal(err)
+	if err := e.Prepare(home, body, "rule", func(int) bool { return true }); err == nil {
+		t.Fatal("同一Engine在Compose失败后重新装载")
 	}
+	requireFreshEngineProcess(t, home)
 	requireStop(t, &e)
 }

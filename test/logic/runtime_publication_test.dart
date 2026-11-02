@@ -1,12 +1,16 @@
+import 'package:clash_pseudo/src/model/application_contract.dart';
+import 'package:clash_pseudo/src/model/app_snapshot.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:clash_pseudo/src/features/configs/config_store.dart';
-import 'package:clash_pseudo/src/features/overrides/override_store.dart';
+import 'package:clash_pseudo/src/logic/configs/config_store.dart';
+import 'package:clash_pseudo/src/logic/overrides/override_store.dart';
+import 'package:clash_pseudo/src/logic/overrides/lan_proxy_settings.dart';
 import 'package:yaml/yaml.dart';
-import 'package:clash_pseudo/src/logic/app_runtime.dart';
-import 'package:clash_pseudo/src/platform/app_bridge.dart';
+import 'package:clash_pseudo/src/platform/app_bootstrap.dart';
+import 'package:clash_pseudo/src/platform/channel/app_bridge.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -15,10 +19,14 @@ void main() {
   const codec = StandardMethodCodec();
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  late AppBootstrap bootstrap;
   late Directory directory;
   var durable = true;
   var storageClosed = false;
   var rejectPublication = false;
+  var rejectRefresh = false;
+  const original =
+      'https://user:pass@fixture.test/?token=原文🙂\nAuthorization: Bearer fixture';
   var stops = 0;
   var pathReads = 0;
   final publications = <String>[];
@@ -46,16 +54,32 @@ void main() {
     durable = true;
     storageClosed = false;
     rejectPublication = false;
+    rejectRefresh = false;
     stops = 0;
     pathReads = 0;
     publications.clear();
     messenger.setMockMethodCallHandler(AppBridge.channel, (call) async {
       final args = Map<String, dynamic>.from(call.arguments as Map? ?? {});
       switch (call.method) {
+        case ApplicationContract.coreChannelStatus:
+          return {'phase': 'disconnected', 'generation': 0};
+        case ApplicationContract.coreChannelRuntimeChanged:
+          return null;
         case 'ready':
         case 'stage':
         case 'checkOperation':
+          return null;
         case 'refreshStrings':
+          if (rejectRefresh) {
+            throw PlatformException(
+              code: 'notification',
+              details: {
+                'id': 'androidErrorNotificationUpdate',
+                'args': <String, Object?>{},
+                'detail': original,
+              },
+            );
+          }
           return null;
         case 'snapshot':
           return {'phase': 'STOPPED'};
@@ -80,7 +104,15 @@ void main() {
           final temporary = File('${directory.path}/$name.tmp');
           expect(await temporary.exists(), isTrue);
           await temporary.rename('${directory.path}/$name');
-          return {'saved': true, 'durable': durable, 'epoch': 4};
+          return {
+            'saved': true,
+            'durable': durable,
+            'epoch': 4,
+            if (!durable) ...{
+              'errorCode': 'publishedDirectorySyncFailed',
+              'errorDetail': original,
+            },
+          };
         case 'stop':
           stops++;
           return null;
@@ -88,13 +120,122 @@ void main() {
           throw MissingPluginException(call.method);
       }
     });
-    await AppRuntime().start();
+    bootstrap = AppBootstrap();
+    await bootstrap.start();
   });
 
   tearDown(() async {
-    AppBridge.channel.setMethodCallHandler(null);
+    bootstrap.dispose();
     messenger.setMockMethodCallHandler(AppBridge.channel, null);
     await directory.delete(recursive: true);
+  });
+
+  test('LAN 保存经真实 AppRuntime 返回顶层成功，snapshot 按 resultSuccess 读取', () async {
+    final result = await execute({
+      'action': 'saveLanProxy',
+      'name': 'Local network proxy',
+      'addresses': ['10.0.2.16'],
+      'interfaces': {'10.0.2.16': 'wlan0'},
+      'port': 7890,
+      'udp': true,
+    });
+    expect(result['success'], isTrue);
+    expect(result['overrideStatus'], 'saved');
+    expect(result['savedRevision'], 1);
+    expect((result['message'] as Map)['id'], 'overrideSettingsSaved');
+    expect(result.containsKey('resultSuccess'), isFalse);
+    final saved = (await OverrideStore(directory).read()).single;
+    expect(saved.id, result['targetId']);
+    expect(saved.enabled, isFalse);
+    final listener =
+        ((loadYaml(saved.body) as YamlMap)['listeners'] as YamlList).single
+            as YamlMap;
+    expect(listener['listen'], '10.0.2.16');
+    expect(LanProxySettings.fromBody(saved.body).interfaces, {
+      '10.0.2.16': 'wlan0',
+    });
+    expect(publications, ['overrides.json']);
+    final snapshot = AppSnapshot.fromMap({
+      'resultId': 'publication-test',
+      'resultSuccess': result['success'],
+      'overrideStatus': result['overrideStatus'],
+      'resultMessage': result['message'],
+      'targetId': result['targetId'],
+      'savedRevision': result['savedRevision'],
+    });
+    expect(snapshot.resultSuccess, isTrue);
+    expect(snapshot.overrideStatus, 'saved');
+    expect(snapshot.resultMessageDescription!.id, 'overrideSettingsSaved');
+    expect(snapshot.targetId, saved.id);
+    expect(snapshot.savedRevision, saved.revision);
+  });
+
+  test('LAN 保存后 enable 的实际应用失败仍返回 false，不按 saved 状态改为成功', () async {
+    final saved = await execute({
+      'action': 'saveLanProxy',
+      'name': 'Local network proxy',
+      'addresses': ['10.0.2.16'],
+      'interfaces': {'10.0.2.16': 'wlan0'},
+      'port': 7890,
+      'udp': true,
+    });
+    expect(saved['success'], isTrue);
+    final result = await execute({
+      'action': 'setLanProxyEnabled',
+      'name': 'Local network proxy',
+      'id': saved['targetId'],
+      'revision': saved['savedRevision'],
+      'enabled': true,
+    });
+    // 当前没有已选配置；设置保存成功与实际启动失败分别保留。
+    expect(result['success'], isFalse);
+    expect(result['overrideStatus'], 'applyFailed');
+    expect(result['targetId'], saved['targetId']);
+    expect(
+      (result['message'] as Map)['id'],
+      'overrideSavedReconnectIncomplete',
+    );
+    expect((await OverrideStore(directory).read()).single.enabled, isTrue);
+    expect(publications, ['overrides.json', 'overrides.json']);
+    final snapshot = AppSnapshot.fromMap({
+      'resultSuccess': result['success'],
+      'overrideStatus': result['overrideStatus'],
+      'resultMessage': result['message'],
+    });
+    expect(snapshot.resultSuccess, isFalse);
+    expect(snapshot.overrideStatus, 'applyFailed');
+    expect(
+      snapshot.resultMessageDescription!.detail,
+      (result['message'] as Map)['detail'],
+    );
+  });
+
+  test('LAN 保存后的 directory sync warning 保留 saved 与失败反馈', () async {
+    durable = false;
+    final result = await execute({
+      'action': 'saveLanProxy',
+      'name': 'Local network proxy',
+      'addresses': ['10.0.2.16'],
+      'interfaces': {'10.0.2.16': 'wlan0'},
+      'port': 7890,
+      'udp': true,
+    });
+    expect(result['success'], isFalse);
+    expect(result['overrideStatus'], 'saved');
+    expect(result['savedRevision'], 1);
+    expect((result['message'] as Map)['id'], 'storageSyncWarning');
+    expect((result['message'] as Map)['detail'], original);
+    final saved = (await OverrideStore(directory).read()).single;
+    expect(saved.id, result['targetId']);
+    expect(publications, ['overrides.json']);
+    final snapshot = AppSnapshot.fromMap({
+      'resultSuccess': result['success'],
+      'overrideStatus': result['overrideStatus'],
+      'resultMessage': result['message'],
+    });
+    expect(snapshot.resultSuccess, isFalse);
+    expect(snapshot.overrideStatus, 'saved');
+    expect(snapshot.resultMessageDescription!.detail, original);
   });
 
   test(
@@ -172,6 +313,7 @@ void main() {
       expect(result['configStatus'], 'saved');
       expect(result['savedRevision'], 1);
       expect((result['message'] as Map)['id'], 'storageSyncWarning');
+      expect((result['message'] as Map)['detail'], original);
       final saved = (await ConfigStore(directory).read()).selected!;
       expect(saved.id, result['targetId']);
       expect(saved.body, 'rules:\n  - MATCH,DIRECT\n');
@@ -217,10 +359,43 @@ void main() {
       storageClosed = true;
       final result = await execute({'action': 'stop'});
       expect(result['success'], isTrue);
-      expect(stops, 1);
+      expect(stops, 0);
       expect(pathReads, 0);
       expect(publications, isEmpty);
       expect(await directory.list().toList(), isEmpty);
+    },
+  );
+
+  test(
+    'notification refresh failure cannot erase an already saved preference',
+    () async {
+      rejectRefresh = true;
+      final result = await execute({
+        'action': 'setPreference',
+        'field': 'language',
+        'value': 'en',
+      });
+      expect(result['success'], isFalse);
+      final message = result['message'] as Map;
+      expect(message['id'], 'settingsSaved');
+      expect(message['detail'], contains('notification'));
+      expect(message['detail'], contains(original));
+      expect(publications, ['preferences.json']);
+      final saved = jsonDecode(
+        await File('${directory.path}/preferences.json').readAsString(),
+      ) as Map;
+      expect(saved['language'], 'en');
+      expect(stops, 0);
+
+      rejectRefresh = false;
+      final next = await execute({
+        'action': 'setPreference',
+        'field': 'language',
+        'value': 'zh',
+      });
+      expect(next['success'], isTrue);
+      expect((next['message'] as Map)['id'], 'settingsSaved');
+      expect(publications, ['preferences.json', 'preferences.json']);
     },
   );
 

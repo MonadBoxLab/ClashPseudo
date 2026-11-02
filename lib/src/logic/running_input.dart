@@ -1,15 +1,15 @@
 import 'package:clash_pseudo/src/model/app_snapshot.dart';
 
-import '../features/configs/config_entry.dart';
-import '../features/mode/tunnel_mode.dart';
-import '../features/overrides/override_entry.dart';
+import '../model/config_entry.dart';
+import '../model/tunnel_mode.dart';
+import '../model/override_entry.dart';
 import '../model/app_preferences.dart';
-import '../features/strategies/strategy_choice.dart';
-import '../l10n/messages.dart';
-import '../platform/app_bridge.dart';
-import '../platform/core_input.dart';
+import '../model/strategy_choice.dart';
+import '../model/messages.dart';
+import '../model/app_platform.dart';
+import '../platform/core/core_input.dart';
 
-/// Actual loaded input used by target-only updates and explicit composition changes.
+/// AppRuntime 确认的实际装载输入，定向更新只替换本次涉及的部分。
 class RunningInput {
   const RunningInput._(
     this.state,
@@ -17,28 +17,29 @@ class RunningInput {
     this.parts,
     this.preferences,
     this.fallbackMode,
+    this.vpnIntent,
+    this.lanIntent,
   );
   final AppSnapshot state;
   final ConfigEntry entry;
   final List<OverrideEntry> parts;
   final AppPreferences preferences;
   final TunnelMode? fallbackMode;
+  final bool vpnIntent;
+  final bool lanIntent;
+  String? get inputId => state.core.inputId;
 
   static Future<RunningInput?> read(
-    AppBridge platform,
+    AppPlatform platform,
     AppSnapshot state,
   ) async {
-    if (!state.running ||
-        state.generation <= 0 ||
-        !state.core.ready ||
+    if (!state.forwarding ||
         !state.core.hasIdentity ||
-        state.core.purpose != 'VPN' ||
-        state.mode == null ||
-        state.core.configId != state.configId ||
-        state.core.revision != state.revision) {
+        state.core.purpose != 'RUNNING') {
       return null;
     }
-    final input = await platform.runningInput(state.core);
+    final input = await platform.runningRecord(state.core);
+    if (input == null || input['inputId'] != state.core.inputId) return null;
     if (!input.containsKey('mode') ||
         input['name'] is! String ||
         (input['name'] as String).trim().isEmpty) {
@@ -58,7 +59,7 @@ class RunningInput {
     final fallbackMode = input['mode'] == null
         ? null
         : TunnelMode.parse(input['mode']);
-    final strategies = await platform.strategies(state.core.generation);
+    final strategies = await platform.strategies(state.core);
     if (!strategies.matches(state.core)) return null;
     final choices = <String, StrategyChoice>{
       for (final group in strategies.groups)
@@ -99,8 +100,8 @@ class RunningInput {
     final revision = input['revision'];
     if (id is! String ||
         revision is! int ||
-        id != state.configId ||
-        revision != state.revision ||
+        id != state.core.configId ||
+        revision != state.core.revision ||
         input['composition'] != state.core.composition ||
         CoreInput.compositionOf(id, revision, parts) !=
             state.core.composition) {
@@ -123,6 +124,8 @@ class RunningInput {
         (input['packages'] as List).cast<String>(),
       ),
       fallbackMode,
+      input['vpnIntent'] == true,
+      input['lanIntent'] == true,
     );
   }
 
@@ -196,7 +199,7 @@ class RunningInput {
   /// Prepare and validate complete input before Stop, then recheck owner and running
   /// intent at each subsequent wait before starting.
   Future<void> reconnect(
-    AppBridge platform,
+    AppPlatform platform,
     CoreInput input, {
     required TunnelMode? fallbackMode,
     TunnelMode? routingOverride,
@@ -204,6 +207,8 @@ class RunningInput {
     List<OverrideEntry>? parts,
     AppPreferences? preferences,
     Future<void> Function()? beforeStop,
+    bool? vpnIntent,
+    bool? lanIntent,
   }) async {
     final target = entry ?? this.entry;
     try {
@@ -214,10 +219,12 @@ class RunningInput {
         routingOverride: routingOverride,
         overrides: parts ?? this.parts,
         preferences: preferences ?? this.preferences,
+        vpnIntent: vpnIntent ?? this.vpnIntent,
+        lanIntent: lanIntent ?? this.lanIntent,
       );
       await platform.checkOperation();
       final now = await platform.snapshot();
-      if (!now.running ||
+      if (!now.forwarding ||
           !now.core.ready ||
           !now.core.matchesIdentity(state.core) ||
           now.configId != state.configId ||
@@ -227,17 +234,21 @@ class RunningInput {
         throw ConfigFailure(messages.runningConfigUnavailable);
       }
       await beforeStop?.call();
-      await platform.stop();
+      await platform.stop(preserveLan: false);
       await platform.checkOperation();
       final stopped = await platform.snapshot();
       if (stopped.phase != 'STOPPED' ||
           stopped.generation != state.generation) {
         throw ConfigFailure(messages.runningConfigUnavailable);
       }
+      if (!(vpnIntent ?? this.vpnIntent) && !(lanIntent ?? this.lanIntent)) {
+        return;
+      }
       await platform.start(
         id: target.id,
         revision: target.revision,
         mode: fallbackMode,
+        explicitStart: false,
       );
     } finally {
       await input.clear();

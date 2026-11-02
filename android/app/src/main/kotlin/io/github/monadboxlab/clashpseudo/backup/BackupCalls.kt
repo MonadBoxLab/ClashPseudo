@@ -1,6 +1,7 @@
 package io.github.monadboxlab.clashpseudo.backup
 
 import io.github.monadboxlab.clashpseudo.app.ApplicationContract
+import io.github.monadboxlab.clashpseudo.message.AppMessage
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -50,6 +51,8 @@ class BackupCalls internal constructor(
         var phase = Phase.PRIVATE_IO
         var code = 0
         var discard = false
+        val discardReplies = mutableListOf<(Throwable?) -> Unit>()
+        var retirement: Map<String, Any?>? = null
         var externalMayBePartial = false
         var timeout: Runnable? = null
         override fun checkCurrent() {
@@ -66,6 +69,7 @@ class BackupCalls internal constructor(
     private var lastCode = FIRST_CODE - 1
     private var legacyPendingCode = 0
     private var lastErrorCode: String? = null
+    private var lastErrorDetail: Map<String, Any?>? = null
 
     /**
      * Merge the saved request-code high-water mark before accepting a new picker
@@ -102,10 +106,11 @@ class BackupCalls internal constructor(
         "draining" to (pending?.active?.get() == false),
         "phase" to pending?.phase?.name?.lowercase(java.util.Locale.ROOT),
         "errorCode" to lastErrorCode,
+        "errorDetail" to lastErrorDetail,
     )
 
-    /** Only absent files use Dart defaults. The unique LogicEngine validates the structurally admitted
-     * private candidate, then releases its business write gate BEFORE saveExport opens a picker.
+    /** Only absent files use Dart defaults. The unique LogicEngine validates the
+     * private candidate, then releases its write gate before saveExport opens a picker.
      */
     fun prepareExport(requestId: String, createdAtMillis: Long, expectedEpoch: Long,
         defaults: Map<String, String>, owner: RestoreTransaction.Owner,
@@ -129,7 +134,6 @@ class BackupCalls internal constructor(
         picker(request, Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             type = "application/zip"
             addCategory(Intent.CATEGORY_OPENABLE)
-            putExtra(Intent.EXTRA_LOCAL_ONLY, true)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         })
     }
@@ -146,7 +150,6 @@ class BackupCalls internal constructor(
             picker(request, Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                 type = "application/zip"
                 addCategory(Intent.CATEGORY_OPENABLE)
-                putExtra(Intent.EXTRA_LOCAL_ONLY, true)
                 putExtra(Intent.EXTRA_TITLE, title)
                 addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             })
@@ -183,7 +186,7 @@ class BackupCalls internal constructor(
         return true
     }
 
-    /** Serialize this fixed-view read with document requests on the storage lane. */
+    /** Read candidate metadata on the same file I/O executor as private backup operations. */
     fun candidate(token: String, reply: (Map<String, Any?>) -> Unit) {
         val request = begin("candidate:$token", Kind.INSPECT, reply, token) ?: return
         runIo(request, storageWorker, work = { view(files.candidate(token)) }) {
@@ -196,13 +199,17 @@ class BackupCalls internal constructor(
     }
 
     /**
-     * Schedule discard on the storage lane; the record remains owned through actual
-     * provider I/O.
+     * Schedule discard on the file I/O executor; retain the record until
+     * provider I/O completes.
      */
-    fun discardCandidate(token: String) {
+    fun discardCandidate(token: String, reply: (Throwable?) -> Unit = {}) {
         val request = pending
-        if (request != null && request.token == token) { request.discard = true; return }
-        cleanup(null, token, storageWorker)
+        if (request != null && request.token == token) {
+            request.discard = true
+            request.discardReplies += reply
+            return
+        }
+        cleanup(null, token, storageWorker, reply = reply)
     }
 
     private fun begin(id: String, kind: Kind, reply: (Map<String, Any?>) -> Unit,
@@ -223,6 +230,7 @@ class BackupCalls internal constructor(
         return Request(id, kind, host, reply, token, businessOwner).also {
             pending = it
             lastErrorCode = null
+            lastErrorDetail = null
             changed()
         }
     }
@@ -239,7 +247,7 @@ class BackupCalls internal constructor(
         request.code = ++lastCode
         request.phase = Phase.PICKER
         try { launch(checkNotNull(request.activity), intent, request.code) }
-        catch (_: Exception) { finish(request, result(request, "failed", "backupPickerUnavailable")) }
+        catch (error: Exception) { finish(request, result(request, "failed", "backupPickerUnavailable", error)) }
         changed()
     }
 
@@ -257,26 +265,32 @@ class BackupCalls internal constructor(
                 try {
                     operation.check()
                     view = work(operation)
-                    operation.check()
                 } catch (error: Exception) { failure = error }
                 post(Runnable {
                     request.timeout?.let(remove)
                     request.timeout = null
-                    val unowned = if (createsCandidate && (!request.active.get() || failure != null)) view?.get("token") as? String else null
-                    if (unowned != null) {
-                        if (request.active.get()) deliver(request, result(request, "failed", errorCode(request, failure)))
-                        cleanup(request, unowned, worker)
-                    } else if (!request.active.get()) {
-                        finish(request, null)
-                    } else if (failure != null) {
-                        finish(request, result(request, if (failure is CancellationException) "expired" else "failed", errorCode(request, failure)))
-                    } else success(checkNotNull(view))
+                    val error = failure
+                    if (error != null) {
+                        val retired = request.retirement
+                        val status = if (error is CancellationException) retired?.get("status") as? String ?: "expired" else "failed"
+                        val code = if (error is CancellationException) retired?.get("errorCode") as? String ?: "backupExpired"
+                            else errorCode(request, error)
+                        finish(request, result(request, status, code, error))
+                    } else if (!request.active.get() && request.kind == Kind.EXPORT && request.phase == Phase.PRIVATE_IO) {
+                        // The token read completed, but cancellation cannot authorize a new picker.
+                        finish(request, checkNotNull(request.retirement))
+                    } else {
+                        val actual = checkNotNull(view)
+                        val unowned = if (createsCandidate && !request.active.get()) actual["token"] as? String else null
+                        if (unowned != null) cleanup(request, unowned, storageWorker, result(request, "ready") + actual)
+                        else success(actual)
+                    }
                 })
             }
-        } catch (_: Exception) {
+        } catch (error: Exception) {
             remove(timeout)
             request.timeout = null
-            finish(request, result(request, "failed", "backupWorkerUnavailable"))
+            finish(request, result(request, "failed", "backupWorkerUnavailable", error))
         }
         changed()
     }
@@ -288,11 +302,9 @@ class BackupCalls internal constructor(
         request.timeout?.let(remove)
         request.timeout = null
         val value = result(request, status, error)
+        request.retirement = value
         if (request.phase == Phase.PICKER) finish(request, value)
-        else {
-            deliver(request, value + ("draining" to true))
-            changed()
-        }
+        else changed() // The original reply remains pending until actual I/O and close return.
     }
 
     private fun finish(request: Request, value: Map<String, Any?>?) {
@@ -301,8 +313,7 @@ class BackupCalls internal constructor(
         request.timeout = null
         request.activity = null
         if (request.discard && request.token != null) {
-            if (value != null) deliver(request, value)
-            cleanup(request, request.token, storageWorker)
+            cleanup(request, request.token, storageWorker, value)
             return
         }
         pending = null
@@ -317,23 +328,31 @@ class BackupCalls internal constructor(
         reply?.invoke(value)
     }
 
-    private fun cleanup(request: Request?, token: String, worker: Executor) {
+    private fun cleanup(request: Request?, token: String, worker: Executor,
+        value: Map<String, Any?>? = null, reply: (Throwable?) -> Unit = {}) {
         if (request != null) { request.phase = Phase.CLEANUP; request.invalidate() }
-        try {
-            worker.execute {
-                var failed = false
-                try { files.discard(token) } catch (_: Exception) { failed = true }
-                post(Runnable {
-                    if (failed) lastErrorCode = "backupCleanupFailed"
-                    if (request != null && pending === request) pending = null
-                    changed()
-                })
+        fun complete(error: Throwable?) {
+            val detail = error?.let { AppMessage("backupFailed").withDetail(it).toMap() }
+            if (error != null) {
+                lastErrorCode = "backupCleanupFailed"
+                lastErrorDetail = detail
             }
-        } catch (_: Exception) {
-            lastErrorCode = "backupCleanupFailed"
-            if (request != null && pending === request) pending = null
+            if (request != null && pending === request) {
+                pending = null
+                val response = if (detail == null) value else
+                    (value ?: result(request, "failed", "backupCleanupFailed")) + ("cleanupError" to detail)
+                if (response != null) deliver(request, response)
+            }
+            request?.discardReplies?.forEach { it(error) }
+            reply(error)
             changed()
         }
+        try {
+            worker.execute {
+                val failure = try { files.discard(token); null } catch (error: Exception) { error }
+                post(Runnable { complete(failure) })
+            }
+        } catch (error: Exception) { complete(error) }
     }
 
     private fun candidateView(create: () -> BackupFiles.Candidate): Map<String, Any?> {
@@ -351,13 +370,15 @@ class BackupCalls internal constructor(
         "createdAtMillis" to candidate.createdAtMillis,
         "paths" to files.candidateReadPaths(candidate.token),
         "parts" to candidate.parts.entries.associate { (kind, value) -> kind.fileName to mapOf("bytes" to value.bytes, "sha256" to value.sha256) },
-        "structure" to mapOf("nodes" to candidate.structure.nodes, "depth" to candidate.structure.depth,
-            "configurations" to candidate.structure.configurations, "overrides" to candidate.structure.overrides),
     )
 
-    private fun result(request: Request, status: String, error: String? = null): Map<String, Any?> = mapOf(
+    private fun result(request: Request, status: String, error: String? = null,
+        cause: Throwable? = null): Map<String, Any?> = mapOf(
         "status" to status, "requestId" to request.id, "errorCode" to error,
+        "errorDetail" to cause?.let { AppMessage("backupFailed").withDetail(it).toMap() },
         "externalMayBePartial" to request.externalMayBePartial,
+        "retired" to !request.active.get(),
+        "retirement" to request.retirement,
     )
 
     private fun errorCode(request: Request, error: Throwable?) = when {

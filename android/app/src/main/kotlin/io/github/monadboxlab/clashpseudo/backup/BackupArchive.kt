@@ -13,11 +13,11 @@ import java.io.InputStream
 import java.io.InputStreamReader
 import java.io.OutputStream
 import java.io.OutputStreamWriter
-import java.io.RandomAccessFile
 import java.nio.charset.CodingErrorAction
 import java.security.MessageDigest
 import java.util.zip.CRC32
 import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 import io.github.monadboxlab.clashpseudo.backup.BackupFiles.Fingerprint
 import io.github.monadboxlab.clashpseudo.backup.BackupFiles.Kind
@@ -27,11 +27,7 @@ import io.github.monadboxlab.clashpseudo.backup.BackupFiles.Companion.invalid
 internal const val MIB = 1024L * 1024
 internal const val MAX_ARCHIVE = ApplicationContract.BACKUP_ARCHIVE_BYTES.toLong()
 internal const val MAX_EXPANDED = ApplicationContract.BACKUP_EXPANDED_BYTES.toLong()
-internal const val MAX_BODY = ApplicationContract.CONFIGURATION_TEXT_BYTES.toLong()
 internal const val MAX_MANIFEST = ApplicationContract.BACKUP_MANIFEST_BYTES
-internal const val MAX_NODES = ApplicationContract.BACKUP_JSON_NODES
-internal const val MAX_DEPTH = ApplicationContract.BACKUP_JSON_DEPTH
-internal const val MAX_ENTRIES = ApplicationContract.BACKUP_COLLECTION_ENTRIES
 internal const val BUFFER = 32768
 internal const val MANIFEST = ApplicationContract.BACKUP_MANIFEST_FILE
 internal const val ARCHIVE = "archive.zip"
@@ -119,7 +115,7 @@ private fun unsigned(reader: JsonReader): Long {
     if (!Regex("0|[1-9][0-9]*").matches(value)) invalid("Manifest unsigned integer required")
     return value.toLongOrNull() ?: invalid("Manifest integer overflow")
 }
-internal fun BackupFiles.writeZip(directory: File, operation: Operation): Fingerprint {
+internal fun BackupFiles.writeZip(directory: File, operation: Operation) {
     val archive = File(directory, ARCHIVE)
     writeFile(archive) { stream, descriptor ->
         val buffered = BufferedOutputStream(stream, BUFFER)
@@ -153,7 +149,6 @@ internal fun BackupFiles.writeZip(directory: File, operation: Operation): Finger
             sync(descriptor)
         }
     }
-    return fingerprint(archive, MAX_ARCHIVE, operation::check)
 }
 
 internal class CountingInput(private val input: InputStream, private val limit: Long,
@@ -187,119 +182,50 @@ internal fun transfer(input: InputStream, output: OutputStream, limit: Long, che
         if (count < 0) break
         output.write(bytes, 0, count)
     }
-    check()
     return source.fingerprint()
 }
 internal fun checkEntry(actual: Fingerprint, expected: ZipEntry) {
     if (actual.bytes != expected.size || actual.crc32 != expected.crc) invalid("ZIP CRC or actual size mismatch")
 }
-/** EOCD + complete central directory + local ranges, before ZipFile performs any expansion. */
-internal object ZipLayout {
-    data class Entry(val size: Long, val compressed: Long, val crc: Long, val method: Int)
-    fun inspect(file: File): Map<String, Entry> = RandomAccessFile(file, "r").use { input ->
-        val length = input.length()
-        if (length !in 22..MAX_ARCHIVE) invalid("Invalid ZIP length")
-        val tailSize = minOf(length, 65557).toInt()
-        val tail = ByteArray(tailSize)
-        input.seek(length - tailSize)
-        input.readFully(tail)
-        fun u16(bytes: ByteArray, index: Int) = (bytes[index].toInt() and 255) or ((bytes[index + 1].toInt() and 255) shl 8)
-        fun u32(bytes: ByteArray, index: Int) = (u16(bytes, index).toLong() or (u16(bytes, index + 2).toLong() shl 16))
-        var end = -1
-        for (index in tailSize - 22 downTo 0) {
-            if (u32(tail, index) == 0x06054b50L && index + 22 + u16(tail, index + 20) == tailSize) { end = index; break }
-        }
-        if (end < 0) invalid("ZIP end record is missing")
-        val centralSize = u32(tail, end + 12)
-        val centralOffset = u32(tail, end + 16)
-        val endOffset = length - tailSize + end
-        if (u16(tail, end + 4) != 0 || u16(tail, end + 6) != 0 || u16(tail, end + 8) != 4 ||
-            u16(tail, end + 10) != 4 || centralSize > ApplicationContract.BACKUP_CENTRAL_DIRECTORY_BYTES || centralOffset + centralSize != endOffset) {
-            invalid("Multi-volume, ZIP64 or invalid ZIP directory")
-        }
-        fun readAt(offset: Long, count: Int): ByteArray {
-            if (offset < 0 || count < 0 || offset > length - count) invalid("ZIP range exceeds actual file")
-            return ByteArray(count).also { input.seek(offset); input.readFully(it) }
-        }
-        fun extras(bytes: ByteArray) {
-            var index = 0
-            while (index < bytes.size) {
-                if (bytes.size - index < 4) invalid("Truncated ZIP extra field")
-                val id = u16(bytes, index)
-                val size = u16(bytes, index + 2)
-                if (id == 1 || size > bytes.size - index - 4) invalid("ZIP64 or invalid ZIP extra field")
-                index += 4 + size
-            }
-        }
-        val entries = linkedMapOf<String, Entry>()
-        val ranges = mutableListOf<Pair<Long, Long>>()
-        var cursor = centralOffset
-        repeat(4) {
-            val header = readAt(cursor, 46)
-            if (u32(header, 0) != 0x02014b50L) invalid("Invalid ZIP central header")
-            val flags = u16(header, 8)
-            val method = u16(header, 10)
-            val crc = u32(header, 16)
-            val compressed = u32(header, 20)
-            val size = u32(header, 24)
-            val nameSize = u16(header, 28)
-            val extraSize = u16(header, 30)
-            val commentSize = u16(header, 32)
-            val localOffset = u32(header, 42)
-            val attributes = u32(header, 38)
-            val type = (attributes ushr 16).toInt() and 0xf000
-            if (u16(header, 6) > 20 || flags and 0xf7f1 != 0 || method !in setOf(0, 8) ||
-                u16(header, 34) != 0 || attributes and 0x10L != 0L || type !in setOf(0, 0x8000) ||
-                compressed > MAX_ARCHIVE || size > MAX_EXPANDED || (method == 0 && size != compressed)) invalid("Unsupported or non-regular ZIP entry")
-            val next = cursor + 46 + nameSize + extraSize + commentSize
-            if (next > centralOffset + centralSize) invalid("ZIP directory range overflow")
-            val nameBytes = readAt(cursor + 46, nameSize)
-            val name = String(nameBytes, Charsets.US_ASCII)
-            if (name !in ENTRY_NAMES || !nameBytes.contentEquals(name.toByteArray(Charsets.US_ASCII)) || entries.containsKey(name)) {
-                invalid("Unexpected or duplicate ZIP entry")
-            }
-            val max = if (name == MANIFEST) MAX_MANIFEST.toLong() else Kind.entries.single { it.fileName == name }.maxBytes
-            if (size > max) invalid("ZIP entry exceeds byte budget")
-            extras(readAt(cursor + 46 + nameSize, extraSize))
-            val local = readAt(localOffset, 30)
-            if (u32(local, 0) != 0x04034b50L || u16(local, 4) > 20 || u16(local, 6) != flags ||
-                u16(local, 8) != method || u16(local, 26) != nameSize) invalid("ZIP local header disagreement")
-            if (!readAt(localOffset + 30, nameSize).contentEquals(nameBytes)) invalid("ZIP local name disagreement")
-            val localExtra = u16(local, 28)
-            extras(readAt(localOffset + 30 + nameSize, localExtra))
-            val hasDescriptor = flags and 8 != 0
-            for ((offset, expected) in listOf(14 to crc, 18 to compressed, 22 to size)) {
-                val localValue = u32(local, offset)
-                if (localValue != expected && (!hasDescriptor || localValue != 0L)) invalid("ZIP local size disagreement")
-            }
-            var dataEnd = localOffset + 30 + nameSize + localExtra + compressed
-            if (dataEnd > centralOffset) invalid("ZIP entry overlaps central directory")
-            if (hasDescriptor) {
-                val descriptor = readAt(dataEnd, 12)
-                if (u32(descriptor, 0) == 0x08074b50L && dataEnd + 16 <= centralOffset) {
-                    val signed = readAt(dataEnd, 16)
-                    if (u32(signed, 4) == crc && u32(signed, 8) == compressed && u32(signed, 12) == size) dataEnd += 16
-                    else if (u32(descriptor, 0) == crc && u32(descriptor, 4) == compressed && u32(descriptor, 8) == size) dataEnd += 12
-                    else invalid("Invalid ZIP data descriptor")
-                } else {
-                    if (u32(descriptor, 0) != crc || u32(descriptor, 4) != compressed || u32(descriptor, 8) != size) invalid("Invalid ZIP data descriptor")
-                    dataEnd += 12
+/** SDK entry iteration owns ZIP decoding, descriptors and CRC validation. */
+internal fun BackupFiles.readZip(directory: File, operation: Operation): Pair<Long, Map<Kind, Fingerprint>> {
+    val names = HashSet<String>()
+    val parts = linkedMapOf<Kind, Fingerprint>()
+    var metadata: Pair<Long, Map<Kind, Fingerprint>>? = null
+    var expanded = 0L
+    readFile(File(directory, ARCHIVE)) { archive ->
+        ZipInputStream(archive.inputStream()).use { zip ->
+            while (true) {
+                operation.check()
+                val entry = zip.nextEntry ?: break
+                if (entry.isDirectory || entry.name !in ENTRY_NAMES || !names.add(entry.name)) {
+                    invalid("Unexpected or duplicate ZIP entry")
                 }
+                val actual = if (entry.name == MANIFEST) {
+                    val output = ByteArrayOutputStream()
+                    val fingerprint = transfer(zip, output, minOf(MAX_MANIFEST.toLong(), MAX_EXPANDED - expanded), operation::check)
+                    val bytes = output.toByteArray()
+                    metadata = parseManifest(bytes)
+                    writeNew(File(directory, MANIFEST), bytes.inputStream(), MAX_MANIFEST.toLong(), operation::check)
+                    fingerprint
+                } else {
+                    val kind = Kind.entries.single { it.fileName == entry.name }
+                    writeNew(File(directory, kind.fileName), zip, minOf(kind.maxBytes, MAX_EXPANDED - expanded), operation::check)
+                        .also { parts[kind] = it }
+                }
+                zip.closeEntry()
+                checkEntry(actual, entry)
+                expanded += actual.bytes
             }
-            if (dataEnd > centralOffset) invalid("ZIP data descriptor overlaps directory")
-            ranges += localOffset to dataEnd
-            entries[name] = Entry(size, compressed, crc, method)
-            cursor = next
         }
-        if (cursor != centralOffset + centralSize || entries.keys != ENTRY_NAMES) invalid("Incomplete ZIP directory")
-        var boundary = 0L
-        for ((start, stop) in ranges.sortedBy { it.first }) {
-            if (start != boundary || stop < start) invalid("Overlapping or unaccounted ZIP local ranges")
-            boundary = stop
-        }
-        if (boundary != centralOffset) invalid("Unaccounted ZIP payload")
-        entries
     }
+    if (names != ENTRY_NAMES) invalid("Incomplete ZIP entries")
+    val manifest = checkNotNull(metadata)
+    for ((kind, actual) in parts) {
+        val expected = manifest.second.getValue(kind)
+        if (actual.bytes != expected.bytes || actual.sha256 != expected.sha256) invalid("Backup manifest checksum mismatch")
+    }
+    return manifest.first to parts
 }
 
 internal fun hex(bytes: ByteArray): String {

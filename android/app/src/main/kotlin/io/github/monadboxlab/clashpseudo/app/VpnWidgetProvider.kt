@@ -1,5 +1,7 @@
 package io.github.monadboxlab.clashpseudo.app
 
+import io.github.monadboxlab.clashpseudo.message.AppStrings
+
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
@@ -26,12 +28,32 @@ class VpnWidgetProvider : AppWidgetProvider() {
             return
         }
         if (intent.component != ComponentName(context, VpnWidgetProvider::class.java)) return
-        SystemControls.request(context, action) { admission ->
-            if (admission == SystemControls.Admission.OPEN_APP ||
-                admission == SystemControls.Admission.VPN_SETTINGS) {
-                SystemControls.openFromWidget(context, action, admission)
+        // Admission may dispatch the background service before replying. Keep this
+        // SDK broadcast alive until the real receipt, not just onReceive's return.
+        var pending = goAsync()
+        fun finish() {
+            val receipt = pending
+            pending = null
+            receipt?.finish()
+        }
+        try {
+            SystemControls.request(context, action) { admission ->
+                try {
+                    if (admission == SystemControls.Admission.OPEN_APP ||
+                        admission == SystemControls.Admission.VPN_SETTINGS) {
+                        SystemControls.openFromWidget(context, action, admission)
+                    }
+                    SystemControls.refresh(context)
+                } finally {
+                    finish()
+                }
             }
-            SystemControls.refresh(context)
+        } catch (error: Exception) {
+            finish()
+            throw error
+        } catch (error: LinkageError) {
+            finish()
+            throw error
         }
     }
 

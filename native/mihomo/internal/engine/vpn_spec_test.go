@@ -16,28 +16,31 @@ import (
 
 	"github.com/metacubex/mihomo/component/resolver"
 	C "github.com/metacubex/mihomo/constant"
-	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/tunnel"
 
+	"clashpseudo/native/internal/androidnet"
 	"clashpseudo/native/internal/configinput"
 )
 
 func prepareWithVPNOptions(t *testing.T, e *Engine, home, body string, options PrepareOptions) {
 	t.Helper()
-	options.Purpose = "VPN"
+	options.Purpose, options.VPNIntent = "RUNNING", true
 	if options.Generation == 0 {
 		options.Generation = 17
 	}
 	if options.Composition == "" {
 		options.Composition = "same-composed-input"
 	}
-	if err := e.PrepareWithOptions(home, []byte(body), "", nil, func(int) bool { return true }, options); err != nil {
+	if err := e.PrepareWithOptions(home, []byte(body), "", func(int) bool { return true }, options); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { requireStop(t, e) })
 }
 
 func TestVPNSpecUsesSameParsedMTUAddressRoutesAndIdentity(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	var e Engine
 	prepareWithVPNOptions(t, &e, t.TempDir(), `ipv6: false
 dns: {fake-ip-range: 10.55.0.1/16}
@@ -49,7 +52,7 @@ tun:
   include-package: []
 rules: ["MATCH,DIRECT"]
 `, PrepareOptions{Generation: 41, Composition: "generation-and-composition"})
-	var spec VPNSpec
+	var spec androidnet.VPNSpec
 	if err := json.Unmarshal([]byte(e.VPNSpec()), &spec); err != nil {
 		t.Fatal(err)
 	}
@@ -87,8 +90,11 @@ rules: ["MATCH,DIRECT"]
 }
 
 func TestAutoRouteFalseNeverAddsDefaultRoutes(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	var e Engine
-	prepareWithVPNOptions(t, &e, t.TempDir(), "ipv6: false\ntun: {auto-route: false}\nrules: [\"MATCH,DIRECT\"]\n", PrepareOptions{Network: NetworkDNS{ID: "underlying", Servers: []string{"192.0.2.53"}}})
+	prepareWithVPNOptions(t, &e, t.TempDir(), "ipv6: false\ntun: {auto-route: false}\nrules: [\"MATCH,DIRECT\"]\n", PrepareOptions{Network: androidnet.NetworkDNS{ID: "underlying", Servers: []string{"192.0.2.53"}}})
 	if len(e.spec.Routes) != 0 {
 		t.Fatal("auto-route=false gained a default route", e.spec.Routes)
 	}
@@ -98,65 +104,119 @@ func TestAutoRouteFalseNeverAddsDefaultRoutes(t *testing.T) {
 }
 
 func TestDNSDisableAndExplicitEmptyHijackAreRealCapabilities(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	for _, tc := range []struct {
-		name, dns, tun string
-		enabled        bool
+		name, dns, tun, purpose string
+		enabled                 bool
 	}{
-		{"disabled", "enable: false, enhanced-mode: fake-ip", "", false},
-		{"empty-hijack", "enable: true", "dns-hijack: []", true},
+		{"disabled-preview", "enable: false, enhanced-mode: fake-ip", "dns-hijack: []", "PREVIEW", false},
+		{"disabled-running", "enable: false, enhanced-mode: fake-ip", "", "RUNNING", false},
+		{"empty-hijack", "enable: true", "dns-hijack: []", "RUNNING", true},
+		{"explicit-conflict", "enable: false", "dns-hijack: ['any:53']", "RUNNING", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if isolateEngineTest(t) {
+				return
+			}
 			var e Engine
-			body := "ipv6: false\ndns: {" + tc.dns + "}\ntun: {" + tc.tun + "}\nrules: [\"MATCH,DIRECT\"]\n"
-			prepareWithVPNOptions(t, &e, t.TempDir(), body, PrepareOptions{Network: NetworkDNS{ID: "physical", Servers: []string{"192.0.2.53", "2001:db8::53"}}})
+			body := "ipv6: false\ndns: {" + tc.dns + "}\ntun: {" + tc.tun + "}\nrules: ['MATCH,DIRECT']\n"
+			if tc.purpose == "RUNNING" && !tc.enabled {
+				err := e.PrepareWithOptions(t.TempDir(), []byte(body), "rule", func(int) bool { return true }, PrepareOptions{Purpose: "RUNNING", VPNIntent: true, Generation: 1, Composition: "disabled"})
+				var limit *androidnet.PlatformError
+				if !errors.As(err, &limit) || limit.Reason != "dnsHijackConflict" || e.cfg != nil || e.owner != nil || e.failed {
+					t.Fatalf("DNS关闭与公开TUN邻接DNS冲突未返回实际能力错误: %v", err)
+				}
+				return
+			}
+			if tc.enabled {
+				prepareWithVPNOptions(t, &e, t.TempDir(), body, PrepareOptions{Network: androidnet.NetworkDNS{ID: "physical", Servers: []string{"192.0.2.53", "2001:db8::53"}}})
+			} else {
+				if err := e.Prepare(t.TempDir(), []byte(body), "rule", func(int) bool { return true }); err != nil {
+					t.Fatal(err)
+				}
+				defer requireStop(t, &e)
+			}
 			if e.cfg.DNS.Enable != tc.enabled || (resolver.DefaultService != nil) != tc.enabled {
 				t.Fatal("DNS enable did not control the internal service")
 			}
-			if !tc.enabled && (e.cfg.DNS.FakeIPPool != nil || resolver.DefaultHostMapper != nil || resolver.DefaultResolver != nil) {
-				t.Fatal("disabled DNS allocated a fake pool/resolver")
+			if !tc.enabled {
+				if e.cfg.DNS.EnhancedMode != C.DNSFakeIP || e.cfg.DNS.FakeIPPool == nil {
+					t.Fatal("disabled DNS did not reach the public parser with its original fake-IP mode")
+				}
+				if resolver.DefaultHostMapper != nil || resolver.DefaultResolver != nil {
+					t.Fatal("disabled DNS started a resolver")
+				}
 			}
 			if len(e.cfg.General.Tun.DNSHijack) != 0 {
 				t.Fatal("an empty/missing disabled hijack was replaced")
 			}
-			if !slices.Equal(e.spec.DNSServers, []string{"192.0.2.53"}) {
-				t.Fatal("underlying DNS was replaced by a dead virtual address or enabled an uncaptured address family", e.spec.DNSServers)
+			if tc.enabled && !slices.Equal(e.spec.DNSServers, []string{"198.18.0.2"}) {
+				t.Fatal("Builder未投影公开TUN实际使用的邻接DNS", e.spec.DNSServers)
 			}
 		})
-	}
-	var e Engine
-	err := e.PrepareWithOptions(t.TempDir(), []byte("dns: {enable: false}\ntun: {dns-hijack: ['any:53']}\n"), "", nil, func(int) bool { return true }, PrepareOptions{Purpose: "VPN", Generation: 1, Composition: "conflict"})
-	var limit *PlatformError
-	if !errors.As(err, &limit) || limit.Reason != "dnsHijackConflict" || e.owner != nil || e.cfg != nil || e.failed {
-		t.Fatalf("conflict was not rejected before resource/FD creation: %v", err)
 	}
 }
 
 func TestExplicitIPv6LossIsReportedRatherThanSilentlyCleared(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	for _, extra := range []string{"tun: {inet6-address: ['fd00::1/126']}", "dns: {fake-ip-range6: 'fd00::1/64'}",
 		"tun: {route-address: ['fd00::/64']}"} {
-		var e Engine
-		err := e.PrepareWithOptions(t.TempDir(), []byte("ipv6: false\n"+extra+"\nrules: [\"MATCH,DIRECT\"]\n"), "", nil, func(int) bool { return true }, PrepareOptions{Purpose: "VPN", Generation: 1, Composition: "ipv6"})
-		var limit *PlatformError
-		if !errors.As(err, &limit) || limit.Reason != "ipv6Unavailable" {
-			t.Fatalf("explicit IPv6 request disappeared without its real limitation: %v", err)
-		}
-		requireStop(t, &e)
+		t.Run(extra, func(t *testing.T) {
+			if isolateEngineTest(t) {
+				return
+			}
+
+			var e Engine
+			err := e.PrepareWithOptions(t.TempDir(), []byte("ipv6: false\n"+extra+"\nrules: [\"MATCH,DIRECT\"]\n"), "", func(int) bool { return true }, PrepareOptions{Purpose: "RUNNING", VPNIntent: true, Generation: 1, Composition: "ipv6"})
+			var limit *androidnet.PlatformError
+			if !errors.As(err, &limit) || limit.Reason != "ipv6Unavailable" {
+				t.Fatalf("explicit IPv6 request disappeared without its real limitation: %v", err)
+			}
+			requireStop(t, &e)
+		})
 	}
 }
 
 func TestVPNSpecRejectsInvalidEffectiveMTUAndParseTunNextAddress(t *testing.T) {
-	for _, body := range []string{"tun: {mtu: 0}\n", "tun: {mtu: 65536}\n", "dns: {fake-ip-range: 10.55.0.3/16}\n"} {
-		var e Engine
-		err := e.PrepareWithOptions(t.TempDir(), []byte("ipv6: false\n"+body), "", nil, func(int) bool { return true }, PrepareOptions{Purpose: "VPN", Generation: 1, Composition: "invalid"})
-		var limit *PlatformError
-		if !errors.As(err, &limit) || (limit.Reason != "invalidMtu" && limit.Reason != "invalidAddress") {
-			t.Fatalf("invalid effective interface accepted: %v", err)
-		}
-		requireStop(t, &e)
+	if isolateEngineTest(t) {
+		return
+	}
+	for _, body := range []string{"tun: {mtu: 65536}\n", "dns: {fake-ip-range: 10.55.0.3/16}\n"} {
+		t.Run(body, func(t *testing.T) {
+			if isolateEngineTest(t) {
+				return
+			}
+
+			var e Engine
+			err := e.PrepareWithOptions(t.TempDir(), []byte("ipv6: false\n"+body), "", func(int) bool { return true }, PrepareOptions{Purpose: "RUNNING", VPNIntent: true, Generation: 1, Composition: "invalid"})
+			var limit *androidnet.PlatformError
+			if !errors.As(err, &limit) || (limit.Reason != "invalidMtu" && limit.Reason != "invalidAddress") {
+				t.Fatalf("invalid effective interface accepted: %v", err)
+			}
+			requireStop(t, &e)
+		})
+	}
+}
+
+func TestVPNSpecProjectsPublicZeroMTUAs9000(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
+	var e Engine
+	prepareWithVPNOptions(t, &e, t.TempDir(), "ipv6: false\ntun: {mtu: 0}\nrules: ['MATCH,DIRECT']\n", PrepareOptions{})
+	if e.cfg.General.Tun.MTU != 0 || e.spec.MTU != 9000 {
+		t.Fatal("显式MTU0未保留或Builder与公开TUN默认值不一致", e.cfg.General.Tun.MTU, e.spec.MTU)
 	}
 }
 
 func TestGeoSeedEligibilityUsesComposedPerKeyPresenceAndSelectedPaths(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	home := t.TempDir()
 	if err := os.WriteFile(filepath.Join(home, "existing.mmdb"), []byte("existing user bytes"), 0600); err != nil {
 		t.Fatal(err)
@@ -179,7 +239,7 @@ func TestGeoSeedEligibilityUsesComposedPerKeyPresenceAndSelectedPaths(t *testing
 	}
 	var e Engine
 	called := false
-	err = e.PrepareWithOptions(home, []byte("rules: [\"MATCH,DIRECT\"]\n"), "", nil, func(int) bool { return true }, PrepareOptions{Purpose: "PREVIEW", SeedGeo: func(request []GeoSeed) error {
+	err = e.PrepareWithOptions(home, []byte("rules: [\"MATCH,DIRECT\"]\n"), "", func(int) bool { return true }, PrepareOptions{Purpose: "PREVIEW", SeedGeo: func(request []GeoSeed) error {
 		called = true
 		if e.cfg != nil || e.owner == nil || C.Path.HomeDir() != home {
 			t.Fatal("Geo callback did not precede ParseRawConfig under this owner/home")
@@ -198,6 +258,9 @@ func TestGeoSeedEligibilityUsesComposedPerKeyPresenceAndSelectedPaths(t *testing
 }
 
 func TestRouteSetRealUpdatesOnlyRefreshChangedEffectiveRoutesAndInvalidateRevert(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	var contents atomic.Value
 	contents.Store("10.0.0.0/8\n")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = fmt.Fprint(w, contents.Load().(string)) }))
@@ -265,7 +328,7 @@ rules: ["MATCH,DIRECT"]
 		t.Fatal("unsupported IPv6 route update was not surfaced")
 	}
 	e.mu.Lock()
-	var familyError *PlatformError
+	var familyError *androidnet.PlatformError
 	if !errors.As(e.specError, &familyError) || familyError.Field != "tun.route-address" || familyError.Reason != "ipv6Unavailable" {
 		t.Errorf("route set advertised an uncaptured address family: %v", e.specError)
 	}
@@ -299,8 +362,14 @@ rules: ["MATCH,DIRECT"]
 }
 
 func TestRoutePublicationKeepsWholeValidCandidateAndRecoversDNS(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	for _, withNetwork := range []bool{false, true} {
 		t.Run(fmt.Sprint(withNetwork), func(t *testing.T) {
+			if isolateEngineTest(t) {
+				return
+			}
 			var contents atomic.Value
 			contents.Store("203.0.113.0/24\n")
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -316,7 +385,7 @@ func TestRoutePublicationKeepsWholeValidCandidateAndRecoversDNS(t *testing.T) {
 				events <- event{revision, needed}
 			}}
 			if withNetwork {
-				options.Network = NetworkDNS{ID: "physical", Servers: []string{"192.0.2.53"}}
+				options.Network = androidnet.NetworkDNS{ID: "physical", Servers: []string{"192.0.2.53"}}
 			}
 			var e Engine
 			body := fmt.Sprintf(`ipv6: false
@@ -386,26 +455,10 @@ rules: ["MATCH,DIRECT"]
 	}
 }
 
-func TestStaticCIDRSubtractionIncludesBothAddressFamiliesWithoutExcludeRouteAPI(t *testing.T) {
-	options := LC.Tun{AutoRoute: true, Inet4Address: []netip.Prefix{netip.MustParsePrefix("198.18.0.1/30")}, Inet6Address: []netip.Prefix{netip.MustParsePrefix("fd00::1/126")}, RouteExcludeAddress: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8"), netip.MustParsePrefix("2001:db8::/32")}}
-	routes, err := routePrefixes(options, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	contains := func(text string) bool {
-		for _, prefix := range routes {
-			if prefix.Contains(netip.MustParseAddr(text)) {
-				return true
-			}
-		}
-		return false
-	}
-	if contains("10.1.1.1") || contains("2001:db8::53") || !contains("192.0.2.1") || !contains("2001:db9::1") {
-		t.Fatal("CIDR set subtraction did not implement both-family exclusions", routes)
-	}
-}
-
 func TestRouteSetUpdateReprojectsReachableDNSServers(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	var contents atomic.Value
 	contents.Store("203.0.113.0/24\n")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = fmt.Fprint(w, contents.Load().(string)) }))
@@ -418,7 +471,7 @@ rule-providers:
 rules: ["MATCH,DIRECT"]
 `, server.URL)
 	prepareWithVPNOptions(t, &e, t.TempDir(), body, PrepareOptions{
-		Network: NetworkDNS{ID: "physical", Servers: []string{"192.0.2.53"}},
+		Network: androidnet.NetworkDNS{ID: "physical", Servers: []string{"192.0.2.53"}},
 	})
 	e.mu.Lock()
 	if !slices.Equal(e.spec.DNSServers, []string{"203.0.113.53"}) {

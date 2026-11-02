@@ -35,6 +35,9 @@ import (
 // Exercise public constructors with uninitialized compatible providers and REJECT
 // members; retain available Close calls.
 func TestDefinitionFormsPublicParserContract(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	path := os.Getenv("DEFINITION_FORMS_GENERATED")
 	if path == "" {
 		t.Skip("run definition_forms_test.dart with DEFINITION_FORMS_OUTPUT, then set DEFINITION_FORMS_GENERATED")

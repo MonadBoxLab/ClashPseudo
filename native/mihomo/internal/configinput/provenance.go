@@ -26,8 +26,8 @@ type SourceOrigin struct {
 	Role     string `json:"role,omitempty"`
 }
 
-// fieldOrigin.Path is a JSON Pointer into the source-local alias-resolved mapping;
-// sequence indexes belong to that original source.
+// fieldOrigin.Path is a JSON Pointer into the source mapping; sequence indexes
+// belong to that original source.
 type fieldOrigin struct {
 	SourceOrigin
 	Path string `json:"path"`
@@ -124,6 +124,7 @@ func sourceDefinitionPath(path string) string {
 func (origins nodeOrigins) definition(node *yaml.Node, priority map[SourceOrigin]int) *DefinitionProvenance {
 	result := &DefinitionProvenance{}
 	contributions := make(map[SourceOrigin]string)
+	complete := true
 	var visit func(*yaml.Node)
 	visit = func(node *yaml.Node) {
 		if node.Kind == yaml.MappingNode && len(node.Content) > 0 {
@@ -138,10 +139,17 @@ func (origins nodeOrigins) definition(node *yaml.Node, priority map[SourceOrigin
 			}
 			return
 		}
-		origin := origins[node]
+		origin, exists := origins[node]
+		if !exists {
+			complete = false
+			return
+		}
 		contributions[origin.SourceOrigin] = sourceDefinitionPath(origin.Path)
 	}
 	visit(node)
+	if !complete {
+		return nil
+	}
 	for source, path := range contributions {
 		result.Contributors = append(result.Contributors, SourceContribution{SourceOrigin: source, Path: path})
 	}
@@ -168,10 +176,14 @@ func (origins nodeOrigins) project(root *yaml.Node, priority map[SourceOrigin]in
 		section, value := root.Content[i].Value, root.Content[i+1]
 		switch section {
 		case "proxies", "proxy-groups":
+			if value.Kind != yaml.SequenceNode {
+				continue
+			}
 			definitions := make(map[string]*DefinitionProvenance)
 			for _, item := range value.Content {
-				name := item.Content[mappingIndex(item)["name"]+1].Value
-				definitions[name] = origins.definition(item, priority)
+				if name, ok := namedConfigName(item); ok {
+					definitions[name] = origins.definition(item, priority)
+				}
 			}
 			result.definitions[section] = definitions
 		case "proxy-providers", "rule-providers":

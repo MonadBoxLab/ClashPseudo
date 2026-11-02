@@ -14,7 +14,10 @@ class AppPreferences {
     this.access = ApplicationAccess.all,
     this.packages = const [],
     this.reconnectOnRoutingChange = false,
+    this.originalJson,
   });
+
+  final Map<String, Object?>? originalJson;
 
   final AppAppearance appearance;
   final BrandColor brand;
@@ -37,19 +40,22 @@ class AppPreferences {
       language: AppLanguage.values.byName(data['language'] as String),
       access: access,
       packages: List.unmodifiable(packages),
+      originalJson: Map.unmodifiable(data),
       reconnectOnRoutingChange:
           data['reconnectOnRoutingChange'] as bool? ?? false,
     );
   }
 
-  Map<String, Object?> toJson() => {
-    'appearance': appearance.name,
-    'brand': brand.name,
-    'language': language.name,
-    'access': access.name,
-    'packages': packages,
-    'reconnectOnRoutingChange': reconnectOnRoutingChange,
-  };
+  Map<String, Object?> toJson() => originalJson == null
+      ? {
+          'appearance': appearance.name,
+          'brand': brand.name,
+          'language': language.name,
+          'access': access.name,
+          'packages': packages,
+          'reconnectOnRoutingChange': reconnectOnRoutingChange,
+        }
+      : {...?originalJson};
 
   AppPreferences withRoutingReconnect(bool value) =>
       AppPreferences.fromJson({...toJson(), 'reconnectOnRoutingChange': value});

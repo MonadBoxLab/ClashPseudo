@@ -10,7 +10,8 @@ import android.system.OsConstants
 import android.system.StructStat
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
-import io.github.monadboxlab.clashpseudo.app.AppFiles
+import io.github.monadboxlab.clashpseudo.storage.AppFiles
+import io.github.monadboxlab.clashpseudo.app.ApplicationContract as Contract
 import io.github.monadboxlab.clashpseudo.app.AppWorkService
 import io.github.monadboxlab.clashpseudo.bridge.AppBridge
 import io.github.monadboxlab.clashpseudo.vpn.NativeSession
@@ -21,11 +22,10 @@ import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
-import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 
-/** Explicitly authorized capture and read-only verification of the stopped main package's GeoIP. */
+/** 按 nonce 导出已停止应用的 GeoIP，随后以只读方式验证。 */
 class GeoResourceBaselineTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val nonce = "p5-load-geo-r7w7"
@@ -33,30 +33,31 @@ class GeoResourceBaselineTest {
     @Test fun exportStoppedGeoIpBaselineWithoutChangingTheResource() {
         val context = checkedContext()
         val stopped = assertStopped()
+        CoreResourceGate.forApplication(context).exclusive {
 
-        // AppFiles is also the production authority for the noBackup/mihomo home.
+        // 内核目录由生产 AppFiles 接口提供。
         val home = AppFiles.core(context)
         val homeBefore = existing(home)
-        assertTrue("The formal core home must be a directory, not a symlink",
+        assertTrue("正式内核目录必须为目录，不能为 symlink",
             OsConstants.S_ISDIR(homeBefore.st_mode))
         val source = File(home, "GeoIP.dat")
         val before = sourceStat(source)
 
         val external = context.getExternalFilesDir(null)
-        assertNotNull("The application's own external files directory is unavailable", external)
+        assertNotNull("应用的 external files 目录不可用", external)
         val directory = File(external!!, "validation-geo-$nonce")
-        assertTrue("The baseline directory must be newly created; never reuse it", directory.mkdir())
+        assertTrue("baseline 目录必须新建，不能复用", directory.mkdir())
         val directoryBefore = existing(directory)
-        assertTrue("The new baseline directory must not be a symlink",
+        assertTrue("新 baseline 目录不能为 symlink",
             OsConstants.S_ISDIR(directoryBefore.st_mode))
         val destination = File(directory, "GeoIP.dat")
-        assertTrue("The baseline file must be newly created; never overwrite it", destination.createNewFile())
+        assertTrue("baseline 文件必须新建，不能覆盖", destination.createNewFile())
         val destinationBefore = existing(destination)
-        assertTrue("The new baseline file must be regular", OsConstants.S_ISREG(destinationBefore.st_mode))
+        assertTrue("新 baseline 文件必须为普通文件", OsConstants.S_ISREG(destinationBefore.st_mode))
         assertEquals(0L, destinationBefore.st_size)
         assertEquals(1L, destinationBefore.st_nlink)
 
-        // Open the previously created destination for writing with NOFOLLOW.
+        // 以 NOFOLLOW 打开刚创建的目标文件。
         val outputFd = Os.open(destination.absolutePath,
             OsConstants.O_WRONLY or OsConstants.O_NOFOLLOW or OsConstants.O_NONBLOCK, 0)
         val captured = try {
@@ -67,10 +68,10 @@ class GeoResourceBaselineTest {
                 output.fd.sync()
                 result
             }
-            assertEquals("The synced baseline has the wrong size", copied.first, Os.fstat(outputFd).st_size)
+            assertEquals("同步后的 baseline 大小不符", copied.first, Os.fstat(outputFd).st_size)
             copied
         } finally {
-            // Android's FileOutputStream(FileDescriptor) borrows this descriptor.
+            // Android FileOutputStream(FileDescriptor) 不取得此 descriptor 的 ownership。
             Os.close(outputFd)
         }
         val (bytes, sha256) = captured
@@ -81,8 +82,8 @@ class GeoResourceBaselineTest {
         assertEquals(destinationBefore.st_ino, exported.st_ino)
         assertEquals(destinationBefore.st_nlink, exported.st_nlink)
         assertEquals(bytes, exported.st_size)
-        assertEquals("The saved baseline must contain the captured bytes", captured, fingerprint(destination, exported))
-        assertEquals("The formal GeoIP must still contain the captured bytes", captured, fingerprint(source, before))
+        assertEquals("保存的 baseline 必须与捕获内容相同", captured, fingerprint(destination, exported))
+        assertEquals("正式 GeoIP 必须仍与捕获内容相同", captured, fingerprint(source, before))
         assertStopped(stopped)
         sameSource(before, existing(source))
         sameSource(exported, existing(destination))
@@ -90,21 +91,23 @@ class GeoResourceBaselineTest {
         sameDirectory(directoryBefore, existing(directory))
         Log.i("PseudoGeoBaseline",
             "nonce=$nonce absolutePath=${destination.absolutePath} bytes=$bytes sha256=$sha256")
-        // Preserve the original resource and suspect export on failure.
+        // 失败时保留原资源与本次导出文件。
+        }
     }
 
     @Test fun verifyStoppedGeoIpMatchesProtectedBaseline() {
         val context = checkedContext()
         val stopped = assertStopped()
+        CoreResourceGate.forApplication(context).exclusive {
         val home = AppFiles.core(context)
         val homeBefore = existing(home)
-        assertTrue("The formal core home must be a directory, not a symlink",
+        assertTrue("正式内核目录必须为目录，不能为 symlink",
             OsConstants.S_ISDIR(homeBefore.st_mode))
         val external = context.getExternalFilesDir(null)
-        assertNotNull("The application's own external files directory is unavailable", external)
+        assertNotNull("应用的 external files 目录不可用", external)
         val directory = File(external!!, "validation-geo-$nonce")
         val directoryBefore = existing(directory)
-        assertTrue("The protected baseline directory must not be a symlink",
+        assertTrue("受保护的 baseline 目录不能为 symlink",
             OsConstants.S_ISDIR(directoryBefore.st_mode))
         val baseline = File(directory, "GeoIP.dat")
         val baselineBefore = sourceStat(baseline)
@@ -112,8 +115,8 @@ class GeoResourceBaselineTest {
         val sourceBefore = sourceStat(source)
         val expected = fingerprint(baseline, baselineBefore)
         val actual = fingerprint(source, sourceBefore)
-        assertEquals("Current GeoIP byte count must equal the protected baseline", expected.first, actual.first)
-        assertEquals("Current GeoIP SHA-256 must equal the protected baseline", expected.second, actual.second)
+        assertEquals("当前 GeoIP 字节数必须等于受保护的 baseline", expected.first, actual.first)
+        assertEquals("当前 GeoIP SHA-256 必须等于受保护的 baseline", expected.second, actual.second)
         assertStopped(stopped)
         sameSource(baselineBefore, existing(baseline))
         sameSource(sourceBefore, existing(source))
@@ -122,23 +125,24 @@ class GeoResourceBaselineTest {
         Log.i("PseudoGeoBaseline",
             "nonce=$nonce absolutePath=${source.absolutePath} baselinePath=${baseline.absolutePath} " +
                 "bytes=${actual.first} sha256=${actual.second} matches=true")
+        }
     }
 
     private fun checkedContext(): Context {
-        assertEquals("An explicit matching nonce is required", nonce,
+        assertEquals("必须显式提供相同 nonce", nonce,
             InstrumentationRegistry.getArguments().getString("nonce"))
         val context = instrumentation.targetContext.applicationContext
-        assertEquals("Only the main application package owns this baseline",
+        assertEquals("baseline 仅属于主应用 package",
             "io.github.monadboxlab.clashpseudo", context.packageName)
-        assertTrue("The companion main package must be a debug build",
+        assertTrue("主应用 package 必须为 debug build",
             context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0)
         return context
     }
 
     private fun sourceStat(file: File): StructStat = existing(file).also { stat ->
-        assertTrue("GeoIP must be a regular file, not a symlink", OsConstants.S_ISREG(stat.st_mode))
-        assertEquals("GeoIP must not have other hard links", 1L, stat.st_nlink)
-        assertTrue("GeoIP must contain 1..32 MiB of existing bytes",
+        assertTrue("GeoIP 必须为普通文件，不能为 symlink", OsConstants.S_ISREG(stat.st_mode))
+        assertEquals("GeoIP 不能有其他 hard link", 1L, stat.st_nlink)
+        assertTrue("GeoIP 现有内容必须为 1..32 MiB",
             stat.st_size in 1L..(32L * 1024 * 1024))
     }
 
@@ -155,15 +159,15 @@ class GeoResourceBaselineTest {
                     val count = input.read(buffer)
                     if (count < 0) break
                     bytes += count
-                    assertTrue("GeoIP grew while being read", bytes <= before.st_size)
+                    assertTrue("读取期间 GeoIP 增长", bytes <= before.st_size)
                     digest.update(buffer, 0, count)
                     output?.write(buffer, 0, count)
                 }
-                assertEquals("GeoIP byte count changed while being read", before.st_size, bytes)
+                assertEquals("读取期间 GeoIP 字节数变化", before.st_size, bytes)
                 sameSource(before, Os.fstat(descriptor))
             }
         } finally {
-            // Android's FileInputStream(FileDescriptor) borrows this descriptor.
+            // Android FileInputStream(FileDescriptor) 不取得此 descriptor 的 ownership。
             Os.close(descriptor)
         }
         sameSource(before, existing(source))
@@ -171,9 +175,9 @@ class GeoResourceBaselineTest {
     }
 
     private fun sameDirectory(before: StructStat, after: StructStat) {
-        assertTrue("The directory must remain a directory, not a symlink", OsConstants.S_ISDIR(after.st_mode))
-        assertEquals("Directory device changed", before.st_dev, after.st_dev)
-        assertEquals("Directory inode changed", before.st_ino, after.st_ino)
+        assertTrue("目录必须保持为目录，不能变为 symlink", OsConstants.S_ISDIR(after.st_mode))
+        assertEquals("目录 device 变化", before.st_dev, after.st_dev)
+        assertEquals("目录 inode 变化", before.st_ino, after.st_ino)
     }
 
     private fun assertStopped(expected: Pair<Long, Long>? = null): Pair<Long, Long> {
@@ -186,36 +190,35 @@ class GeoResourceBaselineTest {
                 val core = PseudoVpnService.core.snapshot()
                 assertEquals(NativeSession.Phase.STOPPED, session.phase)
                 assertEquals(CoreHost.Phase.EMPTY, core.phase)
-                assertNull("The VPN Service must have actually stopped", PseudoVpnService.instance)
-                assertNull("The work Service must have actually stopped", AppWorkService.instance)
+                assertFalse("VPN Service 必须实际停止", CoreIpcTestDriver.servicePresent(instrumentation.targetContext, PseudoVpnService::class.java))
+                assertNull("AppWorkService 必须实际停止", AppWorkService.instance)
                 val currentIdentity = session.generation to core.generation
                 if (expectedIdentity != null) {
-                    assertEquals("The stopped session/core identity must never change", expectedIdentity, currentIdentity)
+                    assertEquals("停止后的 session/core identity 不能变化", expectedIdentity, currentIdentity)
                 }
                 val state = AppBridge.runtimeState()
                 for (key in listOf("resourceBusy", "storageRestoring", "pendingStart",
                     "pendingSystemStart", "pendingRestore")) {
-                    assertEquals("$key must remain false while awaiting idle", false, state[key])
+                    assertEquals("等待空闲期间 $key 必须保持 false", false, state[key])
                 }
                 val command = AppBridge.command
                 val idle = !AppBridge.logic.busy && AppBridge.operationId == null && command == null &&
                     state["writerBusy"] == false && state["scheduleBusy"] == false
                 if (!idle) {
-                    // Allow startup schedule reconciliation to drain before requiring
-                    // business-idle state.
-                    assertEquals("Only normal startup calibration may drain", "syncSchedules", command?.get("action"))
+                    // 等待启动时的 schedule reconciliation 实际结束，再检查业务空闲状态。
+                    assertEquals("仅允许正常启动校准仍在执行", "syncSchedules", command?.get("action"))
                 }
                 currentIdentity to (idle && state["storageReady"] == true)
             }
             instrumentation.runOnMainSync(task)
             val (currentIdentity, idle) = task.get(10, TimeUnit.SECONDS)
             identity = currentIdentity
-            val native = JSONObject(NativeCore.snapshot())
-            assertFalse("The native core must not be prepared", native.getBoolean("prepared"))
-            assertFalse("The native core must not be attached", native.getBoolean("attached"))
-            assertFalse("Native cleanup must have succeeded", native.getBoolean("cleanupFailed"))
+            CoreIpcTestDriver.assertNoGoInApplication()
+            val coreStatus = CoreClient.get(instrumentation.targetContext).status()
+            assertTrue("只能读取未启动或已退出进程的 baseline：$coreStatus",
+                coreStatus["phase"] in setOf(Contract.CORE_PHASE_DISCONNECTED, Contract.CORE_PHASE_EXITED))
             if (idle) return currentIdentity
-            assertTrue("Timed out waiting for normal startup calibration and the actual writer drain",
+            assertTrue("等待正常启动校准及实际 writer 退出超时",
                 SystemClock.elapsedRealtime() < deadline)
             Thread.sleep(25)
         }
@@ -224,19 +227,19 @@ class GeoResourceBaselineTest {
     private fun existing(file: File): StructStat = try {
         Os.lstat(file.absolutePath)
     } catch (error: ErrnoException) {
-        throw AssertionError("Required baseline material is missing or inaccessible: ${file.absolutePath}", error)
+        throw AssertionError("baseline 材料缺失或不可访问： ${file.absolutePath}", error)
     }
 
     private fun sameSource(before: StructStat, after: StructStat) {
-        assertTrue("The file must remain regular and not a symlink", OsConstants.S_ISREG(after.st_mode))
-        assertEquals("File device changed", before.st_dev, after.st_dev)
-        assertEquals("File inode changed", before.st_ino, after.st_ino)
-        assertEquals("File size changed", before.st_size, after.st_size)
-        assertEquals("File link count changed", before.st_nlink, after.st_nlink)
-        assertEquals("File modification time changed", before.st_mtime, after.st_mtime)
+        assertTrue("文件必须保持为普通文件，不能变为 symlink", OsConstants.S_ISREG(after.st_mode))
+        assertEquals("文件 device 变化", before.st_dev, after.st_dev)
+        assertEquals("文件 inode 变化", before.st_ino, after.st_ino)
+        assertEquals("文件大小变化", before.st_size, after.st_size)
+        assertEquals("文件 hard link 数变化", before.st_nlink, after.st_nlink)
+        assertEquals("文件 mtime 变化", before.st_mtime, after.st_mtime)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            assertEquals("File modification seconds changed", before.st_mtim.tv_sec, after.st_mtim.tv_sec)
-            assertEquals("File modification nanoseconds changed", before.st_mtim.tv_nsec, after.st_mtim.tv_nsec)
+            assertEquals("文件 mtime 秒数变化", before.st_mtim.tv_sec, after.st_mtim.tv_sec)
+            assertEquals("文件 mtime 纳秒数变化", before.st_mtim.tv_nsec, after.st_mtim.tv_nsec)
         }
     }
 }

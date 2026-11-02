@@ -1,4 +1,4 @@
-part of re_editor;
+part of 're_editor.dart';
 
 const double _kDefaultTextSize = 13.0;
 const double _kDefaultFontHeight = 1.4;

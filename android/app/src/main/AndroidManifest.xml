@@ -5,8 +5,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Local per-app VPN selection uses the installed-package inventory. -->
+    <!-- 按应用配置VPN接管范围需要读取已安装应用列表。 -->
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
@@ -47,7 +49,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
-        <!-- ShortcutManager supplies the publisher identity for these private control aliases. -->
+        <!-- 应用内快捷方式使用非导出的控制入口。 -->
         <activity-alias
             android:name="${applicationId}.StartVpnShortcut"
             android:targetActivity=".MainActivity"
@@ -82,13 +84,21 @@
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/vpn_widget_info" />
         </receiver>
         <service
+            android:name=".logic.AppRuntimeService"
+            android:exported="false" />
+        <service
+            android:name=".nativecore.CoreService"
+            android:process=":core"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+        <service
             android:name=".app.AppWorkService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
-        <!-- App-controlled starts check VpnService.prepare for the VPN grant.
-             systemExempted admits VPNs; lint only models the alarm alternatives. -->
+        <!-- VPN授权由VpnService.prepare检查；systemExempted用于已获授权的VPN服务。 -->
         <service
             android:name=".vpn.PseudoVpnService"
+            android:process=":core"
             android:exported="true"
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:foregroundServiceType="systemExempted"

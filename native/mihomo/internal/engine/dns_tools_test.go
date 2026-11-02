@@ -4,12 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"net"
 	"net/netip"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +19,8 @@ import (
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/dns"
 	D "github.com/miekg/dns"
+
+	"clashpseudo/native/internal/androidnet"
 )
 
 func questionJSON(name, kind string) []byte {
@@ -28,7 +29,10 @@ func questionJSON(name, kind string) []byte {
 }
 func testDNSPrepare(t *testing.T, e *Engine, config string) {
 	t.Helper()
-	if err := e.Prepare(t.TempDir(), []byte("ipv6: false\n"+config+"\nrules: ['MATCH,DIRECT']\n"), "", nil, func(int) bool { return true }); err != nil {
+	if config == "" {
+		config = "dns: {enable: true, nameserver: [192.0.2.53]}\n"
+	}
+	if err := e.Prepare(t.TempDir(), []byte("ipv6: false\n"+config+"\nrules: ['MATCH,DIRECT']\n"), "", func(int) bool { return true }); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { requireStop(t, e) })
@@ -43,13 +47,16 @@ func dnsObject(t *testing.T, body string) map[string]any {
 }
 
 func TestDNSQuestionNormalizationAndBoundaries(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	for _, test := range []struct{ name, kind, want string }{
 		{"例子.测试", "A", "xn--fsqu00a.xn--0zwm56d."},
 		{"_sip._tcp.例子.测试", "SRV", "_sip._tcp.xn--fsqu00a.xn--0zwm56d."},
 		{"192.0.2.7", "PTR", "7.2.0.192.in-addr.arpa."},
 		{"7.2.0.192.in-addr.arpa", "PTR", "7.2.0.192.in-addr.arpa."},
 		{"2001:db8::7", "PTR", "7.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa."},
-		{"EXAMPLE.TEST.", "https", "example.test."}, {".", "NS", "."},
+		{"EXAMPLE.TEST.", "https", "EXAMPLE.TEST."}, {".", "NS", "."},
 		{"_dmarc.example.test", "TXT", "_dmarc.example.test."},
 		{"_acme-challenge.example.test.", "TXT", "_acme-challenge.example.test."},
 		{"_sip._tcp.test", "A", "_sip._tcp.test."},
@@ -57,13 +64,20 @@ func TestDNSQuestionNormalizationAndBoundaries(t *testing.T) {
 		{"_.test", "TXT", "_.test."},
 		{"bad.example", "PTR", "bad.example."},
 		{"256.2.0.192.in-addr.arpa", "PTR", "256.2.0.192.in-addr.arpa."},
+		{"https://example.test", "A", "https://example.test."},
+		{"example.test:53", "A", "example.test:53."},
+		{"example.test/path", "A", "example.test/path."},
+		{"a@example.test", "A", "a@example.test."},
+		{" example.test", "A", " example.test."},
+		{"example.test\n", "A", "example.test\n."},
+		{"example.test\x00", "A", "example.test\x00."},
 	} {
 		q, _, err := normalizeDNSQuestion(questionJSON(test.name, test.kind))
 		if err != nil || q.Name != test.want {
 			t.Fatalf("%s %s: %+v %v", test.name, test.kind, q, err)
 		}
 	}
-	for _, test := range []DNSQuestion{{Name: "https://example.test", Type: "A"}, {Name: "example.test:53", Type: "A"}, {Name: "example.test/path", Type: "A"}, {Name: "example.test\n", Type: "A"}, {Name: "a..test", Type: "A"}, {Name: strings.Repeat("a", 64) + ".test", Type: "A"}, {Name: strings.Repeat("a", 1025), Type: "A"}, {Name: "example.test", Type: "AXFR"}, {Name: "example.test", Type: "IXFR"}, {Name: "", Type: "A"}} {
+	for _, test := range []DNSQuestion{{Name: "a..test", Type: "A"}, {Name: strings.Repeat("a", 64) + ".test", Type: "A"}, {Name: strings.Repeat("a", 1025), Type: "A"}, {Name: "example.test", Type: "AXFR"}, {Name: "example.test", Type: "IXFR"}, {Name: "", Type: "A"}} {
 		if _, _, err := normalizeDNSQuestion(questionJSON(test.Name, test.Type)); err == nil {
 			t.Fatalf("invalid DNS input accepted: %+v", test)
 		}
@@ -81,6 +95,9 @@ func TestDNSQuestionNormalizationAndBoundaries(t *testing.T) {
 }
 
 func TestDNSPublicResolverRealRecordsRcodeCacheAndIndependentFakeIPClear(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	packet, err := net.ListenPacket("udp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -184,66 +201,39 @@ func (d *functionDNS) ClearCache() {
 func (*functionDNS) Invalid() bool { return true }
 
 func TestDNSCacheClearCapturesSystemSnapshotBeforeWaitingForPublicCall(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	var e Engine
 	testDNSPrepare(t, &e, "")
-	original := systemDNS.value.Load()
-	defer func() { systemDNS.value.Store(original); original.cancel() }()
+	e.systemDNS = androidnet.NewNetworkResolver(androidnet.NetworkDNS{ID: "original", APILevel: 29}, androidnet.DNSOwner{ID: e.owner.id, Revoked: e.owner.ctx, Stopped: ErrStopped, RawQuery: func(context.Context, []byte) ([]byte, error) { return nil, errors.New("cache-only fixture") }})
+	if e.systemDNS.CaptureCache(e.owner.id) == nil {
+		t.Fatal("original network did not expose its actual cache operation")
+	}
 	entered, release := make(chan struct{}), make(chan struct{})
-	var oldClears, newClears atomic.Int64
-	old := *original
-	old.resolver = &functionDNS{clear: func() { oldClears.Add(1) }}
-	old.reason = nil
-	systemDNS.value.Store(&old)
+	var releaseOnce sync.Once
+	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
 	resolver.DefaultResolver = &functionDNS{clear: func() { close(entered); <-release }}
 	finished := make(chan string, 1)
 	go func() { finished <- e.ClearDNSCache() }()
 	<-entered
-	e.UpdateNetwork(NetworkDNS{ID: "replacement", Servers: []string{"192.0.2.53"}})
-	next := *systemDNS.value.Load()
-	next.resolver = &functionDNS{clear: func() { newClears.Add(1) }}
-	systemDNS.value.Store(&next)
-	defer next.cancel()
-	close(release)
-	if value := dnsObject(t, <-finished); value["error"] != "obsolete" {
-		t.Fatal(value)
-	}
-	if oldClears.Load() != 1 || newClears.Load() != 0 {
-		t.Fatal("old operation cleared replacement network's cache", oldClears.Load(), newClears.Load())
-	}
-}
-
-func TestStableSystemDNSCannotServeCachedAnswersAfterSessionCancellation(t *testing.T) {
-	var e Engine
-	testDNSPrepare(t, &e, "")
-	original := systemDNS.value.Load()
-	defer func() { systemDNS.value.Store(original) }()
-	var exchanges atomic.Int64
-	owned := *original
-	owned.reason = nil
-	owned.resolver = &functionDNS{exchange: func(ctx context.Context, q *D.Msg) (*D.Msg, error) {
-		exchanges.Add(1)
-		return new(D.Msg).SetReply(q), nil
-	}}
-	systemDNS.value.Store(&owned)
-	q := new(D.Msg).SetQuestion("cached.test.", D.TypeA)
-	if _, err := systemDNS.ExchangeContext(context.Background(), q); err != nil {
-		t.Fatal(err)
-	}
+	// Network变化由平台撤销本次owner；已受理cache调用仍等待其捕获的公开调用返回。
 	e.Cancel()
-	if owned.ctx.Err() == nil {
-		t.Fatal("session cancellation did not cancel captured system context")
-	}
-	if value, err := systemDNS.ExchangeContext(context.Background(), q); !errors.Is(err, ErrStopped) || value != nil {
-		t.Fatal("cancelled owner served a cached answer", value, err)
-	}
-	if exchanges.Load() != 1 || systemDNS.Invalid() {
-		t.Fatal("inactive snapshot remained available", exchanges.Load())
+	releaseOnce.Do(func() { close(release) })
+	if value := dnsObject(t, <-finished); value["error"] != nil || value["status"] != "completed" || value["stale"] != true || value["resolverActive"] != true || value["systemResolverActive"] != true {
+		t.Fatal("actual cache clears were replaced by a network identity error", value)
 	}
 }
 
 func TestDNSQueryRealGateCancellationNetworkIdentityAndStopDrain(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	for _, action := range []string{"cancel", "network", "stop"} {
 		t.Run(action, func(t *testing.T) {
+			if isolateEngineTest(t) {
+				return
+			}
 			var e Engine
 			testDNSPrepare(t, &e, "")
 			entered, release := make(chan struct{}), make(chan struct{})
@@ -263,7 +253,7 @@ func TestDNSQueryRealGateCancellationNetworkIdentityAndStopDrain(t *testing.T) {
 			case "cancel":
 				e.CancelDNSRequest(123)
 			case "network":
-				e.UpdateNetwork(NetworkDNS{ID: "changed", Servers: []string{"192.0.2.53"}})
+				e.Cancel()
 			case "stop":
 				e.Cancel()
 				stopped = make(chan error, 1)
@@ -281,12 +271,11 @@ func TestDNSQueryRealGateCancellationNetworkIdentityAndStopDrain(t *testing.T) {
 			}
 			close(release)
 			value := dnsObject(t, <-finished)
-			want := "obsolete"
-			if action == "cancel" {
-				want = "cancelled"
+			if value["error"] != nil || value["rcode"] != float64(0) {
+				t.Fatal("actual resolver success was replaced after interruption", action, value)
 			}
-			if value["error"] != want {
-				t.Fatal("late result not isolated", action, value)
+			if (value["stale"] == true) != (action != "cancel") {
+				t.Fatal("source identity was not reported separately", action, value)
 			}
 			if stopped != nil {
 				if err := <-stopped; err != nil {
@@ -300,7 +289,189 @@ func TestDNSQueryRealGateCancellationNetworkIdentityAndStopDrain(t *testing.T) {
 	}
 }
 
+func TestDNSActualErrorsSurviveCancellationNetworkChangesAndStop(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
+	const original = "https://user:pass@fixture.test/?token=原文🙂\nAuthorization: Bearer fixture"
+	for _, action := range []string{"none", "cancel", "network", "stop"} {
+		for _, failure := range []error{errors.New(original), fmt.Errorf("%s: %w", original, context.Canceled), fmt.Errorf("%s: %w", original, context.DeadlineExceeded)} {
+			t.Run(action+failure.Error(), func(t *testing.T) {
+				if isolateEngineTest(t) {
+					return
+				}
+				var e Engine
+				testDNSPrepare(t, &e, "")
+				entered, release := make(chan struct{}), make(chan struct{})
+				resolver.DefaultResolver = &functionDNS{exchange: func(context.Context, *D.Msg) (*D.Msg, error) {
+					close(entered)
+					<-release
+					return nil, failure
+				}}
+				finished := make(chan string, 1)
+				go func() { finished <- e.DNSQuery([]byte(`{"name":"late.test","type":"A","requestId":"123"}`)) }()
+				<-entered
+				var stopped chan error
+				switch action {
+				case "cancel":
+					e.CancelDNSRequest(123)
+				case "network":
+					e.Cancel()
+				case "stop":
+					e.Cancel()
+					stopped = make(chan error, 1)
+					go func() { stopped <- e.Stop() }()
+				}
+				if e.dnsOperation.Load() == nil {
+					t.Fatal("interruption released the actual resolver gate")
+				}
+				close(release)
+				value := dnsObject(t, <-finished)
+				want := "queryFailed"
+				if errors.Is(failure, context.Canceled) {
+					want = "cancelled"
+				} else if errors.Is(failure, context.DeadlineExceeded) {
+					want = "timeout"
+				}
+				if value["error"] != want || value["detail"] != failure.Error() {
+					t.Fatal("actual resolver error was replaced", value)
+				}
+				if stopped != nil {
+					if err := <-stopped; err != nil {
+						t.Fatal(err)
+					}
+				}
+				if e.dnsOperation.Load() != nil {
+					t.Fatal("actual completion retained the resolver gate")
+				}
+			})
+		}
+	}
+}
+
+func TestDNSKeepsTheCompletePublicMessageAndQuestionCase(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
+	var e Engine
+	testDNSPrepare(t, &e, "")
+	var returned *D.Msg
+	resolver.DefaultResolver = &functionDNS{exchange: func(_ context.Context, question *D.Msg) (*D.Msg, error) {
+		returned = new(D.Msg).SetReply(question)
+		returned.Id = 0xbeef
+		returned.Authoritative = true
+		returned.AuthenticatedData = true
+		returned.CheckingDisabled = true
+		returned.RecursionAvailable = true
+		returned.Answer = []D.RR{&D.TXT{Hdr: D.RR_Header{Name: question.Question[0].Name, Rrtype: D.TypeTXT, Class: D.ClassINET, Ttl: 0xffffffff},
+			Txt: []string{"https://user:pass@fixture.test/?token=原文🙂\nAuthorization: Bearer fixture"}}}
+		return returned, nil
+	}}
+	value := dnsObject(t, e.DNSQuery(questionJSON("MiXeD.example", "TXT")))
+	if value["error"] != nil || value["question"].(map[string]any)["name"] != "MiXeD.example." {
+		t.Fatal("DNS question was rewritten", value)
+	}
+	wire, err := json.Marshal(returned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := json.Marshal(dnsObject(t, string(wire)))
+	got, _ := json.Marshal(value["message"])
+	if string(got) != string(want) {
+		t.Fatalf("public DNS message fields were lost: got %s, want %s", got, want)
+	}
+}
+
+func TestDNSPartialMessageAndActualErrorAreBothRetained(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
+	const original = "https://user:pass@fixture.test/?token=原文🙂\nAuthorization: Bearer fixture"
+	for _, cause := range []error{errors.New(original), fmt.Errorf("%s: %w", original, context.Canceled), fmt.Errorf("%s: %w", original, context.DeadlineExceeded)} {
+		var e Engine
+		testDNSPrepare(t, &e, "")
+		resolver.DefaultResolver = &functionDNS{exchange: func(_ context.Context, question *D.Msg) (*D.Msg, error) {
+			message := new(D.Msg).SetReply(question)
+			message.Truncated = true
+			message.Answer = []D.RR{&D.TXT{Hdr: D.RR_Header{Name: question.Question[0].Name, Rrtype: D.TypeTXT, Class: D.ClassINET, Ttl: 60}, Txt: []string{original}}}
+			return message, cause
+		}}
+		value := dnsObject(t, e.DNSQuery(questionJSON("Partial.Example", "TXT")))
+		want := "queryFailed"
+		if errors.Is(cause, context.Canceled) {
+			want = "cancelled"
+		}
+		if errors.Is(cause, context.DeadlineExceeded) {
+			want = "timeout"
+		}
+		if value["error"] != want || value["detail"] != cause.Error() || value["truncated"] != true {
+			t.Fatal("partial DNS message replaced its actual error", value)
+		}
+		message := value["message"].(map[string]any)
+		answer := message["Answer"].([]any)[0].(map[string]any)
+		if message["Truncated"] != true || answer["Txt"].([]any)[0] != original || message["Question"].([]any)[0].(map[string]any)["Name"] != "Partial.Example." {
+			t.Fatal("partial DNS message fields were lost", message)
+		}
+		requireStop(t, &e)
+	}
+}
+
+func TestDNSResultRejectionKeepsOriginalCauseWithoutRetainingOversizedMessage(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
+	var e Engine
+	testDNSPrepare(t, &e, "")
+	for _, mode := range []string{"records", "bytes", "oversizedCause"} {
+		t.Run(mode, func(t *testing.T) {
+			if isolateEngineTest(t) {
+				return
+			}
+			detail := "resolver failed\nCaused by: original transport\nSuppressed: close failed"
+			if mode == "oversizedCause" {
+				detail += strings.Repeat("域名解析失败🙂", MaxDNSResult/4)
+			}
+			cause := errors.New(detail)
+			resolver.DefaultResolver = &functionDNS{exchange: func(_ context.Context, q *D.Msg) (*D.Msg, error) {
+				message := new(D.Msg).SetReply(q)
+				if mode == "records" {
+					for index := 0; index < MaxDNSRecords+1; index++ {
+						rr := &D.A{Hdr: D.RR_Header{Name: q.Question[0].Name, Rrtype: D.TypeA, Class: D.ClassINET}}
+						switch index % 3 {
+						case 0:
+							message.Answer = append(message.Answer, rr)
+						case 1:
+							message.Ns = append(message.Ns, rr)
+						case 2:
+							message.Extra = append(message.Extra, rr)
+						}
+					}
+				} else if mode == "bytes" {
+					message.Answer = []D.RR{&D.TXT{Hdr: D.RR_Header{Name: q.Question[0].Name, Rrtype: D.TypeTXT, Class: D.ClassINET}, Txt: []string{strings.Repeat("x", MaxDNSResult)}}}
+				}
+				return message, cause
+			}}
+			wire := e.DNSQuery(questionJSON("limit.test", "TXT"))
+			value := dnsObject(t, wire)
+			if value["error"] != "resultTooLarge" || value["detail"] != detail {
+				t.Fatal("result rejection changed or dropped the original cause")
+			}
+			for _, field := range []string{"message", "answer", "authority", "additional"} {
+				if _, ok := value[field]; ok {
+					t.Fatalf("rejected result retained %s", field)
+				}
+			}
+			if mode == "oversizedCause" && len(wire) <= MaxDNSResult {
+				t.Fatal("oversized native diagnostic was truncated instead of passed to bridge rejection")
+			}
+		})
+	}
+}
+
 func TestDNSCancellationBeforeEntryCannotCancelANewerRequest(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	var e Engine
 	testDNSPrepare(t, &e, "")
 	var entered atomic.Int64
@@ -308,58 +479,70 @@ func TestDNSCancellationBeforeEntryCannotCancelANewerRequest(t *testing.T) {
 		entered.Add(1)
 		return new(D.Msg).SetReply(q), nil
 	}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 	e.CancelDNSRequest(9)
-	if value := dnsObject(t, e.DNSQuery([]byte(`{"name":"test.test","type":"A","requestId":"9"}`))); value["error"] != "cancelled" || entered.Load() != 0 {
+	if value := dnsObject(t, e.DNSQueryContext(ctx, []byte(`{"name":"test.test","type":"A","requestId":"9"}`))); value["error"] != "cancelled" || entered.Load() != 0 {
 		t.Fatal(value, entered.Load())
 	}
-	if value := dnsObject(t, e.DNSQuery([]byte(`{"name":"test.test","type":"A","requestId":"10"}`))); value["error"] != nil || entered.Load() != 1 {
+	if value := dnsObject(t, e.DNSQuery([]byte(`{"name":"test.test","type":"A","requestId":"8"}`))); value["error"] != nil || entered.Load() != 1 {
 		t.Fatal("old cancellation affected new request", value, entered.Load())
 	}
 }
 
 func TestDNSDisabledAndOutputLimitsDoNotOpenAnAlternativeResolver(t *testing.T) {
-	var e Engine
-	testDNSPrepare(t, &e, "dns: {enable: false}\n")
-	if value := dnsObject(t, e.DNSQuery(questionJSON("unavailable.test", "A"))); value["error"] != "unavailable" {
-		t.Fatal(value)
+	if isolateEngineTest(t) {
+		return
 	}
-	if value := dnsObject(t, e.FlushFakeIP()); value["status"] != "empty" {
-		t.Fatal(value)
-	}
-	requireStop(t, &e)
-	testDNSPrepare(t, &e, "")
-	for _, mode := range []string{"records", "bytes", "truncated", "timeout"} {
-		resolver.DefaultResolver = &functionDNS{exchange: func(ctx context.Context, q *D.Msg) (*D.Msg, error) {
-			r := new(D.Msg).SetReply(q)
-			switch mode {
-			case "records":
-				for i := 0; i < 513; i++ {
-					r.Answer = append(r.Answer, &D.A{Hdr: D.RR_Header{Name: q.Question[0].Name, Rrtype: D.TypeA, Class: D.ClassINET}})
+	for _, mode := range []string{"disabled", "records", "bytes", "truncated", "timeout"} {
+		t.Run(mode, func(t *testing.T) {
+			if isolateEngineTest(t) {
+				return
+			}
+			var e Engine
+			if mode == "disabled" {
+				testDNSPrepare(t, &e, "dns: {enable: false}\n")
+				if value := dnsObject(t, e.DNSQuery(questionJSON("unavailable.test", "A"))); value["error"] != "unavailable" {
+					t.Fatal(value)
 				}
-			case "bytes":
-				r.Answer = []D.RR{&D.TXT{Hdr: D.RR_Header{Name: q.Question[0].Name, Rrtype: D.TypeTXT, Class: D.ClassINET}, Txt: []string{strings.Repeat("x", MaxDNSResult)}}}
-			case "truncated":
-				r.Truncated = true
-			case "timeout":
-				<-ctx.Done()
-				return nil, ctx.Err()
+				if value := dnsObject(t, e.FlushFakeIP()); value["status"] != "empty" {
+					t.Fatal(value)
+				}
+				return
 			}
-			return r, nil
-		}}
-		value := dnsObject(t, e.DNSQuery(questionJSON("limit.test", "A")))
-		if mode == "truncated" {
-			if value["error"] != nil || value["truncated"] != true {
-				t.Fatal(value)
+			testDNSPrepare(t, &e, "")
+			resolver.DefaultResolver = &functionDNS{exchange: func(ctx context.Context, q *D.Msg) (*D.Msg, error) {
+				r := new(D.Msg).SetReply(q)
+				switch mode {
+				case "records":
+					for i := 0; i < 513; i++ {
+						r.Answer = append(r.Answer, &D.A{Hdr: D.RR_Header{Name: q.Question[0].Name, Rrtype: D.TypeA, Class: D.ClassINET}})
+					}
+				case "bytes":
+					r.Answer = []D.RR{&D.TXT{Hdr: D.RR_Header{Name: q.Question[0].Name, Rrtype: D.TypeTXT, Class: D.ClassINET}, Txt: []string{strings.Repeat("x", MaxDNSResult)}}}
+				case "truncated":
+					r.Truncated = true
+				case "timeout":
+					<-ctx.Done()
+					return nil, ctx.Err()
+				}
+				return r, nil
+			}}
+			value := dnsObject(t, e.DNSQuery(questionJSON("limit.test", "A")))
+			if mode == "truncated" {
+				if value["error"] != nil || value["truncated"] != true {
+					t.Fatal(value)
+				}
+			} else {
+				want := "resultTooLarge"
+				if mode == "timeout" {
+					want = "timeout"
+				}
+				if value["error"] != want {
+					t.Fatal(mode, value)
+				}
 			}
-		} else {
-			want := "resultTooLarge"
-			if mode == "timeout" {
-				want = "timeout"
-			}
-			if value["error"] != want {
-				t.Fatal(mode, value)
-			}
-		}
+		})
 	}
 }
 
@@ -374,6 +557,9 @@ func (m *partialFakeIP) FlushFakeIP() error {
 }
 
 func TestFakeIPBothFamiliesEmptyAndAggregatePartialFailureAreReportedHonestly(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	var e Engine
 	testDNSPrepare(t, &e, "")
 	p4, err := fakeip.New(fakeip.Options{IPNet: netip.MustParsePrefix("198.18.0.1/16"), Size: 100})
@@ -400,7 +586,7 @@ func TestFakeIPBothFamiliesEmptyAndAggregatePartialFailureAreReportedHonestly(t 
 	a4, a6 = p4.Lookup("new-v4.test"), p6.Lookup("new-v6.test")
 	resolver.DefaultHostMapper = &partialFakeIP{Enhancer: actual, pool: p4}
 	v := dnsObject(t, e.FlushFakeIP())
-	if v["status"] != "partialOrFailed" {
+	if v["status"] != "partialOrFailed" || v["detail"] != "second family public flush failed" {
 		t.Fatal(v)
 	}
 	for _, name := range []string{"ipv4", "ipv6"} {
@@ -418,61 +604,68 @@ func TestFakeIPBothFamiliesEmptyAndAggregatePartialFailureAreReportedHonestly(t 
 }
 
 func TestFakeIPPublicPersistentBothFamiliesFlushDoesNotRestoreOldMappings(t *testing.T) {
-	const child = "PSEUDO_DNS_PERSISTENT_BOTH_FAMILIES"
-	if os.Getenv(child) != "1" {
-		command := exec.Command(os.Args[0], "-test.run=^TestFakeIPPublicPersistentBothFamiliesFlushDoesNotRestoreOldMappings$", "-test.count=1")
-		if directory := flag.Lookup("test.gocoverdir"); directory != nil && directory.Value.String() != "" {
-			command.Args = append(command.Args, "-test.gocoverdir="+directory.Value.String())
-		}
-		command.Env = append(os.Environ(), child+"=1")
-		if output, err := command.CombinedOutput(); err != nil {
-			t.Fatalf("isolated persistent pools: %v\n%s", err, output)
-		}
+	if isolateEngineTest(t) {
+		return
+	}
+	home, phase := os.Getenv("PSEUDO_ENGINE_HOME"), os.Getenv("PSEUDO_ENGINE_PHASE")
+	if phase == "" {
+		home = t.TempDir()
+		runEnginePhase(t, home, "flush")
+		runEnginePhase(t, home, "reopen")
 		return
 	}
 	var e Engine
-	home := t.TempDir()
-	prepare := func() (*fakeip.Pool, *fakeip.Pool) {
-		t.Helper()
-		if err := e.Prepare(home, []byte("ipv6: false\nprofile: {store-fake-ip: true}\ndns: {enhanced-mode: fake-ip}\nrules: ['MATCH,DIRECT']\n"), "", nil, func(int) bool { return true }); err != nil {
-			t.Fatal(err)
+	if err := e.Prepare(home, []byte("ipv6: false\nprofile: {store-fake-ip: true}\ndns: {enable: true, enhanced-mode: fake-ip}\nrules: ['MATCH,DIRECT']\n"), "", func(int) bool { return true }); err != nil {
+		t.Fatal(err)
+	}
+	defer requireStop(t, &e)
+	p4 := e.cfg.DNS.FakeIPPool
+	p6, err := fakeip.New(fakeip.Options{IPNet: netip.MustParsePrefix("fd00:7::/64"), Persistence: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.cfg.DNS.FakeIPPool6 = p6
+	resolver.DefaultHostMapper = dns.NewEnhancer(dns.EnhancerConfig{IPv6: true, EnhancedMode: C.DNSFakeIP, FakeIPPool: p4, FakeIPPool6: p6})
+	var state struct{ IPv4, IPv6 netip.Addr }
+	path := filepath.Join(home, "both-families.json")
+	if phase == "flush" {
+		state.IPv4, state.IPv6 = p4.Lookup("persist-four.test"), p6.Lookup("persist-six.test")
+		if value := dnsObject(t, e.ClearDNSCache()); value["status"] != "completed" {
+			t.Fatal(value)
 		}
-		p4 := e.cfg.DNS.FakeIPPool
-		// Exercise the public IPv6 persistent pool independently of host network
-		// availability.
-		p6, err := fakeip.New(fakeip.Options{IPNet: netip.MustParsePrefix("fd00:7::/64"), Persistence: true})
+		if _, ok := p4.LookBack(state.IPv4); !ok {
+			t.Fatal("DNS clear flushed persistent IPv4")
+		}
+		if _, ok := p6.LookBack(state.IPv6); !ok {
+			t.Fatal("DNS clear flushed persistent IPv6")
+		}
+		value := dnsObject(t, e.FlushFakeIP())
+		if value["status"] != "completed" || value["persistent"] != true || value["ipv4"].(map[string]any)["active"] != true || value["ipv6"].(map[string]any)["active"] != true {
+			t.Fatal(value)
+		}
+		data, err := json.Marshal(state)
 		if err != nil {
 			t.Fatal(err)
 		}
-		e.cfg.DNS.FakeIPPool6 = p6
-		resolver.DefaultHostMapper = dns.NewEnhancer(dns.EnhancerConfig{IPv6: true, EnhancedMode: C.DNSFakeIP, FakeIPPool: p4, FakeIPPool6: p6})
-		return p4, p6
+		if err = os.WriteFile(path, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		return
 	}
-	p4, p6 := prepare()
-	defer requireStop(t, &e)
-	a4, a6 := p4.Lookup("persist-four.test"), p6.Lookup("persist-six.test")
-	if value := dnsObject(t, e.ClearDNSCache()); value["status"] != "completed" {
-		t.Fatal(value)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, ok := p4.LookBack(a4); !ok {
-		t.Fatal("DNS clear flushed persistent IPv4")
+	if err = json.Unmarshal(data, &state); err != nil {
+		t.Fatal(err)
 	}
-	if _, ok := p6.LookBack(a6); !ok {
-		t.Fatal("DNS clear flushed persistent IPv6")
-	}
-	value := dnsObject(t, e.FlushFakeIP())
-	if value["status"] != "completed" || value["persistent"] != true || value["ipv4"].(map[string]any)["active"] != true || value["ipv6"].(map[string]any)["active"] != true {
-		t.Fatal(value)
-	}
-	requireStop(t, &e)
-	p4, p6 = prepare()
-	if _, ok := p4.LookBack(a4); ok {
+	if _, ok := p4.LookBack(state.IPv4); ok {
 		t.Fatal("flushed persistent IPv4 returned")
 	}
-	if _, ok := p6.LookBack(a6); ok {
+	if _, ok := p6.LookBack(state.IPv6); ok {
 		t.Fatal("flushed persistent IPv6 returned")
 	}
-	if p4.Lookup("new-four.test") != a4 || p6.Lookup("new-six.test") != a6 {
+	if p4.Lookup("new-four.test") != state.IPv4 || p6.Lookup("new-six.test") != state.IPv6 {
 		t.Fatal("persistent allocation state was not reset")
 	}
 }
@@ -480,6 +673,9 @@ func TestFakeIPPublicPersistentBothFamiliesFlushDoesNotRestoreOldMappings(t *tes
 // Exercise the public API's private-lock boundary under -race to expose upstream
 // offset/cycle writes.
 func TestFakeIPPublicConcurrentAllocationLookBackAndFlush(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
 	pool, err := fakeip.New(fakeip.Options{IPNet: netip.MustParsePrefix("198.18.0.1/16"), Size: 1000})
 	if err != nil {
 		t.Fatal(err)
@@ -510,4 +706,107 @@ func TestFakeIPPublicConcurrentAllocationLookBackAndFlush(t *testing.T) {
 	}()
 	close(start)
 	workers.Wait()
+}
+
+func TestDNSOwnerNamesUseDNSGrammarAcrossRecordTypes(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
+	for _, kind := range []string{"A", "AAAA", "CNAME", "MX", "TXT", "NS", "SOA", "PTR", "SRV", "HTTPS", "SVCB", "CAA"} {
+		for _, name := range []string{"_", "__owner", "some_owner.example", "_service._tcp._zone.example", "-owner.example", "owner-.example", "*.example", "."} {
+			t.Run(kind+"/"+name, func(t *testing.T) {
+				q, code, err := normalizeDNSQuestion(questionJSON(name, strings.ToLower(kind)))
+				if err != nil || q.Type != kind || code != dnsTypes[kind] || q.Name != D.Fqdn(name) {
+					t.Fatalf("a valid owner was restricted as a host: type=%s name=%q err=%v", kind, name, err)
+				}
+				msg := new(D.Msg)
+				msg.SetQuestion(q.Name, code)
+				wire, err := msg.Pack()
+				if err != nil {
+					t.Fatal(err)
+				}
+				var decoded D.Msg
+				if decoded.Unpack(wire) != nil || len(decoded.Question) != 1 || decoded.Question[0].Name != q.Name {
+					t.Fatal("the actual DNS question was changed during wire packing")
+				}
+			})
+		}
+	}
+}
+
+func TestDNSNamesKeepLookupIDNAOriginalCaseAndExplicitEscapes(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
+	for _, item := range []struct{ name, kind, expected string }{
+		{"BÜCHER。Example", "A", "xn--bcher-kva.Example."},
+		{"_service.BÜCHER.example", "SRV", "_service.xn--bcher-kva.example."},
+		{`one\.label.Example`, "TXT", `one\.label.Example.`},
+		{`one\046label.Example`, "TXT", `one\046label.Example.`},
+		{"192.0.2.1", "PTR", "1.2.0.192.in-addr.arpa."},
+		{"_services._dns-sd._udp.local", "PTR", "_services._dns-sd._udp.local."},
+		{"32-63.2.0.192.in-addr.arpa", "PTR", "32-63.2.0.192.in-addr.arpa."},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			if isolateEngineTest(t) {
+				return
+			}
+			q, _, err := normalizeDNSQuestion(questionJSON(item.name, item.kind))
+			if err != nil || q.Name != item.expected {
+				t.Fatalf("normalization: got=%q want=%q err=%v", q.Name, item.expected, err)
+			}
+		})
+	}
+	name := strings.Repeat("ä", 40) + ".example"
+	if _, _, err := normalizeDNSQuestion(questionJSON(name, "A")); err != nil {
+		t.Fatal("UTF-8 label length must not reject a valid shorter IDNA wire name")
+	}
+}
+
+func TestDNSOwnerWireAndInputBudgetsAreIndependent(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
+	maximum := strings.Repeat("a", 63) + "." + strings.Repeat("b", 63) + "." + strings.Repeat("c", 63) + "." + strings.Repeat("d", 61)
+	q, _, err := normalizeDNSQuestion(questionJSON(maximum, "TXT"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire [256]byte
+	length, err := D.PackDomainName(q.Name, wire[:], 0, nil, false)
+	if err != nil || length != 255 {
+		t.Fatal("the actual maximum wire name was not accepted")
+	}
+	for _, name := range []string{maximum + "d", strings.Repeat("a", 64) + ".example", strings.Repeat("a", 1025)} {
+		if _, _, err := normalizeDNSQuestion(questionJSON(name, "TXT")); err == nil {
+			t.Fatal("a raw or wire name overflow was accepted")
+		}
+	}
+	body := questionJSON("owner.example", "TXT")
+	body = append(body, []byte(strings.Repeat(" ", MaxDNSRequest+1-len(body)))...)
+	if !json.Valid(body) {
+		t.Fatal("request overflow fixture must remain valid JSON")
+	}
+	if _, _, err := normalizeDNSQuestion(body); err == nil {
+		t.Fatal("raw request budget was not enforced")
+	}
+}
+
+func TestDNSOwnerBadWireLabelsAndUnrepresentableEncodingRemainRejected(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
+	for _, name := range []string{"", ".owner.example", "one..example", "owner..", `trailing\`, `bad\999.example`, `bad\256.example`, `bad\12.example`, `bad\12x.example`} {
+		if _, _, err := normalizeDNSQuestion(questionJSON(name, "TXT")); err == nil {
+			t.Errorf("invalid owner was accepted: %q", name)
+		}
+	}
+	invalid := append([]byte(`{"name":"`), 0xff)
+	invalid = append(invalid, []byte(`","type":"A"}`)...)
+	if _, _, err := normalizeDNSQuestion(invalid); err == nil {
+		t.Fatal("invalid UTF-8 was accepted")
+	}
+	if _, _, err := normalizeDNSQuestion(questionJSON("owner.example", "AXFR")); err == nil {
+		t.Fatal("unsupported record type was accepted")
+	}
 }

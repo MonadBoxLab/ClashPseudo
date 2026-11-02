@@ -1,13 +1,7 @@
 package io.github.monadboxlab.clashpseudo.debug
 
-import io.github.monadboxlab.clashpseudo.nativecore.NativeCore
-
-/** JNI entries exist only in explicitly instrumented native test builds. */
+/** 仅在启用 native coverage 的 debug build 中提供 JNI；调用方须位于 :core 并已加载 library。 */
 object NativeCoverage {
-    init {
-        NativeCore.version()
-    }
-
     @JvmStatic external fun probe(first: Boolean, second: Boolean): Int
     @JvmStatic external fun write(path: String): Int
 }

@@ -5,6 +5,10 @@
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application>
+        <service
+            android:name=".debug.CoreFixtureService"
+            android:process=":core"
+            android:exported="false" />
         <activity
             android:name=".debug.NativeCheckActivity"
             android:exported="true"
