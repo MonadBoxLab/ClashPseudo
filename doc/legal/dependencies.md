@@ -1,137 +1,107 @@
 # 依赖许可依据与升级复核
 
-本文保存依赖及数据资产的许可来源、已核查证据和升级复核方法。分发通知与对应源码义务见根[NOTICE](../../NOTICE.md)，法律原文保存在[third_party](../../third_party)及根[LICENSE](../../LICENSE)。
+依赖更新同步声明、锁文件、第三方通知和对应源码。分发文件与源码取得方式见根[NOTICE](../../NOTICE.md)，许可原文位于[third_party](../../third_party)及根[LICENSE](../../LICENSE)。
 
 ## 当前版本与材料入口
 
-当前依赖选择以[native/mihomo/go.mod](../../native/mihomo/go.mod)、[go.sum](../../native/mihomo/go.sum)、[pubspec.yaml](../../pubspec.yaml)、[pubspec.lock](../../pubspec.lock)及[Android配置](../../android/app/build.gradle.kts)为准；实际解析图、原生buildinfo和APK内容用于确认参与构建与分发的材料。go.sum保存模块校验，实际链接版本由buildinfo核对。
-
-mihomo持续同步上游。下列版本、提交和摘要标识各项已核查证据，供变化比较与复用；版本或依赖图变化时复核变化部分并更新证据。
-
-自有代码为GPL-3.0-only，第三方保留各自版权和许可。Go通知、Android通知、Flutter NOTICES及字体／CA／Geo／PSL通知各覆盖自己的材料，源码原文与实际产物分别核验。
-
-## go-lzo：明确GPL-2.0-or-later
-
-go-lzo v0.0.0-20261012164727-ad21c35a1111的上游README明确声明GPL-2.0-or-later；与此前标注GPLv2的归档相比，该版本提供了明确的or-later授权依据，适用于本项目的GPLv3组合。原GPLv2正文和授权声明均随材料保留。
-
-| 证据 | 固定值 |
+| 要查的内容 | 入口 |
 | --- | --- |
-| 提交 | [ad21c35a111113348567708a4db74f998be1a4c3](https://github.com/rasky/go-lzo/commit/ad21c35a111113348567708a4db74f998be1a4c3) |
-| 直接父提交 | 96a758eda86e0ca29bc2638000fdb0ff0a6d96d8 |
-| 新README SHA-256 | 9fa5f03995a7ce8ee795c89ddb39a16dd0f71ab6e393afd4637924c159a304d4 |
-| 模块Sum | h1:TdWAEloUou4dmmeBono7DfE/PdfsoLn4+R4xTfIm7Bw= |
-| GoModSum | h1:9leZcVcItj6m9/CfHY5Em/iBrCz7js8LcRQGTKEEv2M= |
-| 模块zip SHA-256 | e306e0f265561d2a8ab8129312960e331b380d901ae1bca20b46771bfc6b54ee |
+| Flutter／Dart声明与解析版本 | [pubspec.yaml](../../pubspec.yaml)、[pubspec.lock](../../pubspec.lock) |
+| Go模块、替换与校验 | [go.mod](../../native/mihomo/go.mod)、[go.sum](../../native/mihomo/go.sum)及本次`go-modules.json` |
+| Android依赖与实际选择 | [Android配置](../../android/app/build.gradle.kts)及本次`releaseRuntimeClasspath`报告 |
+| 实际链接的Go模块 | 各ABI的`libmihomo_bridge.so`及`go version -m`输出 |
+| 第三方许可与来源摘要 | [Go通知](../../third_party/notices/go.txt)、[Android通知](../../third_party/notices/android.txt)、Flutter `NOTICES.Z`及字体／数据通知 |
+| CA与Geo来源、版本、大小和摘要 | [release 资源记录](../../third_party/data/resources.json)及本次资源源码清单 |
 
-[固定README](https://github.com/rasky/go-lzo/blob/ad21c35a111113348567708a4db74f998be1a4c3/README.md)原文：
+应用自有代码采用GPL-3.0-only。第三方版权、许可正文及随附通知随对应材料保存。依赖升级时，从声明和锁文件取得所选版本，再用解析图、原始归档及APK内容核对当次交付。
+
+## go-lzo：GPL-2.0-or-later授权
+
+所选go-lzo的README包含以下声明，[Go通知](../../third_party/notices/go.txt)保存该原文及LICENSE.gpl：
 
 > Being a straightforward port of the original source code, it shares the same
 > license (GPL-2.0-or-later) as I can't possibly claim any copyright on it.
 
-[维护者回复](https://github.com/rasky/go-lzo/issues/15#issuecomment-6128639788)说明该授权澄清，[LZO项目](https://www.oberhumer.com/opensource/lzo/)提供GPLv2+来源。两版zip去除版本目录后，文件集合及源码一致，差异位于README。分发保留LICENSE.gpl及GPLv3正文，具体兼容关系按[GNU说明](https://www.gnu.org/licenses/gpl-faq.en.html#v2v3Compatibility)和对应授权条款确定。
+升级时检查新归档的README仍含GPL-2.0-or-later声明，并保留GPLv2正文和该授权声明。Go通知记录所选版本、模块Sum、GoModSum及归档SHA-256；go.sum记录模块与go.mod的校验值。[维护者回复](https://github.com/rasky/go-lzo/issues/15#issuecomment-6128639788)、[LZO项目](https://www.oberhumer.com/opensource/lzo/)及[GNU组合说明](https://www.gnu.org/licenses/gpl-faq.en.html#v2v3Compatibility)提供授权与组合依据。
 
-## chacha：根MIT许可补齐
+## chacha：根MIT许可
 
-原核对归档github.com/metacubex/chacha v0.1.5的tag为07294f500ca8384015f6cc21311de7b6f093607d，已有chachapoly1305／poly1305子目录许可，缺根LICENSE。上游v0.1.6-0.20250812085457-7b981d42c3ba只新增根MIT LICENSE，其他原文件、源码及go.mod逐字节相同。
+所选chacha模块的根LICENSE采用MIT，包含Copyright (c) 2016 Andreas Auernhammer及Copyright (c) 2025 MetaCubex。[Go通知](../../third_party/notices/go.txt)同时保存根LICENSE和chachapoly1305／poly1305子目录许可。升级时逐项收集这些原文，更新模块Sum、GoModSum与归档SHA-256；伪版本由Go proxy按提交时间解析。MIT与GPLv3的组合说明见[GNU许可列表](https://www.gnu.org/licenses/license-list.html#Expat)。
 
-| 证据 | 固定值 |
-| --- | --- |
-| 提交 | [7b981d42c3baca5a004e7b0ecfb9b67ee20e583a](https://github.com/MetaCubeX/chacha/commit/7b981d42c3baca5a004e7b0ecfb9b67ee20e583a) |
-| 根LICENSE SHA-256 | 3fac516804d269e044c071507def0677d614793776ac506e630337c63f1dcb77 |
-| 模块Sum | h1:uYSI4GNiPPyKTPeQeVIm264uUfGDdWT9QsjUSXxXdTc= |
-| GoModSum | h1:Djn9bPZxLTXbJFSeyo0/qzEzQI+gUSSzttuzZM75GH8= |
-| 模块zip SHA-256 | d74619878b480cc8ce29e4c4d58d2e3c73ef75fa9a14ab09879574a292b4adc1 |
-
-[固定原文](https://github.com/MetaCubeX/chacha/blob/7b981d42c3baca5a004e7b0ecfb9b67ee20e583a/LICENSE)保留Copyright (c) 2016 Andreas Auernhammer及Copyright (c) 2025 MetaCubex。伪版本按committer时间2025-08-12T08:54:57Z由Go proxy解析。根与子目录MIT原文均保留，许可可依[GNU说明](https://www.gnu.org/licenses/license-list.html#Expat)与GPLv3组合。
-
-这两项许可材料变化通过应用模块显式间接要求选择，保留原replace与mihomo源码。2026-10-17核实的mihomo基线为v1.19.32、提交88dcbf7f1614a67c3b36b848ee3592dfa92ada36；当时完整模块图178→178，仅两版本变化。该快照供后续版本比较；产物另含版本相关buildinfo，需独立核查字节。
+Go模块中显式选择go-lzo与chacha的许可版本。更新后检查这两项要求、protobuf replace及工具链声明，再对照原生buildinfo中的实际选择。
 
 ## AndroidX WorkManager及传递依赖
 
-2026-10-18核对androidx.work:work-runtime:2.12.0，其[固定POM](https://dl.google.com/dl/android/maven2/androidx/work/work-runtime/2.12.0/work-runtime-2.12.0.pom)声明Apache-2.0，[版本资料](https://developer.android.com/jetpack/androidx/releases/work)中的minSdk24与接入要求相符。
+androidx.work:work-runtime的所选POM声明Apache-2.0。Room、SQLite、startup-runtime、tracing、concurrent-futures-ktx、lifecycle-service、collection、annotation-experimental及协程等依赖按本次`releaseRuntimeClasspath`选择收集。[Android通知](../../third_party/notices/android.txt)保存坐标、POM、运行归档、源码归档、SHA-256及许可原文。
 
-该次releaseRuntimeClasspath新增或升级Room的common／common-jvm／runtime／runtime-android 2.7.0，SQLite及android／framework／framework-android 2.5.0，startup-runtime 1.1.1，tracing／tracing-ktx 1.2.0，concurrent-futures-ktx 1.1.0，lifecycle-service 2.7.0，collection／collection-jvm由1.1.0到1.4.2，annotation-experimental由1.4.0到1.4.1，协程由1.7.1到1.9.0。所核查POM均Apache-2.0。
-
-对应坐标、POM、源码归档、SHA-256及许可原文见[Android通知](../../third_party/notices/android.txt)。原生WorkManager、Room和SQLite参与Android运行；R8处理后的分发内容由产物进一步确定。
+升级时检查[WorkManager版本资料](https://developer.android.com/jetpack/androidx/releases/work)的minSdk要求，再将APK内的法律资产与本次通知比较。在项目Android配置中核对当前minSdk。
 
 ## YAML编辑依赖与编辑器修改
 
-2026-10-19核对锁文件及官方归档：
+yaml与yaml_edit通过hosted声明接入，应用使用span／SourceEdit处理编辑。其版权和许可由Flutter构建流程合入`NOTICES.Z`，校验APK时与独立构建生成并解码的NOTICES逐字节比较。
 
-| 归档 | 许可／版权 | 归档SHA-256 | LICENSE SHA-256 |
-| --- | --- | --- | --- |
-| [yaml 3.1.4](https://pub.dev/api/archives/yaml-3.1.4.tar.gz) | MIT；2014 Dart project authors、2006 Kirill Simonov | f67cdd8e07d3c6329146aaef1ba043542b3134c12489f553ca9a7435d1068aea | d47b93335401b052d79a2f5a3710e4cf7b5aed782faedf84d40fbdd6eb934ec7 |
-| [yaml_edit 2.2.4](https://pub.dev/api/archives/yaml_edit-2.2.4.tar.gz) | BSD-3-Clause；2020 Dart project authors | 07c9e63ba42519745182b88ca12264a7ba2484d8239958778dfe4d44fe760488 | 021c41b9b081664f6ee181aaf4e03602c51591204dabe9ac8c8d736f0965b851 |
-
-yaml和yaml_edit通过hosted声明接入，应用使用公开API实现span／SourceEdit适配。版权及许可由Flutter构建流程合入NOTICES.Z，产物核对检查包名和原文。
-
-所核查re_editor官方0.10.0源码位于[third_party/sources/re_editor](../../third_party/sources/re_editor)，包含生命周期、提交前准入／IME和默认关闭的测试观测修改。MIT原文、官方归档SHA、补丁及上游PR #118关系见[PATCHES](../../third_party/sources/re_editor/PATCHES.md)与[LICENSE](../../third_party/sources/re_editor/LICENSE)。原LICENSE SHA-256为5d37eaa3f35293d2141f08ffeb897040380eeb25016a5a17f71200a56bf44767，应用法律页显示原许可，修改说明随源码保留。后续版本具备等价能力时复核hosted替换及维护成本，保持单编辑系统。
+re_editor的本地源码位于[third_party/sources/re_editor](../../third_party/sources/re_editor)。MIT原文、官方归档SHA-256、补丁及上游PR #118关系见[PATCHES](../../third_party/sources/re_editor/PATCHES.md)和[LICENSE](../../third_party/sources/re_editor/LICENSE)。该源码包含生命周期管理、编辑提交检查、IME处理及默认关闭的测试状态记录修改。升级时逐项核对补丁所用接口；改用hosted版本时，以编辑、IME和生命周期测试检查对应行为，并更新PATCHES及通知。
 
 ## Dart覆盖率开发依赖
 
-所核查coverage 1.16.0为hosted开发依赖，要求Dart ^3.9.0，供[采集工具](../../tool/coverage/flutter.dart)和测试配置调用公开API。固定[官方归档](https://pub.dev/api/archives/coverage-1.16.0.tar.gz)SHA-256为ff89e37c19355194e279d26dafe8e4bece46c9ea63a30be4dc68214f5bc290d3，BSD-3-Clause、Copyright 2014 the Dart project authors，LICENSE SHA-256为3c32b53167c7dae9190c38dab5dd9fe1789c53623ebc7d1babcb29914c5b3f16。
+coverage为hosted开发依赖，供[采集工具](../../tool/coverage/flutter.dart)和测试配置使用，采用BSD-3-Clause，Copyright 2014 the Dart project authors。实际版本及归档校验见[pubspec.lock](../../pubspec.lock)。
 
-该解析闭包中的args、async、cli_config、cli_util、collection、ffi、file、glob、logging、meta、package_config、path、source_maps、source_span、stack_trace、string_scanner、term_glyph、vm_service保留各自Dart project authors的BSD-3-Clause原文、年份和免责声明；yaml为独立MIT。具体版本及官方归档校验由锁文件确定。开发依赖与最终包内容分别核验，若分发工具／依赖则保留对应原许可。
+其传递依赖中的args、async、cli_config、cli_util、collection、ffi、file、glob、logging、meta、package_config、path、source_maps、source_span、stack_trace、string_scanner、term_glyph、vm_service保留各自Dart project authors的BSD-3-Clause原文、年份和免责声明；yaml采用MIT。分发采集工具或这些依赖时，一并提供所含材料的原始许可。
 
 ## Android覆盖率测试依赖
 
-[Gradle测试开关](../../android/app/build.gradle.kts)所核查JaCoCo为0.8.14。agent／core／report／ant JAR保留Mountainminds GmbH & Co. KG的about.html、EPL-2.0；agent／ant随附ASM 9.9保留INRIA／France Telecom的BSD-3-Clause，report／ant的Google Code Prettify保留Mike Samuel et al的Apache-2.0。
+[Gradle测试配置](../../android/app/build.gradle.kts)启用JaCoCo。agent／core／report／ant JAR包含Mountainminds GmbH & Co. KG的about.html及EPL-2.0；agent／ant随附ASM包含INRIA／France Telecom的BSD-3-Clause，report／ant的Google Code Prettify包含Mike Samuel et al的Apache-2.0。版本和归档摘要从当次Gradle解析图取得。
 
-[JaCoCo运行时归档](https://repo.maven.apache.org/maven2/org/jacoco/org.jacoco.agent/0.8.14/org.jacoco.agent-0.8.14-runtime.jar)SHA-256为3fb76eea65f81bd9415202bab34b6571728841dff1ab8e6bbe81adc2e299face。其余归档按Maven坐标、解析图及摘要核对。EPL组件继续适用其原始条款；分发测试APK、工具或报告时，核查所含代码的版权、许可及源码义务。
-
-JNI source coverage使用所选NDK的compiler-rt profile runtime，只进入显式测试变体。正常release排除agent、插桩及profile runtime／sections，测试和报告口径见[覆盖率方法](../development/verification.md#覆盖率)。
+JNI source coverage使用所选NDK的compiler-rt profile runtime。分发测试APK、采集工具或报告时，收集实际包含的JaCoCo、ASM、Prettify及compiler-rt材料，并保留其版权、许可和源码取得方式。校验release APK时检查agent、插桩及profile runtime／sections的排除结果。运行与报告步骤见[覆盖率方法](../development/verification.md#覆盖率)。
 
 ## 公共数据资产
 
-数据资产分别适用其来源许可；具体字节由版本、来源及校验值共同标识。更新内核或数据时，复核相应材料和分发义务。
+| 资源 | 来源与许可 | 项目材料 |
+| --- | --- | --- |
+| CA | curl Mozilla CA Extract，MPL-2.0 | [release 资源记录](../../third_party/data/resources.json)、生成的 certificates/cacert.pem 与 NOTICE、[MPL 全文](../../third_party/data/certificates/MPL-2.0.txt) |
+| GeoIP.dat | V2Fly geoip，CC-BY-SA-4.0；DB-IP 输入采用 CC-BY-4.0 | [release 资源记录](../../third_party/data/resources.json)、[数据说明](../../third_party/data/geodata/README.md)、生成的归属通知 |
+| GeoSite.dat | V2Fly domain-list-community，MIT，Copyright (c) 2018-2019 V2Ray | 同上及`GeoSite-MIT.txt` |
+| Country.mmdb／ASN.mmdb | DB-IP Country Lite／ASN Lite，CC-BY-4.0，IP Geolocation by DB-IP | 同上及`CC-BY-4.0.txt` |
+| Public Suffix List | 可编辑列表采用MPL-2.0，x/net的Go实现采用随附BSD许可 | [PSL通知](../../third_party/notices/publicsuffix.txt)、[可编辑列表](../../third_party/data/publicsuffix/public_suffix_list.dat) |
 
-- **CA**：curl官方cacert-2026-09-25.pem，Mozilla数据时间2026-09-25T03:12:01Z，MPL-2.0。[原始PEM](../../android/app/src/main/assets/certificates/cacert-2026-09-25.pem)为188900字节，完整文件SHA-256为a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505；头部摘要属于上游生成元数据。[来源通知](../../third_party/data/certificates/NOTICE.txt)与[MPL原文](../../third_party/data/certificates/MPL-2.0.txt)随包保留，MPL原文SHA-256为3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04。运行信任策略见[Android接入](../architecture/android.md#证书与平台限制)。
-- **GeoIP.dat**：V2Fly geoip release 202610050438，源码fd96fbac6cffc06ab9a10d6ee8fad61afe9b771c，CC-BY-SA-4.0，保留DB-IP输入的CC-BY-4.0归属。
-- **GeoSite.dat**：domain-list-community release 20261018123756，源码6b0f8edc935ee0ad2cb386ac3efd451ee2380ac5，MIT，Copyright (c) 2018-2019 V2Ray。
-- **Country.mmdb／ASN.mmdb**：DB-IP Country Lite／ASN Lite 2026-10采用CC-BY-4.0，保留IP Geolocation by DB-IP归属。
+CA 按 release 记录中的带日期 URL 取得 PEM 及对应摘要，核对完整文件 SHA-256 和上游头部元数据。Geo 记录固定来源、版本／commit、处理步骤、存储与安装字节。五项 payload 在构建时生成至 `build/generated/bundled/assets/`；DB-IP 官方 gzip 分别使用 `dbip-country-lite.mmdb.gzip` 和 `dbip-asn-lite.mmdb.gzip`，安装时解压为 Country.mmdb 和 ASN.mmdb。
 
-四Geo的下载URL、原始／安装大小及SHA由[manifest](../../android/app/src/main/assets/geodata/manifest.json)记录；[数据说明](../../third_party/data/geodata/README.md)提供来源与处理关系，[NOTICE](../../third_party/data/geodata/NOTICE.txt)记录分发归属。DAT调整工作文件名，MMDB保持官方gzip并在安装时解压。数据、署名、修改说明及CC-BY-SA／MIT／CC-BY全文随分发提供；CC-BY-4.0文本取自SPDX license-list-data/v3.27.0。
+CC-BY-SA-4.0、GeoSite MIT、CC-BY-4.0 及 MPL-2.0 原文随材料分发。同次应用 release 准备同步资源记录、来源通知、署名、修改说明及 payload；普通构建只核验并消费固定输入。Android 证书使用方式见[证书与平台限制](../architecture/android.md#证书与平台限制)。
 
-x/net v0.35.0的publicsuffix/table.go记录PSL提交63cbc63d470d7b52c35266aa96c4c98c96ec499c（2023-08-03）。对应可编辑列表采用MPL-2.0，长度227027字节，SHA-256为4dd388d5006a37c0748f17e1088ecd05c821da88eff36963bcc36297d7dea96e；Go实现采用BSD。[PSL通知](../../third_party/notices/publicsuffix.txt)提供版本来源、许可头与源码取得方式，分发材料包含可编辑列表及MPL全文。
+## 生产构建的Go链接依赖检查
 
-## 生产标签的链接审计快照
+对armeabi-v7a、arm64-v8a、x86_64分别读取`libmihomo_bridge.so`的buildinfo，检查Android目标架构、`cmfa,with_gvisor` tags、模块Version／Sum及protobuf替换，并比较三个ABI的依赖图。构建使用`x509usefallbackroots=1`。
 
-2026-10-19核对的开发原生库记录如下：Android arm64-v8a／x86_64，Go go1.27.1，cmfa,with_gvisor及x509usefallbackroots=1。两ABI有121个dep项，Version／Sum／protobuf替换一致；完整解析图178项含根。两库SHA-256为297f18dbdabd62af3f9201796b12c171e402b3e313e7e6c08e736e0990d5f967和36f2a4ccdcf4e65a10ba2931a1cdbc9a15e5ead931eb1ab9d6037f17c1a8f1c5。
+下列模块的原文材料保存在[Go通知](../../third_party/notices/go.txt)：
 
-该次链接核对涉及以下模块，其许可材料已纳入Go通知：
-
-| 模块与审计版本 | 保留材料 |
+| 模块 | 保留材料 |
 | --- | --- |
-| github.com/fxamacker/cbor/v2 v2.9.0 | MIT |
-| github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 | Apache-2.0 |
-| github.com/google/pprof v0.0.0-20240727154555-813a5fbdbec8 | Apache-2.0、AUTHORS、svgpan BSD |
-| github.com/metacubex/gvisor v0.0.0-20260922041103-e2cbcd6e7400 | LICENSE内Apache-2.0／MIT／BSD、AUTHORS |
-| github.com/metacubex/jsonv2 v0.0.0-20260721082349-16b4998c8f89 | BSD-3-Clause、AUTHORS |
-| github.com/metacubex/tailscale v0.0.0-20260821153257-ff0ecd818181 | BSD-3-Clause、PATENTS、tempfork goupnp／oauth2 |
-| github.com/metacubex/tailscale-wireguard-go v0.0.0-20260725073821-e61ab99cede2 | MIT |
-| github.com/pires/go-proxyproto v0.8.0 | Apache-2.0 |
-| github.com/tailscale/peercred v0.0.0-20250107143737-35a0c7bd7edc | BSD-3-Clause、AUTHORS |
-| github.com/x448/float16 v0.8.4 | MIT |
-| go4.org/mem v0.0.0-20240501181205-ae6ca9944745 | Apache-2.0 |
-| golang.org/x/term v0.29.0 | BSD-3-Clause、PATENTS |
+| github.com/fxamacker/cbor/v2 | MIT |
+| github.com/golang/groupcache | Apache-2.0 |
+| github.com/google/pprof | Apache-2.0、AUTHORS、svgpan BSD |
+| github.com/metacubex/gvisor | LICENSE内Apache-2.0／MIT／BSD、AUTHORS |
+| github.com/metacubex/jsonv2 | BSD-3-Clause、AUTHORS |
+| github.com/metacubex/tailscale | BSD-3-Clause、PATENTS、tempfork goupnp／oauth2 |
+| github.com/metacubex/tailscale-wireguard-go | MIT |
+| github.com/pires/go-proxyproto | Apache-2.0 |
+| github.com/tailscale/peercred | BSD-3-Clause、AUTHORS |
+| github.com/x448/float16 | MIT |
+| go4.org/mem | Apache-2.0 |
+| golang.org/x/term | BSD-3-Clause、PATENTS |
 
-[Go通知](../../third_party/notices/go.txt)保存版权、许可、NOTICE、AUTHORS／PATENTS以及模块zip／Sum／GoModSum等来源记录。实际链接集合由ABI对应的buildinfo确定；MIT、BSD、Apache-2.0和附加专利条款按各原文与GPLv3组合，PSL数据独立适用MPL。
-
-[Android通知](../../third_party/notices/android.txt)记录所核对的55个Maven坐标、POM、源码归档及随附通知。kotlinx-coroutines-bom 1.9.0为POM元数据，listenablefuture 1.0的Apache-2.0声明来自guava-parent 26.0-android。2026-10-19对应Flutter引擎修订为deb287481e3ce9468f3434937ced4240a70539ca；当前版本以实际SDK和构建材料为准。Flutter／Dart通知与[Material Icons](../../third_party/notices/material-icons.txt)分别核对，所用字体归档采用CC BY 4.0并保留Google LLC署名和裁剪说明。
+核对APK内的Go通知、Android通知、Flutter NOTICES及[Material Icons通知](../../third_party/notices/material-icons.txt)。字体材料采用CC BY 4.0，包含Google LLC署名及裁剪说明。
 
 ## 内核与依赖升级复核
 
-[本地更新入口](../../tool/dependencies/update.py)与 GitHub Actions 复用同一套依赖解析和材料同步。常规 mihomo 正式版更新自动完成，其他 Go、Pub 与 Android 库由显式选择触发。应用版本按[完整交付的版本策略](../development/build-and-test.md#应用版本)确定，独立的内核维护更新默认递增补丁版本。
+[更新工具](../../tool/dependencies/update.py)提供 `--check` 和 `--apply`。前者查询 mihomo 正式 Release；后者准备同次应用 release 的工具链、mihomo／相关依赖、CA／Geo 及许可。可用 `--go-module`、`--pub` 和 `--android` 选择现有依赖，mihomo 目标来自官方正式 Release，不接受人工 tag。GitHub Actions 的触发与发布步骤见[Android 分发](../development/build-and-test.md#android-分发与-github-actions)。
 
-1. 以声明、锁文件及版本化 replace 确定更新范围；临时副本中的官方包管理器解析新版本。保留现有工具链、protobuf replace 和 go-lzo／chacha 显式许可要求。
-2. 按 Android 三个目标架构及生产 tags 的 Go 包解析集合收集模块，复用版本未变化的通知区块；变化模块读取固定模块缓存中的 LICENSE／COPYING、NOTICE、版权、AUTHORS／PATENTS 及必要来源声明。通知保存原文、SHA-256、模块 Sum／GoModSum 和归档摘要，mihomo 根许可与可编辑 PSL 列表同步维护。
-3. 相同许可字节复用既有依据；新许可文本使用固定版本 Google licenseclassifier 识别，并按当前 GPL-3.0-only 组合条件检查。go-lzo 的 GPLv2 正文连同 README 中明确的 GPL-2.0-or-later 声明保留。版权年份和许可文本变化进入自动处理；缺失原文先从固定上游提交补齐，授权缺失、实际冲突或未知许可报告具体材料与摘要，由 AI 按已有授权分析处理。
-4. Pub 更新由当前 SDK 的 resolvable 版本与 hosted 直接依赖选择驱动，保留 SDK／path 来源。Android 通知按实际 releaseRuntimeClasspath 更新，读取固定 Maven POM、运行归档、嵌套 JAR、sources.jar 与原始许可头；未变化坐标复用现有材料。
-5. 更新声明、锁文件与通知后按完整交付确定应用版本，在构建前写入 pubspec.yaml。测试与构建核实实际接口和平台兼容性，最终逐 ABI 核对 buildinfo、包内法律资产、独立 Flutter 许可预期及对应源码。实际技术失败由自动化诊断和 AI 维护处理，维护者参与凭据、授权与产品取舍。
+1. 用 `--check` 查看内核候选，再执行 `--apply --evidence /var/tmp/new-dependency-evidence` 准备 release 及核验输入。同次候选重试使用固定材料，不重复查询最新资源。应用版本使用[版本策略](../development/build-and-test.md#应用版本)，常规内核维护更新默认递增补丁版本。
+2. 检查官方兼容矩阵与 API24 约束、工具链选中／排除决定、protobuf replace 及 go-lzo／chacha 显式要求。Go 通知按三个 Android 目标架构和生产 tags 收集模块，保存 LICENSE／COPYING、NOTICE、版权、AUTHORS／PATENTS、模块 Sum、GoModSum 及原始 zip 摘要；mihomo 根许可和可编辑 PSL 列表一并更新。
+3. 对许可正文计算SHA-256，复用已有相同字节的识别结果；新增文本使用工具所选Google licenseclassifier识别。缺少原文时从该模块固定上游提交取得；遇到未知许可、缺少授权或组合冲突时，按报错给出的依赖、文件和摘要核对原文与授权条款，确定依赖选择后重新运行更新。
+4. Pub按当前SDK可解析的hosted版本更新，保留SDK／path来源。Android按本次`releaseRuntimeClasspath`更新POM、运行归档、嵌套JAR、sources.jar及许可头。检查声明、锁文件与通知中的选择一致。
+5. 构建通用版及三个分架构APK。用证据目录中的`go-modules.json`、`android-dependencies.txt`和独立构建生成并解码的`NOTICES`校验APK，分别检查各ABI的buildinfo，再准备对应源码、许可包及`SHA256SUMS`。
 
-独立核验输入由 `--apply --evidence`从 Go 解析、Gradle 依赖图及独立 Flutter 资产构建自动取得，来源独立于待检 APK。通用版与三个分架构 APK 各按实际 ABI 核验，共享覆盖实际版本、补丁和构建输入的对应源码包与许可材料；SHA256SUMS 覆盖全部分发资产。GitHub Release 的创建、上传与正式发布由 GitHub Actions 执行，入口及签名配置见[Android 分发](../development/build-and-test.md#android-分发与-github-actions)。原始许可与随附通知保持其来源身份。
-
-解析与归档的常用命令：
+常用解析命令：
 
 ```sh
 GOTOOLCHAIN=local go -C native/mihomo list -m -mod=readonly all
@@ -139,6 +109,129 @@ GOTOOLCHAIN=local go -C native/mihomo mod download -json '<module@version>'
 GOTOOLCHAIN=local go -C native/mihomo version -m '<libmihomo_bridge.so>'
 ```
 
-解析图用于比较版本选择，download JSON提供Version／Sum／GoModSum／Zip／Dir。归档比较先去除module@version根目录，再按相对路径核对文件集合及字节，并计算许可原文和zip的SHA-256。
+`download -json`输出中的Version、Sum、GoModSum、Zip和Dir用于定位原始材料。比较两份模块归档时，去除各自`module@version`目录前缀，再比较相对文件集合、字节和许可原文。APK的逐项核验步骤见[最终产物与许可](../development/verification.md#最终产物与许可)。
 
-最终逐 ABI 比较 buildinfo 和包内法律资产，decoded NOTICES 取独立的 Flutter 资产构建输入，实际数据及源码交付按[NOTICE](../../NOTICE.md#二进制分发与对应源码)和[产物方法](../development/verification.md#最终产物与许可)核对。
+### 当前工作树的对应源码归档
+
+在当前源码内容确定后，准备含`go-modules.json`、`android-dependencies.txt`、独立构建生成并解码的`NOTICES`的证据目录，以及下一节的固定资源源码清单和登记归档。将证据和输出放在仓库外，运行：
+
+```sh
+python3 -I -B tool/artifacts/package_sources.py \
+  --project /path/to/frozen-project \
+  --evidence /path/to/independent-evidence \
+  --resource-sources /path/to/resource-sources.json \
+  --output /var/tmp/new-sources.tar.gz
+```
+
+工具读取依赖解析结果、已安装工具链和依赖源码，并将应用当前文件写入`application.tar`。省略`--resource-sources`时从证据目录读取同名清单；省略`--commit`时打包当前工作树，包含Git跟踪文件与未忽略的新增文件，省略已删除文件。固定提交归档使用`--commit <commit>`，要求工作树干净。
+
+输出包包含：
+
+| 路径 | 内容与用途 |
+| --- | --- |
+| `application.tar` | 应用源码、补丁、生成输入、构建脚本、通知与许可 |
+| `dependencies/go/` | 所选Go模块原始zip |
+| `dependencies/pub/` | 已解析的hosted包源码 |
+| `dependencies/android/` | Maven sources.jar及POM |
+| `dependencies/data/` | 资源清单登记的固定来源归档 |
+| `build-inputs/source-tree.json` | baseCommit、workingTree、dirty、应用tar摘要及逐文件大小／SHA-256／可执行位 |
+| `build-inputs/version.json` | 应用版本、源码身份、Flutter与Go工具链 |
+| `build-inputs/bundled/` | 当次 generated payload、资源 manifest、法律资产及生成定义 |
+| `build-inputs/resources.json` | 同次 release 的工具链、依赖与固定资源记录 |
+| 其他 `build-inputs/` 文件 | 解析图、NOTICES、CA／Geo manifest 及资源来源清单 |
+| `README.txt` | 解包目录与构建入口 |
+
+归档包含公开合成测试证书、私钥和测试keystore；排除本机SDK配置、签名配置、凭据、构建输出、`.claude`和`.codegraph`。遇到私有签名容器时报出文件路径；将该文件移出分发输入后重新归档。归档期间源码发生变化时，确定源码内容后重跑并选择新的输出路径。
+
+核验时先比较分发包与`SHA256SUMS`，再比较`application.tar`与`source-tree.json`，逐文件对照本次源码。随后按解析图核对Go zip、Pub源码、Maven sources.jar／POM及资源归档，再比较APK buildinfo中的依赖与原始通知。
+
+### 准备资源来源记录并校验安装后的文件
+
+准备材料时以 `third_party/data/resources.json` 为固定输入，写回后核对 generated manifest 及 APK：
+
+- 五项资源均记录 `kind`、`version`、`sourceUrl`、`encoding`、`storedBytes`／`storedSha256` 和 `installedBytes`／`installedSha256`。CA 另有 `checksumUrl` 与 `certificateRoots`；V2Fly 另有 40 位 `sourceCommit` 和许可正文摘要，GeoIP 保留补充 `sourceInputs`；DB-IP 另有 `sourcePage`。
+- CA 的 APK 路径见 generated `certificates.json`；四项 Geo 的 `workName`、`asset`、署名、许可及修改说明见 generated `assets/geodata/manifest.json` 和配套法律文件。生成器从同一 release 记录取得版本及字节信息。
+- DAT 的存储正文与安装正文相同；DB-IP 保存官方 gzip，安装时解压。APK ZIP 压缩大小另计。
+- PSL 从实际所选 x/net 模块的 `publicsuffix/table.go` 读取 `git revision`；存在 `Replace` 时使用替换模块。核对通知中的模块版本、revision 及可编辑列表 SHA-256，并随包提供 MPL 全文。
+
+APK核验工具的`--xnet-source`填写上述有效x/net模块的原始zip。工具重新计算Go h1，读取编译表记录的提交，再比较来源通知和可编辑列表。
+
+#### 资源对应源码清单
+
+将`resource-sources.json`与它登记的所有归档放在同一目录。清单使用`format: clash-pseudo-resource-sources`、整数`version: 1`，`sources`数组分别包含一个`geoip`和一个`geosite`对象。
+
+| 字段 | 填写内容 |
+| --- | --- |
+| `kind` | `geoip`或`geosite` |
+| `sourceCommit` | 同次 release 资源记录中的 40 位小写十六进制提交 |
+| `sourceUrl` | GeoIP填写`https://github.com/v2fly/geoip/archive/<sourceCommit>.tar.gz`；GeoSite使用`domain-list-community`的对应固定提交URL |
+| `file` | 清单同目录内的普通文件名，例如`geoip-converter-<commit>.tar.gz` |
+| `bytes`／`sha256` | 该归档的实测正整数大小和64位小写SHA-256 |
+| `inputs` | 补充输入数组，每项填写独立的commit、URL、文件名、大小、摘要及非空`description` |
+| `processing` | 转换器、配置、补充输入与分发DAT之间的处理步骤 |
+
+GeoIP主对象记录转换器源码，至少提供一份官方release数据归档作为补充输入，并填写处理说明。转换器的`config.json`合并DB-IP Lite Country MMDB、内置private和test列表，官方构建从同一次数据合并结果生成DAT与CIDR文本。GeoSite主对象记录规则源码；规则输入已包含其中时可省略`inputs`和`processing`。文件名全局唯一，同一kind中的各commit互不重复。
+
+源码包将登记归档放在`dependencies/data/<kind>/<file>`，将原始清单放在`build-inputs/resource-sources.json`。GeoIP和GeoSite的许可原文分别位于`third_party/data/geodata/CC-BY-SA-4.0.txt`和`GeoSite-MIT.txt`；DB-IP归属及CC-BY-4.0原文一并提供。
+
+单独准备固定源码时，从同次 release 记录的 `resources` 复制 `geoip` 与 `geosite` 完整记录，以 kind 为键组成 `fixed-geo-specs.json`；保留 GeoIP 的 `sourceInputs`，逐项核对数据归档的 `sourceCommit` 和 `description`。运行：
+
+```sh
+python3 -I -B tool/dependencies/update.py \
+  --prepare-resource-sources /path/to/fixed-geo-specs.json \
+  --project /path/to/project \
+  --destination /var/tmp/new-fixed-source-materials
+```
+
+成功输出的`sources`指向`resource-sources.json`。再次使用同一目录时，工具核对已登记原件的大小、SHA-256和固定来源后复用。缺少GeoIP补充输入时，补齐该次数据来源记录后重跑。
+
+#### 交付准备与同一tag重新运行
+
+新交付依次准备资源、固定源码和许可材料，再更新应用输入。完整且无需更新的交付返回`unchanged`。
+
+已有tag但交付中断时，在GitHub Actions重新运行该版本的发布任务。准备步骤按以下顺序处理：
+
+1. 读取tag的应用版本与源码提交，下载已有资产和`SHA256SUMS`并核摘要。
+2. 从该版本的Actions归档补齐缺项。Release缺少校验文件时，先核归档源码的版本、提交和`workingTree=false`，再使用其校验文件。
+3. 从已校验的源码包读取`build-inputs/version.json`、`resources.json`、`certificates.json`、`geodata.json`及`resource-sources.json`，连同`build-inputs/bundled/`中的五项payload和登记资源归档，核对tag版本、提交、CA／Geo manifest、固定来源、大小和SHA-256。
+4. 恢复同次记录、payload及资源源码后构建缺失APK，保留已校验的资产，补齐对应源码、许可和校验文件，再由发布步骤上传并完成Release。
+
+出现来源缺失、身份或摘要不符时，按错误中的资产名检查该tag的Release与Actions材料，找回同次交付的源码包和校验文件后重跑。重复成员、路径穿越、链接或超限归档会在恢复时被拒绝。
+
+#### 本地act与候选材料
+
+本地候选使用当前应用版本、工作树和固定资源。先确定本次runner镜像、Docker daemon的Unix socket及runner容器可达的宿主IPv4；在同一Docker守护进程中运行容器，通过HTTP请求确认该地址可访问，再准备副本：
+
+```sh
+python3 -I -B tool/dependencies/release.py --prepare-act \
+  --project /path/to/frozen-project \
+  --output /var/tmp/new-act-materials \
+  --resource-sources /path/to/resource-sources.json \
+  --runner-image '<Debian系runner镜像:tag或digest>' \
+  --artifact-host '<runner容器可达的宿主IPv4>' \
+  --docker-host 'unix:///path/to/docker.sock' \
+  --act /path/to/act
+```
+
+输出目录须为仓库外新路径。准备结果包含`workspace/`源码副本、`origin.git`本地Git远程仓库、独立HOME和Docker配置、`control/`运行参数、`action-cache/`及`artifacts/`。固定资源位于副本的`.local/resource-inputs/resource-sources/`，逐文件输入摘要位于`.local/input.json`。
+
+在权限为0600的`control/secrets`中配置本次候选使用的四个签名变量：`CLASH_PSEUDO_ANDROID_KEYSTORE_BASE64`、`CLASH_PSEUDO_ANDROID_KEYSTORE_PASSWORD`、`CLASH_PSEUDO_ANDROID_KEY_ALIAS`、`CLASH_PSEUDO_ANDROID_KEY_PASSWORD`。从本次使用的签名配置取得这四个变量。`control/env`已设置`CLASH_LOCAL_EXECUTION=true`及分发签名要求。
+
+按`control/launch.json`中的独立环境依次运行`validate`、`dryrun`、`command`。以下命令执行validate；将最后的`validate`改为`dryrun`执行预演，再改为`command`运行job：
+
+```sh
+python3 -I - /var/tmp/new-act-materials/control/launch.json validate <<'PY'
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+launch = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+raise SystemExit(subprocess.run(launch[sys.argv[2]], cwd=launch["cwd"],
+                               env=launch["environment"]).returncode)
+PY
+```
+
+`validate`参数包含`--validate --dryrun`，`dryrun`包含`--dryrun`；`command`执行实际job。运行使用显式env／secret／var／input／event文件、action缓存、artifact路径及平台镜像映射。artifact服务绑定所填宿主IPv4的34567端口；job的daemon socket挂载设置为`-`，容器选项使用`restrict`，本地cache server关闭。
+
+本地workflow调用`release.py --local --output "$RUNNER_TEMP/clash-release"`，按锁文件解析依赖，构建并核验四个APK，生成当前工作树源码、许可包、`SHA256SUMS`和`release.json`。计划记录`local`、`workingTree`、输入摘要、证书摘要及各资产大小／SHA-256。到`artifacts/`取得上传材料，按其中校验文件核对下载结果；正式分发使用GitHub Actions发布任务。
