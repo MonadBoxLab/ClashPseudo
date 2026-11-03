@@ -1,9 +1,9 @@
 {
   "@@locale": "zh",
   "memoryTitle": "内存",
-  "memoryApplication": "应用 {value} MB",
+  "memoryApplication": "应用内存 {value} MB",
   "@memoryApplication": {"placeholders": {"value": {"type": "String"}}},
-  "memoryCore": "内核 {value} MB",
+  "memoryCore": "内核内存 {value} MB",
   "@memoryCore": {"placeholders": {"value": {"type": "String"}}},
   "lanProxyTitle": "局域网代理",
   "lanProxyNotice": "让同一局域网的设备通过本机的 HTTP 或 SOCKS5 代理访问网络。此服务可独立于 VPN 运行。",

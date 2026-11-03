@@ -16,7 +16,9 @@
 
 [MainActivity](../../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/MainActivity.kt)持有UI Engine，在Activity实际销毁时释放。[LogicEngineHost](../../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/logic/LogicEngineHost.kt)与UI共用默认进程的FlutterEngineGroup，按需创建唯一无UI业务Engine，运行带AOT入口标记的appBackgroundMain。该入口只进入[AppBootstrap](../../lib/src/platform/app_bootstrap.dart)：platform创建后台binding、AppRuntime和通道handler，先回报ready，再恢复已有core状态。logic不创建Flutter binding或MethodChannel，AppRuntime通过注入的AppPlatform、PlatformPort及CoreClient工作。
 
-[AppRuntimeService](../../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/logic/AppRuntimeService.kt)位于默认进程且不导出。系统先创建VpnService时，由它接收系统事件并调用同一LogicEngineHost；Service不自行选择配置或组合插件。运行输入、观察窗口或未退出任务仍被持有时，业务Engine继续运行。
+[AppRuntimeService](../../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/logic/AppRuntimeService.kt)位于默认进程且不导出。CoreService绑定它，将系统事件交给同一LogicEngineHost；Service不自行选择配置或组合插件。AppRuntimeService保持bound lifecycle，CoreService解除绑定后结束。运行输入、观察窗口或未退出任务仍被持有时，业务Engine继续运行。
+
+CoreService在绑定建立时同时启动自身，使用START_NOT_STICKY，随实际core process退出结束。`:core`未显示UI，started lifecycle通过现有binding为默认进程保留PREVIEW空闲计时的执行机会；双向binding本身不阻止cached freezer。可见PREVIEW进入后台时，CoreClient使用原Binder发送带processId的status请求；CoreService核对身份及READY／PREVIEW状态后再次调用startService，更新最近活动时间。重复不可见通知不改变空闲起点。
 
 [AppBridge](../../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/bridge/AppBridge.kt)连接UI与业务Engine。UI提交意图并读取业务snapshot，AppRuntime发起实际业务和统一内核请求。权限与SAF使用独立、单调递增的request-code范围，达到上界后拒绝分配；Activity Bundle只保存高watermark，旧返回结果不改变新请求。
 

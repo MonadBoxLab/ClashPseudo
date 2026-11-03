@@ -34,6 +34,8 @@ mihomo负责解析、协议、规则匹配、provider下载／解密／缓存、
 
 provider HTTP缺少或空path时沿公开GetPathByHash派生，显式path和Tailscale state-dir沿公开Resolve／IsSafePath处理。生产cmfa的公开IsSafePath允许home以外路径，实际访问受Android应用沙箱限制；用户确认的[清理范围](android.md#内核数据清理)仍限定于内核根内的具体文件。
 
+provider的path与内核cache、Geo数据库或协议身份路径重合时，多个上游组件可能按不同格式处理同一文件，导致文件替换或加载失败。为各类数据使用独立路径；file provider的原文也应避开公开PATHS返回的cache路径。
+
 ## Parse and apply
 
 每个core process只装载一个PREVIEW或RUNNING context。processId、generation、inputId、configId、revision、composition及purpose关联本次装载；RUNNING须提供有效generation和composition，分别记录VPN和局域网意图及实际状态。Engine一经尝试准备便不再用于第二次装载，解析失败、正常停止及完整重载均使用新进程，不在原mihomo全局状态中重新准备。

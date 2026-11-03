@@ -390,6 +390,44 @@ class ReleaseTest(unittest.TestCase):
             self.assertEqual(asset["sha256"], hashlib.sha256(asset["name"].encode()).hexdigest())
             self.assertEqual(asset["bytes"], len(asset["name"].encode()))
 
+    def test_apk_certificate_accepts_old_and_scheme_labels_but_requires_one_matching_signer(self):
+        certificate, other = "a" * 64, "b" * 64
+        old = f"Signer #1 certificate SHA-256 digest: {certificate}\n"
+        v2 = f"V2 Signer: certificate SHA-256 digest: {certificate.upper()}\n"
+        v3 = f"V3.1 Signer: certificate SHA-256 digest: {certificate}\n"
+        one = "Number of signers: 1\n"
+        cases = [
+            ("旧版单一签名者", one + old, True),
+            ("Build Tools 37 的 v2 输出", one + v2, True),
+            ("多个 scheme 使用同一证书", one + v2 + v3, True),
+            ("证书不同", one + v2.replace(certificate.upper(), other), False),
+            ("scheme 证书不同", one + v2 + v3.replace(certificate, other), False),
+            ("多个签名者", "Number of signers: 2\n" + old + old.replace("#1", "#2"), False),
+            ("没有签名者数量", old, False),
+            ("重复签名者数量", one + one + old, False),
+            ("只有 SourceStamp", one + old.replace("Signer #1", "Source Stamp Signer"), False),
+            ("只有 public key 摘要", one + old.replace("certificate", "public key"), False),
+            ("摘要长度错误", one + old.replace(certificate, certificate[:-1]), False),
+        ]
+        updater = mock.Mock(root=self.root)
+        badging = ("package: name='io.github.monadboxlab.clashpseudo' "
+                   "versionCode='2' versionName='1.1.0'\n")
+        for index, (label, signatures, accepted) in enumerate(cases):
+            with self.subTest(scene=label), \
+                    mock.patch.object(release, "xnet_source", return_value=self.root / "xnet.zip"), \
+                    mock.patch.object(release, "sdk_tools", return_value=self.root), \
+                    mock.patch.object(release.update, "run", side_effect=[badging, "", signatures]), \
+                    mock.patch.object(release.update.artifacts, "verify") as contents:
+                arguments = (updater, self.root / "app.apk", self.root, self.root / f"verified-{index}",
+                             self.version, certificate, ())
+                if accepted:
+                    self.assertEqual(release.verify_apk(*arguments), {})
+                    contents.assert_called_once()
+                else:
+                    with self.assertRaisesRegex(ValueError, "APK 分发签名证书不同"):
+                        release.verify_apk(*arguments)
+                    contents.assert_not_called()
+
     def test_four_packages_build_without_implicit_functional_tests(self):
         preparation = self.preparation()
         preparation.updater.evidence = mock.Mock()
@@ -1318,12 +1356,13 @@ class PublicSuffixReleaseTest(unittest.TestCase):
 
     def test_apk_verifier_receives_original_zip_and_keeps_psl_verification_failure(self):
         failure = ValueError("synthetic x/net h1 or PSL revision failure")
+        certificate = "a" * 64
         def run(command, cwd):
             tool = Path(command[0]).name
             if tool == "aapt":
                 return "package: name='io.github.monadboxlab.clashpseudo' versionCode='4' versionName='0.2.0'"
             if tool == "apksigner":
-                return "Signer #1 certificate SHA-256 digest: abcdef"
+                return "Number of signers: 1\n" + f"Signer #1 certificate SHA-256 digest: {certificate}\n"
             self.assertEqual(tool, "zipalign")
             return ""
         with mock.patch.object(release.update.artifacts, "go_modules", return_value=self.modules), \
@@ -1332,7 +1371,7 @@ class PublicSuffixReleaseTest(unittest.TestCase):
                 mock.patch.object(release.update.artifacts, "verify", side_effect=failure) as verify, \
                 self.assertRaises(ValueError) as error:
             release.verify_apk(self.updater, self.root / "synthetic.apk", self.evidence,
-                               self.root / "verification", "0.2.0+4", "abcdef", ("arm64-v8a",))
+                               self.root / "verification", "0.2.0+4", certificate, ("arm64-v8a",))
         self.assertIs(error.exception, failure)
         verify.assert_called_once()
         inputs = verify.call_args.args[0]

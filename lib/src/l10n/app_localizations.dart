@@ -107,13 +107,13 @@ abstract class AppLocalizations {
   /// No description provided for @memoryApplication.
   ///
   /// In en, this message translates to:
-  /// **'App {value} MB'**
+  /// **'App memory {value} MB'**
   String memoryApplication(String value);
 
   /// No description provided for @memoryCore.
   ///
   /// In en, this message translates to:
-  /// **'Core {value} MB'**
+  /// **'Core memory {value} MB'**
   String memoryCore(String value);
 
   /// No description provided for @lanProxyTitle.

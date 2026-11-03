@@ -14,12 +14,12 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String memoryApplication(String value) {
-    return '应用 $value MB';
+    return '应用内存 $value MB';
   }
 
   @override
   String memoryCore(String value) {
-    return '内核 $value MB';
+    return '内核内存 $value MB';
   }
 
   @override

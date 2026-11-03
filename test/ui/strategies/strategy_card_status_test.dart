@@ -91,84 +91,97 @@ void main() {
     for (final dark in [false, true]) {
       for (final width in [280.0, 360.0, 700.0]) {
         for (final scale in [1.0, 2.0]) {
-          testWidgets(
-            'card status keeps names, pin and geometry stable $locale $dark $width $scale',
-            (tester) async {
-              tester.view.physicalSize = Size(width, 1000);
-              tester.view.devicePixelRatio = 1;
-              addTearDown(tester.view.resetPhysicalSize);
-              addTearDown(tester.view.resetDevicePixelRatio);
-              final bridge = StrategyBridgeFake()
-                ..data = strategyData(currentIdentity: 'source');
-              final app = StrategyAppFake(bridge);
-              final controller = StrategyController(app);
-              await tester.pumpWidget(
-                MaterialApp(
-                  locale: Locale(locale),
-                  localizationsDelegates:
-                      AppLocalizations.localizationsDelegates,
-                  supportedLocales: AppLocalizations.supportedLocales,
-                  theme: ThemeData(
-                    brightness: dark ? Brightness.dark : Brightness.light,
+          for (final member in ['A', '测试🌐']) {
+            testWidgets(
+              '策略卡片当前成员与 delay 状态保持几何稳定 $locale $dark $width $scale $member',
+              (tester) async {
+                tester.view.physicalSize = Size(width, 1000);
+                tester.view.devicePixelRatio = 1;
+                addTearDown(tester.view.resetPhysicalSize);
+                addTearDown(tester.view.resetDevicePixelRatio);
+                final bridge = StrategyBridgeFake()
+                  ..data = strategyData(now: member, currentIdentity: 'source');
+                final app = StrategyAppFake(bridge);
+                final controller = StrategyController(app);
+                await tester.pumpWidget(
+                  MaterialApp(
+                    locale: Locale(locale),
+                    localizationsDelegates:
+                        AppLocalizations.localizationsDelegates,
+                    supportedLocales: AppLocalizations.supportedLocales,
+                    theme: ThemeData(
+                      brightness: dark ? Brightness.dark : Brightness.light,
+                    ),
+                    builder: (context, child) => MediaQuery(
+                      data: MediaQuery.of(context)
+                          .copyWith(textScaler: TextScaler.linear(scale)),
+                      child: child!,
+                    ),
+                    home: StrategiesPage(controller: controller, active: true),
                   ),
-                  builder: (context, child) => MediaQuery(
-                    data: MediaQuery.of(context)
-                        .copyWith(textScaler: TextScaler.linear(scale)),
-                    child: child!,
+                );
+                await tester.pump();
+                await tester.pump();
+                await tester.idle();
+                expect(controller.loading, isFalse);
+                expect(controller.data, same(bridge.data));
+                // 等初次加载的 header 动画结束，再记录卡片几何。
+                await tester.pumpAndSettle();
+                expect(tester.binding.transientCallbackCount, 0);
+                expect(tester.takeException(), isNull);
+                final current = find.byKey(
+                  const ValueKey('strategy-current-出口'),
+                );
+                expect(tester.widget<Text>(current).data, member);
+                final keys = [
+                  'strategy-card-出口',
+                  'strategy-name-出口',
+                  'strategy-current-出口',
+                  'strategy-status-出口',
+                  'strategy-pin-出口',
+                ];
+                final rectangles = {
+                  for (final key in keys)
+                    key: tester.getRect(find.byKey(ValueKey(key))),
+                };
+                expect(
+                  rectangles['strategy-card-出口']!.contains(
+                    rectangles['strategy-current-出口']!.bottomRight,
                   ),
-                  home: StrategiesPage(controller: controller, active: true),
-                ),
-              );
-              await tester.pump();
-              await tester.pump();
-              await tester.idle();
-              expect(controller.loading, isFalse);
-              expect(controller.data, same(bridge.data));
-              // Finish the initial loading header before sampling status geometry.
-              await tester.pumpAndSettle();
-              expect(tester.binding.transientCallbackCount, 0);
-              final keys = [
-                'strategy-card-出口',
-                'strategy-name-出口',
-                'strategy-current-出口',
-                'strategy-status-出口',
-                'strategy-pin-出口',
-              ];
-              final rectangles = {
-                for (final key in keys)
-                  key: tester.getRect(find.byKey(ValueKey(key))),
-              };
-              for (final status in DelayMemberStatus.values) {
-                controller.rememberDelay('出口', previewCore, {
-                  'A': DelayMemberResult(
-                    name: 'A',
-                    identity: 'source',
-                    status: status,
-                    delay: status == DelayMemberStatus.success ? 0 : null,
-                  ),
-                });
-                for (final milliseconds in [0, 16, 100, 200]) {
-                  await tester.pump(Duration(milliseconds: milliseconds));
-                  for (final key in keys) {
-                    expect(
-                      tester.getRect(find.byKey(ValueKey(key))),
-                      rectangles[key],
-                      reason: '$status $key',
-                    );
+                  isTrue,
+                );
+                for (final status in DelayMemberStatus.values) {
+                  controller.rememberDelay('出口', previewCore, {
+                    member: DelayMemberResult(
+                      name: member,
+                      identity: 'source',
+                      status: status,
+                      delay: status == DelayMemberStatus.success ? 0 : null,
+                    ),
+                  });
+                  for (final milliseconds in [0, 16, 100, 200]) {
+                    await tester.pump(Duration(milliseconds: milliseconds));
+                    for (final key in keys) {
+                      expect(
+                        tester.getRect(find.byKey(ValueKey(key))),
+                        rectangles[key],
+                        reason: '$status $key',
+                      );
+                    }
+                    expect(tester.takeException(), isNull);
                   }
-                  expect(tester.takeException(), isNull);
+                  if (status == DelayMemberStatus.success) {
+                    expect(find.text('0 ms'), findsOneWidget);
+                  }
                 }
-                if (status == DelayMemberStatus.success) {
-                  expect(find.text('0 ms'), findsOneWidget);
-                }
-              }
-              expect(bridge.delayStarts, isEmpty);
-              expect(app.commands, isEmpty);
-              await tester.pumpWidget(const SizedBox());
-              controller.dispose();
-              app.dispose();
-            },
-          );
+                expect(bridge.delayStarts, isEmpty);
+                expect(app.commands, isEmpty);
+                await tester.pumpWidget(const SizedBox());
+                controller.dispose();
+                app.dispose();
+              },
+            );
+          }
         }
       }
     }

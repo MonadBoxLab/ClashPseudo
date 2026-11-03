@@ -256,21 +256,25 @@ class _TrafficPanelState extends State<TrafficPanel>
               final coreMemory = strings.memoryCore(
                 megabytes(_traffic.coreRssBytes),
               );
-              final memoryText = _traffic.coreMemoryRunning
-                  ? '$appMemory · $coreMemory'
-                  : appMemory;
-              final memoryWidth = measure(
-                '${strings.memoryApplication('99999.9')} · ${strings.memoryCore('99999.9')}',
-              ).width;
+              final appMemorySize = measure(
+                strings.memoryApplication('99999.9'),
+              );
+              final coreMemorySize = measure(strings.memoryCore('99999.9'));
+              final memoryWidth = math.max(
+                appMemorySize.width,
+                coreMemorySize.width,
+              );
               final stackedFooter =
                   stacked ||
-                  widget.width < countWidth + columnGap + memoryWidth;
+                  (widget.width - columnGap) / 2 <
+                      math.max(countWidth, memoryWidth);
               Widget summaryText(String text, Key key) => SingleChildScrollView(
                 key: key,
                 scrollDirection: Axis.horizontal,
                 child: Text(
                   text,
                   softWrap: false,
+                  maxLines: 1,
                   strutStyle: strut,
                   style: style,
                 ),
@@ -287,22 +291,23 @@ class _TrafficPanelState extends State<TrafficPanel>
                 child: ColoredBox(
                   color: Colors.transparent,
                   key: const ValueKey('traffic-memory'),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(strings.memoryTitle, style: style),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Text(
-                          memoryText,
-                          softWrap: false,
-                          maxLines: 1,
-                          strutStyle: strut,
-                          style: style,
+                  child: SizedBox(
+                    height: appMemorySize.height + coreMemorySize.height,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        summaryText(
+                          appMemory,
+                          const ValueKey('traffic-memory-app'),
                         ),
-                      ),
-                    ],
+                        if (_traffic.coreMemoryRunning)
+                          summaryText(
+                            coreMemory,
+                            const ValueKey('traffic-memory-core'),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
               );

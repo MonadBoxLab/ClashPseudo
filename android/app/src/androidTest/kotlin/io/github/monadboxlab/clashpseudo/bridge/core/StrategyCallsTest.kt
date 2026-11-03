@@ -625,8 +625,16 @@ class StrategyCallsTest {
         const val ORIGINAL = "https://user:pass@fixture.test/?token=原文🙂\nAuthorization: Bearer fixture"
     }
 
+    @Suppress("DEPRECATION")
     @Test fun idlePreviewKeepsItsRealLeaseWhileVisibleOrBusyAndReleasesItAfterActualProcessDeath() {
         val platform = io.github.monadboxlab.clashpseudo.nativecore.CorePlatformTestDriver()
+        val manager = platform.context.getSystemService(android.app.ActivityManager::class.java)
+        val coreService = android.content.ComponentName(platform.context,
+            io.github.monadboxlab.clashpseudo.nativecore.CoreService::class.java)
+        val runtimeService = android.content.ComponentName(platform.context,
+            io.github.monadboxlab.clashpseudo.logic.AppRuntimeService::class.java)
+        fun started(service: android.content.ComponentName): Boolean? = manager.getRunningServices(Int.MAX_VALUE)
+            .firstOrNull { it.service == service }?.started
         val client = io.github.monadboxlab.clashpseudo.nativecore.CoreClient.get(platform.context)
         val state = client.javaClass.getDeclaredField("state").apply { isAccessible = true }.get(client) as android.os.Handler
         val visible = client.javaClass.getDeclaredField("visible").apply { isAccessible = true }
@@ -652,20 +660,66 @@ class StrategyCallsTest {
         try {
             success(platform.prepare(io.github.monadboxlab.clashpseudo.nativecore.input.CoreInput(
                 "fixture", 1, null, CoreBridgeIpcScenario.STRATEGIES.toByteArray(Charsets.UTF_8), "{}".toByteArray(), name = "fixture"), vpn = false))
+            platform.await("CoreService 已 started，AppRuntimeService 保持 bound lifecycle") {
+                started(coreService) == true && started(runtimeService) == false
+            }
             val captured = platform.status()["processId"]
+            assertTrue(platform.context.stopService(android.content.Intent().setComponent(coreService)))
+            platform.await("仍有 binding 的 CoreService 已结束 started lifecycle") { started(coreService) == false }
+            client.view.setVisible(false)
+            platform.await("进入后台时在原 core process 恢复 started lifecycle") { started(coreService) == true }
+            assertEquals(captured, platform.status()["processId"])
+            val duplicateAt = android.os.SystemClock.elapsedRealtime() - 1
+            onState { hiddenAt.setLong(client, duplicateAt) }
+            client.view.setVisible(false)
+            onState { assertEquals("重复不可见通知保持原空闲起点", duplicateAt, hiddenAt.getLong(client)) }
+            client.view.setVisible(true)
             onState { idle.run() }
             assertEquals(captured, platform.status()["processId"])
             assertEquals(Contract.CORE_PHASE_READY, platform.status()["phase"])
             assertNull(io.github.monadboxlab.clashpseudo.nativecore.CoreResourceGate.forApplication(platform.context).tryAcquire())
-            onState { visible.setBoolean(client, false); busy.setBoolean(client, true); idle.run() }
+            onState {
+                visible.setBoolean(client, false)
+                busy.setBoolean(client, true)
+                hiddenAt.setLong(client, android.os.SystemClock.elapsedRealtime() - 30_001)
+                idle.run()
+            }
             assertEquals(Contract.CORE_PHASE_READY, platform.status()["phase"])
             assertNull(io.github.monadboxlab.clashpseudo.nativecore.CoreResourceGate.forApplication(platform.context).tryAcquire())
+            io.github.monadboxlab.clashpseudo.nativecore.CoreIpcTestDriver.onMain { }
             onState {
+                visible.setBoolean(client, true)
                 busy.setBoolean(client, false)
+                hiddenAt.setLong(client, android.os.SystemClock.elapsedRealtime() - 30_001)
+            }
+            val readAt = android.os.SystemClock.elapsedRealtime()
+            success(platform.query(Contract.CORE_OPERATION_SNAPSHOT))
+            platform.await("非 LOGS 调用实际结束并更新空闲起点") {
+                var finished = false
+                onState { finished = !client.requestBusy && hiddenAt.getLong(client) >= readAt }
+                finished
+            }
+            io.github.monadboxlab.clashpseudo.nativecore.CoreIpcTestDriver.onMain { }
+            onState {
+                assertTrue("非 LOGS 调用实际结束后重新计时", hiddenAt.getLong(client) >= readAt)
+                visible.setBoolean(client, false)
+                busy.setBoolean(client, true)
+                hiddenAt.setLong(client, android.os.SystemClock.elapsedRealtime() - 30_001)
+            }
+            val idleAt = android.os.SystemClock.elapsedRealtime()
+            client.view.setOperationBusy(false)
+            onState {
+                assertTrue("业务操作结束后重新计时", hiddenAt.getLong(client) >= idleAt)
+                assertEquals(Contract.CORE_PHASE_READY, client.status()["phase"])
+                assertNull(io.github.monadboxlab.clashpseudo.nativecore.CoreResourceGate.forApplication(platform.context).tryAcquire())
                 hiddenAt.setLong(client, android.os.SystemClock.elapsedRealtime() - 30_001)
                 schedule.invoke(client)
             }
             platform.await("idle PREVIEW 的真实进程退出") { client.status()["phase"] == Contract.CORE_PHASE_EXITED }
+            assertEquals("previewExpired", client.lifecycle.snapshot().exitReason)
+            platform.await("core 退出后 CoreService 与 AppRuntimeService 已结束") {
+                started(coreService) == null && started(runtimeService) == null
+            }
             assertEquals(captured, platform.status()["processId"])
             assertEquals(false, platform.status()["vpnRunning"])
             val released = io.github.monadboxlab.clashpseudo.nativecore.CoreResourceGate.forApplication(platform.context).tryAcquire()

@@ -748,7 +748,8 @@ class CoreClient private constructor(private val context: Context) {
 
     private fun retireIfDrained(call: Call) {
         if (!call.drained) return
-        calls.remove(call.processId to call.id, call)
+        if (calls.remove(call.processId to call.id, call) && call.operation != Contract.CORE_OPERATION_LOGS)
+            hiddenAt = SystemClock.elapsedRealtime()
         completeExitWhenDrained(call.processId)
         main.post { changed(false) }
         schedulePreviewIdle()
@@ -834,8 +835,27 @@ class CoreClient private constructor(private val context: Context) {
                 value[Contract.CORE_FIELD_PROCESS_ID] as? String, value[Contract.CORE_FIELD_INPUT_ID] as? String)
         }
         fun current(generation: Long) = snapshot().let { it.generation == generation && it.phase == CoreHost.Phase.READY }
-        fun setVisible(value: Boolean) { state.post { visible = value; if (!value) hiddenAt = SystemClock.elapsedRealtime(); schedulePreviewIdle() } }
-        fun setOperationBusy(value: Boolean) { state.post { operationBusy = value; schedulePreviewIdle() } }
+        fun setVisible(value: Boolean) { state.post {
+            if (visible && !value) {
+                hiddenAt = SystemClock.elapsedRealtime()
+                val current = connection
+                if (current != null && statusValue[Contract.CORE_FIELD_PHASE] == Contract.CORE_PHASE_READY &&
+                    statusValue["purpose"] == Contract.CORE_PURPOSE_PREVIEW) {
+                    try {
+                        acceptStatus(current, current.remote.status(identity(current.processId).apply {
+                            putBoolean(CoreService.PREVIEW_BACKGROUND, true)
+                        }))
+                    } catch (error: Throwable) { communicationLost(current.binding, error) }
+                }
+            }
+            visible = value
+            schedulePreviewIdle()
+        } }
+        fun setOperationBusy(value: Boolean) { state.post {
+            if (operationBusy && !value) hiddenAt = SystemClock.elapsedRealtime()
+            operationBusy = value
+            schedulePreviewIdle()
+        } }
         fun applicationAccess(generation: Long): Map<String, Any?>? =
             if (current(generation)) statusValue["applicationAccess"] as? Map<String, Any?> else null
         fun logSource(): CoreHost.Snapshot? = null

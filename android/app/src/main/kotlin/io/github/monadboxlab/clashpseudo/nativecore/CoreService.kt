@@ -72,12 +72,18 @@ class CoreService : Service() {
         }
         override fun status(identity: Bundle): Bundle {
             CoreControl.sameUid(); CoreControl.identity(identity, host.processId)
+            val source = host.status()
+            if (identity.getBoolean(PREVIEW_BACKGROUND) &&
+                source.getString("purpose") == Contract.CORE_PURPOSE_PREVIEW &&
+                source.getString(Contract.CORE_FIELD_PHASE) == Contract.CORE_PHASE_READY) {
+                startService(Intent(this@CoreService, CoreService::class.java))
+            }
             identity.getString("language")?.let { language ->
                 if (AppStrings.applyLanguage(this@CoreService, language)) main.post {
                     refreshNotification(); io.github.monadboxlab.clashpseudo.vpn.PseudoVpnService.instance?.refreshNotification()
                 }
             }
-            return stateForBinder(host.status()).also { state ->
+            return stateForBinder(source).also { state ->
                 (state.getParcelable("details") as? android.os.ParcelFileDescriptor)?.let { returnDocuments.get()?.add(it) }
             }
         }
@@ -111,7 +117,11 @@ class CoreService : Service() {
         runtimeBound = bindService(Intent(this, AppRuntimeService::class.java), runtimeConnection, Context.BIND_AUTO_CREATE)
     }
 
-    override fun onBind(intent: Intent?): IBinder = binder
+    override fun onBind(intent: Intent?): IBinder {
+        // :core 的 started lifecycle 通过现有 binding 保持 PREVIEW 空闲计时的执行机会。
+        startService(Intent(this, CoreService::class.java))
+        return binder
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_LAN_FOREGROUND) { lanForeground = true; showLanNotification() }
@@ -215,6 +225,7 @@ class CoreService : Service() {
 
     companion object {
         const val ACTION_LAN_FOREGROUND = "io.github.monadboxlab.clashpseudo.LAN_FOREGROUND"
+        internal const val PREVIEW_BACKGROUND = "previewBackground"
         private const val CHANNEL = "lan-proxy"
         private const val NOTIFICATION = 4
         @Volatile private var retainedHost: CoreHost? = null

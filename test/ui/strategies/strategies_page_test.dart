@@ -774,6 +774,8 @@ void main() {
         'storageEpoch': 2,
         'id': 'one',
         'revision': 1,
+        'processId': previewCore.processId,
+        'inputId': previewCore.inputId,
         'generation': 7,
         'composition': '["one",1]',
         'name': '出口',

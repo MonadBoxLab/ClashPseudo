@@ -387,6 +387,7 @@ class DelayCallsTest {
     ) {
         val platform = CorePlatformTestDriver()
         val client = CoreClient.get(platform.context)
+        val calls = CoreClient::class.java.getDeclaredField("calls").apply { isAccessible = true }.get(client) as Map<*, *>
         var visibility: Closeable? = null
         var probe: HeldHttpProbe? = null
         var gate: DelayChannelGate? = null
@@ -538,7 +539,7 @@ class DelayCallsTest {
                 assertEquals(1, channel.cancellations.get())
                 assertEquals(1, first.replies.get())
                 assertEquals(1, retry.replies.get())
-                assertFalse(client.requestBusy)
+                assertFalse("原 URL_TEST 的实际调用与 FD 已从请求表移除", calls.containsKey(url.processId to url.requestId))
                 visibilityRead(host, "delayCancel", mapOf("batch" to retryId)).value.get(2, TimeUnit.SECONDS)
                 CoreIpcTestDriver.onMain { AppBridge.setUiVisible(current, true) }
                 flushVisibility()
@@ -636,7 +637,7 @@ class DelayCallsTest {
                 val key = (call.argument<String>("processId").orEmpty() to (call.argument<Number>("requestId")?.toLong() ?: 0L))
                 val cancelling = if (call.method == Contract.CORE_CHANNEL_CANCEL) admissions[key] else null
                 if (cancelling != null) cancellations.incrementAndGet()
-                handler.onMessage(message) { response ->
+                handler.onMessage(message) observe@{ response ->
                     val copy = response?.let { original -> ByteBuffer.allocateDirect(original.position()).apply {
                         put(original.duplicate().apply { flip() })
                     } }
@@ -666,11 +667,14 @@ class DelayCallsTest {
                         }
                         if (cancelling != null) cancelReply.complete(cancelling to JSONObject(checkNotNull(value)))
                     } catch (error: Throwable) {
+                        // 未受此 gate 管理的读取仍向原调用方交付，包括 core 退出时的 LOGS。
+                        if (call.method == Contract.CORE_CHANNEL_READ && !admissions.containsKey(key)) return@observe
                         val observed = if (error is io.flutter.plugin.common.FlutterException) {
                             AssertionError(JSONObject()
                                 .put("method", call.method)
                                 .put("processId", key.first)
                                 .put("requestId", key.second)
+                                .put("admission", admissions[key]?.let { JSONObject(it.arguments) } ?: JSONObject.NULL)
                                 .put("code", error.code)
                                 .put("message", error.message)
                                 .put("details", JSONObject.wrap(error.details))

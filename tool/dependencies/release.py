@@ -247,8 +247,11 @@ def verify_apk(updater, apk, evidence, output, version, certificate, abis):
     update.require("application-debuggable" not in badging, "分发 APK 是 debuggable 构建")
     update.run([tools / "zipalign", "-c", "-P", "16", "4", apk], updater.root)
     signatures = update.run([tools / "apksigner", "verify", "--verbose", "--print-certs", apk], updater.root)
-    actual = re.findall(r"Signer #[0-9]+ certificate SHA-256 digest: ([a-fA-F0-9]+)", signatures)
-    update.require(len(actual) == 1 and actual[0].lower() == certificate, "APK 分发签名证书不同")
+    signers = re.findall(r"^Number of signers: ([0-9]+)$", signatures, re.M)
+    actual = {value.lower() for value in re.findall(
+        r"^(?:Signer #[0-9]+|V[0-9]+(?:\.[0-9]+)? Signer:) certificate SHA-256 digest: ([a-fA-F0-9]{64})$",
+        signatures, re.M)}
+    update.require(signers == ["1"] and actual == {certificate}, "APK 分发签名证书不同")
     output.parent.mkdir(parents=True, exist_ok=True)
     output.mkdir()
     update.artifacts.verify(argparse.Namespace(

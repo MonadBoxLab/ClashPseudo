@@ -341,6 +341,8 @@ class StrategyController extends ChangeNotifier {
       'storageEpoch': epoch,
       'id': actual.configId,
       'revision': actual.revision,
+      'processId': actual.processId,
+      'inputId': actual.inputId,
       'generation': actual.generation,
       'composition': actual.composition,
       'name': name,

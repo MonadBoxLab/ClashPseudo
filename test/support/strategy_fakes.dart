@@ -45,6 +45,8 @@ StrategySnapshot strategyData({
   TunnelMode? mode = TunnelMode.rule,
 }) => StrategySnapshot(
   generation: core.generation,
+  processId: core.processId,
+  inputId: core.inputId,
   configId: core.configId!,
   revision: core.revision!,
   purpose: core.purpose!,

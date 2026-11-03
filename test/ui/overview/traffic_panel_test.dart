@@ -9,6 +9,7 @@ import 'package:clash_pseudo/src/ui/overview/widgets/traffic_panel.dart';
 import 'package:clash_pseudo/src/l10n/app_localizations.dart';
 import 'package:clash_pseudo/src/model/app_snapshot.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'traffic_fakes.dart';
@@ -76,6 +77,144 @@ void main() {
     }
   });
 
+  for (final language in ['en', 'zh']) {
+    for (final scale in [1.0, 2.0]) {
+      testWidgets('内存首行对齐连接，预览内存另起一行 $language $scale', (tester) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(1000, 1800);
+        addTearDown(tester.view.reset);
+        final app = TrafficApp(PanelBridge())
+          ..state = const AppSnapshot(phase: 'STOPPED');
+        final traffic = TrafficController(app)..setVisible(true);
+        Widget host(double width) => MaterialApp(
+          locale: Locale(language),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: TextScaler.linear(scale)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: SizedBox(
+                width: width,
+                child: TrafficPanel(
+                  traffic: traffic,
+                  visible: true,
+                  width: width,
+                  onOpen: () {},
+                ),
+              ),
+            ),
+          ),
+        );
+        Finder textIn(String key) => find.descendant(
+          of: find.byKey(ValueKey(key)),
+          matching: find.byType(Text),
+        );
+        double baseline(Finder finder) {
+          final paragraph = tester.renderObject<RenderParagraph>(finder);
+          return tester.getTopLeft(finder).dy +
+              paragraph.getDryBaseline(
+                paragraph.constraints,
+                TextBaseline.alphabetic,
+              )!;
+        }
+
+        try {
+          await tester.pumpWidget(host(1000));
+          await tester.pump();
+          final strings = AppLocalizations.of(
+            tester.element(find.byType(TrafficPanel)),
+          );
+          final appText = textIn('traffic-memory-app');
+          final countText = textIn('traffic-active-count');
+          expect(appText, findsOneWidget);
+          expect(
+            tester.widget<Text>(appText).data,
+            language == 'en' ? 'App memory 134.2 MB' : '应用内存 134.2 MB',
+          );
+          expect(find.text(strings.memoryTitle), findsNothing);
+          expect(
+            find.byKey(const ValueKey('traffic-memory-core')),
+            findsNothing,
+          );
+          if (scale == 1.0) {
+            expect(baseline(appText), closeTo(baseline(countText), .01));
+          } else {
+            expect(
+              tester.getTopLeft(appText).dy,
+              greaterThanOrEqualTo(tester.getBottomLeft(countText).dy),
+            );
+          }
+          final panel = tester.getRect(find.byType(TrafficPanel));
+          final firstLine = tester.getRect(appText);
+          app.state = const AppSnapshot(
+            phase: 'STOPPED',
+            core: CoreSnapshot(
+              processId: 'preview-memory-core',
+              inputId: 'preview-memory-input',
+              generation: 8,
+              configId: 'one',
+              revision: 1,
+              composition: 'one',
+              purpose: 'PREVIEW',
+              phase: 'READY',
+            ),
+          );
+          app.changed();
+          await tester.pump(const Duration(seconds: 1));
+          final coreText = textIn('traffic-memory-core');
+          expect(coreText, findsOneWidget);
+          expect(
+            tester.widget<Text>(coreText).data,
+            language == 'en' ? 'Core memory 64.0 MB' : '内核内存 64.0 MB',
+          );
+          expect(tester.getRect(find.byType(TrafficPanel)), panel);
+          expect(tester.getRect(appText), firstLine);
+          if (scale == 1.0) {
+            expect(baseline(appText), closeTo(baseline(countText), .01));
+          } else {
+            expect(
+              tester.getTopLeft(appText).dy,
+              greaterThanOrEqualTo(tester.getBottomLeft(countText).dy),
+            );
+          }
+          expect(
+            tester.getTopLeft(coreText).dy,
+            closeTo(tester.getBottomLeft(appText).dy, .01),
+          );
+          expect(
+            tester.getTopLeft(coreText).dx,
+            closeTo(tester.getTopLeft(appText).dx, .01),
+          );
+          tester.view.physicalSize = const Size(240, 1800);
+          await tester.pumpWidget(host(240));
+          await tester.pump(const Duration(milliseconds: 200));
+          expect(
+            tester.getTopLeft(appText).dy,
+            greaterThanOrEqualTo(tester.getBottomLeft(countText).dy),
+          );
+          for (final text in [appText, coreText]) {
+            expect(tester.widget<Text>(text).softWrap, isFalse);
+            expect(tester.widget<Text>(text).maxLines, 1);
+            expect(
+              tester.renderObject<RenderParagraph>(text).textScaler.scale(12),
+              12 * scale,
+            );
+          }
+          expect(find.byType(FittedBox), findsNothing);
+          expect(tester.takeException(), isNull);
+        } finally {
+          await tester.pumpWidget(const SizedBox());
+          traffic.dispose();
+          app.dispose();
+        }
+      });
+    }
+  }
+
   for (final width in [320.0, 1704.0]) {
     testWidgets('内存分别显示 App 和 Core，停止仅保留 App，状态不改变布局 $width', (tester) async {
       tester.view.devicePixelRatio = 1;
@@ -122,7 +261,6 @@ void main() {
       final strings = AppLocalizations.of(
         tester.element(find.byType(TrafficPanel)),
       );
-      const separator = ' · ';
       final panel = tester.getRect(find.byType(TrafficPanel));
       final memory = find.byKey(const ValueKey('traffic-memory'));
       final memoryRect = tester.getRect(memory);
@@ -140,37 +278,26 @@ void main() {
             of: memory,
             matching: find.byType(SingleChildScrollView),
           ),
-          findsOneWidget,
+          findsNWidgets(traffic.coreMemoryRunning ? 2 : 1),
         );
       }
 
       stableMemory();
-      expect(find.text(strings.memoryTitle), findsOneWidget);
-      expect(
-        find.text(
-          '${strings.memoryApplication('134.2')}$separator${strings.memoryCore('64.0')}',
-        ),
-        findsOneWidget,
-      );
+
+      expect(find.text(strings.memoryTitle), findsNothing);
+      expect(find.text(strings.memoryApplication('134.2')), findsOneWidget);
+      expect(find.text(strings.memoryCore('64.0')), findsOneWidget);
       bridge.coreValid = false;
       await tester.pump(const Duration(seconds: 1));
       stableMemory();
-      expect(
-        find.text(
-          '${strings.memoryApplication('134.2')}$separator${strings.memoryCore('—')}',
-        ),
-        findsOneWidget,
-      );
+      expect(find.text(strings.memoryApplication('134.2')), findsOneWidget);
+      expect(find.text(strings.memoryCore('—')), findsOneWidget);
       bridge.coreValid = true;
       bridge.memoryValid = false;
       await tester.pump(const Duration(seconds: 1));
       stableMemory();
-      expect(
-        find.text(
-          '${strings.memoryApplication('—')}$separator${strings.memoryCore('64.0')}',
-        ),
-        findsOneWidget,
-      );
+      expect(find.text(strings.memoryApplication('—')), findsOneWidget);
+      expect(find.text(strings.memoryCore('64.0')), findsOneWidget);
       bridge.memoryValid = true;
       app.state = const AppSnapshot(phase: 'STOPPED');
       app.changed();

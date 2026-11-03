@@ -268,7 +268,11 @@ class _StrategiesPageState extends State<StrategiesPage> {
     );
   }
 
-  _StrategyGridMetrics _measureGrid(BuildContext context, double extent) {
+  _StrategyGridMetrics _measureGrid(
+    BuildContext context,
+    double extent,
+    List<StrategyDefinition> groups,
+  ) {
     final strings = AppLocalizations.of(context);
     final controller = widget.controller;
     final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
@@ -277,19 +281,17 @@ class _StrategiesPageState extends State<StrategiesPage> {
     final columns = ((extent + 12) / (minimum + 12)).floor().clamp(1, 4);
     final width = (extent - (columns - 1) * 12) / columns;
     final inlineStatus = width >= minimum;
+    final textStyle = Theme.of(context).textTheme.bodyMedium!;
+    final painter = TextPainter(
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      locale: Localizations.localeOf(context),
+      maxLines: 1,
+    );
     double lineHeight(String text, TextStyle style) {
-      final painter = TextPainter(
-        text: TextSpan(
-          text: text,
-          style: Theme.of(context).textTheme.bodyMedium!.merge(style),
-        ),
-        textDirection: Directionality.of(context),
-        textScaler: MediaQuery.textScalerOf(context),
-        maxLines: 1,
-      )..layout();
-      final height = painter.height;
-      painter.dispose();
-      return height;
+      painter.text = TextSpan(text: text, style: textStyle.merge(style));
+      painter.layout();
+      return painter.height;
     }
 
     final nameHeight =
@@ -306,10 +308,23 @@ class _StrategiesPageState extends State<StrategiesPage> {
       strings.strategyGroups,
       const TextStyle(fontSize: 10),
     );
-    final currentHeight = lineHeight(
+    final currentNames = {
       strings.unconfirmed,
-      const TextStyle(fontSize: 12, height: 1.3),
+      for (final group in groups)
+        if (group.selectable && group.now.isNotEmpty) group.now,
+    };
+    painter
+      ..text = TextSpan(
+        text: currentNames.join('\n'),
+        style: textStyle.merge(const TextStyle(fontSize: 12, height: 1.3)),
+      )
+      ..maxLines = null
+      ..layout();
+    final currentHeight = painter.computeLineMetrics().fold<double>(
+      0,
+      (height, line) => line.height > height ? line.height : height,
     );
+    painter.dispose();
     final delayHeight = StrategyCardStatus.height(context);
     final topHeight = typeHeight > 30 ? typeHeight : 30.0;
     final footerHeight = controller.allGroups
@@ -722,6 +737,7 @@ class _StrategiesPageState extends State<StrategiesPage> {
                   final layout = _measureGrid(
                     context,
                     (constraints.maxWidth - 40).clamp(0.0, double.infinity),
+                    visibleGroups,
                   );
                   _captureCardMotion(layout);
                   if (!controller.allGroups) _prepareGrid(layout, groups);

@@ -49,7 +49,7 @@ class NativeCoreFailureTest {
 
     @Test fun stackConstructionFailureConsumesDescriptorAndRecovers() {
         repeat(3) { round ->
-            runScene(Fixture.BAD_STACK) { result ->
+            runScene(Fixture.BAD_STACK, cleanupFailed = true) { result ->
                 assertSuccess(result.getJSONObject("prepare"))
                 val error = nativeError(result.getJSONObject("attach"))
                 assertTrue(error, error.contains("invalid TCP congestion control"))
@@ -64,7 +64,7 @@ class NativeCoreFailureTest {
 
     @Test fun kernelForwarderInterfaceQueryFailureConsumesDescriptorAndRecovers() {
         for (scene in listOf(Fixture.SYSTEM_INTERFACE, Fixture.MIXED_INTERFACE)) repeat(3) { round ->
-            runScene(scene) { result ->
+            runScene(scene, cleanupFailed = true) { result ->
                 assertSuccess(result.getJSONObject("prepare"))
                 val error = nativeError(result.getJSONObject("attach"))
                 assertTrue(error, error.contains("interface not found"))
@@ -257,7 +257,8 @@ class NativeCoreFailureTest {
         Log.i("NativeCoreFailureTest", "$scene round=$round recoveryProcessExited=true")
     }
 
-    private fun runScene(scene: Int, args: JSONObject = JSONObject(), assertResult: (JSONObject) -> Unit) {
+    private fun runScene(scene: Int, args: JSONObject = JSONObject(), cleanupFailed: Boolean = false,
+        assertResult: (JSONObject) -> Unit) {
         CoreIpcTestDriver.fixture().use { driver ->
             val reply = driver.fixture(scene, args).await()
             assertTrue(reply.terminal.toString(), reply.terminal.getBoolean("complete"))
@@ -265,7 +266,7 @@ class NativeCoreFailureTest {
             val result = reply.value
             for (assertion in listOf<() -> Unit>(
                 { assertSuccess(result.getJSONObject("shutdown")) },
-                { assertStopped(result.getJSONObject("after").getJSONObject("value")) },
+                { assertStopped(result.getJSONObject("after").getJSONObject("value"), cleanupFailed) },
                 { assertResult(result) },
             )) failures.checkSucceeds(Callable {
                 try { assertion() }
@@ -329,10 +330,10 @@ class NativeCoreFailureTest {
             assertFalse(receipt.toString(), receipt.isNull("error"))
             return receipt.get("error").toString()
         }
-        fun assertStopped(state: JSONObject) {
+        fun assertStopped(state: JSONObject, cleanupFailed: Boolean = false) {
             assertFalse(state.toString(), state.getBoolean("prepared"))
             assertFalse(state.toString(), state.getBoolean("attached"))
-            assertFalse(state.toString(), state.getBoolean("cleanupFailed"))
+            assertEquals(state.toString(), cleanupFailed, state.getBoolean("cleanupFailed"))
         }
     }
 }

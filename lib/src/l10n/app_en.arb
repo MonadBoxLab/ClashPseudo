@@ -1,9 +1,9 @@
 {
   "@@locale": "en",
   "memoryTitle": "Memory",
-  "memoryApplication": "App {value} MB",
+  "memoryApplication": "App memory {value} MB",
   "@memoryApplication": {"placeholders": {"value": {"type": "String"}}},
-  "memoryCore": "Core {value} MB",
+  "memoryCore": "Core memory {value} MB",
   "@memoryCore": {"placeholders": {"value": {"type": "String"}}},
   "lanProxyTitle": "Local network proxy",
   "lanProxyNotice": "Let devices on your local network connect through this device's HTTP or SOCKS5 proxy. This service can run independently of the VPN.",

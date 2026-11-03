@@ -154,6 +154,8 @@ void main() {
         'storageEpoch': 1,
         'id': actual.configId,
         'revision': actual.revision,
+        'processId': actual.processId,
+        'inputId': actual.inputId,
         'generation': actual.generation,
         'composition': actual.composition,
         'name': '出口',
@@ -495,49 +497,60 @@ void main() {
     },
   );
 
-  testWidgets(
-    'choice carries clicked context and waits without optimistic selection',
-    (tester) async {
-      controller.setVisible(true);
-      await tester.pump();
-      await controller.choose('出口', 'B');
-      expect(controller.data!.find('出口')!.now, 'A');
-      expect(controller.changingGroup, '出口');
-      expect(app.commands.single, {
-        'action': 'setStrategy',
-        'storageEpoch': 0,
-        'id': 'one',
-        'revision': 1,
-        'generation': 7,
-        'composition': previewCore.composition,
-        'name': '出口',
-        'choice': {'type': 'select', 'member': 'B'},
-      });
-      await controller.choose('出口', 'A');
-      expect(app.commands.length, 1);
-      bridge.data = strategyData(now: 'B');
-      app.state = const AppSnapshot(
-        phase: 'STOPPED',
-        core: previewCore,
-        resultId: 'done',
-        resultSuccess: true,
-      );
-      app.changed();
-      await tester.pump();
-      expect(controller.data!.find('出口')!.now, 'B');
-      expect(controller.changingGroup, isNull);
-      app.state = const AppSnapshot(
-        phase: 'STOPPED',
-        core: CoreSnapshot(generation: 8, phase: 'LOADING'),
-      );
-      app.changed();
-      await tester.pump();
-      expect(controller.data!.generation, previewCore.generation);
-      expect(controller.data!.find('出口')!.now, 'B');
-      expect(controller.current, isFalse);
-      expect(controller.canChoose, isFalse);
-    },
-  );
+  testWidgets('策略选择携带点击时的完整内核身份并等待实际结果', (tester) async {
+    const core = CoreSnapshot(
+      processId: 'clicked-process',
+      inputId: 'clicked-input',
+      generation: 7,
+      phase: 'READY',
+      purpose: 'PREVIEW',
+      configId: 'one',
+      revision: 1,
+      composition: '["one",1]',
+    );
+    app.state = const AppSnapshot(phase: 'STOPPED', core: core);
+    bridge.data = strategyData(core: core);
+    controller.setVisible(true);
+    await tester.pump();
+    await controller.choose('出口', 'B');
+    expect(controller.data!.find('出口')!.now, 'A');
+    expect(controller.changingGroup, '出口');
+    expect(app.commands.single, {
+      'action': 'setStrategy',
+      'storageEpoch': 0,
+      'id': 'one',
+      'revision': 1,
+      'processId': core.processId,
+      'inputId': core.inputId,
+      'generation': 7,
+      'composition': core.composition,
+      'name': '出口',
+      'choice': {'type': 'select', 'member': 'B'},
+    });
+    await controller.choose('出口', 'A');
+    expect(app.commands.length, 1);
+    bridge.data = strategyData(now: 'B', core: core);
+    app.state = const AppSnapshot(
+      phase: 'STOPPED',
+      core: core,
+      resultId: 'done',
+      resultSuccess: true,
+    );
+    app.changed();
+    await tester.pump();
+    expect(controller.data!.find('出口')!.now, 'B');
+    expect(controller.changingGroup, isNull);
+    app.state = const AppSnapshot(
+      phase: 'STOPPED',
+      core: CoreSnapshot(generation: 8, phase: 'LOADING'),
+    );
+    app.changed();
+    await tester.pump();
+    expect(controller.data!.generation, previewCore.generation);
+    expect(controller.data!.find('出口')!.now, 'B');
+    expect(controller.current, isFalse);
+    expect(controller.canChoose, isFalse);
+  });
 
   testWidgets(
     'load balance never submits a selection or restore-auto command',

@@ -14,12 +14,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String memoryApplication(String value) {
-    return 'App $value MB';
+    return 'App memory $value MB';
   }
 
   @override
   String memoryCore(String value) {
-    return 'Core $value MB';
+    return 'Core memory $value MB';
   }
 
   @override
