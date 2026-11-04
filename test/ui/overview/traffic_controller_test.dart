@@ -620,7 +620,6 @@ void main() {
           app.changed();
           for (final milliseconds in [0, 16, 100, 200]) {
             await tester.pump(Duration(milliseconds: milliseconds));
-            expect(find.byTooltip(strings.waitingTakeover), findsNothing);
             expect(status, findsNothing);
             expect(tester.getRect(find.byType(TrafficPanel)), panel);
             expect(tester.takeException(), isNull);

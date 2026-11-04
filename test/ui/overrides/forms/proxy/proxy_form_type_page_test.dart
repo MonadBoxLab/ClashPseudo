@@ -217,7 +217,6 @@ void main() {
           tester.element(find.byType(ProxyFormTypePage)),
         );
         expect(find.text(strings.proxyCategoryBuiltin), findsNothing);
-        expect(find.text(strings.proxyBuiltinDescription), findsNothing);
         expect(tester.takeException(), isNull);
       },
     );

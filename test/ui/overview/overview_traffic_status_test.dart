@@ -142,15 +142,6 @@ void main() {
                 ),
                 findsNothing,
               );
-              for (final text in [
-                strings.waitingTakeover,
-                strings.waitingSample,
-                strings.waitingStatusSync,
-                strings.waitingUpdate,
-              ]) {
-                expect(find.text(text), findsNothing);
-                expect(find.byTooltip(text), findsNothing);
-              }
               expect(tester.takeException(), isNull);
             }
 

@@ -476,7 +476,6 @@ void main() {
           find.byKey(const ValueKey('runtime-refresh-pending')),
           findsOneWidget,
         );
-        expect(find.text(strings.runtimeConfigLoading), findsNothing);
         expect(find.byIcon(Icons.info_outline), findsNothing);
         final searchRect = tester.getRect(find.byType(TextField));
         bridge.replies.single.complete(response(core(1)));

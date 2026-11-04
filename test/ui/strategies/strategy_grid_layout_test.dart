@@ -122,7 +122,6 @@ void main() {
           expect(controller.loading, isTrue);
           expect(controller.data, isNull);
           expect(bridge.reads, 1);
-          expect(find.text(strings.loadStrategies), findsNothing);
           expect(find.byType(CircularProgressIndicator), findsOneWidget);
           for (final value in [!initiallyReduced, initiallyReduced, true]) {
             reduce.value = value;
@@ -142,7 +141,6 @@ void main() {
           stable();
           expect(controller.loading, isFalse);
           expect(controller.data, same(loaded));
-          expect(find.text(strings.loadStrategies), findsNothing);
           expect(tester.getSize(header).height, loadingHeight);
           expect(find.byType(CircularProgressIndicator), findsNothing);
           final card = find.byKey(const ValueKey('strategy-group-Group 1'));

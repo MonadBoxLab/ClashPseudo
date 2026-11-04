@@ -1005,7 +1005,6 @@ void main() {
       expect(find.byType(ListTile), findsNWidgets(2));
       expect(find.byType(Scaffold), findsOneWidget);
       expect(find.text(_strings.backupTitle), findsNothing);
-      expect(find.text(_strings.backupSensitiveNotice), findsNothing);
       expect(find.text(_strings.backupRestore), findsNothing);
       expect(app.commands, isEmpty);
       expect(documents.picks, isEmpty);

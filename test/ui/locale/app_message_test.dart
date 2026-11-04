@@ -404,8 +404,6 @@ void main() {
       expect(zh.backupCounts(1, 2), '1 个配置 · 2 个插件');
       expect(en.backupSelected('Selected'), 'Selected configuration: Selected');
       expect(zh.backupSelected('配置'), '所选配置：配置');
-      expect(en.backupCreatedAt('2026-10-19'), 'Created: 2026-10-19');
-      expect(zh.backupCreatedAt('2026-10-19'), '创建时间：2026-10-19');
       for (final strings in [en, zh]) {
         expect(
           [
@@ -413,28 +411,22 @@ void main() {
             strings.backupExport,
             strings.backupImport,
             strings.backupRestore,
-            strings.backupSensitiveNotice,
             strings.backupScopeNotice,
             strings.backupNoSelection,
-            strings.backupNotSelected,
             strings.backupConfirmTitle,
             strings.backupConfirmMessage,
             strings.backupConfirmRunning,
             strings.backupConfirmStopped,
             strings.backupConfirmUnconfirmed,
-            strings.backupPreparing,
             strings.backupConnectionStopped,
             strings.backupConnectionNotStarted,
             strings.backupConnectionRestored,
           ].every((value) => value.trim().isNotEmpty),
           isTrue,
         );
-        expect(strings.backupNoSelection, isNot(strings.backupNotSelected));
         expect(strings.backupRestored, isNot(strings.backupRestoreUnconfirmed));
         expect(strings.backupRestored, isNot(strings.backupConnectionRestored));
       }
-      expect(en.backupSensitiveNotice, contains('not encrypted'));
-      expect(zh.backupSensitiveNotice, contains('未加密'));
       expect(en.backupConfirmMessage, contains('Empty collections also clear'));
       expect(zh.backupConfirmMessage, contains('空列表也会清空'));
       expect(
@@ -513,12 +505,7 @@ void main() {
     });
   }
 
-  test('本地条目的空集合与删除确认使用所属文案', () {
-    expect(
-      en.localCustomDefinitionsEmpty,
-      'There are no directly defined local custom entries here.',
-    );
-    expect(zh.localCustomDefinitionsEmpty, '本地自定义插件中没有直接定义的条目。');
+  test('本地条目的删除确认使用所属文案', () {
     expect(
       en.localCustomDeleteConfirm,
       contains('existing references will not be changed'),
@@ -566,18 +553,13 @@ void main() {
         strings.trafficDownloaded,
         strings.trafficUploaded,
         strings.trafficConnections,
-        strings.processMemory,
         strings.processMemoryUnavailable,
         strings.dnsTools,
         strings.dnsName,
         strings.dnsRecordType,
         strings.dnsQuery,
         strings.dnsResolverNotice,
-        strings.dnsReady,
-        strings.dnsPreparing,
-        strings.dnsRunning,
         strings.dnsExpired,
-        strings.dnsNoConfiguration,
         strings.dnsUnavailable,
         strings.dnsInvalidRequest,
         strings.dnsBusy,
@@ -586,7 +568,6 @@ void main() {
         strings.dnsQueryFailed,
         strings.dnsResultTooLarge,
         strings.dnsInvalidResponse,
-        strings.dnsQuestion,
         strings.dnsAnswer,
         strings.dnsAuthority,
         strings.dnsAdditional,
@@ -1376,14 +1357,12 @@ void main() {
           strings.proxyCategoryCommunity,
           strings.proxyCategoryVpn,
           strings.proxyCategoryBuiltin,
-          strings.proxyBuiltinDescription,
           strings.proxyOptional,
           strings.proxyUnset,
           strings.proxyTrue,
           strings.proxyFalse,
           strings.proxyRequired,
           strings.proxyInvalidInteger,
-          strings.proxyInvalidDecimal,
           strings.proxyInvalidPort,
           strings.proxyInvalidByte,
           strings.proxyDuplicateKey,

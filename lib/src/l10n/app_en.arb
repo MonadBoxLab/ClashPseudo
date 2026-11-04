@@ -1,12 +1,23 @@
 {
   "@@locale": "en",
-  "memoryTitle": "Memory",
   "memoryApplication": "App memory {value} MB",
-  "@memoryApplication": {"placeholders": {"value": {"type": "String"}}},
+  "@memoryApplication": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
   "memoryCore": "Core memory {value} MB",
-  "@memoryCore": {"placeholders": {"value": {"type": "String"}}},
+  "@memoryCore": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
   "lanProxyTitle": "Local network proxy",
-  "lanProxyNotice": "Let devices on your local network connect through this device's HTTP or SOCKS5 proxy. This service can run independently of the VPN.",
+  "lanProxyNotice": "Allow devices on the local network to connect through this device's HTTP or SOCKS5 proxy. This service can run independently of the VPN.",
   "lanProxyEnabled": "Enable local network proxy",
   "lanProxyAddresses": "Listening addresses",
   "lanProxyPort": "Port",
@@ -20,7 +31,7 @@
   "lanProxyRaw": "Edit YAML source",
   "lanProxyFormUnavailable": "This YAML cannot be fully represented by the form. Edit the source to preserve its contents.",
   "coreInterruptedTitle": "Core interrupted",
-  "coreInterruptedMessage": "Automatic start is paused. Your current page and edits are retained. Open Overview to restart, choose a configuration, or clean up files.",
+  "coreInterruptedMessage": "Automatic start is paused. The current page and edits are retained. Open Overview to restart, choose a configuration, or clean up files.",
   "coreRecoveryRestart": "Restart",
   "coreRecoverySelect": "Choose configuration",
   "coreCleanupSelect": "Clean up core files",
@@ -29,8 +40,6 @@
   "coreCleanupNoCandidates": "No confirmed files are available for cleanup.",
   "coreCleanupDeleteSelected": "Stop and clean selected files",
   "coreCleanupPartial": "Some files could not be cleaned up",
-  "coreLoaded": "Loaded by core",
-  "vpnTakenOver": "VPN active",
   "logClear": "Clear logs",
   "selectDetails": "Select an item to view its details.",
   "selectionOutsideList": "The selected item is outside the current list.",
@@ -38,7 +47,13 @@
   "definitionFormName": "Name",
   "strategyRejectStatus": "Reject",
   "strategyCardDelayNotice": "Latest HTTP-target test for the current member: {result}.",
-  "@strategyCardDelayNotice": {"placeholders": {"result": {"type": "String"}}},
+  "@strategyCardDelayNotice": {
+    "placeholders": {
+      "result": {
+        "type": "String"
+      }
+    }
+  },
   "overview": "Overview",
   "connectionsNavigation": "Connections",
   "configurationsNavigation": "Configs",
@@ -58,10 +73,10 @@
   "routingAndResources": "Routing & resources",
   "diagnosticTools": "Diagnostics",
   "configurations": "Configurations",
-  "configSelected": "Selected",
-  "@configSelected": {"description": "配置卡片上表示已选择的状态文字。"},
   "selectConfig": "Select configuration",
-  "@selectConfig": {"description": "选择这张卡片所代表的配置。"},
+  "@selectConfig": {
+    "description": "选择这张卡片所代表的配置。"
+  },
   "recentConnections": "Recent connections",
   "overrides": "Plugins (overrides)",
   "proxyNodes": "Proxy nodes",
@@ -69,9 +84,7 @@
   "externalResources": "External resources",
   "runtimeConfiguration": "Runtime configuration",
   "coreLogs": "Core logs",
-  "coreLogsRecentWindow": "Recent session",
   "applicationAccess": "App VPN access",
-  "alwaysOnVpn": "Always-on VPN",
   "about": "About",
   "licenses": "Open-source licenses",
   "retry": "Retry",
@@ -82,14 +95,13 @@
   "settingsLoadFailed": "Reading the saved settings failed.",
   "project": "Project",
   "applicationVersion": "App version",
-  "legalSummary": "Original code is licensed under GPL-3.0-only. You may copy, modify and redistribute it under the GNU General Public License version 3. No warranty is provided to the extent permitted by law. Third-party components retain their own copyrights and licenses.",
+  "legalSummary": "Clash Pseudo is free software; redistribution and modification are permitted under the terms of the GNU General Public License, version 3 only (GPL-3.0-only), as published by the Free Software Foundation.\n\nThis program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY.",
   "sourceDistributionNotice": "Corresponding source and build materials are provided with each release.",
   "versionUnavailable": "Version information is unavailable.",
   "coreVersion": "mihomo version",
   "refresh": "Refresh",
   "runtimeConfigSearch": "Find fields or values",
   "clearSearch": "Clear search",
-  "runtimeConfigLoading": "Reading core configuration…",
   "runtimeConfigLive": "Running",
   "runtimeConfigPreview": "Preview · VPN off",
   "runtimeConfigEmpty": "Select a configuration with saved content first.",
@@ -98,37 +110,34 @@
   "coreReadLoading": "Reading core data…",
   "coreReadFailed": "Read failed · refresh to retry",
   "coreSnapshotStale": "Previous snapshot · not current",
-  "sourceConfiguration": "Configuration",
   "builtinNode": "Built-in",
   "previousPage": "Previous page",
   "nextPage": "Next page",
   "noNodes": "No matching nodes",
   "details": "Details",
   "errorDetails": "Error details",
-  "@errorDetails": {"description": "打开错误详情的入口文字和详情标题。"},
+  "@errorDetails": {
+    "description": "打开错误详情的入口文字和详情标题。"
+  },
   "viewError": "View error",
-  "@viewError": {"description": "查看相关操作或对象的错误。"},
+  "@viewError": {
+    "description": "查看相关操作或对象的错误。"
+  },
   "technicalDetails": "Technical details",
-  "@technicalDetails": {"description": "用于查看完整原始错误或诊断原文的入口文字和标题。"},
+  "@technicalDetails": {
+    "description": "用于查看完整原始错误或诊断原文的入口文字和标题。"
+  },
   "copyTechnicalDetails": "Copy technical details",
-  "@copyTechnicalDetails": {"description": "复制完整的原始错误或诊断原文。"},
+  "@copyTechnicalDetails": {
+    "description": "复制完整的原始错误或诊断原文。"
+  },
   "mainRules": "Main rules",
   "subRules": "Sub-rules",
   "ruleSets": "Rule sets",
   "ruleScope": "Rule scope",
   "ruleSearch": "Type, content or target",
   "noRules": "No matching rules",
-  "compiledRules": "Effective declaration order",
-  "normalizedRules": "Normalized rule-set entries",
-  "sourceRules": "Source entries · not compiled rules",
-  "ruleSourceNotice": "Domain and IP-CIDR sets show normalized entries; merging entries can change the count. Classical sets show inline payload, cached content, or the configured fallback, not compiled rules.",
   "ruleTarget": "Target",
-  "ruleContent": "Content",
-  "ruleSourceUnavailable": "Reading the local source for this rule set failed.",
-  "ruleSourceInvalid": "The provider's local source is unreadable or malformed.",
-  "ruleSourceChanged": "The rule source changed while reading. Refresh to read a consistent snapshot.",
-  "ruleSourceUnsupported": "This source format is not readable through the public API.",
-  "resourcesExplanation": "Lists the core’s proxy providers, rule providers, and Geo databases. Sources show scheme and host. Update times come from core records or local file modification times; counts show current entries.",
   "resourceSearch": "Name, type or source",
   "noResources": "No matching resources",
   "resourceProxyProvider": "Proxy provider",
@@ -182,8 +191,6 @@
   "resourceWatchFile": "Watch local file changes",
   "resourceFileMissing": "Local file missing",
   "resourceFileUnreadable": "Local file unreadable",
-  "resourceEnabled": "Enabled",
-  "resourceDisabled": "Disabled",
   "resourceBuiltInBehavior": "Behavior: {behavior}",
   "@resourceBuiltInBehavior": {
     "placeholders": {
@@ -229,13 +236,9 @@
       }
     }
   },
-  "logClearLocal": "Clear logs on this page",
   "logBackToLatest": "Back to latest",
-  "logClearNotice": "Clearing affects only the logs cached on this page; it does not change system logs or core settings.",
-  "logTruncated": "Truncated",
   "delayTestGroup": "Test group",
   "delayTestMember": "Test this member",
-  "delayTesting": "Testing…",
   "delayTarget": "Target: {url} · HTTP delay, not ICMP",
   "@delayTarget": {
     "placeholders": {
@@ -263,29 +266,16 @@
     }
   },
   "delayDone": "Test complete",
-  "delayTargetOnly": "Test target: {url}",
-  "@delayTargetOnly": {
-    "placeholders": {
-      "url": {
-        "type": "String"
-      }
-    }
-  },
-  "delayUnavailable": "This group cannot be tested",
-  "delayBatchFailed": "Batch expired; test again",
   "overridePlugins": "Plugins (override)",
   "addOverride": "Add plugin",
   "newOverride": "New local plugin",
   "remoteOverride": "Add from URL",
   "overrideLocal": "Local",
-  "overrideRemote": "Remote",
   "overrideEnabled": "Enabled",
-  "overrideDisabled": "Disabled",
   "overridePrepend": "Prepend merge",
   "overrideReplace": "Replace same settings",
   "overrideMoveUp": "Move up",
   "overrideMoveDown": "Move down",
-  "overrideReadOnly": "Remote plugin text is read-only",
   "overrideEmpty": "No plugins added yet.",
   "overrideNotice": "Higher items take priority. Changes to running content reconnect the tunnel.",
   "loonProxyName": "Proxy name",
@@ -296,25 +286,38 @@
   "loonConvertedResult": "{result}\n\nExtracted {rules} compatible rules; retained {comments} source lines as comments.",
   "@loonConvertedResult": {
     "placeholders": {
-      "result": {"type": "String"},
-      "rules": {"type": "int"},
-      "comments": {"type": "int"}
+      "result": {
+        "type": "String"
+      },
+      "rules": {
+        "type": "int"
+      },
+      "comments": {
+        "type": "int"
+      }
     }
   },
   "loonNoRulesResult": "{result}\n\nNo compatible rules were extracted. The plugin leaves existing rules unchanged; {comments} source lines were retained as comments.",
   "@loonNoRulesResult": {
     "placeholders": {
-      "result": {"type": "String"},
-      "comments": {"type": "int"}
+      "result": {
+        "type": "String"
+      },
+      "comments": {
+        "type": "int"
+      }
     }
   },
   "overrideName": "Plugin name",
-  "overrideSource": "Plugin URL",
   "overrideUpdate": "Update plugin",
   "viewOverrideError": "View plugin error",
-  "@viewOverrideError": {"description": "打开当前插件的错误详情。"},
+  "@viewOverrideError": {
+    "description": "打开当前插件的错误详情。"
+  },
   "overrideActionFailed": "Plugin action not completed",
-  "@overrideActionFailed": {"description": "插件操作未完成时的反馈标题；详细说明保留实际保存结果、应用结果和原始错误。"},
+  "@overrideActionFailed": {
+    "description": "插件操作未完成时的反馈标题；详细说明保留实际保存结果、应用结果和原始错误。"
+  },
   "overrideDelete": "Delete",
   "overrideDeleteTitle": "Delete plugin?",
   "overrideDeleteMessage": "This plugin will be removed from the saved list. If the active tunnel uses it, the tunnel reconnects and existing connections close. Deleting it does not start a stopped tunnel.",
@@ -328,11 +331,32 @@
   "localYamlUnsupportedField": "This field's original value cannot be represented by this form. It is preserved unchanged; use the text editor to modify it.",
   "definitionFormUnsetField": "Unset field",
   "definitionFormEditItem": "Edit {label} item {index}",
-  "@definitionFormEditItem": {"placeholders": {"label": {"type": "String"}, "index": {"type": "int"}}},
+  "@definitionFormEditItem": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "index": {
+        "type": "int"
+      }
+    }
+  },
   "definitionFormValueCount": "{count, plural, =1{1 value} other{{count} values}}",
-  "@definitionFormValueCount": {"placeholders": {"count": {"type": "int"}}},
+  "@definitionFormValueCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "provenancePlugins": "{count, plural, =1{1 contributing plugin} other{{count} contributing plugins}}",
-  "@provenancePlugins": {"placeholders": {"count": {"type": "int"}}},
+  "@provenancePlugins": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "provenanceHeading": "Contributing plugins",
   "provenanceProviderHeading": "Definition contributors",
   "strategyGroupFormTitle": "Add strategy group",
@@ -343,11 +367,22 @@
   "strategyGroupDefinitionTitle": "Group properties",
   "strategyGroupAttributesHeading": "Actual attributes",
   "strategyGroupNoMembers": "No members",
-  "strategyGroupInlineIcon": "Configured icon",
   "strategyGroupFixedValue": "Pinned: {name}",
-  "@strategyGroupFixedValue": {"placeholders": {"name": {"type": "String"}}},
+  "@strategyGroupFixedValue": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "strategyGroupLoadedValue": "Current: {name}",
-  "@strategyGroupLoadedValue": {"placeholders": {"name": {"type": "String"}}},
+  "@strategyGroupLoadedValue": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "strategyGroupNotSelected": "No current member",
   "providerProxyFormTitle": "Add proxy provider",
   "providerRuleFormTitle": "Add rule provider",
@@ -392,21 +427,19 @@
   "proxyCategoryCommunity": "Community proxy protocols",
   "proxyCategoryVpn": "VPN protocols",
   "proxyCategoryBuiltin": "Built-in handlers",
-  "proxyBuiltinDescription": "Core handlers, not proxy protocols.",
   "proxyOptional": "Optional",
   "proxyUnset": "Not set",
   "proxyTrue": "On",
   "proxyFalse": "Off",
   "proxyRequired": "Enter a value.",
   "proxyInvalidInteger": "Enter a valid integer.",
-  "proxyInvalidDecimal": "Enter a valid number.",
   "proxyInvalidPort": "Use an integer port from 0 to 65535.",
   "proxyInvalidByte": "Use an integer from 0 to 255.",
   "proxyDuplicateKey": "Duplicate key.",
   "proxyMapKey": "Key",
   "proxyMapValue": "Value",
   "proxyPlatformIgnored": "This field is not applied by the current Android integration.",
-  "proxySaveFailed": "Saving or connecting did not complete. Your input is kept.",
+  "proxySaveFailed": "Saving or connecting did not complete. Input is kept.",
   "proxyServer": "Server",
   "proxyUsername": "Username",
   "proxyShowSecret": "Show sensitive value",
@@ -421,13 +454,21 @@
   "proxyUnitPackets": "packets",
   "proxyAddItem": "Add {field}",
   "@proxyAddItem": {
-    "placeholders": {"field": {"type": "String"}}
+    "placeholders": {
+      "field": {
+        "type": "String"
+      }
+    }
   },
   "proxyRemoveItem": "Remove {field} item {index}",
   "@proxyRemoveItem": {
     "placeholders": {
-      "field": {"type": "String"},
-      "index": {"type": "int"}
+      "field": {
+        "type": "String"
+      },
+      "index": {
+        "type": "int"
+      }
     }
   },
   "localCustomTitle": "Local customizations",
@@ -439,8 +480,6 @@
   "applicationReconnectTitle": "Save and reconnect?",
   "applicationReconnectMessage": "Saving will normally stop the current tunnel and reconnect with the current configuration and mode. Existing connections will drop. The setting is kept if reconnecting fails.",
   "applicationReconnect": "Save and reconnect",
-  "applicationSavedReconnected": "Application access saved and the tunnel reconnected.",
-  "applicationSaved": "Application access saved; it applies on the next connection.",
   "applicationAccessNotice": "The selected application scope is routed through the VPN; other applications use the system network. Reconnect after saving to apply the new settings.",
   "searchApplications": "Search name or package",
   "accessAll": "All applications",
@@ -475,7 +514,6 @@
   "alwaysOnOpenFailed": "Could not open system VPN settings; find VPN in system settings.",
   "androidSection": "Android",
   "autoUpdate": "Auto-update",
-  "autoUpdateOff": "Off",
   "autoUpdateEvery": "Every {hours} hours",
   "@autoUpdateEvery": {
     "placeholders": {
@@ -485,7 +523,6 @@
     }
   },
   "autoUpdateInterval": "Interval",
-  "autoUpdateNotice": "System scheduling may be delayed and use mobile data. Failed downloads keep existing content.",
   "autoUpdateEnabled": "Auto-update enabled",
   "autoUpdateDisabled": "Auto-update off",
   "autoUpdateSaved": "Updated and saved",
@@ -523,7 +560,6 @@
   "statusConfigFailed": "Configurations unavailable",
   "statusConfigLoading": "Reading configurations",
   "statusImportPrompt": "No configuration selected",
-  "statusReimport": "The current configuration must be re-imported",
   "statusReady": "Ready to start",
   "identityUnconfirmed": "Configuration unconfirmed",
   "identityLoading": "Reading configuration",
@@ -549,19 +585,13 @@
   "modeRule": "Rule",
   "modeGlobal": "Global",
   "modeDirect": "Direct",
-  "modeRuleDescription": "Route by the rules in your configuration.",
+  "modeRuleDescription": "Route connections by the rules in the configuration.",
   "modeGlobalDescription": "Route through the global policy.",
   "modeDirectDescription": "Connect directly and keep the tunnel.",
   "networkActivity": "Network activity",
-  "waitingTakeover": "Waiting for the tunnel",
-  "waitingStatusSync": "Waiting for status",
-  "updateFailed": "Update failed",
-  "waitingUpdate": "Waiting for update",
-  "waitingSample": "Waiting for samples",
   "trafficConnections": "Connections",
   "download": "Download",
   "upload": "Upload",
-  "activitySummary": "{label} {value} {unit}, recent connections",
   "@identitySelected": {
     "placeholders": {
       "name": {
@@ -579,19 +609,6 @@
   "@modeSavedIdle": {
     "placeholders": {
       "mode": {
-        "type": "String"
-      }
-    }
-  },
-  "@activitySummary": {
-    "placeholders": {
-      "label": {
-        "type": "String"
-      },
-      "value": {
-        "type": "String"
-      },
-      "unit": {
         "type": "String"
       }
     }
@@ -622,14 +639,21 @@
   "allConnections": "All connections",
   "activeOnly": "Active",
   "inactiveOnly": "Inactive",
-  "recordLimitReached": "Record limit reached",
   "clearInactiveConnections": "Clear ended records",
   "connectionOmitted": "{count} whole records omitted by capacity limits",
-  "@connectionOmitted": {"placeholders": {"count": {"type": "int"}}},
+  "@connectionOmitted": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "rawData": "Original data",
   "copyOriginalText": "Copy original text",
   "connectionLimitedNotice": "The record limit has been reached, so some connections are not shown. Clear ended records to make room.",
-  "@connectionLimitedNotice": {"description": "说明连接记录已达容量上限，并提示清除已结束的记录。"},
+  "@connectionLimitedNotice": {
+    "description": "说明连接记录已达容量上限，并提示清除已结束的记录。"
+  },
   "connectionRefreshFailed": "Refresh failed",
   "exitSearch": "Exit search",
   "searchConnections": "Search connections",
@@ -705,23 +729,7 @@
   "showHiddenGroups": "Show hidden groups",
   "hideHiddenGroups": "Hide hidden groups",
   "strategyGroups": "Strategies",
-  "actualConfigUnconfirmed": "Actual configuration unconfirmed",
-  "noConfigSelected": "No configuration selected",
-  "confirmingConfig": "Confirming configuration",
-  "strategiesNotUpdated": "Strategies not updated",
-  "loadingStrategies": "Loading strategies…",
   "selectionsNotRestored": "Some selections were not restored",
-  "underTakeover": "Under tunnel",
-  "notUnderTakeover": "Not under tunnel · Preselected",
-  "viewUnrestored": "View selections not restored",
-  "viewStrategyError": "View strategy error",
-  "strategyStatus": "Strategy status",
-  "waitingTakeoverConfig": "Waiting for the tunnel and configuration status.",
-  "importConfigForStrategies": "Import and select a full configuration to view strategies.",
-  "preparingStrategies": "Preparing strategies…",
-  "strategiesNotLoaded": "Strategies have not loaded.",
-  "strategiesLoadFailed": "Strategies did not load; check the error and retry.",
-  "loadStrategies": "Load strategies",
   "noVisibleGroups": "No strategy groups are visible in the current mode.",
   "unrestoredLine": "{name}: {value}",
   "@unrestoredLine": {
@@ -742,7 +750,6 @@
       }
     }
   },
-  "notUpdated": "Not updated",
   "unconfirmed": "Unconfirmed",
   "popupExpired": "This strategy is no longer valid. Close and reopen it; this content is read-only.",
   "popupSavedDiffers": "Saved: {name}; the actual selection is still shown by the current mark.",
@@ -778,10 +785,7 @@
   "strategyChoiceUrlTest": "Auto test",
   "strategyChoiceFallback": "Fallback",
   "strategyChoiceLoadBalance": "Load balance",
-  "strategyReadStale": "Strategy status has not refreshed; the app will retry while in the foreground. Old records cannot be used to switch strategies.",
-  "strategyContextChanged": "The strategy context changed; wait for the current configuration to be read again.",
   "strategyGroupChanged": "The strategy group or member changed; this selection was not saved.",
-  "applyingStrategy": "Applying the strategy selection",
   "strategySelectionUnconfirmed": "The selection was saved for the next load; this switch was not confirmed.",
   "operationNotCompleted": "Operation not completed",
   "configUpdated": "Configuration updated.",
@@ -790,8 +794,6 @@
   "platformOperationFailed": "The platform operation did not finish; verify the tunnel state.",
   "operationNotCompletedRetry": "Operation not completed; verify the state and retry.",
   "configTitle": "Configurations",
-  "configReading": "Configurations · Reading",
-  "configStale": "Configurations · Not updated",
   "configReadFailed": "Could not read configurations",
   "noSavedConfigs": "No saved configurations",
   "importOrCreateHint": "Import from a URL or file, or create a local configuration.",
@@ -803,8 +805,12 @@
   "nativeConfigurationUnsupported": "Unsupported configuration field {field}: {reason}",
   "@nativeConfigurationUnsupported": {
     "placeholders": {
-      "field": {"type": "String"},
-      "reason": {"type": "String"}
+      "field": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
     }
   },
   "nativeReasonTunDisabled": "A VPN connection requires TUN to be enabled.",
@@ -837,7 +843,11 @@
   "storageSyncUnconfirmed": "The content was saved, but storage synchronization could not be confirmed. This change may be lost if power is suddenly interrupted.",
   "storageSyncWarning": "{result}\n\nThe content was saved, but storage synchronization could not be confirmed. This change may be lost if power is suddenly interrupted.",
   "@storageSyncWarning": {
-    "placeholders": {"result": {"type": "String"}}
+    "placeholders": {
+      "result": {
+        "type": "String"
+      }
+    }
   },
   "storageUnavailable": "Configurations, plugins and settings are temporarily unavailable. Wait for data recovery to be confirmed before continuing. Stopping the connection is still available.",
   "trustedRootsUnavailable": "Could not read or parse the default trusted root certificates. Try again.",
@@ -898,8 +908,6 @@
   "changeConfigSource": "Change configuration source",
   "configName": "Configuration name",
   "configUrl": "Full configuration URL",
-  "configUrlInvalid": "Full configuration URL, invalid input",
-  "configUrlHint": "Enter a complete HTTP or HTTPS configuration URL.",
   "showUrl": "Show URL",
   "hideUrl": "Hide URL",
   "nameOptional": "Name (optional)",
@@ -908,13 +916,6 @@
   "importFullConfigNotice": "Saves a complete mihomo configuration; the core parses it at start. Node subscriptions are not converted.",
   "downloadAndSave": "Download and save",
   "saveAndUpdate": "Save and update",
-  "overwriteConfigTitle": "Overwrite configuration?",
-  "overwriteConfigMessage": "This source is already saved. The existing entry will be updated.",
-  "overwriteKeepsOnFailure": "The existing content and connection are kept if the download fails.",
-  "overwriteStopTunnel": "If the running content changes, this configuration’s tunnel reconnects after the update succeeds.",
-  "overwriteNoOtherTunnel": "Other configurations’ tunnels are not switched or stopped.",
-  "overwriteNotStart": "The tunnel does not start automatically after updating.",
-  "overwriteUnconfirmed": "Connection status is not yet confirmed. Applying the update depends on the actual running state.",
   "overwrite": "Overwrite",
   "leaveBodyTitle": "Leave the content?",
   "leaveBodyMessage": "A submitted save is not cancelled by leaving. The result is unconfirmed; check the configuration list and do not submit again.",
@@ -947,22 +948,40 @@
   "bodyUnreadable": "No usable content; update the source first.",
   "bodyPrepFailed": "Could not prepare the configuration content; go back and retry.",
   "editorLineTooLong": "Line {line} exceeds the editing limit of {limit} UTF-16 code units. Showing the complete original text in read-only blocks.",
-  "@editorLineTooLong": {"placeholders": {"line": {"type": "int"}, "limit": {"type": "int"}}},
+  "@editorLineTooLong": {
+    "placeholders": {
+      "line": {
+        "type": "int"
+      },
+      "limit": {
+        "type": "int"
+      }
+    }
+  },
   "editorQueryTooLong": "Find text is limited to {limit} UTF-16 code units.",
   "editorChangeTooLong": "Change rejected: line {line} would exceed {limit} UTF-16 code units. Existing input is unchanged.",
-  "@editorChangeTooLong": {"placeholders": {"line": {"type": "int"}, "limit": {"type": "int"}}},
-  "editorContextChanged": "Saving is unavailable; your draft is retained.",
-  "@editorQueryTooLong": {"placeholders": {"limit": {"type": "int"}}},
-  "aboutTitle": "About Clash Pseudo",
-  "licensesAndNotices": "Licenses and third-party notices",
-  "goNativeDependencies": "Go native runtime dependencies",
-  "androidDependencies": "Android runtime dependencies",
-  "materialIconsFont": "Material Icons font",
+  "@editorChangeTooLong": {
+    "placeholders": {
+      "line": {
+        "type": "int"
+      },
+      "limit": {
+        "type": "int"
+      }
+    }
+  },
+  "editorContextChanged": "Saving is unavailable; the draft is retained.",
+  "@editorQueryTooLong": {
+    "placeholders": {
+      "limit": {
+        "type": "int"
+      }
+    }
+  },
   "privacyNoticeTitle": "Privacy and license",
   "privacyNoticeUnderstood": "Understood",
-  "privacyNoticeNotSaved": "Could not confirm that the notice was recorded. It may appear again next time you open the app.",
-  "privacyNoticeBody": "Clash Pseudo is free and open source. It does not collect or report user data and does not provide any proxy nodes or subscription services.\n\nData processing\n\nThe app does not include usage analytics, behavioral analysis, or automatic crash reporting. Configurations, plugins, and app settings are stored on the device. Proxying and rule matching process traffic, domains, and IP addresses on the device. Connection information and logs support display and diagnostics; the installed app list is used to choose which apps the VPN handles.\n\nNetwork communication\n\nConfiguration and plugin downloads, DNS queries, proxy connections, latency tests, remote icons, and rule or geographic database updates contact their respective network services. Destinations come from configurations and application defaults. Turning off VPN traffic handling does not disable network access for these features.\n\nRequests send the content and authentication information needed by the feature, and the receiving service sees the connection's source IP address. Downloads from HTTP sources have no transport encryption.\n\nPermission purposes\n\n- Internet access and network state: establish connections, download content, and check the network.\n- Foreground services and notifications: run the VPN, local network proxy service, and background tasks and display their status.\n- Installed app visibility: display the app list and choose which apps the VPN handles.\n- VPN authorization: create a VPN interface after Android authorization and handle traffic within the selected scope.\n\nFiles and backups\n\nConfiguration and plugin contents, source addresses, and credentials saved in them are stored in the app's private directory without additional application-level encryption. Exported ZIP files are not encrypted and include configurations, plugins, app settings, and the source addresses and credentials saved in them. Backup import and export are available under Settings → Storage and data and use Android's file picker; you choose where exported files are saved.\n\nAndroid system backup and device transfer can copy configurations, plugins, and app settings. Whether they are enabled depends on system settings and the backup service in use. A file provider's synchronization features can also keep cloud copies of selected files.\n\nConnection records, core logs, and original content\n\nRecent connection records and logs are held only in device memory, within bounded capacities and retention windows. They are not saved as history files. You can clear them on their respective pages; they disappear when the process ends.\n\nSettings → Diagnostics → Core logs displays core operation, connection, and error messages. Retained logs show original core messages. When capacity is insufficient, whole entries are removed or skipped and omissions are reported; message content is not truncated or rewritten. The configuration editor and backups retain original content.\n\nDeleting data and viewing this notice\n\nYou can delete configurations and plugins, clear recent records and logs, and individually select the cache database and rebuildable geographic data files for cleanup. The core must stop before cleanup. Only confirmed files are deleted; protocol identities, custom provider files, and other user files are retained.\n\nYou can also revoke VPN authorization or clear app data in Android settings. Clearing app data or uninstalling does not delete exported files, system backups, or other external copies.\n\nThis notice is updated as features change. The version included with your installation is available under Settings → About.\n\nProject repository\n\nhttps://github.com/MonadBoxLab/ClashPseudo\n\nSee GPLv3 for more information.",
-  "privacyNoticeSummary": "Clash Pseudo is free and open source. It does not collect or report user data and does not provide any proxy nodes or subscription services.\n\nSee GPLv3 for more information.",
+  "privacyNoticeNotSaved": "Could not confirm that the notice was recorded. It may appear again on next launch.",
+  "privacyNoticeBody": "Clash Pseudo is free and open source. It does not collect or report user data and does not provide any proxy nodes or subscription services.\n\nData processing\n\nThe app does not include usage analytics, behavioral analysis, or automatic crash reporting. Configurations, plugins, and app settings are stored on the device. Proxying and rule matching process traffic, domains, and IP addresses on the device. Connection information and logs support display and diagnostics; the installed app list is used to choose which apps the VPN handles.\n\nNetwork communication\n\nConfiguration and plugin downloads, DNS queries, proxy connections, latency tests, remote icons, and rule or geographic database updates contact their respective network services. Destinations come from configurations and application defaults. Turning off VPN traffic handling does not disable network access for these features.\n\nRequests send the content and authentication information needed by the feature, and the receiving service sees the connection's source IP address. Downloads from HTTP sources have no transport encryption.\n\nPermission purposes\n\n- Internet access and network state: establish connections, download content, and check the network.\n- Foreground services and notifications: run the VPN, local network proxy service, and background tasks and display their status.\n- Installed app visibility: display the app list and choose which apps the VPN handles.\n- VPN authorization: create a VPN interface after Android authorization and handle traffic within the selected scope.\n\nFiles and backups\n\nConfiguration and plugin contents, source addresses, and credentials saved in them are stored in the app's private directory without additional application-level encryption. Exported ZIP files are not encrypted and include configurations, plugins, app settings, and the source addresses and credentials saved in them. Backup import and export are available under Settings → Storage and data and use Android's file picker; the save location is chosen during export.\n\nAndroid system backup and device transfer can copy configurations, plugins, and app settings. Whether they are enabled depends on system settings and the backup service in use. A file provider's synchronization features can also keep cloud copies of selected files.\n\nConnection records, core logs, and original content\n\nRecent connection records and logs are held only in device memory, within bounded capacities and retention windows. They are not saved as history files. They can be cleared on their respective pages and disappear when the process ends.\n\nSettings → Diagnostics → Core logs displays core operation, connection, and error messages. Retained logs show original core messages. When capacity is insufficient, whole entries are removed or skipped and omissions are reported; message content is not truncated or rewritten. The configuration editor and backups retain original content.\n\nDeleting data and viewing this notice\n\nConfigurations and plugins can be deleted in the app, recent records and logs can be cleared, and the cache database and rebuildable geographic data files can be selected individually for cleanup. The core must stop before cleanup. Only confirmed files are deleted; protocol identities, custom provider files, and other user files are retained.\n\nVPN authorization can also be revoked and app data cleared in Android settings. Clearing app data or uninstalling does not delete exported files, system backups, or other external copies.\n\nThis notice is updated as features change. The version included with the current installation is available under Settings → About.\n\nProject repository\n\nhttps://github.com/MonadBoxLab/ClashPseudo\n\nSee GPLv3 for more information.",
   "privacyNoticeIntro": "Clash Pseudo is free and open source. It does not collect or report user data and does not provide any proxy nodes or subscription services.",
   "privacyNoticeReadFull": "Full notice",
   "privacyNoticeLicenseNotice": "See GPLv3 for more information.",
@@ -975,17 +994,13 @@
   "privacyPermissionPurposesTitle": "Permission purposes",
   "privacyPermissionPurposesBody": "- Internet access and network state: establish connections, download content, and check the network.\n- Foreground services and notifications: run the VPN, local network proxy service, and background tasks and display their status.\n- Installed app visibility: display the app list and choose which apps the VPN handles.\n- VPN authorization: create a VPN interface after Android authorization and handle traffic within the selected scope.",
   "privacyFilesAndBackupsTitle": "Files and backups",
-  "privacyFilesAndBackupsBody": "Configuration and plugin contents, source addresses, and credentials saved in them are stored in the app's private directory without additional application-level encryption. Exported ZIP files are not encrypted and include configurations, plugins, app settings, and the source addresses and credentials saved in them. Backup import and export are available under Settings → Storage and data and use Android's file picker; you choose where exported files are saved.\n\nAndroid system backup and device transfer can copy configurations, plugins, and app settings. Whether they are enabled depends on system settings and the backup service in use. A file provider's synchronization features can also keep cloud copies of selected files.",
+  "privacyFilesAndBackupsBody": "Configuration and plugin contents, source addresses, and credentials saved in them are stored in the app's private directory without additional application-level encryption. Exported ZIP files are not encrypted and include configurations, plugins, app settings, and the source addresses and credentials saved in them. Backup import and export are available under Settings → Storage and data and use Android's file picker; the save location is chosen during export.\n\nAndroid system backup and device transfer can copy configurations, plugins, and app settings. Whether they are enabled depends on system settings and the backup service in use. A file provider's synchronization features can also keep cloud copies of selected files.",
   "privacyRecordsAndLogsTitle": "Connection records, core logs, and original content",
-  "privacyRecordsAndLogsBody": "Recent connection records and logs are held only in device memory, within bounded capacities and retention windows. They are not saved as history files. You can clear them on their respective pages; they disappear when the process ends.\n\nSettings → Diagnostics → Core logs displays core operation, connection, and error messages. Retained logs show original core messages. When capacity is insufficient, whole entries are removed or skipped and omissions are reported; message content is not truncated or rewritten. The configuration editor and backups retain original content.",
+  "privacyRecordsAndLogsBody": "Recent connection records and logs are held only in device memory, within bounded capacities and retention windows. They are not saved as history files. They can be cleared on their respective pages and disappear when the process ends.\n\nSettings → Diagnostics → Core logs displays core operation, connection, and error messages. Retained logs show original core messages. When capacity is insufficient, whole entries are removed or skipped and omissions are reported; message content is not truncated or rewritten. The configuration editor and backups retain original content.",
   "privacyDeletingDataTitle": "Deleting data and viewing this notice",
-  "privacyDeletingDataBody": "You can delete configurations and plugins, clear recent records and logs, and individually select the cache database and rebuildable geographic data files for cleanup. The core must stop before cleanup. Only confirmed files are deleted; protocol identities, custom provider files, and other user files are retained.\n\nYou can also revoke VPN authorization or clear app data in Android settings. Clearing app data or uninstalling does not delete exported files, system backups, or other external copies.\n\nThis notice is updated as features change. The version included with your installation is available under Settings → About.",
+  "privacyDeletingDataBody": "Configurations and plugins can be deleted in the app, recent records and logs can be cleared, and the cache database and rebuildable geographic data files can be selected individually for cleanup. The core must stop before cleanup. Only confirmed files are deleted; protocol identities, custom provider files, and other user files are retained.\n\nVPN authorization can also be revoked and app data cleared in Android settings. Clearing app data or uninstalling does not delete exported files, system backups, or other external copies.\n\nThis notice is updated as features change. The version included with the current installation is available under Settings → About.",
   "privacyProjectRepositoryTitle": "Project repository",
-  "legalBody": "Original code is licensed under GPL-3.0-only. You may copy, modify and redistribute it under the GNU General Public License version 3. No warranty is provided to the extent permitted by law. Third-party components retain their own copyrights and licenses.\n\nLicense texts and bundled third-party notices are available below. Corresponding source and build materials must be provided for each distributed version.",
-  "projectTitle": "Project",
-  "defaultLocalConfig": "# Default direct configuration; the client still controls the mode and strategy choices.\nrules:\n  - MATCH,DIRECT\n",
   "noUsableBodyReimport": "This configuration has no usable content; update the source again.",
-  "noBodyUpdateSource": "This configuration has no usable content; update the source first.",
   "requestNotAccepted": "The request was not accepted; try again.",
   "temporaryModeUnknown": "The running mode cannot be confirmed yet; the app will retry while in the foreground.",
   "temporaryStatusUnavailable": "Status is temporarily unavailable; the app will retry while in the foreground and will not start the tunnel automatically.",
@@ -1015,7 +1030,7 @@
       }
     }
   },
-  "sourceSavedConfirmOverwrite": "This source is already saved; confirm that you want to overwrite it.",
+  "sourceSavedConfirmOverwrite": "This source is already saved; confirm whether to overwrite it.",
   "updateInterrupted": "Update did not finish; update this source again.",
   "stageDownloading": "Downloading configuration",
   "stageUpdatingConfig": "Updating configuration",
@@ -1058,7 +1073,6 @@
   "authorizationCancelled": "Authorization was cancelled; the tunnel stays stopped.",
   "stageStartingTunnel": "Starting the tunnel",
   "configMissingRefresh": "The configuration no longer exists; refresh the list.",
-  "tunnelStartFailed": "Tunnel did not start.",
   "operationFinished": "The operation has ended.",
   "overrideMissingRefresh": "The plugin no longer exists; refresh the list.",
   "remoteOverrideReadOnly": "Remote plugin text is read-only; change the source or create a local plugin.",
@@ -1294,44 +1308,66 @@
   },
   "trafficDownloaded": "Downloaded",
   "trafficUploaded": "Uploaded",
-  "processMemory": "Memory",
   "processMemoryUnavailable": "Memory is unavailable. Try again shortly.",
   "dnsTools": "DNS tools",
   "dnsName": "Name or IP address",
   "dnsRecordType": "Record type",
   "dnsQuery": "Query",
   "dnsRefreshCoreStatus": "Refresh core status",
-  "@dnsRefreshCoreStatus": {"description": "刷新或准备内核状态的操作。"},
+  "@dnsRefreshCoreStatus": {
+    "description": "刷新或准备内核状态的操作。"
+  },
   "dnsViewQueryResults": "View query results",
-  "@dnsViewQueryResults": {"description": "在当前 DNS 对话框中查看按记录分组的查询结果。"},
+  "@dnsViewQueryResults": {
+    "description": "在当前 DNS 对话框中查看按记录分组的查询结果。"
+  },
   "dnsQueryResults": "Query results",
-  "@dnsQueryResults": {"description": "DNS 查询结果区域的标题。"},
+  "@dnsQueryResults": {
+    "description": "DNS 查询结果区域的标题。"
+  },
   "dnsPreviousQuery": "Previous query",
-  "@dnsPreviousQuery": {"description": "标记页面保留的上次 DNS 查询结果。"},
+  "@dnsPreviousQuery": {
+    "description": "标记页面保留的上次 DNS 查询结果。"
+  },
   "dnsViewPreviousQuery": "View previous query",
-  "@dnsViewPreviousQuery": {"description": "查看页面保留的上次 DNS 查询结果。"},
+  "@dnsViewPreviousQuery": {
+    "description": "查看页面保留的上次 DNS 查询结果。"
+  },
   "dnsQueryRawData": "DNS query raw data",
-  "@dnsQueryRawData": {"description": "查看完整 DNS 查询原始响应时使用的标题；入口文字使用 rawData。"},
+  "@dnsQueryRawData": {
+    "description": "查看完整 DNS 查询原始响应时使用的标题；入口文字使用 rawData。"
+  },
   "dnsQueryIdentity": "Query: {name} · {type}",
   "@dnsQueryIdentity": {
     "description": "显示这次响应对应的查询名称和记录类型；name 和 type 使用发起查询时保存的值。",
-    "placeholders": {"name": {"type": "String"}, "type": {"type": "String"}}
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "type": {
+        "type": "String"
+      }
+    }
   },
   "dnsResponseSource": "Source: {source}",
   "@dnsResponseSource": {
     "description": "显示这次响应的内核来源；source 使用发起查询时保存的来源，并由界面翻译。",
-    "placeholders": {"source": {"type": "String"}}
+    "placeholders": {
+      "source": {
+        "type": "String"
+      }
+    }
   },
   "dnsCacheOperationDetails": "Cache operation details",
-  "@dnsCacheOperationDetails": {"description": "查看 DNS 缓存或 fake-IP 清理详情的入口文字和标题，包括清理对象、实际状态和各缓存池或映射池的结果。"},
+  "@dnsCacheOperationDetails": {
+    "description": "查看 DNS 缓存或 fake-IP 清理详情的入口文字和标题，包括清理对象、实际状态和各缓存池或映射池的结果。"
+  },
   "dnsCacheRawData": "Cache operation raw data",
-  "@dnsCacheRawData": {"description": "查看 DNS 缓存操作完整原始响应时使用的标题。"},
+  "@dnsCacheRawData": {
+    "description": "查看 DNS 缓存操作完整原始响应时使用的标题。"
+  },
   "dnsResolverNotice": "Current core resolver; may use cached data and does not reproduce client DNS responses.",
-  "dnsReady": "Enter a name to query",
-  "dnsPreparing": "Preparing core",
-  "dnsRunning": "Querying",
   "dnsExpired": "Result expired · query again",
-  "dnsNoConfiguration": "Select a configuration first",
   "dnsUnavailable": "Current resolver unavailable",
   "dnsInvalidRequest": "Invalid name or record type, or request exceeds the size limit.",
   "dnsBusy": "The previous query is still finishing. Please wait.",
@@ -1340,7 +1376,6 @@
   "dnsQueryFailed": "Query failed. Try again.",
   "dnsResultTooLarge": "Response exceeds the size limit. No incomplete result is shown.",
   "dnsInvalidResponse": "Could not read the query result. Try again.",
-  "dnsQuestion": "Question",
   "dnsAnswer": "Answer",
   "dnsAuthority": "Authority",
   "dnsAdditional": "Additional",
@@ -1349,22 +1384,34 @@
   "dnsElapsed": "Query time {milliseconds} ms",
   "@dnsElapsed": {
     "placeholders": {
-      "milliseconds": { "type": "double" }
+      "milliseconds": {
+        "type": "double"
+      }
     }
   },
   "dnsRcode": "RCODE: {name} ({code})",
   "@dnsRcode": {
     "placeholders": {
-      "name": { "type": "String" },
-      "code": { "type": "int" }
+      "name": {
+        "type": "String"
+      },
+      "code": {
+        "type": "int"
+      }
     }
   },
   "dnsRecordMeta": "{type} · {recordClass} · TTL {ttl} s",
   "@dnsRecordMeta": {
     "placeholders": {
-      "type": { "type": "String" },
-      "recordClass": { "type": "String" },
-      "ttl": { "type": "int" }
+      "type": {
+        "type": "String"
+      },
+      "recordClass": {
+        "type": "String"
+      },
+      "ttl": {
+        "type": "int"
+      }
     }
   },
   "dnsClearCache": "Clear DNS cache",
@@ -1387,29 +1434,34 @@
   "hiddenGroupAttribute": "Hidden",
   "globalGroupAttribute": "Global group",
   "noStrategyGroups": "No strategy groups",
-  "coreCleanupCache": "Clear core cache database",
-  "coreCleanupCacheMessage": "Delete only cache.db in the core working directory, clearing cached core choices, fake-IP mappings and provider state. Configurations, plugins, app settings, downloaded resources and node identities are not deleted.",
-  "coreCleanupAll": "Reset core data",
-  "coreCleanupAllMessage": "Delete all files in the core working directory, including Geo databases and provider downloads, cache.db, local protocol identities and any other files placed there. Downloads or sign-in may be needed again. Configurations, plugins, app settings, saved Always-on VPN startup data, the first-run notice record, app backups and files outside this directory are not deleted.",
   "coreCleanupResource": "Delete local resource file",
   "coreCleanupResourceMessage": "Delete only the resource file shown below, not its configuration definition. It may need to be downloaded or imported again before use. Other files are not deleted.",
-  "coreCleanupRestartMessage": "The app will request that the connection stop and then exit. The file deletion runs next time you open the app, before the core uses the files.",
-  "coreCleanupReplacesPending": "This replaces the unfinished cleanup request.",
-  "coreCleanupScheduleAndExit": "Schedule and exit",
-  "coreCleanupScheduledTitle": "Cleanup scheduled",
   "coreCleanupScheduled": "Cleanup is scheduled for the next app start. No files have been deleted yet.",
   "coreCleanupScheduledWithIssue": "{result}\n\n{issue}",
-  "@coreCleanupScheduledWithIssue": {"placeholders": {"result": {"type": "String"}, "issue": {"type": "String"}}},
+  "@coreCleanupScheduledWithIssue": {
+    "placeholders": {
+      "result": {
+        "type": "String"
+      },
+      "issue": {
+        "type": "String"
+      }
+    }
+  },
   "coreCleanupStopUnconfirmed": "Could not confirm that the core stopped.",
-  "coreCleanupExit": "Exit app",
-  "coreCleanupRetry": "Exit and retry at next start",
   "coreCleanupInitializing": "Checking the core data cleanup request.",
   "coreCleanupRequired": "Core directory cleanup is pending. Exit the app from Storage and data, then open it again.",
   "coreCleanupFailed": "Core data cleanup did not complete.",
   "coreCleanupCompleted": "Selected core files were cleaned up. Using the core again may create new files.",
   "coreCleanupNeedsSelection": "Select the core files to clean up first.",
   "resourceLocalFile": "Local file: {path}",
-  "@resourceLocalFile": {"placeholders": {"path": {"type": "String"}}},
+  "@resourceLocalFile": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
   "storageData": "Storage and data",
   "storageUsage": "Storage usage",
   "storageCleanup": "Data cleanup",
@@ -1419,15 +1471,37 @@
   "storageMemoryNotice": "Recent connections and core logs are held only in memory. Clearing ended records does not close active connections.",
   "storageCoreNotice": "Core files are managed by mihomo and do not use configuration or plugin storage limits.",
   "storageBytes": "{bytes}",
-  "@storageBytes": {"placeholders": {"bytes": {"type": "String"}}},
+  "@storageBytes": {
+    "placeholders": {
+      "bytes": {
+        "type": "String"
+      }
+    }
+  },
   "storageFileBytes": "{bytes} / {limit}",
-  "@storageFileBytes": {"placeholders": {"bytes": {"type": "String"}, "limit": {"type": "String"}}},
-  "storageFileLimit": "Limit: {limit}",
-  "@storageFileLimit": {"placeholders": {"limit": {"type": "String"}}},
+  "@storageFileBytes": {
+    "placeholders": {
+      "bytes": {
+        "type": "String"
+      },
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
   "storageLimitExceeded": "Exceeds the limit",
   "storageEntryCountUnavailable": "Entries: —",
   "storageEntryCount": "{count} / {limit} entries",
-  "@storageEntryCount": {"placeholders": {"count": {"type": "int"}, "limit": {"type": "int"}}},
+  "@storageEntryCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "limit": {
+        "type": "int"
+      }
+    }
+  },
   "clearConfigurations": "Delete all configurations",
   "clearConfigurationsMessage": "Delete all saved configurations, the saved selection and mode choice, and cancel configuration update schedules. The running connection will not be stopped automatically. Plugins, app settings and core files are not deleted.",
   "configurationsCleared": "All saved configurations deleted.",
@@ -1440,7 +1514,6 @@
   "backupExport": "Export backup",
   "backupImport": "Import backup",
   "backupRestore": "Restore backup",
-  "backupSensitiveNotice": "Backups are not encrypted and include sources and credentials. Keep them safe.",
   "backupScopeNotice": "Only configurations, plugins and app settings are included.",
   "backupCounts": "{configurations, plural, =1{1 configuration} other{{configurations} configurations}} · {overrides, plural, =1{1 plugin} other{{overrides} plugins}}",
   "@backupCounts": {
@@ -1462,21 +1535,11 @@
     }
   },
   "backupNoSelection": "No configuration selected",
-  "backupCreatedAt": "Created: {value}",
-  "@backupCreatedAt": {
-    "placeholders": {
-      "value": {
-        "type": "String"
-      }
-    }
-  },
-  "backupNotSelected": "Choose a backup file first.",
   "backupConfirmTitle": "Replace app data?",
   "backupConfirmMessage": "The backup replaces existing data rather than merging it. Empty collections also clear existing content.",
   "backupConfirmRunning": "The current connection will first be stopped and its resources released. After restoration, the app will try connecting with the restored selected configuration. A newer disconnect request takes priority.",
   "backupConfirmStopped": "Restoration will not start a connection.",
   "backupConfirmUnconfirmed": "Connection state is unconfirmed. Restoration will proceed only when it is safe to replace the data.",
-  "backupPreparing": "Preparing backup",
   "backupExportSaved": "Backup file saved.",
   "backupCancelled": "Operation cancelled.",
   "backupInvalid": "The backup file is invalid or its format is not supported.",
@@ -1493,7 +1556,6 @@
   "backupSchedulesFailed": "Automatic update tasks were not fully registered.",
   "backupSettingsRefreshFailed": "The displayed settings could not be read again.",
   "resourceRawData": "Original resource data",
-  "localCustomDefinitionsEmpty": "There are no directly defined local custom entries here.",
   "localCustomDeleteConfirm": "Delete this entry only from the local custom plugin? A lower-priority definition may reappear, and existing references will not be changed.",
   "connectionRuleScope": "Match scope",
   "connectionRuleUnavailable": "Current connection information cannot be used to add a rule.",

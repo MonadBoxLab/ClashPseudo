@@ -24,12 +24,6 @@ const definitionMaxSeconds = 9223372036;
 const definitionMaxMilliseconds = 9223372036854;
 const _unset = '\u0000unset';
 
-/// Standard SDK form-field composition.
-Widget definitionHeading(BuildContext context, String text) => Padding(
-  padding: const EdgeInsets.only(top: 16, bottom: 12),
-  child: Text(text, style: Theme.of(context).textTheme.titleSmall),
-);
-
 /// 校验只改变输入边框与语义，不为错误说明增加正文高度。
 class DefinitionFieldValidation extends StatelessWidget {
   const DefinitionFieldValidation({

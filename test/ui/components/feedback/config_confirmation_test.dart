@@ -325,12 +325,10 @@ void main() {
                   onPressed: () async {
                     accepted = await confirmAction(
                       context,
-                      title: (strings) => strings.overwriteConfigTitle,
+                      title: (strings) => strings.deleteConfigTitle,
                       subject: subject,
-                      message: (strings) =>
-                          '${strings.overwriteConfigMessage}'
-                          '\n\n${strings.overwriteKeepsOnFailure}',
-                      confirmLabel: (strings) => strings.overwrite,
+                      message: (strings) => strings.deleteLocalBody,
+                      confirmLabel: (strings) => strings.delete,
                     );
                   },
                   child: const Text('打开'),
@@ -342,10 +340,10 @@ void main() {
         await tester.tap(find.text('打开'));
         await tester.pumpAndSettle();
         final dialog = tester.widget<AlertDialog>(find.byType(AlertDialog));
-        expect((dialog.title! as Text).data, '覆盖更新配置？');
+        expect((dialog.title! as Text).data, '删除配置？');
         expect(find.text(subject), findsOneWidget);
         expect(tester.takeException(), isNull);
-        final button = find.widgetWithText(FilledButton, '覆盖更新');
+        final button = find.widgetWithText(FilledButton, '删除');
         final rect = tester.getRect(button);
         await tester.drag(
           find.byType(SingleChildScrollView),

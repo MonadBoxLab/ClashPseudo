@@ -125,9 +125,6 @@ void main() {
         try {
           await tester.pumpWidget(host(1000));
           await tester.pump();
-          final strings = AppLocalizations.of(
-            tester.element(find.byType(TrafficPanel)),
-          );
           final appText = textIn('traffic-memory-app');
           final countText = textIn('traffic-active-count');
           expect(appText, findsOneWidget);
@@ -135,7 +132,6 @@ void main() {
             tester.widget<Text>(appText).data,
             language == 'en' ? 'App memory 134.2 MB' : '应用内存 134.2 MB',
           );
-          expect(find.text(strings.memoryTitle), findsNothing);
           expect(
             find.byKey(const ValueKey('traffic-memory-core')),
             findsNothing,
@@ -284,7 +280,6 @@ void main() {
 
       stableMemory();
 
-      expect(find.text(strings.memoryTitle), findsNothing);
       expect(find.text(strings.memoryApplication('134.2')), findsOneWidget);
       expect(find.text(strings.memoryCore('64.0')), findsOneWidget);
       bridge.coreValid = false;

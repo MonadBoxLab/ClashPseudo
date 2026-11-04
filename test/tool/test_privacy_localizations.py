@@ -16,8 +16,8 @@ SECTIONS = (
 )
 # 完整隐私说明的UTF-8摘要；全文与分节同时检查。
 APPROVED_BODY_SHA256 = {
-    "zh": "f3a3da70be9bac2ec923200d5ca369a15a06ee4ed6f1187060f40ed419e0e55a",
-    "en": "685ba3268815b2b73ae38dbfefd502e73704c36f0baa22bbe1b0f56681c64912",
+    "zh": "6021980a6239995b15846d607430074153db57e13bc08a71eb9ce2cf69bafe23",
+    "en": "03cd5dbdd18129d96d164aedf3c3386d4aa8b92523bc5d2acdde2cdab10af45f",
 }
 APPROVED_SHORT = {
     "zh": {
@@ -35,7 +35,7 @@ APPROVED_SHORT = {
         "privacyNoticeReadFull": "Full notice",
         "privacyNoticeIntro": "Clash Pseudo is free and open source. It does not collect or report user data and does not provide any proxy nodes or subscription services.",
         "privacyNoticeLicenseNotice": "See GPLv3 for more information.",
-        "privacyNoticeNotSaved": "Could not confirm that the notice was recorded. It may appear again next time you open the app.",
+        "privacyNoticeNotSaved": "Could not confirm that the notice was recorded. It may appear again on next launch.",
         "sourceDistributionNotice": "Corresponding source and build materials are provided with each release.",
     },
 }
@@ -89,10 +89,6 @@ class PrivacyLocalizationsTest(unittest.TestCase):
             for key, value in expected.items():
                 with self.subTest(locale=locale, key=key):
                     self.assertEqual(strings[key], value)
-            self.assertEqual(
-                strings["privacyNoticeSummary"],
-                expected["privacyNoticeIntro"] + "\n\n" + expected["privacyNoticeLicenseNotice"],
-            )
 
     def test_repository_is_the_complete_copyable_url_and_gpl_label_is_stable(self):
         for locale, strings in self.locales.items():

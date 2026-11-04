@@ -1,6 +1,0 @@
-// 应用名称与原生标识；版本由 Flutter 构建元数据提供。
-PRODUCT_NAME = Clash Pseudo
-PRODUCT_BUNDLE_IDENTIFIER = io.github.monadboxlab.clashpseudo
-
-// 应用信息中的著作权声明。
-PRODUCT_COPYRIGHT = Copyright © 2026 MonadBox Lab. All rights reserved.

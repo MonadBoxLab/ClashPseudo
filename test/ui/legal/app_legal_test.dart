@@ -1,12 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:clash_pseudo/src/l10n/app_localizations.dart';
 import 'package:clash_pseudo/src/ui/legal/app_legal.dart';
-import 'package:clash_pseudo/src/ui/theme/app_theme.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:clash_pseudo/src/l10n/app_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yaml/yaml.dart';
 
@@ -228,42 +227,4 @@ void main() {
       await tester.pumpAndSettle();
     }
   });
-
-  for (final dark in [false, true]) {
-    testWidgets('许可通知可进入 SDK 许可页面，dark=$dark', (tester) async {
-      LicenseRegistry.reset();
-      LicenseRegistry.addLicense(() async* {
-        yield const LicenseEntryWithLineBreaks([
-          'Clash Pseudo',
-        ], 'GPL-3.0-only');
-      });
-      tester.view.physicalSize = const Size(320, 800);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      await tester.pumpWidget(
-        MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          locale: const Locale('zh'),
-          theme: dark ? AppTheme.dark : AppTheme.light,
-          home: Builder(
-            builder: (context) => Scaffold(
-              body: TextButton(
-                onPressed: () => showAppLegal(context),
-                child: const Text('关于与许可'),
-              ),
-            ),
-          ),
-        ),
-      );
-      await tester.tap(find.text('关于与许可'));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('GPL-3.0-only'), findsOneWidget);
-      await tester.tap(find.text('许可与第三方通知'));
-      await tester.pumpAndSettle();
-      expect(find.byType(LicensePage), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    });
-  }
 }

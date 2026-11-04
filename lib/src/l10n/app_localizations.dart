@@ -98,12 +98,6 @@ abstract class AppLocalizations {
     Locale('zh'),
   ];
 
-  /// No description provided for @memoryTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Memory'**
-  String get memoryTitle;
-
   /// No description provided for @memoryApplication.
   ///
   /// In en, this message translates to:
@@ -125,7 +119,7 @@ abstract class AppLocalizations {
   /// No description provided for @lanProxyNotice.
   ///
   /// In en, this message translates to:
-  /// **'Let devices on your local network connect through this device\'s HTTP or SOCKS5 proxy. This service can run independently of the VPN.'**
+  /// **'Allow devices on the local network to connect through this device\'s HTTP or SOCKS5 proxy. This service can run independently of the VPN.'**
   String get lanProxyNotice;
 
   /// No description provided for @lanProxyEnabled.
@@ -209,7 +203,7 @@ abstract class AppLocalizations {
   /// No description provided for @coreInterruptedMessage.
   ///
   /// In en, this message translates to:
-  /// **'Automatic start is paused. Your current page and edits are retained. Open Overview to restart, choose a configuration, or clean up files.'**
+  /// **'Automatic start is paused. The current page and edits are retained. Open Overview to restart, choose a configuration, or clean up files.'**
   String get coreInterruptedMessage;
 
   /// No description provided for @coreRecoveryRestart.
@@ -259,18 +253,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Some files could not be cleaned up'**
   String get coreCleanupPartial;
-
-  /// No description provided for @coreLoaded.
-  ///
-  /// In en, this message translates to:
-  /// **'Loaded by core'**
-  String get coreLoaded;
-
-  /// No description provided for @vpnTakenOver.
-  ///
-  /// In en, this message translates to:
-  /// **'VPN active'**
-  String get vpnTakenOver;
 
   /// No description provided for @logClear.
   ///
@@ -428,12 +410,6 @@ abstract class AppLocalizations {
   /// **'Configurations'**
   String get configurations;
 
-  /// 配置卡片上表示已选择的状态文字。
-  ///
-  /// In en, this message translates to:
-  /// **'Selected'**
-  String get configSelected;
-
   /// 选择这张卡片所代表的配置。
   ///
   /// In en, this message translates to:
@@ -482,23 +458,11 @@ abstract class AppLocalizations {
   /// **'Core logs'**
   String get coreLogs;
 
-  /// No description provided for @coreLogsRecentWindow.
-  ///
-  /// In en, this message translates to:
-  /// **'Recent session'**
-  String get coreLogsRecentWindow;
-
   /// No description provided for @applicationAccess.
   ///
   /// In en, this message translates to:
   /// **'App VPN access'**
   String get applicationAccess;
-
-  /// No description provided for @alwaysOnVpn.
-  ///
-  /// In en, this message translates to:
-  /// **'Always-on VPN'**
-  String get alwaysOnVpn;
 
   /// No description provided for @about.
   ///
@@ -563,7 +527,7 @@ abstract class AppLocalizations {
   /// No description provided for @legalSummary.
   ///
   /// In en, this message translates to:
-  /// **'Original code is licensed under GPL-3.0-only. You may copy, modify and redistribute it under the GNU General Public License version 3. No warranty is provided to the extent permitted by law. Third-party components retain their own copyrights and licenses.'**
+  /// **'Clash Pseudo is free software; redistribution and modification are permitted under the terms of the GNU General Public License, version 3 only (GPL-3.0-only), as published by the Free Software Foundation.\n\nThis program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY.'**
   String get legalSummary;
 
   /// No description provided for @sourceDistributionNotice.
@@ -601,12 +565,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Clear search'**
   String get clearSearch;
-
-  /// No description provided for @runtimeConfigLoading.
-  ///
-  /// In en, this message translates to:
-  /// **'Reading core configuration…'**
-  String get runtimeConfigLoading;
 
   /// No description provided for @runtimeConfigLive.
   ///
@@ -655,12 +613,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Previous snapshot · not current'**
   String get coreSnapshotStale;
-
-  /// No description provided for @sourceConfiguration.
-  ///
-  /// In en, this message translates to:
-  /// **'Configuration'**
-  String get sourceConfiguration;
 
   /// No description provided for @builtinNode.
   ///
@@ -752,71 +704,11 @@ abstract class AppLocalizations {
   /// **'No matching rules'**
   String get noRules;
 
-  /// No description provided for @compiledRules.
-  ///
-  /// In en, this message translates to:
-  /// **'Effective declaration order'**
-  String get compiledRules;
-
-  /// No description provided for @normalizedRules.
-  ///
-  /// In en, this message translates to:
-  /// **'Normalized rule-set entries'**
-  String get normalizedRules;
-
-  /// No description provided for @sourceRules.
-  ///
-  /// In en, this message translates to:
-  /// **'Source entries · not compiled rules'**
-  String get sourceRules;
-
-  /// No description provided for @ruleSourceNotice.
-  ///
-  /// In en, this message translates to:
-  /// **'Domain and IP-CIDR sets show normalized entries; merging entries can change the count. Classical sets show inline payload, cached content, or the configured fallback, not compiled rules.'**
-  String get ruleSourceNotice;
-
   /// No description provided for @ruleTarget.
   ///
   /// In en, this message translates to:
   /// **'Target'**
   String get ruleTarget;
-
-  /// No description provided for @ruleContent.
-  ///
-  /// In en, this message translates to:
-  /// **'Content'**
-  String get ruleContent;
-
-  /// No description provided for @ruleSourceUnavailable.
-  ///
-  /// In en, this message translates to:
-  /// **'Reading the local source for this rule set failed.'**
-  String get ruleSourceUnavailable;
-
-  /// No description provided for @ruleSourceInvalid.
-  ///
-  /// In en, this message translates to:
-  /// **'The provider\'s local source is unreadable or malformed.'**
-  String get ruleSourceInvalid;
-
-  /// No description provided for @ruleSourceChanged.
-  ///
-  /// In en, this message translates to:
-  /// **'The rule source changed while reading. Refresh to read a consistent snapshot.'**
-  String get ruleSourceChanged;
-
-  /// No description provided for @ruleSourceUnsupported.
-  ///
-  /// In en, this message translates to:
-  /// **'This source format is not readable through the public API.'**
-  String get ruleSourceUnsupported;
-
-  /// No description provided for @resourcesExplanation.
-  ///
-  /// In en, this message translates to:
-  /// **'Lists the core’s proxy providers, rule providers, and Geo databases. Sources show scheme and host. Update times come from core records or local file modification times; counts show current entries.'**
-  String get resourcesExplanation;
 
   /// No description provided for @resourceSearch.
   ///
@@ -926,18 +818,6 @@ abstract class AppLocalizations {
   /// **'Local file unreadable'**
   String get resourceFileUnreadable;
 
-  /// No description provided for @resourceEnabled.
-  ///
-  /// In en, this message translates to:
-  /// **'Enabled'**
-  String get resourceEnabled;
-
-  /// No description provided for @resourceDisabled.
-  ///
-  /// In en, this message translates to:
-  /// **'Disabled'**
-  String get resourceDisabled;
-
   /// No description provided for @resourceBuiltInBehavior.
   ///
   /// In en, this message translates to:
@@ -1040,29 +920,11 @@ abstract class AppLocalizations {
   /// **'Cached: {count} entries'**
   String logTotal(int count);
 
-  /// No description provided for @logClearLocal.
-  ///
-  /// In en, this message translates to:
-  /// **'Clear logs on this page'**
-  String get logClearLocal;
-
   /// No description provided for @logBackToLatest.
   ///
   /// In en, this message translates to:
   /// **'Back to latest'**
   String get logBackToLatest;
-
-  /// No description provided for @logClearNotice.
-  ///
-  /// In en, this message translates to:
-  /// **'Clearing affects only the logs cached on this page; it does not change system logs or core settings.'**
-  String get logClearNotice;
-
-  /// No description provided for @logTruncated.
-  ///
-  /// In en, this message translates to:
-  /// **'Truncated'**
-  String get logTruncated;
 
   /// No description provided for @delayTestGroup.
   ///
@@ -1075,12 +937,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Test this member'**
   String get delayTestMember;
-
-  /// No description provided for @delayTesting.
-  ///
-  /// In en, this message translates to:
-  /// **'Testing…'**
-  String get delayTesting;
 
   /// No description provided for @delayTarget.
   ///
@@ -1142,24 +998,6 @@ abstract class AppLocalizations {
   /// **'Test complete'**
   String get delayDone;
 
-  /// No description provided for @delayTargetOnly.
-  ///
-  /// In en, this message translates to:
-  /// **'Test target: {url}'**
-  String delayTargetOnly(String url);
-
-  /// No description provided for @delayUnavailable.
-  ///
-  /// In en, this message translates to:
-  /// **'This group cannot be tested'**
-  String get delayUnavailable;
-
-  /// No description provided for @delayBatchFailed.
-  ///
-  /// In en, this message translates to:
-  /// **'Batch expired; test again'**
-  String get delayBatchFailed;
-
   /// No description provided for @overridePlugins.
   ///
   /// In en, this message translates to:
@@ -1190,23 +1028,11 @@ abstract class AppLocalizations {
   /// **'Local'**
   String get overrideLocal;
 
-  /// No description provided for @overrideRemote.
-  ///
-  /// In en, this message translates to:
-  /// **'Remote'**
-  String get overrideRemote;
-
   /// No description provided for @overrideEnabled.
   ///
   /// In en, this message translates to:
   /// **'Enabled'**
   String get overrideEnabled;
-
-  /// No description provided for @overrideDisabled.
-  ///
-  /// In en, this message translates to:
-  /// **'Disabled'**
-  String get overrideDisabled;
 
   /// No description provided for @overridePrepend.
   ///
@@ -1231,12 +1057,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Move down'**
   String get overrideMoveDown;
-
-  /// No description provided for @overrideReadOnly.
-  ///
-  /// In en, this message translates to:
-  /// **'Remote plugin text is read-only'**
-  String get overrideReadOnly;
 
   /// No description provided for @overrideEmpty.
   ///
@@ -1297,12 +1117,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Plugin name'**
   String get overrideName;
-
-  /// No description provided for @overrideSource.
-  ///
-  /// In en, this message translates to:
-  /// **'Plugin URL'**
-  String get overrideSource;
 
   /// No description provided for @overrideUpdate.
   ///
@@ -1471,12 +1285,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No members'**
   String get strategyGroupNoMembers;
-
-  /// No description provided for @strategyGroupInlineIcon.
-  ///
-  /// In en, this message translates to:
-  /// **'Configured icon'**
-  String get strategyGroupInlineIcon;
 
   /// No description provided for @strategyGroupFixedValue.
   ///
@@ -1754,12 +1562,6 @@ abstract class AppLocalizations {
   /// **'Built-in handlers'**
   String get proxyCategoryBuiltin;
 
-  /// No description provided for @proxyBuiltinDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'Core handlers, not proxy protocols.'**
-  String get proxyBuiltinDescription;
-
   /// No description provided for @proxyOptional.
   ///
   /// In en, this message translates to:
@@ -1795,12 +1597,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Enter a valid integer.'**
   String get proxyInvalidInteger;
-
-  /// No description provided for @proxyInvalidDecimal.
-  ///
-  /// In en, this message translates to:
-  /// **'Enter a valid number.'**
-  String get proxyInvalidDecimal;
 
   /// No description provided for @proxyInvalidPort.
   ///
@@ -1841,7 +1637,7 @@ abstract class AppLocalizations {
   /// No description provided for @proxySaveFailed.
   ///
   /// In en, this message translates to:
-  /// **'Saving or connecting did not complete. Your input is kept.'**
+  /// **'Saving or connecting did not complete. Input is kept.'**
   String get proxySaveFailed;
 
   /// No description provided for @proxyServer.
@@ -1981,18 +1777,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Save and reconnect'**
   String get applicationReconnect;
-
-  /// No description provided for @applicationSavedReconnected.
-  ///
-  /// In en, this message translates to:
-  /// **'Application access saved and the tunnel reconnected.'**
-  String get applicationSavedReconnected;
-
-  /// No description provided for @applicationSaved.
-  ///
-  /// In en, this message translates to:
-  /// **'Application access saved; it applies on the next connection.'**
-  String get applicationSaved;
 
   /// No description provided for @applicationAccessNotice.
   ///
@@ -2156,12 +1940,6 @@ abstract class AppLocalizations {
   /// **'Auto-update'**
   String get autoUpdate;
 
-  /// No description provided for @autoUpdateOff.
-  ///
-  /// In en, this message translates to:
-  /// **'Off'**
-  String get autoUpdateOff;
-
   /// No description provided for @autoUpdateEvery.
   ///
   /// In en, this message translates to:
@@ -2173,12 +1951,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Interval'**
   String get autoUpdateInterval;
-
-  /// No description provided for @autoUpdateNotice.
-  ///
-  /// In en, this message translates to:
-  /// **'System scheduling may be delayed and use mobile data. Failed downloads keep existing content.'**
-  String get autoUpdateNotice;
 
   /// No description provided for @autoUpdateEnabled.
   ///
@@ -2402,12 +2174,6 @@ abstract class AppLocalizations {
   /// **'No configuration selected'**
   String get statusImportPrompt;
 
-  /// No description provided for @statusReimport.
-  ///
-  /// In en, this message translates to:
-  /// **'The current configuration must be re-imported'**
-  String get statusReimport;
-
   /// No description provided for @statusReady.
   ///
   /// In en, this message translates to:
@@ -2561,7 +2327,7 @@ abstract class AppLocalizations {
   /// No description provided for @modeRuleDescription.
   ///
   /// In en, this message translates to:
-  /// **'Route by the rules in your configuration.'**
+  /// **'Route connections by the rules in the configuration.'**
   String get modeRuleDescription;
 
   /// No description provided for @modeGlobalDescription.
@@ -2582,36 +2348,6 @@ abstract class AppLocalizations {
   /// **'Network activity'**
   String get networkActivity;
 
-  /// No description provided for @waitingTakeover.
-  ///
-  /// In en, this message translates to:
-  /// **'Waiting for the tunnel'**
-  String get waitingTakeover;
-
-  /// No description provided for @waitingStatusSync.
-  ///
-  /// In en, this message translates to:
-  /// **'Waiting for status'**
-  String get waitingStatusSync;
-
-  /// No description provided for @updateFailed.
-  ///
-  /// In en, this message translates to:
-  /// **'Update failed'**
-  String get updateFailed;
-
-  /// No description provided for @waitingUpdate.
-  ///
-  /// In en, this message translates to:
-  /// **'Waiting for update'**
-  String get waitingUpdate;
-
-  /// No description provided for @waitingSample.
-  ///
-  /// In en, this message translates to:
-  /// **'Waiting for samples'**
-  String get waitingSample;
-
   /// No description provided for @trafficConnections.
   ///
   /// In en, this message translates to:
@@ -2629,12 +2365,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Upload'**
   String get upload;
-
-  /// No description provided for @activitySummary.
-  ///
-  /// In en, this message translates to:
-  /// **'{label} {value} {unit}, recent connections'**
-  String activitySummary(String label, String value, String unit);
 
   /// No description provided for @modeTitle.
   ///
@@ -2707,12 +2437,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Inactive'**
   String get inactiveOnly;
-
-  /// No description provided for @recordLimitReached.
-  ///
-  /// In en, this message translates to:
-  /// **'Record limit reached'**
-  String get recordLimitReached;
 
   /// No description provided for @clearInactiveConnections.
   ///
@@ -2948,107 +2672,11 @@ abstract class AppLocalizations {
   /// **'Strategies'**
   String get strategyGroups;
 
-  /// No description provided for @actualConfigUnconfirmed.
-  ///
-  /// In en, this message translates to:
-  /// **'Actual configuration unconfirmed'**
-  String get actualConfigUnconfirmed;
-
-  /// No description provided for @noConfigSelected.
-  ///
-  /// In en, this message translates to:
-  /// **'No configuration selected'**
-  String get noConfigSelected;
-
-  /// No description provided for @confirmingConfig.
-  ///
-  /// In en, this message translates to:
-  /// **'Confirming configuration'**
-  String get confirmingConfig;
-
-  /// No description provided for @strategiesNotUpdated.
-  ///
-  /// In en, this message translates to:
-  /// **'Strategies not updated'**
-  String get strategiesNotUpdated;
-
-  /// No description provided for @loadingStrategies.
-  ///
-  /// In en, this message translates to:
-  /// **'Loading strategies…'**
-  String get loadingStrategies;
-
   /// No description provided for @selectionsNotRestored.
   ///
   /// In en, this message translates to:
   /// **'Some selections were not restored'**
   String get selectionsNotRestored;
-
-  /// No description provided for @underTakeover.
-  ///
-  /// In en, this message translates to:
-  /// **'Under tunnel'**
-  String get underTakeover;
-
-  /// No description provided for @notUnderTakeover.
-  ///
-  /// In en, this message translates to:
-  /// **'Not under tunnel · Preselected'**
-  String get notUnderTakeover;
-
-  /// No description provided for @viewUnrestored.
-  ///
-  /// In en, this message translates to:
-  /// **'View selections not restored'**
-  String get viewUnrestored;
-
-  /// No description provided for @viewStrategyError.
-  ///
-  /// In en, this message translates to:
-  /// **'View strategy error'**
-  String get viewStrategyError;
-
-  /// No description provided for @strategyStatus.
-  ///
-  /// In en, this message translates to:
-  /// **'Strategy status'**
-  String get strategyStatus;
-
-  /// No description provided for @waitingTakeoverConfig.
-  ///
-  /// In en, this message translates to:
-  /// **'Waiting for the tunnel and configuration status.'**
-  String get waitingTakeoverConfig;
-
-  /// No description provided for @importConfigForStrategies.
-  ///
-  /// In en, this message translates to:
-  /// **'Import and select a full configuration to view strategies.'**
-  String get importConfigForStrategies;
-
-  /// No description provided for @preparingStrategies.
-  ///
-  /// In en, this message translates to:
-  /// **'Preparing strategies…'**
-  String get preparingStrategies;
-
-  /// No description provided for @strategiesNotLoaded.
-  ///
-  /// In en, this message translates to:
-  /// **'Strategies have not loaded.'**
-  String get strategiesNotLoaded;
-
-  /// No description provided for @strategiesLoadFailed.
-  ///
-  /// In en, this message translates to:
-  /// **'Strategies did not load; check the error and retry.'**
-  String get strategiesLoadFailed;
-
-  /// No description provided for @loadStrategies.
-  ///
-  /// In en, this message translates to:
-  /// **'Load strategies'**
-  String get loadStrategies;
 
   /// No description provided for @noVisibleGroups.
   ///
@@ -3067,12 +2695,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Pinned: {name}'**
   String fixedTo(String name);
-
-  /// No description provided for @notUpdated.
-  ///
-  /// In en, this message translates to:
-  /// **'Not updated'**
-  String get notUpdated;
 
   /// No description provided for @unconfirmed.
   ///
@@ -3200,29 +2822,11 @@ abstract class AppLocalizations {
   /// **'Load balance'**
   String get strategyChoiceLoadBalance;
 
-  /// No description provided for @strategyReadStale.
-  ///
-  /// In en, this message translates to:
-  /// **'Strategy status has not refreshed; the app will retry while in the foreground. Old records cannot be used to switch strategies.'**
-  String get strategyReadStale;
-
-  /// No description provided for @strategyContextChanged.
-  ///
-  /// In en, this message translates to:
-  /// **'The strategy context changed; wait for the current configuration to be read again.'**
-  String get strategyContextChanged;
-
   /// No description provided for @strategyGroupChanged.
   ///
   /// In en, this message translates to:
   /// **'The strategy group or member changed; this selection was not saved.'**
   String get strategyGroupChanged;
-
-  /// No description provided for @applyingStrategy.
-  ///
-  /// In en, this message translates to:
-  /// **'Applying the strategy selection'**
-  String get applyingStrategy;
 
   /// No description provided for @strategySelectionUnconfirmed.
   ///
@@ -3271,18 +2875,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Configurations'**
   String get configTitle;
-
-  /// No description provided for @configReading.
-  ///
-  /// In en, this message translates to:
-  /// **'Configurations · Reading'**
-  String get configReading;
-
-  /// No description provided for @configStale.
-  ///
-  /// In en, this message translates to:
-  /// **'Configurations · Not updated'**
-  String get configStale;
 
   /// No description provided for @configReadFailed.
   ///
@@ -3704,18 +3296,6 @@ abstract class AppLocalizations {
   /// **'Full configuration URL'**
   String get configUrl;
 
-  /// No description provided for @configUrlInvalid.
-  ///
-  /// In en, this message translates to:
-  /// **'Full configuration URL, invalid input'**
-  String get configUrlInvalid;
-
-  /// No description provided for @configUrlHint.
-  ///
-  /// In en, this message translates to:
-  /// **'Enter a complete HTTP or HTTPS configuration URL.'**
-  String get configUrlHint;
-
   /// No description provided for @showUrl.
   ///
   /// In en, this message translates to:
@@ -3763,48 +3343,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Save and update'**
   String get saveAndUpdate;
-
-  /// No description provided for @overwriteConfigTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Overwrite configuration?'**
-  String get overwriteConfigTitle;
-
-  /// No description provided for @overwriteConfigMessage.
-  ///
-  /// In en, this message translates to:
-  /// **'This source is already saved. The existing entry will be updated.'**
-  String get overwriteConfigMessage;
-
-  /// No description provided for @overwriteKeepsOnFailure.
-  ///
-  /// In en, this message translates to:
-  /// **'The existing content and connection are kept if the download fails.'**
-  String get overwriteKeepsOnFailure;
-
-  /// No description provided for @overwriteStopTunnel.
-  ///
-  /// In en, this message translates to:
-  /// **'If the running content changes, this configuration’s tunnel reconnects after the update succeeds.'**
-  String get overwriteStopTunnel;
-
-  /// No description provided for @overwriteNoOtherTunnel.
-  ///
-  /// In en, this message translates to:
-  /// **'Other configurations’ tunnels are not switched or stopped.'**
-  String get overwriteNoOtherTunnel;
-
-  /// No description provided for @overwriteNotStart.
-  ///
-  /// In en, this message translates to:
-  /// **'The tunnel does not start automatically after updating.'**
-  String get overwriteNotStart;
-
-  /// No description provided for @overwriteUnconfirmed.
-  ///
-  /// In en, this message translates to:
-  /// **'Connection status is not yet confirmed. Applying the update depends on the actual running state.'**
-  String get overwriteUnconfirmed;
 
   /// No description provided for @overwrite.
   ///
@@ -4013,38 +3551,8 @@ abstract class AppLocalizations {
   /// No description provided for @editorContextChanged.
   ///
   /// In en, this message translates to:
-  /// **'Saving is unavailable; your draft is retained.'**
+  /// **'Saving is unavailable; the draft is retained.'**
   String get editorContextChanged;
-
-  /// No description provided for @aboutTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'About Clash Pseudo'**
-  String get aboutTitle;
-
-  /// No description provided for @licensesAndNotices.
-  ///
-  /// In en, this message translates to:
-  /// **'Licenses and third-party notices'**
-  String get licensesAndNotices;
-
-  /// No description provided for @goNativeDependencies.
-  ///
-  /// In en, this message translates to:
-  /// **'Go native runtime dependencies'**
-  String get goNativeDependencies;
-
-  /// No description provided for @androidDependencies.
-  ///
-  /// In en, this message translates to:
-  /// **'Android runtime dependencies'**
-  String get androidDependencies;
-
-  /// No description provided for @materialIconsFont.
-  ///
-  /// In en, this message translates to:
-  /// **'Material Icons font'**
-  String get materialIconsFont;
 
   /// No description provided for @privacyNoticeTitle.
   ///
@@ -4061,20 +3569,14 @@ abstract class AppLocalizations {
   /// No description provided for @privacyNoticeNotSaved.
   ///
   /// In en, this message translates to:
-  /// **'Could not confirm that the notice was recorded. It may appear again next time you open the app.'**
+  /// **'Could not confirm that the notice was recorded. It may appear again on next launch.'**
   String get privacyNoticeNotSaved;
 
   /// No description provided for @privacyNoticeBody.
   ///
   /// In en, this message translates to:
-  /// **'Clash Pseudo is free and open source. It does not collect or report user data and does not provide any proxy nodes or subscription services.\n\nData processing\n\nThe app does not include usage analytics, behavioral analysis, or automatic crash reporting. Configurations, plugins, and app settings are stored on the device. Proxying and rule matching process traffic, domains, and IP addresses on the device. Connection information and logs support display and diagnostics; the installed app list is used to choose which apps the VPN handles.\n\nNetwork communication\n\nConfiguration and plugin downloads, DNS queries, proxy connections, latency tests, remote icons, and rule or geographic database updates contact their respective network services. Destinations come from configurations and application defaults. Turning off VPN traffic handling does not disable network access for these features.\n\nRequests send the content and authentication information needed by the feature, and the receiving service sees the connection\'s source IP address. Downloads from HTTP sources have no transport encryption.\n\nPermission purposes\n\n- Internet access and network state: establish connections, download content, and check the network.\n- Foreground services and notifications: run the VPN, local network proxy service, and background tasks and display their status.\n- Installed app visibility: display the app list and choose which apps the VPN handles.\n- VPN authorization: create a VPN interface after Android authorization and handle traffic within the selected scope.\n\nFiles and backups\n\nConfiguration and plugin contents, source addresses, and credentials saved in them are stored in the app\'s private directory without additional application-level encryption. Exported ZIP files are not encrypted and include configurations, plugins, app settings, and the source addresses and credentials saved in them. Backup import and export are available under Settings → Storage and data and use Android\'s file picker; you choose where exported files are saved.\n\nAndroid system backup and device transfer can copy configurations, plugins, and app settings. Whether they are enabled depends on system settings and the backup service in use. A file provider\'s synchronization features can also keep cloud copies of selected files.\n\nConnection records, core logs, and original content\n\nRecent connection records and logs are held only in device memory, within bounded capacities and retention windows. They are not saved as history files. You can clear them on their respective pages; they disappear when the process ends.\n\nSettings → Diagnostics → Core logs displays core operation, connection, and error messages. Retained logs show original core messages. When capacity is insufficient, whole entries are removed or skipped and omissions are reported; message content is not truncated or rewritten. The configuration editor and backups retain original content.\n\nDeleting data and viewing this notice\n\nYou can delete configurations and plugins, clear recent records and logs, and individually select the cache database and rebuildable geographic data files for cleanup. The core must stop before cleanup. Only confirmed files are deleted; protocol identities, custom provider files, and other user files are retained.\n\nYou can also revoke VPN authorization or clear app data in Android settings. Clearing app data or uninstalling does not delete exported files, system backups, or other external copies.\n\nThis notice is updated as features change. The version included with your installation is available under Settings → About.\n\nProject repository\n\nhttps://github.com/MonadBoxLab/ClashPseudo\n\nSee GPLv3 for more information.'**
+  /// **'Clash Pseudo is free and open source. It does not collect or report user data and does not provide any proxy nodes or subscription services.\n\nData processing\n\nThe app does not include usage analytics, behavioral analysis, or automatic crash reporting. Configurations, plugins, and app settings are stored on the device. Proxying and rule matching process traffic, domains, and IP addresses on the device. Connection information and logs support display and diagnostics; the installed app list is used to choose which apps the VPN handles.\n\nNetwork communication\n\nConfiguration and plugin downloads, DNS queries, proxy connections, latency tests, remote icons, and rule or geographic database updates contact their respective network services. Destinations come from configurations and application defaults. Turning off VPN traffic handling does not disable network access for these features.\n\nRequests send the content and authentication information needed by the feature, and the receiving service sees the connection\'s source IP address. Downloads from HTTP sources have no transport encryption.\n\nPermission purposes\n\n- Internet access and network state: establish connections, download content, and check the network.\n- Foreground services and notifications: run the VPN, local network proxy service, and background tasks and display their status.\n- Installed app visibility: display the app list and choose which apps the VPN handles.\n- VPN authorization: create a VPN interface after Android authorization and handle traffic within the selected scope.\n\nFiles and backups\n\nConfiguration and plugin contents, source addresses, and credentials saved in them are stored in the app\'s private directory without additional application-level encryption. Exported ZIP files are not encrypted and include configurations, plugins, app settings, and the source addresses and credentials saved in them. Backup import and export are available under Settings → Storage and data and use Android\'s file picker; the save location is chosen during export.\n\nAndroid system backup and device transfer can copy configurations, plugins, and app settings. Whether they are enabled depends on system settings and the backup service in use. A file provider\'s synchronization features can also keep cloud copies of selected files.\n\nConnection records, core logs, and original content\n\nRecent connection records and logs are held only in device memory, within bounded capacities and retention windows. They are not saved as history files. They can be cleared on their respective pages and disappear when the process ends.\n\nSettings → Diagnostics → Core logs displays core operation, connection, and error messages. Retained logs show original core messages. When capacity is insufficient, whole entries are removed or skipped and omissions are reported; message content is not truncated or rewritten. The configuration editor and backups retain original content.\n\nDeleting data and viewing this notice\n\nConfigurations and plugins can be deleted in the app, recent records and logs can be cleared, and the cache database and rebuildable geographic data files can be selected individually for cleanup. The core must stop before cleanup. Only confirmed files are deleted; protocol identities, custom provider files, and other user files are retained.\n\nVPN authorization can also be revoked and app data cleared in Android settings. Clearing app data or uninstalling does not delete exported files, system backups, or other external copies.\n\nThis notice is updated as features change. The version included with the current installation is available under Settings → About.\n\nProject repository\n\nhttps://github.com/MonadBoxLab/ClashPseudo\n\nSee GPLv3 for more information.'**
   String get privacyNoticeBody;
-
-  /// No description provided for @privacyNoticeSummary.
-  ///
-  /// In en, this message translates to:
-  /// **'Clash Pseudo is free and open source. It does not collect or report user data and does not provide any proxy nodes or subscription services.\n\nSee GPLv3 for more information.'**
-  String get privacyNoticeSummary;
 
   /// No description provided for @privacyNoticeIntro.
   ///
@@ -4151,7 +3653,7 @@ abstract class AppLocalizations {
   /// No description provided for @privacyFilesAndBackupsBody.
   ///
   /// In en, this message translates to:
-  /// **'Configuration and plugin contents, source addresses, and credentials saved in them are stored in the app\'s private directory without additional application-level encryption. Exported ZIP files are not encrypted and include configurations, plugins, app settings, and the source addresses and credentials saved in them. Backup import and export are available under Settings → Storage and data and use Android\'s file picker; you choose where exported files are saved.\n\nAndroid system backup and device transfer can copy configurations, plugins, and app settings. Whether they are enabled depends on system settings and the backup service in use. A file provider\'s synchronization features can also keep cloud copies of selected files.'**
+  /// **'Configuration and plugin contents, source addresses, and credentials saved in them are stored in the app\'s private directory without additional application-level encryption. Exported ZIP files are not encrypted and include configurations, plugins, app settings, and the source addresses and credentials saved in them. Backup import and export are available under Settings → Storage and data and use Android\'s file picker; the save location is chosen during export.\n\nAndroid system backup and device transfer can copy configurations, plugins, and app settings. Whether they are enabled depends on system settings and the backup service in use. A file provider\'s synchronization features can also keep cloud copies of selected files.'**
   String get privacyFilesAndBackupsBody;
 
   /// No description provided for @privacyRecordsAndLogsTitle.
@@ -4163,7 +3665,7 @@ abstract class AppLocalizations {
   /// No description provided for @privacyRecordsAndLogsBody.
   ///
   /// In en, this message translates to:
-  /// **'Recent connection records and logs are held only in device memory, within bounded capacities and retention windows. They are not saved as history files. You can clear them on their respective pages; they disappear when the process ends.\n\nSettings → Diagnostics → Core logs displays core operation, connection, and error messages. Retained logs show original core messages. When capacity is insufficient, whole entries are removed or skipped and omissions are reported; message content is not truncated or rewritten. The configuration editor and backups retain original content.'**
+  /// **'Recent connection records and logs are held only in device memory, within bounded capacities and retention windows. They are not saved as history files. They can be cleared on their respective pages and disappear when the process ends.\n\nSettings → Diagnostics → Core logs displays core operation, connection, and error messages. Retained logs show original core messages. When capacity is insufficient, whole entries are removed or skipped and omissions are reported; message content is not truncated or rewritten. The configuration editor and backups retain original content.'**
   String get privacyRecordsAndLogsBody;
 
   /// No description provided for @privacyDeletingDataTitle.
@@ -4175,7 +3677,7 @@ abstract class AppLocalizations {
   /// No description provided for @privacyDeletingDataBody.
   ///
   /// In en, this message translates to:
-  /// **'You can delete configurations and plugins, clear recent records and logs, and individually select the cache database and rebuildable geographic data files for cleanup. The core must stop before cleanup. Only confirmed files are deleted; protocol identities, custom provider files, and other user files are retained.\n\nYou can also revoke VPN authorization or clear app data in Android settings. Clearing app data or uninstalling does not delete exported files, system backups, or other external copies.\n\nThis notice is updated as features change. The version included with your installation is available under Settings → About.'**
+  /// **'Configurations and plugins can be deleted in the app, recent records and logs can be cleared, and the cache database and rebuildable geographic data files can be selected individually for cleanup. The core must stop before cleanup. Only confirmed files are deleted; protocol identities, custom provider files, and other user files are retained.\n\nVPN authorization can also be revoked and app data cleared in Android settings. Clearing app data or uninstalling does not delete exported files, system backups, or other external copies.\n\nThis notice is updated as features change. The version included with the current installation is available under Settings → About.'**
   String get privacyDeletingDataBody;
 
   /// No description provided for @privacyProjectRepositoryTitle.
@@ -4184,35 +3686,11 @@ abstract class AppLocalizations {
   /// **'Project repository'**
   String get privacyProjectRepositoryTitle;
 
-  /// No description provided for @legalBody.
-  ///
-  /// In en, this message translates to:
-  /// **'Original code is licensed under GPL-3.0-only. You may copy, modify and redistribute it under the GNU General Public License version 3. No warranty is provided to the extent permitted by law. Third-party components retain their own copyrights and licenses.\n\nLicense texts and bundled third-party notices are available below. Corresponding source and build materials must be provided for each distributed version.'**
-  String get legalBody;
-
-  /// No description provided for @projectTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Project'**
-  String get projectTitle;
-
-  /// No description provided for @defaultLocalConfig.
-  ///
-  /// In en, this message translates to:
-  /// **'# Default direct configuration; the client still controls the mode and strategy choices.\nrules:\n  - MATCH,DIRECT\n'**
-  String get defaultLocalConfig;
-
   /// No description provided for @noUsableBodyReimport.
   ///
   /// In en, this message translates to:
   /// **'This configuration has no usable content; update the source again.'**
   String get noUsableBodyReimport;
-
-  /// No description provided for @noBodyUpdateSource.
-  ///
-  /// In en, this message translates to:
-  /// **'This configuration has no usable content; update the source first.'**
-  String get noBodyUpdateSource;
 
   /// No description provided for @requestNotAccepted.
   ///
@@ -4349,7 +3827,7 @@ abstract class AppLocalizations {
   /// No description provided for @sourceSavedConfirmOverwrite.
   ///
   /// In en, this message translates to:
-  /// **'This source is already saved; confirm that you want to overwrite it.'**
+  /// **'This source is already saved; confirm whether to overwrite it.'**
   String get sourceSavedConfirmOverwrite;
 
   /// No description provided for @updateInterrupted.
@@ -4603,12 +4081,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The configuration no longer exists; refresh the list.'**
   String get configMissingRefresh;
-
-  /// No description provided for @tunnelStartFailed.
-  ///
-  /// In en, this message translates to:
-  /// **'Tunnel did not start.'**
-  String get tunnelStartFailed;
 
   /// No description provided for @operationFinished.
   ///
@@ -5594,12 +5066,6 @@ abstract class AppLocalizations {
   /// **'Uploaded'**
   String get trafficUploaded;
 
-  /// No description provided for @processMemory.
-  ///
-  /// In en, this message translates to:
-  /// **'Memory'**
-  String get processMemory;
-
   /// No description provided for @processMemoryUnavailable.
   ///
   /// In en, this message translates to:
@@ -5696,35 +5162,11 @@ abstract class AppLocalizations {
   /// **'Current core resolver; may use cached data and does not reproduce client DNS responses.'**
   String get dnsResolverNotice;
 
-  /// No description provided for @dnsReady.
-  ///
-  /// In en, this message translates to:
-  /// **'Enter a name to query'**
-  String get dnsReady;
-
-  /// No description provided for @dnsPreparing.
-  ///
-  /// In en, this message translates to:
-  /// **'Preparing core'**
-  String get dnsPreparing;
-
-  /// No description provided for @dnsRunning.
-  ///
-  /// In en, this message translates to:
-  /// **'Querying'**
-  String get dnsRunning;
-
   /// No description provided for @dnsExpired.
   ///
   /// In en, this message translates to:
   /// **'Result expired · query again'**
   String get dnsExpired;
-
-  /// No description provided for @dnsNoConfiguration.
-  ///
-  /// In en, this message translates to:
-  /// **'Select a configuration first'**
-  String get dnsNoConfiguration;
 
   /// No description provided for @dnsUnavailable.
   ///
@@ -5773,12 +5215,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Could not read the query result. Try again.'**
   String get dnsInvalidResponse;
-
-  /// No description provided for @dnsQuestion.
-  ///
-  /// In en, this message translates to:
-  /// **'Question'**
-  String get dnsQuestion;
 
   /// No description provided for @dnsAnswer.
   ///
@@ -5948,30 +5384,6 @@ abstract class AppLocalizations {
   /// **'No strategy groups'**
   String get noStrategyGroups;
 
-  /// No description provided for @coreCleanupCache.
-  ///
-  /// In en, this message translates to:
-  /// **'Clear core cache database'**
-  String get coreCleanupCache;
-
-  /// No description provided for @coreCleanupCacheMessage.
-  ///
-  /// In en, this message translates to:
-  /// **'Delete only cache.db in the core working directory, clearing cached core choices, fake-IP mappings and provider state. Configurations, plugins, app settings, downloaded resources and node identities are not deleted.'**
-  String get coreCleanupCacheMessage;
-
-  /// No description provided for @coreCleanupAll.
-  ///
-  /// In en, this message translates to:
-  /// **'Reset core data'**
-  String get coreCleanupAll;
-
-  /// No description provided for @coreCleanupAllMessage.
-  ///
-  /// In en, this message translates to:
-  /// **'Delete all files in the core working directory, including Geo databases and provider downloads, cache.db, local protocol identities and any other files placed there. Downloads or sign-in may be needed again. Configurations, plugins, app settings, saved Always-on VPN startup data, the first-run notice record, app backups and files outside this directory are not deleted.'**
-  String get coreCleanupAllMessage;
-
   /// No description provided for @coreCleanupResource.
   ///
   /// In en, this message translates to:
@@ -5983,30 +5395,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Delete only the resource file shown below, not its configuration definition. It may need to be downloaded or imported again before use. Other files are not deleted.'**
   String get coreCleanupResourceMessage;
-
-  /// No description provided for @coreCleanupRestartMessage.
-  ///
-  /// In en, this message translates to:
-  /// **'The app will request that the connection stop and then exit. The file deletion runs next time you open the app, before the core uses the files.'**
-  String get coreCleanupRestartMessage;
-
-  /// No description provided for @coreCleanupReplacesPending.
-  ///
-  /// In en, this message translates to:
-  /// **'This replaces the unfinished cleanup request.'**
-  String get coreCleanupReplacesPending;
-
-  /// No description provided for @coreCleanupScheduleAndExit.
-  ///
-  /// In en, this message translates to:
-  /// **'Schedule and exit'**
-  String get coreCleanupScheduleAndExit;
-
-  /// No description provided for @coreCleanupScheduledTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Cleanup scheduled'**
-  String get coreCleanupScheduledTitle;
 
   /// No description provided for @coreCleanupScheduled.
   ///
@@ -6025,18 +5413,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Could not confirm that the core stopped.'**
   String get coreCleanupStopUnconfirmed;
-
-  /// No description provided for @coreCleanupExit.
-  ///
-  /// In en, this message translates to:
-  /// **'Exit app'**
-  String get coreCleanupExit;
-
-  /// No description provided for @coreCleanupRetry.
-  ///
-  /// In en, this message translates to:
-  /// **'Exit and retry at next start'**
-  String get coreCleanupRetry;
 
   /// No description provided for @coreCleanupInitializing.
   ///
@@ -6134,12 +5510,6 @@ abstract class AppLocalizations {
   /// **'{bytes} / {limit}'**
   String storageFileBytes(String bytes, String limit);
 
-  /// No description provided for @storageFileLimit.
-  ///
-  /// In en, this message translates to:
-  /// **'Limit: {limit}'**
-  String storageFileLimit(String limit);
-
   /// No description provided for @storageLimitExceeded.
   ///
   /// In en, this message translates to:
@@ -6230,12 +5600,6 @@ abstract class AppLocalizations {
   /// **'Restore backup'**
   String get backupRestore;
 
-  /// No description provided for @backupSensitiveNotice.
-  ///
-  /// In en, this message translates to:
-  /// **'Backups are not encrypted and include sources and credentials. Keep them safe.'**
-  String get backupSensitiveNotice;
-
   /// No description provided for @backupScopeNotice.
   ///
   /// In en, this message translates to:
@@ -6259,18 +5623,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No configuration selected'**
   String get backupNoSelection;
-
-  /// No description provided for @backupCreatedAt.
-  ///
-  /// In en, this message translates to:
-  /// **'Created: {value}'**
-  String backupCreatedAt(String value);
-
-  /// No description provided for @backupNotSelected.
-  ///
-  /// In en, this message translates to:
-  /// **'Choose a backup file first.'**
-  String get backupNotSelected;
 
   /// No description provided for @backupConfirmTitle.
   ///
@@ -6301,12 +5653,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Connection state is unconfirmed. Restoration will proceed only when it is safe to replace the data.'**
   String get backupConfirmUnconfirmed;
-
-  /// No description provided for @backupPreparing.
-  ///
-  /// In en, this message translates to:
-  /// **'Preparing backup'**
-  String get backupPreparing;
 
   /// No description provided for @backupExportSaved.
   ///
@@ -6403,12 +5749,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Original resource data'**
   String get resourceRawData;
-
-  /// No description provided for @localCustomDefinitionsEmpty.
-  ///
-  /// In en, this message translates to:
-  /// **'There are no directly defined local custom entries here.'**
-  String get localCustomDefinitionsEmpty;
 
   /// No description provided for @localCustomDeleteConfirm.
   ///

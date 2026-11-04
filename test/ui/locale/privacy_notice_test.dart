@@ -37,10 +37,6 @@ void main() {
           strings.privacyNoticeLicenseNotice,
         ].join('\n\n'),
       );
-      expect(
-        strings.privacyNoticeSummary,
-        '${strings.privacyNoticeIntro}\n\n${strings.privacyNoticeLicenseNotice}',
-      );
       expect(strings.privacyNoticeLicenseName, 'GPLv3');
       expect(
         strings.projectRepositoryUrl,
@@ -57,21 +53,21 @@ void main() {
     expect(zh.privacyNoticeUnderstood, '我已了解');
     expect(en.privacyNoticeUnderstood, 'Understood');
     expect(
-      zh.privacyNoticeSummary,
-      'Clash Pseudo 开源、免费，不进行用户数据采集或上报，不提供任何代理节点或订阅服务。'
-      '\n\n更多请参见 GPLv3 协议。',
+      zh.privacyNoticeIntro,
+      'Clash Pseudo 开源、免费，不进行用户数据采集或上报，不提供任何代理节点或订阅服务。',
     );
     expect(
-      en.privacyNoticeSummary,
+      en.privacyNoticeIntro,
       'Clash Pseudo is free and open source. It does not collect or report '
-      'user data and does not provide any proxy nodes or subscription services.'
-      '\n\nSee GPLv3 for more information.',
+      'user data and does not provide any proxy nodes or subscription services.',
     );
+    expect(zh.privacyNoticeLicenseNotice, '更多请参见 GPLv3 协议。');
+    expect(en.privacyNoticeLicenseNotice, 'See GPLv3 for more information.');
     expect(zh.privacyNoticeNotSaved, '未能确认提示记录已保存。下次打开可能再次显示。');
     expect(
       en.privacyNoticeNotSaved,
       'Could not confirm that the notice was recorded. '
-      'It may appear again next time you open the app.',
+      'It may appear again on next launch.',
     );
     expect(zh.sourceDistributionNotice, '对应源码与构建材料随发行版本提供。');
     expect(

@@ -829,7 +829,6 @@ void main() {
         await tester.pump();
         stable();
         expect(find.byType(CircularProgressIndicator), findsOneWidget);
-        expect(find.text(strings.runtimeConfigLoading), findsNothing);
         pending.completeError(StateError('list original cause'));
         bridge.listReply = null;
         await tester.pumpAndSettle();
@@ -960,11 +959,7 @@ void main() {
     await tester.tap(find.text('保存并重新连接'));
     await tester.pumpAndSettle();
     expect(app.commands.single['action'], 'setApplicationAccess');
-    final strings = AppLocalizations.of(
-      tester.element(find.byType(ApplicationsPage)),
-    );
-    expect(find.text(strings.applicationSavedReconnected), findsNothing);
-    expect(find.text(strings.applicationSaved), findsNothing);
+    expect(find.byType(SnackBar), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
 

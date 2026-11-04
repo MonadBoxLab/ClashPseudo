@@ -24,23 +24,23 @@ Permission purposes
 
 Files and backups
 
-Configuration and plugin contents, source addresses, and credentials saved in them are stored in the app's private directory without additional application-level encryption. Exported ZIP files are not encrypted and include configurations, plugins, app settings, and the source addresses and credentials saved in them. Backup import and export are available under Settings → Storage and data and use Android's file picker; you choose where exported files are saved.
+Configuration and plugin contents, source addresses, and credentials saved in them are stored in the app's private directory without additional application-level encryption. Exported ZIP files are not encrypted and include configurations, plugins, app settings, and the source addresses and credentials saved in them. Backup import and export are available under Settings → Storage and data and use Android's file picker; the save location is chosen during export.
 
 Android system backup and device transfer can copy configurations, plugins, and app settings. Whether they are enabled depends on system settings and the backup service in use. A file provider's synchronization features can also keep cloud copies of selected files.
 
 Connection records, core logs, and original content
 
-Recent connection records and logs are held only in device memory, within bounded capacities and retention windows. They are not saved as history files. You can clear them on their respective pages; they disappear when the process ends.
+Recent connection records and logs are held only in device memory, within bounded capacities and retention windows. They are not saved as history files. They can be cleared on their respective pages and disappear when the process ends.
 
 Settings → Diagnostics → Core logs displays core operation, connection, and error messages. Retained logs show original core messages. When capacity is insufficient, whole entries are removed or skipped and omissions are reported; message content is not truncated or rewritten. The configuration editor and backups retain original content.
 
 Deleting data and viewing this notice
 
-You can delete configurations and plugins, clear recent records and logs, and individually select the cache database and rebuildable geographic data files for cleanup. The core must stop before cleanup. Only confirmed files are deleted; protocol identities, custom provider files, and other user files are retained.
+Configurations and plugins can be deleted in the app, recent records and logs can be cleared, and the cache database and rebuildable geographic data files can be selected individually for cleanup. The core must stop before cleanup. Only confirmed files are deleted; protocol identities, custom provider files, and other user files are retained.
 
-You can also revoke VPN authorization or clear app data in Android settings. Clearing app data or uninstalling does not delete exported files, system backups, or other external copies.
+VPN authorization can also be revoked and app data cleared in Android settings. Clearing app data or uninstalling does not delete exported files, system backups, or other external copies.
 
-This notice is updated as features change. The version included with your installation is available under Settings → About.
+This notice is updated as features change. The version included with the current installation is available under Settings → About.
 
 Project repository
 
@@ -69,7 +69,7 @@ const _chineseNotice = '''Clash Pseudo 开源、免费，不进行用户数据�
 
 文件与备份
 
-配置和插件正文、来源地址及其中保存的凭据存放在应用私有目录，应用未另行加密。导出的 ZIP 未加密，包含配置、插件、应用设置及其中保存的来源地址和凭据。备份的导入、导出位于“设置 → 存储与数据”，通过 Android 文件选择器完成；保存位置由您选择。
+配置和插件正文、来源地址及其中保存的凭据存放在应用私有目录，应用未另行加密。导出的 ZIP 未加密，包含配置、插件、应用设置及其中保存的来源地址和凭据。备份的导入、导出位于“设置 → 存储与数据”，通过 Android 文件选择器完成；保存位置在导出时选择。
 
 Android 系统备份和设备迁移可复制配置、插件与应用设置，是否启用由系统设置与所用备份服务决定。文件提供方的同步功能也可保存所选文件的云端副本。
 
@@ -81,9 +81,9 @@ Android 系统备份和设备迁移可复制配置、插件与应用设置，是
 
 删除与查看
 
-您可在应用内删除配置与插件、清除近期记录和日志，并逐项清理缓存数据库及可重建的地理数据文件。清理前需停止内核；只删除已确认的文件，协议身份、provider自定义文件和其他用户文件继续保留。
+可在应用内删除配置与插件、清除近期记录和日志，并逐项清理缓存数据库及可重建的地理数据文件。清理前需停止内核；只删除已确认的文件，协议身份、provider自定义文件和其他用户文件继续保留。
 
-您也可在系统设置中撤销 VPN 授权或清除应用数据。清除应用数据或卸载不会删除已导出的文件、系统备份或其他外部副本。
+也可在系统设置中撤销 VPN 授权或清除应用数据。清除应用数据或卸载不会删除已导出的文件、系统备份或其他外部副本。
 
 完整说明随功能变化更新，可在“设置 → 关于”查看当前安装版本的内容。
 

@@ -363,38 +363,3 @@ class _LocalGplPageState extends State<_LocalGplPage> {
     ),
   );
 }
-
-Future<void> showAppLegal(BuildContext context) => showDialog<void>(
-  context: context,
-  builder: (context) {
-    final strings = AppLocalizations.of(context);
-    return LegalRouteContent(
-      child: AlertDialog(
-        scrollable: true,
-        title: Text(strings.aboutTitle),
-        content: Text(strings.legalBody),
-        actions: [
-          TextButton(
-            onPressed: () {
-              if (!_legalRouteActive(context)) return;
-              Navigator.of(context).push<void>(
-                MaterialPageRoute(
-                  builder: (_) => const LegalRouteContent(
-                    child: LicensePage(applicationName: 'Clash Pseudo'),
-                  ),
-                ),
-              );
-            },
-            child: Text(strings.licensesAndNotices),
-          ),
-          TextButton(
-            onPressed: () {
-              if (_legalRouteActive(context)) Navigator.pop(context);
-            },
-            child: Text(strings.close),
-          ),
-        ],
-      ),
-    );
-  },
-);

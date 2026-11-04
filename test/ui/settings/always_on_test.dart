@@ -366,7 +366,6 @@ void main() {
             tester.element(find.byType(AlwaysOnPage)),
           );
           expect(find.byTooltip(strings.vpnStatusLoading), findsOneWidget);
-          expect(find.text(strings.runtimeConfigLoading), findsNothing);
           expectSystemStates(
             tester,
             alwaysOn: strings.alwaysOnUnknown,
@@ -414,7 +413,6 @@ void main() {
     expect(find.byType(AlertDialog), findsNothing);
     expect(find.text(strings.vpnStatusReadFailed), findsOneWidget);
     expect(find.text('Bad state: status failed'), findsNothing);
-    expect(find.text(strings.runtimeConfigLoading), findsNothing);
     final anchor = tester.getRect(
       find.byKey(const ValueKey('always-on-settings')),
     );
