@@ -7,7 +7,6 @@ import 'package:clash_pseudo/src/model/app_snapshot.dart';
 import 'package:clash_pseudo/src/model/core_snapshot.dart';
 
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/services.dart';
 
@@ -1067,40 +1066,13 @@ void main() {
           await tester.sendKeyEvent(LogicalKeyboardKey.escape);
           await tester.pumpAndSettle();
           expect(find.byType(MenuItemButton), findsNothing);
-          final error = find.byKey(
-            const ValueKey('connection-list-error-details'),
-          );
-          await tester.drag(
-            find.byType(CustomScrollView),
-            const Offset(0, -600),
-          );
-          await tester.pumpAndSettle();
-          await openActions(tester);
-          expect(error.hitTestable(), findsOneWidget);
-          await tester.ensureVisible(error);
-          await tester.pumpAndSettle();
-          expect(error.hitTestable(), findsOneWidget);
-          expect(tester.getSize(error).height, greaterThanOrEqualTo(48));
-          final errorRect = tester.getRect(error);
           expect(
-            find.descendant(
-              of: error,
-              matching: find.text(strings.errorDetails),
-            ),
-            findsOneWidget,
+            find.byKey(const ValueKey('connection-list-error-details')),
+            findsNothing,
           );
-          final labelRect = tester.getRect(
-            find.descendant(
-              of: error,
-              matching: find.byIcon(Icons.error_outline_rounded),
-            ),
-          );
-          expect(labelRect.top, greaterThanOrEqualTo(errorRect.top));
-          expect(labelRect.bottom, lessThanOrEqualTo(errorRect.bottom));
-          expect(labelRect.left, greaterThanOrEqualTo(errorRect.left));
-          expect(labelRect.right, lessThanOrEqualTo(errorRect.right));
-          await tester.tap(error);
+          await tester.pump(const Duration(seconds: 1));
           await tester.pumpAndSettle();
+          await noticeDetails(tester);
           expect(find.byType(AlertDialog), findsOneWidget);
           expect(
             find.byKey(const ValueKey('operation-technical-text')),
@@ -1187,9 +1159,7 @@ void main() {
     });
   }
 
-  testWidgets('detail keeps rule and read causes behind its own error action', (
-    tester,
-  ) async {
+  testWidgets('读取和规则错误分别通过 SnackBar 保留真实原因', (tester) async {
     const readError = 'read 原文\nCaused by: transport\nSuppressed: release';
     const ruleError = 'rule 原文\nhttps://fixture.test/?token=fixture🙂';
     bridge.data = ConnectionSnapshot.fromMap({
@@ -1217,17 +1187,20 @@ void main() {
       () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
     );
     await show(tester, taskActivity: true);
+    await noticeDetails(tester);
+    await tester.tap(find.byKey(const ValueKey('operation-technical-details')));
+    await tester.pumpAndSettle();
+    var text = find.byKey(const ValueKey('operation-technical-text'));
+    expect(tester.widget<SelectableText>(text).data, readError);
+    Navigator.of(tester.element(text)).pop();
+    await tester.pumpAndSettle();
+
     await tester.tap(find.text('one.fixture.test'));
     await tester.pumpAndSettle();
-    await openActions(tester, detail: true);
-    final error = find.byKey(const ValueKey('connection-detail-error'));
-    await tester.ensureVisible(error);
-    await tester.pumpAndSettle();
-    expect(error.hitTestable(), findsOneWidget);
+    expect(find.byKey(const ValueKey('connection-detail-error')), findsNothing);
     expect(find.textContaining(ruleError), findsNothing);
     expect(find.byTooltip(ruleError), findsNothing);
-    await tester.tap(error);
-    await tester.pumpAndSettle();
+    await noticeDetails(tester);
     expect(find.byType(AlertDialog), findsOneWidget);
     expect(
       find.byKey(const ValueKey('operation-technical-text')),
@@ -1235,16 +1208,13 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey('operation-technical-details')));
     await tester.pumpAndSettle();
-    final text = find.byKey(const ValueKey('operation-technical-text'));
-    expect(
-      tester.widget<SelectableText>(text).data,
-      '$readError\n\n$ruleError',
-    );
+    text = find.byKey(const ValueKey('operation-technical-text'));
+    expect(tester.widget<SelectableText>(text).data, ruleError);
     final copy = find.byKey(const ValueKey('operation-technical-copy'));
     await tester.ensureVisible(copy);
     await tester.tap(copy);
     await tester.pump();
-    expect(copied, '$readError\n\n$ruleError');
+    expect(copied, ruleError);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
@@ -1270,9 +1240,7 @@ void main() {
     },
   );
 
-  testWidgets('original data exposes every raw field and releases with detail', (
-    tester,
-  ) async {
+  testWidgets('连接详情展示业务字段并在来源释放时关闭', (tester) async {
     final original = {
       ...row('one'),
       'start': '2026-10-16T10:00:00.123456+05:30',
@@ -1285,31 +1253,15 @@ void main() {
       'metadata': {...row('one')['metadata'] as Map, 'unknown': '完整 metadata'},
     };
     bridge.data = snapshot([original]);
-    Object? copied;
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      SystemChannels.platform,
-      (call) async {
-        if (call.method == 'Clipboard.setData') copied = call.arguments['text'];
-        return null;
-      },
-    );
-    addTearDown(
-      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        SystemChannels.platform,
-        null,
-      ),
-    );
+    final record = bridge.data.records.single;
+    expect(record.chains, hasLength(100));
+    expect(record.toMap().containsKey('futureField'), isFalse);
+    expect((record.toMap()['metadata'] as Map).containsKey('unknown'), isFalse);
     await show(tester);
     await tester.tap(find.text('one.fixture.test'));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('原始数据'));
-    await tester.tap(find.text('原始数据'));
-    await tester.pumpAndSettle();
-    final copy = find.byKey(const ValueKey('original-text-copy'));
-    await tester.ensureVisible(copy);
-    await tester.tap(copy);
-    await tester.pump();
-    expect(jsonDecode(copied! as String), original);
+    expect(find.text('原始数据'), findsNothing);
+    expect(find.byKey(const ValueKey('original-text-copy')), findsNothing);
     bridge.data = snapshot([], releasedDetailId: 'one');
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
@@ -1641,7 +1593,7 @@ void main() {
     await openActions(tester);
     expect(
       find.byKey(const ValueKey('connection-list-error-details')),
-      findsOneWidget,
+      findsNothing,
     );
     expect(find.text('数据来源'), findsNothing);
     expect(find.byType(ExpansionTile), findsNothing);

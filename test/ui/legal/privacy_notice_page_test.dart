@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:clash_pseudo/src/ui/legal/app_legal.dart';
-import 'package:clash_pseudo/src/model/messages.dart';
 import 'package:clash_pseudo/src/ui/navigation/route_observer.dart';
 import 'package:clash_pseudo/src/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
@@ -9,11 +8,7 @@ import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-Widget _host(
-  String language, {
-  bool reducedMotion = false,
-  AppMessage? failure,
-}) => MaterialApp(
+Widget _host(String language, {bool reducedMotion = false}) => MaterialApp(
   navigatorObservers: [AppTaskNavigatorObserver()],
   locale: Locale(language),
   localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -31,7 +26,7 @@ Widget _host(
         onPressed: () => showDialog<void>(
           context: context,
           animationStyle: reducedMotion ? AnimationStyle.noAnimation : null,
-          builder: (_) => PrivacyNoticeDialog(persistenceFailure: failure),
+          builder: (_) => const PrivacyNoticeDialog(),
         ),
         child: const Text('notice'),
       ),
@@ -303,86 +298,68 @@ void main() {
     },
   );
 
-  testWidgets(
-    'notice persistence failure has a task summary and copyable original details',
-    (tester) async {
-      const original = 'notice record write failed 原文🙂\nfsync: fixture';
-      const failure = AppMessage('privacyNoticeNotSaved', detail: original);
-      String? copied;
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        SystemChannels.platform,
-        (call) async {
-          if (call.method == 'Clipboard.setData') {
-            copied = (call.arguments as Map)['text'] as String;
-          }
-          return null;
-        },
+  testWidgets('许可证读取失败通过 SnackBar 展示并可重试', (tester) async {
+    final strings = lookupAppLocalizations(const Locale('en'));
+    await tester.pumpWidget(_host('en'));
+    await tester.tap(find.text('notice'));
+    await tester.pumpAndSettle();
+    rootBundle.evict('LICENSE');
+    var fail = true;
+    var reads = 0;
+    tester.binding.defaultBinaryMessenger.setMockMessageHandler(
+      'flutter/assets',
+      (message) async {
+        final name = utf8.decode(message!.buffer.asUint8List());
+        if (name != 'LICENSE') return null;
+        reads++;
+        if (fail) return null;
+        return Uint8List.fromList(utf8.encode('GPL fixture text')).buffer
+            .asByteData();
+      },
+    );
+    addTearDown(() {
+      tester.binding.defaultBinaryMessenger.setMockMessageHandler(
+        'flutter/assets',
+        null,
       );
-      addTearDown(
-        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          SystemChannels.platform,
-          null,
-        ),
-      );
-      await tester.pumpWidget(_host('en', failure: failure));
-      await tester.tap(find.text('notice'));
-      await tester.pumpAndSettle();
-      final strings = lookupAppLocalizations(const Locale('en'));
-      final notice = tester.state(find.byType(PrivacyNoticeDialog));
-      final selection = tester.state(
-        find.descendant(
-          of: find.byType(PrivacyNoticeDialog),
-          matching: find.byType(SelectionArea),
-        ),
-      );
-      expect(find.text(strings.privacyNoticeNotSaved), findsOneWidget);
-      expect(find.text(original), findsNothing);
-      final details = find.byKey(
-        const ValueKey('privacy-notice-error-details'),
-      );
-      await tester.ensureVisible(details);
-      expect(tester.getRect(details).height, greaterThanOrEqualTo(48));
-      await tester.tap(details);
-      await tester.pumpAndSettle();
-      expect(find.text(strings.privacyNoticeNotSaved), findsNWidgets(2));
-      await tester.tap(
-        find.byKey(const ValueKey('operation-technical-details')),
-      );
-      await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<SelectableText>(
-              find.byKey(const ValueKey('operation-technical-text')),
-            )
-            .data,
-        original,
-      );
-      final copy = find.byKey(const ValueKey('operation-technical-copy'));
-      await tester.ensureVisible(copy);
-      await tester.tap(copy);
-      await tester.pump();
-      expect(copied, original);
-      await tester.tap(find.widgetWithText(TextButton, strings.close));
-      await tester.pumpAndSettle();
-      expect(tester.state(find.byType(PrivacyNoticeDialog)), same(notice));
-      expect(
-        tester.state(
-          find.descendant(
-            of: find.byType(PrivacyNoticeDialog),
-            matching: find.byType(SelectionArea),
-          ),
-        ),
-        same(selection),
-      );
-      final fullNotice = find.widgetWithText(
-        TextButton,
-        strings.privacyNoticeReadFull,
-      );
-      await tester.ensureVisible(fullNotice);
-      await tester.tap(fullNotice);
-      await tester.pumpAndSettle();
-      expect(find.byType(PrivacyNoticePage), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    },
-  );
+      rootBundle.evict('LICENSE');
+    });
+    final link = find.widgetWithText(
+      TextButton,
+      strings.privacyNoticeLicenseNotice,
+    );
+    await tester.ensureVisible(link);
+    await tester.tap(link);
+    await tester.pumpAndSettle();
+    expect(reads, 1);
+    expect(find.byType(SnackBar), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('license-load-error-details')),
+      findsNothing,
+    );
+    await tester.tap(
+      find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.widgetWithText(TextButton, strings.errorDetails),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('operation-technical-details')));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<SelectableText>(
+            find.byKey(const ValueKey('operation-technical-text')),
+          )
+          .data,
+      contains('LICENSE'),
+    );
+    fail = false;
+    await tester.tap(find.widgetWithText(TextButton, strings.retry).last);
+    await tester.pumpAndSettle();
+    expect(reads, 2);
+    expect(find.text('GPL fixture text'), findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 }

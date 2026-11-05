@@ -270,11 +270,16 @@ void main() {
         final wanted = kind == 'nodes'
             ? 'local-node'
             : kind == 'rules'
-            ? 'MATCH,DIRECT'
+            ? 'MATCH'
             : 'local-proxy-provider';
         await tester.enterText(search, '  ${wanted.toUpperCase()}  ');
         await settleLocalDefinitions(tester);
         expect(find.text(kind == 'rules' ? 'MATCH' : wanted), findsOneWidget);
+        if (kind == 'rules') {
+          await tester.enterText(search, 'DIRECT');
+          await settleLocalDefinitions(tester);
+          expect(find.text('MATCH'), findsOneWidget);
+        }
         if (kind == 'resources') {
           expect(find.text('local-rule-provider'), findsNothing);
         }

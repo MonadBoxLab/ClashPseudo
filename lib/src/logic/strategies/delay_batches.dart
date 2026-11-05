@@ -231,7 +231,12 @@ class DelayBatches {
         ? 'timeout'
         : 'cancelled';
     for (final row in batch.members.values) {
-      if (row['exited'] != true) row.addAll({'status': retired, 'delay': 0});
+      if (row['exited'] != true) {
+        row.addAll({'status': retired, 'delay': 0});
+        if (retired == 'timeout') {
+          row['time'] ??= DateTime.now().toUtc().toIso8601String();
+        }
+      }
     }
     _jobs.removeWhere((job) {
       if (!identical(job.$1, batch)) return false;
@@ -331,6 +336,7 @@ class DelayBatches {
     deadline = Timer(memberTimeout, () {
       timedOut = true;
       row['status'] = 'timeout';
+      row['time'] = DateTime.now().toUtc().toIso8601String();
       final activeCall = call;
       if (activeCall != null) unawaited(_cancelCall(batch, activeCall));
       changed();
@@ -369,6 +375,7 @@ class DelayBatches {
       final observation = {
         ...value,
         'status': status,
+        'time': DateTime.now().toUtc().toIso8601String(),
         'error': ?error,
         'terminal': result.terminal,
         if (result.cancelError != null) 'cancelError': result.cancelError,
@@ -391,6 +398,7 @@ class DelayBatches {
       }
       row['result'] = {
         'status': timedOut ? 'timeout' : 'failed',
+        'time': DateTime.now().toUtc().toIso8601String(),
         'error': failure,
       };
     } finally {

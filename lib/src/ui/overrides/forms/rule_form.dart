@@ -308,6 +308,7 @@ class _RuleFormPageState extends State<RuleFormPage> {
         title: (strings) => strings.errorDetails,
         isCurrent: current,
         isCurrentWithPopup: (_) => current(),
+        onRetry: _save,
       );
     }
     return showLocalizedOperationMessage(
@@ -317,6 +318,7 @@ class _RuleFormPageState extends State<RuleFormPage> {
       title: (strings) => strings.errorDetails,
       isCurrent: current,
       isCurrentWithPopup: (_) => current(),
+      onRetry: _save,
     );
   }
 

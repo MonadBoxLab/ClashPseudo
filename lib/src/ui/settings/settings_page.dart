@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 
 import '../app/app_controller.dart';
 import '../theme/app_theme.dart';
@@ -575,22 +574,19 @@ class _SettingsPageState extends State<SettingsPage> {
                             ),
                             child: IndexedSemantics(
                               index: first + offset,
-                              child: _SettingsSectionMotion(
-                                columns: columns,
-                                child: ListTileTheme.merge(
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
+                              child: ListTileTheme.merge(
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                ),
+                                minTileHeight: 56,
+                                child: Column(
+                                  key: ValueKey(
+                                    'settings-section:${first + offset}',
                                   ),
-                                  minTileHeight: 56,
-                                  child: Column(
-                                    key: ValueKey(
-                                      'settings-section:${first + offset}',
-                                    ),
-                                    mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: groups[first + offset],
-                                  ),
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: groups[first + offset],
                                 ),
                               ),
                             ),
@@ -694,221 +690,5 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       ),
     );
-  }
-}
-
-class _SettingsSectionMotion extends StatefulWidget {
-  const _SettingsSectionMotion({required this.columns, required this.child});
-
-  final int columns;
-  final Widget child;
-
-  @override
-  State<_SettingsSectionMotion> createState() => _SettingsSectionMotionState();
-}
-
-class _SettingsSectionMotionState extends State<_SettingsSectionMotion>
-    with SingleTickerProviderStateMixin {
-  late final _position = AnimationController(
-    vsync: this,
-    value: 1,
-    duration: const Duration(milliseconds: 180),
-  );
-  final _content = GlobalKey();
-  Object? _layout;
-
-  @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      final media = MediaQuery.of(context);
-      final reduced =
-          media.disableAnimations || !TickerMode.valuesOf(context).enabled;
-      final layout = (
-        widget.columns,
-        constraints.maxWidth,
-        media.size,
-        media.textScaler,
-        media.padding,
-        media.viewInsets,
-        Localizations.localeOf(context),
-      );
-      if (_layout != layout) {
-        final first = _layout == null;
-        _layout = layout;
-        if (first || reduced) {
-          _position.value = 1;
-        } else {
-          _position.forward(from: 0);
-        }
-      } else if (reduced && _position.value != 1) {
-        _position.value = 1;
-      }
-      final content = SizedBox(
-        key: _content,
-        width: constraints.maxWidth,
-        child: OverflowBox(
-          fit: OverflowBoxFit.deferToChild,
-          alignment: Alignment.topLeft,
-          minWidth: 0,
-          maxWidth: double.infinity,
-          child: AnimatedContainer(
-            width: constraints.maxWidth,
-            duration: reduced
-                ? Duration.zero
-                : const Duration(milliseconds: 180),
-            curve: Curves.easeInOutCubic,
-            child: widget.child,
-          ),
-        ),
-      );
-      return _SectionPosition(
-        animation: _position,
-        layout: layout,
-        immediate: reduced,
-        scroll: Scrollable.maybeOf(context)?.position,
-        child: AnimatedBuilder(
-          animation: _position,
-          child: reduced
-              ? content
-              : AnimatedSize(
-                  duration: const Duration(milliseconds: 180),
-                  curve: Curves.easeInOutCubic,
-                  alignment: Alignment.topLeft,
-                  child: content,
-                ),
-          builder: (context, child) {
-            // A regrouped cell can paint across another row until it settles.
-            // Keep scrolling live without letting that paint hit a sibling.
-            final moving = !reduced && _position.isAnimating;
-            return ExcludeFocus(
-              excluding: moving,
-              child: IgnorePointer(
-                ignoring: moving,
-                child: ExcludeSemantics(excluding: moving, child: child!),
-              ),
-            );
-          },
-        ),
-      );
-    },
-  );
-
-  @override
-  void dispose() {
-    _position.dispose();
-    super.dispose();
-  }
-}
-
-// Presentation only: the existing grouped rows still decide columns and height.
-// Retaining paint positions does not measure or rebalance the settings groups.
-class _SectionPosition extends SingleChildRenderObjectWidget {
-  const _SectionPosition({
-    required this.animation,
-    required this.layout,
-    required this.immediate,
-    required this.scroll,
-    required super.child,
-  });
-
-  final Animation<double> animation;
-  final Object layout;
-  final bool immediate;
-  final ScrollPosition? scroll;
-
-  @override
-  _RenderSectionPosition createRenderObject(BuildContext context) =>
-      _RenderSectionPosition(animation, layout, immediate, scroll);
-
-  @override
-  void updateRenderObject(
-    BuildContext context,
-    _RenderSectionPosition renderObject,
-  ) => renderObject.update(animation, layout, immediate, scroll);
-}
-
-class _RenderSectionPosition extends RenderProxyBox {
-  _RenderSectionPosition(
-    this._animation,
-    this._layout,
-    this._immediate,
-    this._scroll,
-  );
-
-  Animation<double> _animation;
-  Object _layout;
-  bool _immediate;
-  ScrollPosition? _scroll;
-  bool _relocated = false;
-  Offset? _lastVisual;
-  double _lastPixels = 0;
-  Offset _from = Offset.zero;
-  Offset _delta = Offset.zero;
-
-  void update(
-    Animation<double> animation,
-    Object layout,
-    bool immediate,
-    ScrollPosition? scroll,
-  ) {
-    if (_animation != animation) {
-      if (attached) _animation.removeListener(_tick);
-      _animation = animation;
-      if (attached) _animation.addListener(_tick);
-    }
-    if (_layout != layout) _relocated = true;
-    _layout = layout;
-    _immediate = immediate;
-    _scroll = scroll;
-    _tick();
-  }
-
-  void _tick() {
-    markNeedsPaint();
-    markNeedsSemanticsUpdate();
-  }
-
-  @override
-  void attach(PipelineOwner owner) {
-    super.attach(owner);
-    _animation.addListener(_tick);
-  }
-
-  @override
-  void detach() {
-    _animation.removeListener(_tick);
-    super.detach();
-  }
-
-  @override
-  void paint(PaintingContext context, Offset offset) {
-    final target = localToGlobal(Offset.zero);
-    final pixels = _scroll?.pixels ?? 0;
-    if (_relocated) {
-      _from = _lastVisual == null
-          ? Offset.zero
-          : _lastVisual! - target - Offset(0, pixels - _lastPixels);
-      _relocated = false;
-    }
-    _delta = _immediate
-        ? Offset.zero
-        : _from * (1 - Curves.easeInOutCubic.transform(_animation.value));
-    _lastVisual = target + _delta;
-    _lastPixels = pixels;
-    if (child case final child?) context.paintChild(child, offset + _delta);
-  }
-
-  @override
-  bool hitTest(BoxHitTestResult result, {required Offset position}) =>
-      result.addWithPaintOffset(
-        offset: _delta,
-        position: position,
-        hitTest: (result, position) =>
-            child?.hitTest(result, position: position) ?? false,
-      );
-
-  @override
-  void applyPaintTransform(RenderBox child, Matrix4 transform) {
-    transform.translateByDouble(_delta.dx, _delta.dy, 0, 1);
   }
 }

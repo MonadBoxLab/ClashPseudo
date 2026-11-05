@@ -25,7 +25,7 @@ class ConnectionWindow {
   bool get isNotEmpty => _records.isNotEmpty || _detail != null;
   String? get pin => _pin;
   int get retainedBytes =>
-      _rows.fold(0, (sum, row) => sum + row.record.rawBytes);
+      _rows.fold(0, (sum, row) => sum + row.record.retainedBytes);
   Set<_ObservedConnection> get _rows => {..._records.values, ?_detail};
 
   Map<String, Object?> get parameters => {
@@ -221,7 +221,7 @@ class ConnectionWindow {
 
   void prune(int now) {
     for (final row in _rows) {
-      if (row.record.rawBytes > memoryLimit) {
+      if (row.record.retainedBytes > memoryLimit) {
         _remove(row);
         limited = true;
         omitted++;
@@ -252,7 +252,7 @@ class ConnectionWindow {
     for (final row in inactive) {
       if (bytes <= memoryLimit) break;
       if (_records[row.record.id] != row && _detail != row) continue;
-      bytes -= row.record.rawBytes;
+      bytes -= row.record.retainedBytes;
       _remove(row);
       limited = true;
       omitted++;
@@ -265,7 +265,7 @@ class ConnectionWindow {
       );
     for (final row in active) {
       if (bytes <= memoryLimit) break;
-      bytes -= row.record.rawBytes;
+      bytes -= row.record.retainedBytes;
       _remove(row);
       limited = true;
       omitted++;

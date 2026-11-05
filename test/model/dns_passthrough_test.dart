@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:clash_pseudo/src/model/dns_snapshot.dart';
 import 'package:clash_pseudo/src/model/application_contract.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -32,13 +30,16 @@ void main() {
             fail('A native failure cannot become an accepted result');
           } on DnsFailure catch (error) {
             expect(error.code, 'resultTooLarge');
-            expect(jsonDecode(error.detail!), value);
+            expect(error.detail, contains(original));
+            expect(error.detail, contains('Caused by: resolver'));
+            expect(error.detail, contains('Suppressed: close failed'));
+            expect(error.detail, isNot(contains('future')));
           }
         }
       },
     );
 
-    test('DNS keeps complete messages, unknown fields and stale metadata', () {
+    test('DNS 保留记录和 stale 状态，不保留完整响应', () {
       final value =
           dnsReply(
               answer: [dnsRecord(type: 'TXT', data: original)],
@@ -60,35 +61,36 @@ void main() {
         value['stale'] = envelope;
         data['stale'] = !envelope;
         final result = DnsResponse.fromMap(value);
-        expect(result.raw, value);
+        expect(result.name, 'controlled.example.');
         expect(result.answer.single.data, original);
         expect(result.stale, isTrue);
       }
     });
 
-    test(
-      'native and malformed response errors retain their whole original value',
-      () {
-        final native = dnsError('future-error');
-        (native['dns'] as Map)
-          ..['detail'] = original
-          ..['future'] = {'secret': original, 'boolean': false, 'nil': null};
-        final malformed = dnsReply();
-        ((malformed['dns'] as Map)['answer'] as List).single['ttl'] = original;
-        for (final value in [native, malformed]) {
-          try {
-            DnsResponse.fromMap(value);
-            fail('Invalid response unexpectedly became a successful answer');
-          } on DnsFailure catch (error) {
-            expect(
-              error.code,
-              identical(value, native) ? 'future-error' : 'invalidResponse',
-            );
-            expect(jsonDecode(error.detail!), value);
+    test('原生错误保留原因，畸形响应不泄露完整正文', () {
+      final native = dnsError('future-error');
+      (native['dns'] as Map)
+        ..['detail'] = original
+        ..['future'] = {'secret': original, 'boolean': false, 'nil': null};
+      final malformed = dnsReply();
+      ((malformed['dns'] as Map)['answer'] as List).single['ttl'] = original;
+      for (final value in [native, malformed]) {
+        try {
+          DnsResponse.fromMap(value);
+          fail('Invalid response unexpectedly became a successful answer');
+        } on DnsFailure catch (error) {
+          expect(
+            error.code,
+            identical(value, native) ? 'future-error' : 'invalidResponse',
+          );
+          if (identical(value, native)) {
+            expect(error.detail, original);
+          } else {
+            expect(error.detail, isNull);
           }
         }
-      },
-    );
+      }
+    });
 
     test('partial cache results retain original errors and unknown fields', () {
       final value = dnsCacheReply(
@@ -104,7 +106,8 @@ void main() {
       expect(result.status, DnsCacheStatus.partialOrFailed);
       expect(result.persistent, isTrue);
       expect(result.stale, isTrue);
-      expect(result.raw, value);
+      expect(result.detail, original);
+      expect(result.ipv4!.outcome, DnsCacheOutcome.unconfirmed);
     });
 
     test('oversized responses are rejected whole rather than retained in error detail', () {

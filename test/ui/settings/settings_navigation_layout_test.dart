@@ -222,20 +222,43 @@ Future<void> _expectAnchoredMenu(
     } else if (above) {
       expect(menu.bottom, closeTo(anchor.top, tolerance));
     }
-    final checked = entries
-        .evaluate()
-        .where(
-          (element) => find
-              .descendant(
-                of: find.byWidget(element.widget),
-                matching: find.byIcon(Icons.check),
-              )
-              .evaluate()
-              .isNotEmpty,
-        )
-        .toList();
-    expect(checked, hasLength(1));
-    expect((checked.single.widget.key as ValueKey).value, selected);
+    final colors = Theme.of(tester.element(choice)).colorScheme;
+    expect(
+      entries.evaluate().where(
+        (element) => (element.widget.key as ValueKey).value == selected,
+      ),
+      hasLength(1),
+    );
+    for (final element in entries.evaluate()) {
+      final item = element.widget as MenuItemButton;
+      final selectedItem = (item.key as ValueKey).value == selected;
+      final style = item.style!;
+      expect(
+        style.backgroundColor!.resolve({}),
+        selectedItem ? colors.surfaceContainerHighest : Colors.transparent,
+      );
+      expect(
+        style.textStyle!.resolve({})!.fontWeight,
+        selectedItem ? FontWeight.w700 : FontWeight.w400,
+      );
+      final semantics = find.ancestor(
+        of: find.byWidget(item),
+        matching: find.byWidgetPredicate(
+          (widget) => widget is Semantics && widget.properties.selected != null,
+        ),
+      );
+      expect(
+        tester.widget<Semantics>(semantics.first).properties.selected,
+        selectedItem,
+      );
+      expect(
+        find.descendant(
+          of: find.byWidget(item),
+          matching: find.byIcon(Icons.check),
+        ),
+        findsNothing,
+      );
+    }
   } finally {
     if (entries.evaluate().isNotEmpty) {
       await tester.binding.handlePopRoute();
@@ -271,13 +294,12 @@ Future<void> _verifyResultPaging(
     );
     final previous = find.byTooltip(strings.previousPage);
     final next = find.byTooltip(strings.nextPage);
-    final refresh = find.byTooltip(strings.refresh);
+    expect(find.byTooltip(strings.refresh), findsNothing);
     final controls = [
       find.byType(TextField),
       find.byTooltip(strings.clearSearch),
       previous,
       next,
-      refresh,
       find.byType(ResultPageBar),
     ];
     final before = _rects(tester, controls);
@@ -301,21 +323,7 @@ Future<void> _verifyResultPaging(
         expect(find.textContaining(expected), findsNothing);
       }
       if (expected == strings.coreReadLoading) {
-        expect(
-          find.descendant(
-            of: refresh,
-            matching: find.byType(CircularProgressIndicator),
-          ),
-          findsOneWidget,
-        );
-        expect(
-          tester
-              .widget<IconButton>(
-                find.ancestor(of: refresh, matching: find.byType(IconButton)),
-              )
-              .onPressed,
-          isNull,
-        );
+        expect(find.byTooltip(strings.refresh), findsNothing);
       } else if (expected == strings.coreReadFailed) {
         final notice = find.byType(SnackBar);
         expect(notice, findsOneWidget);
@@ -365,6 +373,17 @@ Future<void> _verifyResultPaging(
       }
     }
 
+    Future<void> retryFailure() async {
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(
+        find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.widgetWithText(TextButton, strings.retry),
+        ),
+      );
+      await tester.pump();
+    }
+
     expect(queries, hasLength(1));
     check(strings.coreReadLoading);
     await tester.pump(const Duration(milliseconds: 16));
@@ -375,8 +394,7 @@ Future<void> _verifyResultPaging(
     await tester.pump(const Duration(milliseconds: 16));
     check(strings.coreReadFailed);
 
-    await tester.tap(refresh);
-    await tester.pump();
+    await retryFailure();
     expect(queries, hasLength(2));
     check(strings.coreReadLoading);
     await tester.pump(const Duration(milliseconds: 16));
@@ -399,8 +417,7 @@ Future<void> _verifyResultPaging(
     await tester.pump(const Duration(milliseconds: 16));
     check(strings.coreReadFailed);
 
-    await tester.tap(refresh);
-    await tester.pump();
+    await retryFailure();
     expect(queries.last['offset'], 0);
     check(strings.coreReadLoading);
     replies.last.complete(result(0, false));
@@ -463,9 +480,9 @@ Future<void> _verifyResultPaging(
     await tester.pump(const Duration(milliseconds: 16));
     check(zero);
 
-    await tester.tap(refresh);
-    await tester.pump();
-    check(strings.coreReadLoading);
+    final beforePoll = queries.length;
+    await tester.pump(const Duration(seconds: 30));
+    expect(queries, hasLength(beforePoll + 1));
     replies.last.completeError(StateError('empty result refresh failed'));
     await pumpReply();
     check(strings.coreReadFailed);
@@ -1052,14 +1069,13 @@ void main() {
             final strings = AppLocalizations.of(
               tester.element(find.byType(CoreLogsPage)),
             );
-            final refresh = find.byKey(const ValueKey('log-actions'));
+            expect(find.byKey(const ValueKey('log-actions')), findsNothing);
             final controls = [
               find.byType(TextField),
               find.byTooltip(strings.clearSearch),
               find.byTooltip(strings.logLevel),
               find.byTooltip(strings.logClear),
               find.byTooltip(strings.logBackToLatest),
-              refresh,
             ];
             final before = _rects(tester, controls);
             void check(String phase) {
@@ -1074,59 +1090,27 @@ void main() {
               }
             }
 
-            Future<void> retryFromMenu(String phase) async {
+            Future<void> retryFromNotice(String phase) async {
               final count = bridge.requests.length;
               final source = app.state.logSource!;
-              await tester.tap(refresh);
-              await tester.pump();
-              check('$phase 菜单首帧');
-              await tester.pump(
-                const Duration(milliseconds: 200, microseconds: 1),
+              await tester.pump(const Duration(milliseconds: 400));
+              check('$phase 提示进入');
+              final action = find.descendant(
+                of: find.byType(SnackBar),
+                matching: find.widgetWithText(TextButton, strings.retry),
               );
-              check('$phase 菜单进入');
-              final action = find.byKey(const ValueKey('log-refresh'));
-              final details = find.byKey(const ValueKey('log-error-details'));
-              expect(find.byType(MenuItemButton), findsNWidgets(2));
-              expect(
-                find.descendant(
-                  of: action,
-                  matching: find.text(strings.refresh),
-                ),
-                findsOneWidget,
-              );
-              expect(
-                find.descendant(
-                  of: details,
-                  matching: find.text(strings.errorDetails),
-                ),
-                findsOneWidget,
-              );
-              expect(
-                tester.widget<MenuItemButton>(action).onPressed,
-                isNotNull,
-              );
-              expect(
-                tester.widget<MenuItemButton>(details).onPressed,
-                isNotNull,
-              );
+              expect(action.hitTestable(), findsOneWidget);
               expect(tester.getSize(action).height, greaterThanOrEqualTo(48));
-              expect(tester.getSize(details).height, greaterThanOrEqualTo(48));
               expect(bridge.requests, hasLength(count));
               await tester.tap(action);
               for (var frame = 0; frame < 4; frame++) {
                 await tester.pump();
-                check('$phase 选中后的frame $frame');
+                check('$phase 重试后的frame $frame');
               }
               expect(bridge.requests, hasLength(count + 1));
               expect(app.state.logSource!.identity, source.identity);
               expect(app.state.logSource!.logWindow, source.logWindow);
               expect(find.byType(AlertDialog), findsNothing);
-              await tester.pump(
-                const Duration(milliseconds: 400, microseconds: 1),
-              );
-              check('$phase 菜单退出');
-              expect(find.byKey(const ValueKey('log-refresh')), findsNothing);
-              expect(bridge.requests, hasLength(count + 1));
             }
 
             check('initial loading');
@@ -1144,7 +1128,7 @@ void main() {
               findsOneWidget,
             );
             expect(find.byType(AlertDialog), findsNothing);
-            await retryFromMenu('首次重试');
+            await retryFromNotice('首次重试');
             check('retry loading');
             bridge.replies.last.complete(
               logResponse(
@@ -1190,7 +1174,7 @@ void main() {
             check('poll waiting');
             bridge.replies.last.completeError(StateError('poll failed'));
             await pumpReply('poll failure retains the reading area');
-            await retryFromMenu('poll失败后重试');
+            await retryFromNotice('poll失败后重试');
             check('重试保留日志阅读区域');
             bridge.replies.last.complete(
               logResponse(

@@ -115,8 +115,7 @@ void main() {
         testWidgets(
           'status details target stays stable $language/$width/$scale',
           (tester) async {
-            var opened = 0;
-            Widget host(bool issue) => MaterialApp(
+            Widget host(bool waiting) => MaterialApp(
               locale: Locale(language),
               localizationsDelegates: AppLocalizations.localizationsDelegates,
               supportedLocales: AppLocalizations.supportedLocales,
@@ -134,12 +133,11 @@ void main() {
                             active: true,
                             showUptime: false,
                             title: strings.stateStopped,
-                            subtitle: issue
-                                ? strings.statusIssue
+                            subtitle: waiting
+                                ? strings.statusWaiting
                                 : strings.statusReady,
                             color: Colors.black,
                             refresh: () {},
-                            onIssue: issue ? () => opened++ : null,
                           );
                         },
                       ),
@@ -150,77 +148,40 @@ void main() {
             );
             await tester.pumpWidget(host(false));
             final status = find.byType(SessionUptime);
-            final target = find.descendant(
-              of: status,
-              matching: find.byType(InkWell),
-            );
+            final target = find.byKey(const ValueKey('status-details'));
             final bounds = tester.getRect(status);
             final title = tester.getRect(
               find.byKey(const ValueKey('uptime-title')),
             );
-            for (final issue in [true, false, true, false]) {
-              await tester.pumpWidget(host(issue));
+            for (final waiting in [true, false, true, false]) {
+              await tester.pumpWidget(host(waiting));
               for (final ms in [0, 16, 80, 100, 180]) {
                 await tester.pump(Duration(milliseconds: ms));
-                final hit = tester.getRect(target);
-                expect(hit.width, greaterThanOrEqualTo(48));
-                expect(hit.height, greaterThanOrEqualTo(48));
+                expect(tester.getRect(target).height, greaterThanOrEqualTo(48));
                 expect(tester.getRect(status), bounds);
                 expect(
                   tester.getRect(find.byKey(const ValueKey('uptime-title'))),
                   title,
                 );
-                expect(tester.widget<InkWell>(target).onTap != null, issue);
+                expect(
+                  find.descendant(of: status, matching: find.byType(InkWell)),
+                  findsNothing,
+                );
                 final strings = AppLocalizations.of(tester.element(status));
                 expect(
                   find.semantics.byLabel(strings.stateStopped),
                   findsOneWidget,
                 );
-                if (issue) {
-                  final node = tester.getSemantics(
-                    find.byKey(const ValueKey('status-details')),
-                  );
-                  expect(node.rect.height, greaterThanOrEqualTo(48));
-                  expect(node.getSemanticsData().label, strings.statusIssue);
-                  expect(
-                    node.getSemanticsData().hasAction(SemanticsAction.tap),
-                    isTrue,
-                  );
-                  expect(
-                    find.semantics.byLabel(strings.statusIssue),
-                    findsOneWidget,
-                  );
-                }
+                expect(
+                  tester
+                      .getSemantics(target)
+                      .getSemanticsData()
+                      .hasAction(SemanticsAction.tap),
+                  isFalse,
+                );
                 expect(tester.takeException(), isNull);
               }
-              final before = opened;
-              if (issue) {
-                await tester.tapAt(
-                  tester.getRect(target).topLeft + const Offset(4, 4),
-                );
-                expect(
-                  opened,
-                  before + 1,
-                  reason: 'The full target, not only its text, must work.',
-                );
-              }
             }
-            await tester.pumpWidget(host(true));
-            await tester.pump(const Duration(milliseconds: 320));
-            final beforeRetirement = opened;
-            final gesture = await tester.startGesture(tester.getCenter(target));
-            await tester.pumpWidget(host(false));
-            await tester.pump(const Duration(milliseconds: 16));
-            await gesture.up();
-            expect(opened, beforeRetirement);
-            expect(
-              tester
-                  .getSemantics(find.byKey(const ValueKey('status-details')))
-                  .getSemanticsData()
-                  .hasAction(SemanticsAction.tap),
-              isFalse,
-            );
-            expect(tester.getRect(status), bounds);
             await tester.pumpWidget(const SizedBox());
           },
           semanticsEnabled: true,

@@ -88,4 +88,36 @@ class VpnProjectionTest {
             }
         }
     }
+
+    @Test fun allApplicationsDoesNotBuildAnAllowedOrDisallowedList() {
+        var calls = 0
+        assertFalse(applyApplicationPackages("all", listOf("one")) {
+            calls++
+            true
+        })
+        assertEquals(0, calls)
+    }
+
+    @Test fun aMissingAllowListNeverFallsBackToAllApplications() {
+        try {
+            applyApplicationPackages("only", listOf("gone")) { false }
+            fail("a completely missing allow list was accepted")
+        } catch (_: MissingAllowedApplications) { }
+        try {
+            applyApplicationPackages("only", emptyList()) { true }
+            fail("an empty allow list was accepted")
+        } catch (_: MissingAllowedApplications) { }
+    }
+
+    @Test fun uninstallDuringBuilderSetupIsReportedWithoutDroppingOtherApps() {
+        val attempted = mutableListOf<String>()
+        val missing = applyApplicationPackages("only", listOf("installed", "gone")) {
+            attempted.add(it)
+            it == "installed"
+        }
+        assertTrue(missing)
+        assertEquals(listOf("installed", "gone"), attempted)
+        assertTrue(applyApplicationPackages("except", listOf("gone")) { false })
+        assertFalse(applyApplicationPackages("only", listOf("installed")) { true })
+    }
 }

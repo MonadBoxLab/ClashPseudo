@@ -371,7 +371,7 @@ void main() {
                   .getCenter(find.byKey(const ValueKey('leading:1')))
                   .dx;
               final label = tester.getCenter(find.text('First')).dx;
-              final check = tester.getCenter(find.byIcon(Icons.check)).dx;
+              expect(find.byIcon(Icons.check), findsNothing);
               final arrow = tester
                   .getCenter(find.byIcon(Icons.arrow_drop_down))
                   .dx;
@@ -382,7 +382,6 @@ void main() {
                   closeTo(fieldRect.right, .01),
                 );
                 expect(leading, lessThan(label));
-                expect(check, greaterThan(label));
                 expect(arrow, greaterThan(fieldLabel));
               } else {
                 expect(
@@ -390,7 +389,6 @@ void main() {
                   closeTo(fieldRect.left, .01),
                 );
                 expect(leading, greaterThan(label));
-                expect(check, lessThan(label));
                 expect(arrow, lessThan(fieldLabel));
               }
               expect(tester.getRect(trigger), fieldRect);
@@ -490,7 +488,7 @@ void main() {
         );
         tester.view.displayFeatures = const [
           DisplayFeature(
-            bounds: Rect.fromLTWH(340, 0, 20, 900),
+            bounds: Rect.fromLTWH(300, 0, 20, 900),
             type: DisplayFeatureType.hinge,
             state: DisplayFeatureState.postureFlat,
           ),
@@ -519,7 +517,7 @@ void main() {
         final originalPanel = tester.getRect(surface());
         final menu = tester.widget<MenuAnchor>(find.byType(MenuAnchor));
         expect(safe.left, 12);
-        expect(narrowHinge.left, 340);
+        expect(narrowHinge.left, 300);
         expect(originalPanel.width, greaterThan(narrowHinge.left - safe.left));
         // SDK preserves content wider than a sub-screen and places its left edge
         // at that screen's safe edge instead of squeezing it to the hinge.
@@ -1051,7 +1049,7 @@ void main() {
     );
 
     testWidgets(
-      'reduced motion is immediate and a real selection retains its check slots',
+      'reduced motion is immediate and selection uses background and semantics',
       (tester) async {
         final reduced = ValueNotifier(true);
         addTearDown(reduced.dispose);
@@ -1090,22 +1088,32 @@ void main() {
             .toList();
         expect(
           buttons.map((button) => button.trailingIcon),
-          everyElement(isNotNull),
+          everyElement(isNull),
         );
-        expect(
-          find.descendant(
-            of: find.widgetWithText(MenuItemButton, 'First'),
-            matching: find.byIcon(Icons.check),
-          ),
-          findsNothing,
-        );
-        expect(
-          find.descendant(
-            of: find.widgetWithText(MenuItemButton, 'Second'),
-            matching: find.byIcon(Icons.check),
-          ),
-          findsOneWidget,
-        );
+        final colors = Theme.of(tester.element(trigger)).colorScheme;
+        for (final button in buttons) {
+          final selectedItem = button.key == const ValueKey(2);
+          expect(
+            button.style!.backgroundColor!.resolve({}),
+            selectedItem ? colors.surfaceContainerHighest : Colors.transparent,
+          );
+          expect(
+            button.style!.textStyle!.resolve({})!.fontWeight,
+            selectedItem ? FontWeight.w700 : FontWeight.w400,
+          );
+          final semantics = find.ancestor(
+            of: find.byWidget(button),
+            matching: find.byWidgetPredicate(
+              (widget) =>
+                  widget is Semantics && widget.properties.selected != null,
+            ),
+          );
+          expect(
+            tester.widget<Semantics>(semantics.first).properties.selected,
+            selectedItem,
+          );
+        }
+        expect(find.byIcon(Icons.check), findsNothing);
         reduced.value = false;
         await tester.pump();
         expect(

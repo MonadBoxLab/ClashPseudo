@@ -5,16 +5,13 @@ import 'package:flutter/material.dart';
 import '../../app/app_controller.dart';
 import '../../navigation/task_activity.dart';
 import '../../theme/app_theme.dart';
-import '../../components/feedback/operation_feedback.dart';
 import '../../components/feedback/operation_notice.dart';
 import '../../../l10n/app_localizations.dart';
-import '../../../model/messages.dart';
 import '../../components/feedback/confirm_action.dart';
 import '../traffic_controller.dart';
 import 'power_ripples.dart';
 import 'session_uptime.dart';
 import 'status_text.dart';
-import '../../locale/message_text.dart';
 import '../../locale/model_text.dart';
 
 class StatusHero extends StatelessWidget {
@@ -30,7 +27,6 @@ class StatusHero extends StatelessWidget {
     this.compact = false,
     this.contentWidth,
     this.isCurrent,
-    this.onRecovery,
     this.isCurrentWithPopup,
   });
 
@@ -41,7 +37,6 @@ class StatusHero extends StatelessWidget {
   final VoidCallback onManage;
   final VoidCallback onImport;
   final VoidCallback onMode;
-  final VoidCallback? onRecovery;
   final bool compact;
   final double? contentWidth;
   final bool Function()? isCurrent;
@@ -105,26 +100,6 @@ class StatusHero extends StatelessWidget {
         (ownedPopup == null
             ? (isCurrent?.call() ?? true)
             : (isCurrentWithPopup?.call(ownedPopup) ?? true));
-    final issueSource = (state.generation, state.core.identity);
-    final issueErrors = (
-      controller.errorMessage,
-      state.modeErrorMessage,
-      state.errorMessage,
-      state.resultMessageDescription,
-      traffic?.errorMessage,
-    );
-    bool currentIssue({ModalRoute<dynamic>? ownedPopup}) =>
-        eligible(ownedPopup: ownedPopup) &&
-        issueSource ==
-            (controller.state.generation, controller.state.core.identity) &&
-        issueErrors ==
-            (
-              controller.errorMessage,
-              controller.state.modeErrorMessage,
-              controller.state.errorMessage,
-              controller.state.resultMessageDescription,
-              traffic?.errorMessage,
-            );
     final title = controller.loading
         ? strings.statusLoading
         : controller.dispatching
@@ -138,17 +113,6 @@ class StatusHero extends StatelessWidget {
             'STOPPING' => strings.stateStopping,
             _ => strings.stateUnknown,
           };
-    final issues =
-        [
-              controller.errorMessage,
-              state.modeErrorMessage,
-              state.errorMessage,
-              if (!state.resultSuccess) state.resultMessageDescription,
-              if (running && traffic?.active == true) traffic?.errorMessage,
-            ]
-            .whereType<AppMessage>()
-            .where((message) => message.resolve(strings).trim().isNotEmpty)
-            .toList();
     final subtitle = state.operationMessage != null
         ? switch (state.operationMessage!.id) {
             'stageStopping' => strings.stageStopping,
@@ -157,9 +121,7 @@ class StatusHero extends StatelessWidget {
             'stageUpdatingConfig' => strings.stageUpdatingConfig,
             _ => strings.statusProcessing,
           }
-        : (state.recoveryRequired || issues.isNotEmpty
-              ? strings.statusIssue
-              : controller.loading
+        : (controller.loading
               ? strings.statusPending
               : controller.platformError != null
               ? strings.statusAutoRetry
@@ -230,35 +192,38 @@ class StatusHero extends StatelessWidget {
           MediaQuery.paddingOf(context).horizontal -
           48,
     );
-    double lineHeight(
-      String text,
-      double fontSize, {
-      FontWeight? weight,
-      bool wrap = false,
-    }) {
-      final style = DefaultTextStyle.of(context).style.merge(
-        TextStyle(
-          fontSize: fontSize,
-          fontWeight: weight,
-          fontFeatures: const [FontFeature.tabularFigures()],
-        ),
-      );
+    final showUptime =
+        running &&
+        !controller.loading &&
+        !controller.dispatching &&
+        state.operationMessage == null &&
+        !state.recoveryRequired;
+    final text = Theme.of(context).textTheme;
+    final titleStyle = text.bodyLarge!.copyWith(
+      fontWeight: FontWeight.w500,
+      fontFeatures: showUptime ? const [FontFeature.tabularFigures()] : null,
+    );
+    final subtitleStyle = text.bodySmall!.copyWith(
+      fontFeatures: showUptime ? const [FontFeature.tabularFigures()] : null,
+    );
+    double lineHeight(String value, TextStyle textStyle) {
+      final style = DefaultTextStyle.of(context).style.merge(textStyle);
       final painter = TextPainter(
-        text: TextSpan(text: text, style: style),
+        text: TextSpan(text: value, style: style),
         strutStyle: StrutStyle.fromTextStyle(style, forceStrutHeight: true),
         textDirection: Directionality.of(context),
         textScaler: MediaQuery.textScalerOf(context),
         locale: Localizations.maybeLocaleOf(context),
-      )..layout(maxWidth: wrap ? readingWidth : double.infinity);
+      )..layout();
       final height = painter.height;
       painter.dispose();
       return height;
     }
 
     const diameter = PowerRipples.buttonDiameter;
-    final subtitleHeight = lineHeight(subtitle, 12);
+    final subtitleHeight = lineHeight(subtitle, subtitleStyle);
     final statusContentHeight =
-        lineHeight(title, 16, weight: FontWeight.w500) + 6 + subtitleHeight;
+        lineHeight(title, titleStyle) + 6 + subtitleHeight;
     final statusHeight = statusContentHeight
         .clamp(48.0, double.infinity)
         .toDouble();
@@ -267,7 +232,8 @@ class StatusHero extends StatelessWidget {
     final statusGap = (captionGap - (statusHeight - statusContentHeight))
         .clamp(0.0, captionGap)
         .toDouble();
-    final detailsHeight = 10 + lineHeight(label, 12) + statusGap + statusHeight;
+    final detailsHeight =
+        10 + lineHeight(label, text.bodySmall!) + statusGap + statusHeight;
     return _HeroGeometry(
       detailsHeight: detailsHeight,
       revision: (title, subtitle, label, readingWidth),
@@ -289,9 +255,8 @@ class StatusHero extends StatelessWidget {
                         'Clash Pseudo',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
+                        style: text.titleMedium!.copyWith(
                           color: ink,
-                          fontSize: 16,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -316,7 +281,11 @@ class StatusHero extends StatelessWidget {
                           showImport ? strings.importConfig : configName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 14),
+                          style: text.bodyLarge!.copyWith(
+                            color: showImport && !controller.canEdit
+                                ? ink.withValues(alpha: .38)
+                                : ink,
+                          ),
                         ),
                       ),
                     ),
@@ -335,7 +304,7 @@ class StatusHero extends StatelessWidget {
                               Flexible(
                                 child: Text(
                                   strings.configManage,
-                                  style: const TextStyle(fontSize: 12),
+                                  style: text.labelLarge!.copyWith(color: ink),
                                 ),
                               ),
                               const SizedBox(width: 4),
@@ -351,7 +320,7 @@ class StatusHero extends StatelessWidget {
                   identity,
                   key: const ValueKey('config-identity'),
                   emptyText: strings.identitySelectedUnconfirmed,
-                  style: TextStyle(color: ink, fontSize: 12),
+                  style: text.bodySmall!.copyWith(color: ink),
                   textAlign: TextAlign.start,
                 ),
                 Expanded(
@@ -463,82 +432,19 @@ class StatusHero extends StatelessWidget {
                                     const SizedBox(height: 10),
                                     StatusText(
                                       label,
-                                      style: TextStyle(
+                                      style: text.bodySmall!.copyWith(
                                         color: ink,
-                                        fontSize: 12,
                                       ),
                                     ),
                                     SizedBox(height: statusGap),
                                     SessionUptime(
                                       snapshot: state,
                                       active: visible && controller.foreground,
-                                      showUptime:
-                                          running &&
-                                          !controller.loading &&
-                                          !controller.dispatching &&
-                                          state.operationMessage == null &&
-                                          issues.isEmpty &&
-                                          !state.recoveryRequired,
+                                      showUptime: showUptime,
                                       title: title,
                                       subtitle: subtitle,
                                       color: ink,
                                       refresh: controller.refresh,
-                                      onIssue:
-                                          state.recoveryRequired &&
-                                              onRecovery != null
-                                          ? () {
-                                              if (currentIssue() &&
-                                                  controller
-                                                      .state
-                                                      .recoveryRequired) {
-                                                onRecovery!();
-                                              }
-                                            }
-                                          : issues.isEmpty
-                                          ? null
-                                          : () {
-                                              if (!currentIssue()) return;
-                                              showLocalizedOperationMessage(
-                                                context,
-                                                (strings) => issues
-                                                    .map(
-                                                      (message) => message
-                                                          .summary(strings),
-                                                    )
-                                                    .where(
-                                                      (text) => text
-                                                          .trim()
-                                                          .isNotEmpty,
-                                                    )
-                                                    .toSet()
-                                                    .join('\n\n'),
-                                                technicalDetail: (strings) {
-                                                  final details = issues
-                                                      .map(
-                                                        (message) => message
-                                                            .technicalDetail(
-                                                              strings,
-                                                            ),
-                                                      )
-                                                      .whereType<String>()
-                                                      .where(
-                                                        (text) =>
-                                                            text.isNotEmpty,
-                                                      )
-                                                      .toSet();
-                                                  return details.isEmpty
-                                                      ? null
-                                                      : details.join('\n\n');
-                                                },
-                                                title: (strings) =>
-                                                    strings.tunnelStatus,
-                                                isCurrent: () => currentIssue(),
-                                                isCurrentWithPopup: (popup) =>
-                                                    currentIssue(
-                                                      ownedPopup: popup,
-                                                    ),
-                                              );
-                                            },
                                     ),
                                   ],
                                 ),
@@ -585,7 +491,11 @@ class StatusHero extends StatelessWidget {
                                           ),
                                         )
                                 : strings.modeSavedUnconfirmed,
-                            style: const TextStyle(fontSize: 12),
+                            style: text.labelLarge!.copyWith(
+                              color: controller.canChangeMode
+                                  ? ink
+                                  : ink.withValues(alpha: .65),
+                            ),
                             textAlign: TextAlign.start,
                           ),
                         ),

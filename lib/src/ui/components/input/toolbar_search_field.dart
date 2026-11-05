@@ -2,6 +2,7 @@ import 'dart:ui' show SemanticsInputType;
 
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../theme/app_theme.dart';
 
 // SDK TextField provides dense alignment inside the 48dp target, with normal hit
@@ -12,13 +13,19 @@ class ToolbarSearchField extends StatefulWidget {
     required this.controller,
     required this.focusNode,
     required this.hintText,
-    required this.trailing,
+    this.trailing,
+    this.enabled = true,
+    this.onChanged,
+    this.canClear,
   });
 
   final TextEditingController controller;
   final FocusNode focusNode;
   final String hintText;
-  final Widget trailing;
+  final Widget? trailing;
+  final bool enabled;
+  final ValueChanged<String>? onChanged;
+  final bool Function()? canClear;
 
   @override
   State<ToolbarSearchField> createState() => _ToolbarSearchFieldState();
@@ -51,21 +58,26 @@ class _ToolbarSearchFieldState extends State<ToolbarSearchField> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final textStyle = theme.textTheme.bodyLarge!;
     final border = OutlineInputBorder(
       borderRadius: BorderRadius.circular(8),
       borderSide: BorderSide.none,
     );
     return Semantics(
       inputType: SemanticsInputType.search,
+      label: widget.hintText,
       child: TextField(
         controller: widget.controller,
         focusNode: widget.focusNode,
+        enabled: widget.enabled,
+        onChanged: widget.onChanged,
         textInputAction: TextInputAction.search,
         textAlignVertical: TextAlignVertical.center,
-        style: TextStyle(fontSize: 16, color: colors.onSurface),
+        style: textStyle.copyWith(color: colors.onSurface),
         decoration: InputDecoration(
-          constraints: const BoxConstraints.tightFor(height: 48),
+          constraints: const BoxConstraints(minHeight: 48),
           isDense: true,
           filled: true,
           fillColor: colors.surfaceContainer,
@@ -78,7 +90,9 @@ class _ToolbarSearchFieldState extends State<ToolbarSearchField> {
           prefixIcon: Icon(
             Icons.search,
             size: 20,
-            color: HomePalette.of(context).moreAction,
+            color: widget.enabled
+                ? HomePalette.of(context).moreAction
+                : theme.disabledColor,
           ),
           prefixIconConstraints: const BoxConstraints(
             minWidth: 44,
@@ -86,14 +100,30 @@ class _ToolbarSearchFieldState extends State<ToolbarSearchField> {
           ),
           suffixIcon: Padding(
             padding: const EdgeInsets.only(right: 12),
-            child: widget.trailing,
+            child:
+                widget.trailing ??
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: widget.controller,
+                  builder: (context, value, _) => IconButton(
+                    tooltip: AppLocalizations.of(context).clearSearch,
+                    onPressed: !widget.enabled || value.text.isEmpty
+                        ? null
+                        : () {
+                            if (widget.canClear?.call() == false) return;
+                            widget.controller.clear();
+                            widget.onChanged?.call('');
+                            widget.focusNode.requestFocus();
+                          },
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ),
           ),
           suffixIconConstraints: const BoxConstraints(
             minWidth: 60,
             minHeight: 48,
           ),
           hintText: widget.hintText,
-          hintStyle: TextStyle(fontSize: 16, color: colors.onSurfaceVariant),
+          hintStyle: textStyle.copyWith(color: colors.onSurfaceVariant),
         ),
       ),
     );

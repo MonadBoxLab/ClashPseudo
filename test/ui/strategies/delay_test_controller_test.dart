@@ -184,13 +184,11 @@ void main() {
         expect(controller.results['A']?.delay, 12);
         expect(controller.target, 'https://probe.example.test/generate_204');
         final doneResults = controller.results;
-        final doneReply = controller.lastReply;
         final doneReads = bridge.reads;
         await tester.pump(const Duration(milliseconds: 2100));
         expect(bridge.reads, doneReads);
         expect(bridge.cancelled, isEmpty);
         expect(controller.results, same(doneResults));
-        expect(controller.lastReply, same(doneReply));
 
         final activeBridge = DelayBridge()..members = List.of(bridge.members);
         final active = DelayTestController(activeBridge, source, 'group');
@@ -217,7 +215,6 @@ void main() {
         expect(bridge.reads, doneReads);
         expect(controller.terminalState, 'done');
         expect(controller.results, same(doneResults));
-        expect(controller.lastReply, same(doneReply));
       },
     );
 
@@ -232,6 +229,8 @@ void main() {
               'name': 'B',
               'status': 'timeout',
               'error': 'context deadline exceeded',
+              'cancelError': 'original cancel error',
+              'time': '2026-11-05T10:20:30.000Z',
             },
             {
               'name': 'C',
@@ -250,19 +249,25 @@ void main() {
         expect(controller.results['C']?.status, DelayMemberStatus.failed);
         expect(controller.results['B']?.error, 'context deadline exceeded');
         expect(
+          controller.results['B']?.cancellationError,
+          'original cancel error',
+        );
+        expect(
+          controller.results['B']?.time,
+          DateTime.utc(2026, 11, 5, 10, 20, 30),
+        );
+        expect(
           controller.results['C']?.error,
           'connect https://user:pass@example.test/path?token=fixture',
         );
         expect(controller.terminalState, 'done');
         expect(controller.finished, isTrue);
         final doneResults = controller.results;
-        final doneReply = controller.lastReply;
         final doneReads = bridge.reads;
         await tester.pump(const Duration(milliseconds: 2100));
         expect(bridge.reads, doneReads);
         expect(bridge.cancelled, isEmpty);
         expect(controller.results, same(doneResults));
-        expect(controller.lastReply, same(doneReply));
 
         final activeBridge = DelayBridge()..members = List.of(bridge.members);
         final active = DelayTestController(activeBridge, source, 'group');
@@ -294,7 +299,6 @@ void main() {
         expect(bridge.reads, doneReads);
         expect(controller.terminalState, 'done');
         expect(controller.results, same(doneResults));
-        expect(controller.lastReply, same(doneReply));
       },
     );
 
@@ -408,16 +412,14 @@ void main() {
       expect(controller.terminalState, 'done');
       expect(controller.failure, isNull);
       expect(controller.results['A']?.delay, 0);
-      expect(controller.results['A']?.raw, bridge.members.single);
+      expect(controller.results['A']?.identity, 'actual-member');
       final result = controller.results;
-      final reply = controller.lastReply;
       await tester.pump(const Duration(milliseconds: 2100));
       expect(bridge.reads, 2);
       expect(bridge.starts, 1);
       expect(bridge.cancelled, isEmpty);
       expect(controller.batch, bridge.batchId);
       expect(controller.results, same(result));
-      expect(controller.lastReply, same(reply));
     });
 
     testWidgets('done batch restart retains the slot until actual release', (
@@ -485,11 +487,7 @@ void main() {
         await start;
         expect(controller.results['A']?.status, DelayMemberStatus.success);
         expect(controller.results['A']?.delay, 0);
-        expect(
-          controller.results['A']?.raw['future'],
-          bridge.members[0]['future'],
-        );
-        expect(controller.lastReply, reply);
+        expect(controller.results['A']?.identity, 'captured-member');
         expect(controller.terminalState, 'expired');
         expect(controller.running, isFalse);
         expect(bridge.cancelled, [bridge.batchId]);
@@ -548,28 +546,25 @@ void main() {
       expect(controller.cleanupFailure, isNull);
     });
 
-    testWidgets(
-      'expired lifecycle preserves actual result plus complete raw row',
-      (tester) async {
-        final bridge = DelayBridge()
-          ..state = 'expired'
-          ..members = [
-            {
-              'name': 'A',
-              'status': 'expired',
-              'delay': 0,
-              'result': {'status': 'success', 'delay': 0},
-              'future': false,
-            },
-          ];
-        final controller = DelayTestController(bridge, source, 'group');
-        addTearDown(controller.dispose);
-        await controller.start();
-        expect(controller.results['A']?.status, DelayMemberStatus.success);
-        expect(controller.results['A']?.delay, 0);
-        expect(controller.results['A']?.raw, bridge.members.single);
-        expect(controller.terminalState, 'expired');
-      },
-    );
+    testWidgets('来源过期时保留实际测速结果', (tester) async {
+      final bridge = DelayBridge()
+        ..state = 'expired'
+        ..members = [
+          {
+            'name': 'A',
+            'status': 'expired',
+            'delay': 0,
+            'result': {'status': 'success', 'delay': 0},
+            'future': false,
+          },
+        ];
+      final controller = DelayTestController(bridge, source, 'group');
+      addTearDown(controller.dispose);
+      await controller.start();
+      expect(controller.results['A']?.status, DelayMemberStatus.success);
+      expect(controller.results['A']?.delay, 0);
+      expect(controller.results['A']?.name, 'A');
+      expect(controller.terminalState, 'expired');
+    });
   });
 }

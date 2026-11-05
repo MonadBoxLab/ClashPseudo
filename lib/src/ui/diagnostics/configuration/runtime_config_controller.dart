@@ -3,7 +3,6 @@ import 'package:clash_pseudo/src/model/platform_failure.dart';
 import 'package:clash_pseudo/src/model/core_snapshot.dart';
 
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
@@ -20,9 +19,10 @@ class RuntimeConfigController extends ChangeNotifier {
 
   final AppController app;
   RuntimeConfigStatus status = RuntimeConfigStatus.loading;
-  List<String> lines = const [];
-  Map<String, dynamic>? data;
+  String text = '';
+  CoreSnapshot? source;
   AppMessage? readError;
+  Object? cancelError;
   bool loading = false;
   bool _disposed = false;
   bool _visible = false;
@@ -30,8 +30,10 @@ class RuntimeConfigController extends ChangeNotifier {
   int _request = 0;
   Object? _observed;
   Object? _attempted;
-  CoreSnapshot? _source;
   Timer? _deadline;
+  Timer? _poll;
+  int _failures = 0;
+  int _pendingDelayMs = 250;
 
   bool get active => !_disposed && _visible && app.foreground;
   bool get canRefresh => active && !loading && !app.busy;
@@ -65,10 +67,11 @@ class RuntimeConfigController extends ChangeNotifier {
     );
     if (_observed == key) return;
     _observed = key;
+    _poll?.cancel();
     _request++;
     _again = false;
     if (!active || app.busy) {
-      status = lines.isEmpty
+      status = text.isEmpty
           ? RuntimeConfigStatus.loading
           : RuntimeConfigStatus.stale;
     } else if (app.platformError != null || !app.state.confirmed) {
@@ -78,7 +81,7 @@ class RuntimeConfigController extends ChangeNotifier {
       unawaited(_read(core));
       return;
     } else {
-      status = lines.isEmpty
+      status = text.isEmpty
           ? RuntimeConfigStatus.empty
           : RuntimeConfigStatus.stale;
       if (core.blocked || core.errorMessage != null || !app.configsCurrent) {
@@ -125,7 +128,7 @@ class RuntimeConfigController extends ChangeNotifier {
     }
     final request = ++_request;
     loading = true;
-    status = lines.isEmpty
+    status = text.isEmpty
         ? RuntimeConfigStatus.loading
         : RuntimeConfigStatus.stale;
     notifyListeners();
@@ -137,16 +140,25 @@ class RuntimeConfigController extends ChangeNotifier {
       status = RuntimeConfigStatus.stale;
       notifyListeners();
     });
+    var pending = false;
+    var failed = false;
     try {
       final value = await app.platform.runtimeConfiguration(expected);
       if (_disposed) return;
-      data = Map.unmodifiable(value);
-      lines = List.unmodifiable(
-        const JsonEncoder.withIndent('  ')
-            .convert(value['configuration'])
-            .split('\n'),
-      );
-      _source = expected;
+      if (value['readPending'] == true) {
+        pending = true;
+        status = text.isEmpty
+            ? RuntimeConfigStatus.loading
+            : RuntimeConfigStatus.stale;
+        return;
+      }
+      final configuration = value['configuration'];
+      if (configuration is! String) {
+        throw const FormatException('运行配置不是文本');
+      }
+      source = expected;
+      text = configuration;
+      cancelError = value['cancelError'];
       readError = null;
       final current =
           active &&
@@ -162,12 +174,21 @@ class RuntimeConfigController extends ChangeNotifier {
           : expected.purpose == 'RUNNING'
           ? RuntimeConfigStatus.live
           : RuntimeConfigStatus.preview;
+      if (current) {
+        _failures = 0;
+        _pendingDelayMs = 250;
+      }
     } catch (error) {
       if (_disposed) return;
-      readError = error is PlatformFailure
-          ? messageFromFailure(error, fallback: messages.operationFailed)
-          : messages.operationFailed.withDetail(error);
-      status = RuntimeConfigStatus.failed;
+      if (request == _request && _matches(expected, app.state.core)) {
+        readError = error is PlatformFailure
+            ? messageFromFailure(error, fallback: messages.operationFailed)
+            : messages.operationFailed.withDetail(error);
+        status = RuntimeConfigStatus.failed;
+        failed = true;
+      } else {
+        status = RuntimeConfigStatus.stale;
+      }
     } finally {
       deadline.cancel();
       _deadline = null;
@@ -177,9 +198,30 @@ class RuntimeConfigController extends ChangeNotifier {
         if (_again) {
           _again = false;
           unawaited(_read(app.state.core));
+        } else {
+          _scheduleNext(pending: pending, failed: failed);
         }
       }
     }
+  }
+
+  void _scheduleNext({required bool pending, required bool failed}) {
+    _poll?.cancel();
+    if (!active || app.busy || !app.state.core.ready) return;
+    final Duration delay;
+    if (pending) {
+      delay = Duration(milliseconds: _pendingDelayMs);
+      _pendingDelayMs = (_pendingDelayMs * 2).clamp(250, 1000);
+    } else if (failed) {
+      const seconds = [5, 10, 30, 60];
+      delay = Duration(
+        seconds: seconds[_failures.clamp(0, seconds.length - 1)],
+      );
+      _failures++;
+    } else {
+      delay = const Duration(seconds: 30);
+    }
+    _poll = Timer(delay, () => unawaited(_read(app.state.core)));
   }
 
   Future<void> refresh() async {
@@ -207,22 +249,12 @@ class RuntimeConfigController extends ChangeNotifier {
     }
   }
 
-  bool get hasCurrentSource =>
-      active &&
-      !loading &&
-      !app.busy &&
-      app.platformError == null &&
-      app.state.confirmed &&
-      (status == RuntimeConfigStatus.live ||
-          status == RuntimeConfigStatus.preview) &&
-      _source != null &&
-      _matches(_source!, app.state.core);
-
   @override
   void dispose() {
     _disposed = true;
     _request++;
     _deadline?.cancel();
+    _poll?.cancel();
     app.removeListener(_changed);
     super.dispose();
   }

@@ -332,7 +332,9 @@ class _ChoiceMenuButtonState<T> extends State<ChoiceMenuButton<T>>
     final width = math.max(0.0, workspace.available.width);
     final height = math.max(0.0, workspace.available.height);
     final enabled = widget.enabled && widget.options.isNotEmpty && _current;
-    final colors = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final textStyle = theme.textTheme.labelLarge!;
     final direction = Directionality.of(context);
     final attachmentDirection = widget.child == null
         ? direction
@@ -351,12 +353,13 @@ class _ChoiceMenuButtonState<T> extends State<ChoiceMenuButton<T>>
       selection,
       interactive,
       colors,
+      textStyle,
       widget.leadingIcon,
       widget.optionBuilder,
     );
     if (_presentation != presentation) {
       _presentation = presentation;
-      _menuChildren = _items(interactive, selection, colors);
+      _menuChildren = _items(interactive, selection, colors, textStyle);
     }
     // PopScope exposes root-menu Back interception; LocalHistory consumes direct
     // Navigator pops on this page.
@@ -479,6 +482,7 @@ class _ChoiceMenuButtonState<T> extends State<ChoiceMenuButton<T>>
     bool interactive,
     (Object?, ValueChanged<T>?, int) selection,
     ColorScheme colors,
+    TextStyle textStyle,
   ) => [
     for (final entry in _options.entries)
       _ChoiceMenuDirection.preserve(
@@ -517,23 +521,23 @@ class _ChoiceMenuButtonState<T> extends State<ChoiceMenuButton<T>>
                               selection.$2?.call(entry.key);
                             }
                           },
-                    style: const ButtonStyle(
-                      minimumSize: WidgetStatePropertyAll(Size(0, 48)),
+                    style: ButtonStyle(
+                      minimumSize: const WidgetStatePropertyAll(Size(0, 48)),
                       alignment: AlignmentDirectional.centerStart,
+                      backgroundColor: WidgetStatePropertyAll(
+                        _value != null && entry.key == _value
+                            ? colors.surfaceContainerHighest
+                            : Colors.transparent,
+                      ),
+                      textStyle: WidgetStatePropertyAll(
+                        textStyle.copyWith(
+                          fontWeight: _value != null && entry.key == _value
+                              ? FontWeight.w700
+                              : FontWeight.w400,
+                        ),
+                      ),
                     ),
                     leadingIcon: widget.leadingIcon?.call(entry.key),
-                    trailingIcon: _value == null
-                        ? null
-                        : SizedBox.square(
-                            dimension: 20,
-                            child: entry.key == _value
-                                ? Icon(
-                                    Icons.check,
-                                    size: 20,
-                                    color: colors.primary,
-                                  )
-                                : null,
-                          ),
                     child:
                         widget.optionBuilder?.call(entry.key, entry.value) ??
                         Text(entry.value),

@@ -39,7 +39,8 @@ class ConfigFindController extends ValueNotifier<CodeFindValue?>
   int _revision = 0;
   bool _busy = false;
   bool _disposed = false;
-  bool failed = false;
+  Object? error;
+  bool get failed => error != null;
 
   @override
   List<CodeLineSelection>? get allMatchSelections => value?.result?.matches;
@@ -64,7 +65,7 @@ class ConfigFindController extends ValueNotifier<CodeFindValue?>
   void _queue() {
     _revision++;
     _timer?.cancel();
-    failed = false;
+    error = null;
     final pattern = findInputController.text;
     value = CodeFindValue(
       option: CodeFindOption(
@@ -113,9 +114,9 @@ class ConfigFindController extends ValueNotifier<CodeFindValue?>
                 dirty: false,
               ),
       );
-    } catch (_) {
+    } catch (failure) {
       if (!_disposed && revision == _revision && value != null) {
-        failed = true;
+        error = failure;
         value = CodeFindValue(option: option, replaceMode: false);
       }
     } finally {
@@ -151,7 +152,7 @@ class ConfigFindController extends ValueNotifier<CodeFindValue?>
   void close() {
     _revision++;
     _timer?.cancel();
-    failed = false;
+    error = null;
     value = null;
   }
 

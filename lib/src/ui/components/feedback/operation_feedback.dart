@@ -22,6 +22,7 @@ Future<void> showAppMessage(
   bool Function(ModalRoute<dynamic> ownedPopup)? isCurrentWithPopup,
   Listenable? eligibilityChanges,
   ValueChanged<ModalRoute<dynamic>?>? onRoute,
+  Future<void> Function()? onRetry,
 }) => showLocalizedOperationMessage(
   context,
   message.summary,
@@ -33,6 +34,7 @@ Future<void> showAppMessage(
   isCurrentWithPopup: isCurrentWithPopup,
   eligibilityChanges: eligibilityChanges,
   onRoute: onRoute,
+  onRetry: onRetry,
 );
 
 /// [isCurrent] 检查是否允许打开结果弹窗，在等待界面恢复交互前后各检查一次。
@@ -54,6 +56,7 @@ Future<void> showLocalizedOperationMessage(
   bool Function(ModalRoute<dynamic> ownedPopup)? isCurrentWithPopup,
   Listenable? eligibilityChanges,
   ValueChanged<ModalRoute<dynamic>?>? onRoute,
+  Future<void> Function()? onRetry,
 }) async {
   if (!context.mounted) return;
   final owner =
@@ -80,6 +83,7 @@ Future<void> showLocalizedOperationMessage(
   final themes = InheritedTheme.capture(from: context, to: navigator.context);
   var retired = false;
   var retirementScheduled = false;
+  var retryRequested = false;
   ModalRoute<dynamic>? detailsPopup;
   VoidCallback? checkCurrent;
   final eligibility = Listenable.merge([
@@ -138,7 +142,14 @@ Future<void> showLocalizedOperationMessage(
           retire();
           return false;
         }
-        final popup = ownedPopup ?? detailsPopup;
+        final nested = detailsPopup;
+        final popup =
+            ownedPopup ??
+            (nested != null &&
+                    nested.isActive &&
+                    nested.animation?.status != AnimationStatus.reverse
+                ? nested
+                : null);
         final active =
             route.isActive &&
             animation.status != AnimationStatus.reverse &&
@@ -179,27 +190,11 @@ Future<void> showLocalizedOperationMessage(
               titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
               contentPadding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
               actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              title: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    error ? Icons.error_outline : Icons.info_outline,
-                    size: 22,
-                    color: error ? Theme.of(context).colorScheme.error : null,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      title?.call(AppLocalizations.of(context)) ??
-                          AppLocalizations.of(context).operationNotCompleted,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        height: 1.3,
-                      ),
-                    ),
-                  ),
-                ],
+              title: Text(
+                title?.call(AppLocalizations.of(context)) ??
+                    (error
+                        ? AppLocalizations.of(context).operationNotCompleted
+                        : AppLocalizations.of(context).operationFinished),
               ),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -253,6 +248,16 @@ Future<void> showLocalizedOperationMessage(
                 ],
               ),
               actions: [
+                if (onRetry != null)
+                  TextButton(
+                    onPressed: () {
+                      if (!current()) return;
+                      retryRequested = true;
+                      retired = true;
+                      Navigator.pop(context);
+                    },
+                    child: Text(AppLocalizations.of(context).retry),
+                  ),
                 TextButton(
                   onPressed: () {
                     if (current()) {
@@ -300,6 +305,8 @@ Future<void> showLocalizedOperationMessage(
     }
     onRoute?.call(null);
   }
+  await dialog.completed;
+  if (retryRequested && context.mounted && eligible()) await onRetry!();
 }
 
 /// 在结果弹窗中展开技术原文；复制时检查该弹窗及来源页面是否仍允许操作。
@@ -321,12 +328,16 @@ class _OperationTechnicalDetails extends StatefulWidget {
 
 class _OperationTechnicalDetailsState
     extends State<_OperationTechnicalDetails> {
+  bool _expanded = false;
+
   Future<void> _copy(String text) async {
-    if (!mounted || widget.text != text || !widget.isCurrent()) return;
+    if (!mounted || !_expanded || widget.text != text || !widget.isCurrent()) {
+      return;
+    }
     try {
       await Clipboard.setData(ClipboardData(text: text));
     } catch (failure) {
-      if (mounted && widget.isCurrent() && widget.text == text) {
+      if (mounted && _expanded && widget.isCurrent() && widget.text == text) {
         await widget.onCopyFailure(
           messages.operationFailed.withDetail(failure),
         );
@@ -340,6 +351,7 @@ class _OperationTechnicalDetailsState
     final text = widget.text;
     return ExpansionTile(
       key: const ValueKey('operation-technical-details'),
+      onExpansionChanged: (value) => _expanded = value,
       tilePadding: EdgeInsets.zero,
       childrenPadding: EdgeInsets.zero,
       expansionAnimationStyle: MediaQuery.disableAnimationsOf(context)

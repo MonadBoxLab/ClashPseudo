@@ -218,7 +218,7 @@ void main() {
     expect(find.byIcon(Icons.link_off_rounded), findsOneWidget);
     expect(find.byIcon(Icons.radio_button_checked_rounded), findsNothing);
     expect(find.byIcon(Icons.radio_button_unchecked_rounded), findsNothing);
-    expect(find.byIcon(Icons.check), findsOneWidget);
+    expect(find.byIcon(Icons.check), findsNothing);
     await tester.tap(find.text('不活跃'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('筛选命中规则'));
@@ -269,7 +269,7 @@ void main() {
     expect(find.byIcon(Icons.link_off_rounded), findsOneWidget);
     expect(find.byIcon(Icons.radio_button_checked_rounded), findsNothing);
     expect(find.byIcon(Icons.radio_button_unchecked_rounded), findsNothing);
-    expect(find.byIcon(Icons.check), findsOneWidget);
+    expect(find.byIcon(Icons.check), findsNothing);
     await tester.tap(find.text('不活跃'));
     await tester.pumpAndSettle();
     final list = tester.getRect(find.byType(CustomScrollView));

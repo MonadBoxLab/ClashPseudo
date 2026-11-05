@@ -105,6 +105,29 @@ void main() {
     app.dispose();
   });
 
+  testWidgets('无效 core 内存采样保留身份差异，不展示完整响应', (tester) async {
+    final bridge = MemoryBridge()
+      ..corePending = Completer<Map<String, dynamic>>();
+    final app = TrafficApp(bridge)..state = running('memory-core');
+    final view = TrafficController(app)..setVisible(true);
+    bridge.corePending!.complete({
+      'valid': true,
+      'processId': 'other-core',
+      'processRssBytes': 123,
+      'sampledAt': DateTime.now().millisecondsSinceEpoch,
+      'unused': {'private': 'memory-response-only'},
+    });
+    await tester.pump();
+    final detail = view.coreMemoryError!.detail!;
+    expect(detail, contains('expectedProcessId: memory-core'));
+    expect(detail, contains('processId: other-core'));
+    expect(detail, contains('processRssBytes: 123'));
+    expect(detail, isNot(contains('memory-response-only')));
+    expect(view.coreRssBytes, isNull);
+    view.dispose();
+    app.dispose();
+  });
+
   testWidgets('停止与替换立即清旧 core 身份，拒绝迟到回复且保留 app 更新', (tester) async {
     final bridge = MemoryBridge();
     final app = TrafficApp(bridge)..state = running('first-core');

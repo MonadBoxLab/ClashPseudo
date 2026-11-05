@@ -21,11 +21,6 @@ type tunResource interface {
 
 type tunConstructor func(int, LC.Tun, []netip.AddrPort) (tunResource, error, bool)
 
-func (e *Engine) CanAttach(revision uint64) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.canAttachLocked(revision)
-}
 func (e *Engine) canAttachLocked(revision uint64) error {
 	if e.cfg == nil || e.spec == nil || e.tun != nil || e.owner == nil || !e.owner.active.Load() {
 		return ErrStopped

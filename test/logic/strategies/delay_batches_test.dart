@@ -1058,7 +1058,7 @@ void main() {
       expect(controller.running, isFalse);
       expect(controller.busy, isFalse);
       expect(controller.cleanupFailure, isNull);
-      expect((controller.lastReply!['start'] as Map)['id'], id);
+      expect(controller.batch, isNull);
       await expectLater(fixture.batch(id), throwsA(anything));
     } finally {
       controller.dispose();

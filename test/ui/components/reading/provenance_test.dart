@@ -12,9 +12,7 @@ import 'package:clash_pseudo/src/ui/diagnostics/resources/resources_page.dart';
 import 'package:clash_pseudo/src/ui/diagnostics/rules/rules_controller.dart';
 import 'package:clash_pseudo/src/ui/diagnostics/rules/rules_page.dart';
 import 'package:clash_pseudo/src/ui/components/feedback/operation_notice.dart';
-import 'package:clash_pseudo/src/ui/components/reading/original_text_view.dart';
 import 'package:clash_pseudo/src/ui/navigation/route_observer.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -178,41 +176,6 @@ Future<void> _show(WidgetTester tester, Widget page) async {
   await tester.pump();
 }
 
-Future<Map<String, dynamic>> _copyOriginal(
-  WidgetTester tester,
-  String actionKey,
-) async {
-  final action = find.byKey(ValueKey(actionKey));
-  await tester.ensureVisible(action);
-  await tester.pumpAndSettle();
-  expect(action.hitTestable(), findsOneWidget);
-  await tester.tap(action);
-  await tester.pumpAndSettle();
-  final original = tester
-      .widget<OriginalTextView>(find.byType(OriginalTextView))
-      .text;
-  String? copied;
-  tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-    SystemChannels.platform,
-    (call) async {
-      if (call.method == 'Clipboard.setData') {
-        copied = (call.arguments as Map)['text'] as String;
-      }
-      return null;
-    },
-  );
-  addTearDown(
-    () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      SystemChannels.platform,
-      null,
-    ),
-  );
-  await tester.tap(find.byKey(const ValueKey('original-text-copy')));
-  await tester.pump();
-  expect(copied, original);
-  return Map<String, dynamic>.from(jsonDecode(copied!) as Map);
-}
-
 Future<void> _frames(WidgetTester tester, void Function() check) async {
   for (final duration in [
     Duration.zero,
@@ -290,6 +253,7 @@ void main() {
         isNot(contains('Latest disk rename')),
       );
       expect(app.commands, isEmpty);
+      controller.setVisible(false);
     },
   );
 
@@ -351,6 +315,7 @@ void main() {
         isNull,
       );
       expect(app.commands, isEmpty);
+      controller.setVisible(false);
     },
   );
 
@@ -389,6 +354,7 @@ void main() {
       expect(second.contributors.single.kind, ContributorKind.config);
       expect(bridge.queries.single['offset'], 0);
       expect(bridge.queries.single['token'], '');
+      controller.setVisible(false);
     },
   );
 
@@ -519,6 +485,7 @@ void main() {
       bridge.replies.last.complete(_resources(provenance: wrongSection));
       await tester.pump();
       expect(controller.current, isTrue);
+      controller.setVisible(false);
     },
   );
 
@@ -550,8 +517,11 @@ void main() {
       await _frames(tester, unchanged);
       bridge.replies.last.completeError(StateError('controlled read failure'));
       await _frames(tester, unchanged);
-      await tester.tap(find.widgetWithIcon(IconButton, Icons.refresh));
+      expect(find.byIcon(Icons.refresh), findsNothing);
+      expect(find.byType(SnackBar), findsOneWidget);
+      await tester.pump(const Duration(seconds: 5));
       await _frames(tester, unchanged);
+      expect(bridge.replies, hasLength(3));
       final name = '运行时记录的长插件名称' * 6;
       bridge.replies.last.complete(
         _nodes(
@@ -571,18 +541,9 @@ void main() {
       expect(find.text('Local customizations'), findsNothing);
       expect(find.text('Contributing plugins'), findsNothing);
       expect(find.byIcon(Icons.edit_outlined), findsNothing);
-      final original = await _copyOriginal(tester, 'node-raw-data');
-      expect(
-        original['provenance'],
-        _plugin(name, '/proxies/0', role: 'localCustom'),
-      );
-      expect(original['name'], 'same-name');
-      expect(original['sourceKind'], 'configuration');
-      expect(original['source'], '');
-      expect(original['sourceVersion'], 0);
-      expect(original['history'], isEmpty);
-      expect(original['tests'], isEmpty);
-      expect(original.containsKey('localDefinition'), isFalse);
+      expect(find.byKey(const ValueKey('node-raw-data')), findsNothing);
+      expect(find.widgetWithText(SelectableText, 'same-name'), findsOneWidget);
+      expect(find.widgetWithText(SelectableText, 'Socks5'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },
@@ -614,8 +575,11 @@ void main() {
       await _frames(tester, unchanged);
       bridge.replies.last.completeError(StateError('controlled failure'));
       await _frames(tester, unchanged);
-      await tester.tap(find.widgetWithIcon(IconButton, Icons.refresh));
+      expect(find.byIcon(Icons.refresh), findsNothing);
+      expect(find.byType(SnackBar), findsOneWidget);
+      await tester.pump(const Duration(seconds: 5));
       await _frames(tester, unchanged);
+      expect(bridge.replies, hasLength(3));
       final name =
           'Long name captured by the replacement composition / 插件名称' * 3;
       bridge.replies.last.complete(_rules(generation: 2, pluginName: name));
@@ -624,13 +588,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.widgetWithText(SelectableText, name), findsNothing);
       expect(find.text('Contributing plugins'), findsNothing);
-      final original = await _copyOriginal(tester, 'rule-raw-data');
-      expect(original['provenance'], _plugin(name, '/rules/0'));
-      expect(original['index'], 1);
-      expect(original['payload'], 'same.test');
-      expect(original['target'], 'DIRECT');
-      expect(original['providers'], isEmpty);
-      expect(original.containsKey('localDefinition'), isFalse);
+      expect(find.byKey(const ValueKey('rule-raw-data')), findsNothing);
+      expect(find.widgetWithText(SelectableText, 'same.test'), findsOneWidget);
+      expect(find.widgetWithText(SelectableText, 'DIRECT'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },
@@ -666,8 +626,11 @@ void main() {
       await _frames(tester, unchanged);
       bridge.replies.last.completeError(StateError('controlled failure'));
       await _frames(tester, unchanged);
-      await tester.tap(find.widgetWithIcon(IconButton, Icons.refresh));
+      expect(find.byIcon(Icons.refresh), findsNothing);
+      expect(find.byType(SnackBar), findsOneWidget);
+      await tester.pump(const Duration(seconds: 5));
       await _frames(tester, unchanged);
+      expect(bridge.replies, hasLength(3));
       final name = 'Loaded provider definition plugin with a long name / 本地来源';
       bridge.replies.last.complete(
         _resources(
@@ -697,16 +660,12 @@ void main() {
       expect(find.text('Definition contributors'), findsNothing);
       expect(find.widgetWithText(SelectableText, name), findsNothing);
       expect(find.textContaining('https://provider.test/…'), findsWidgets);
-      final original = await _copyOriginal(tester, 'resource-raw-data');
+      expect(find.byKey(const ValueKey('resource-raw-data')), findsNothing);
+      expect(find.widgetWithText(SelectableText, 'remote'), findsOneWidget);
       expect(
-        original['provenance'],
-        _plugin(name, '/proxy-providers/remote', role: 'localCustom'),
+        find.widgetWithText(SelectableText, 'https://provider.test/…'),
+        findsOneWidget,
       );
-      expect(original['source'], 'https://provider.test/…');
-      expect(original['count'], 3);
-      expect(original['name'], 'remote');
-      expect(original['kind'], 'proxyProvider');
-      expect(original.containsKey('localDefinition'), isFalse);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },

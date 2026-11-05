@@ -115,6 +115,7 @@ class ApplicationsCalls(
                 "package" to info.packageName,
                 "label" to label,
                 "uid" to application.uid,
+                "updatedAt" to info.lastUpdateTime,
                 "system" to ((application.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0),
             )
         }.sortedBy { (it["label"] as String).lowercase() }

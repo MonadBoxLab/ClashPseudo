@@ -461,7 +461,7 @@ void main() {
     });
   }
 
-  test('策略 wire 错误、未知字段和 false/null 保留原值', () async {
+  test('策略导出保留实际错误，不把 terminal 的其他字段作为错误', () async {
     await create(preview: true);
     await fixture.warmUp();
     final wire = jsonEncode({
@@ -485,10 +485,11 @@ void main() {
     );
     await result.done;
     expect(result.value, isNull);
-    expect(errorText(result.error), contains(wire));
-    expect(errorText(result.error), contains('future'));
-    expect(errorText(result.error), contains('Authorization'));
-    expect(errorText(result.error), contains('[false, null]'));
+    final details = (result.error as PlatformFailure).details as Map;
+    expect(details['error'], wire);
+    expect(details.containsKey('future'), isFalse);
+    expect(details.containsKey('values'), isFalse);
+    expect(details['complete'], isFalse);
     await fixture.runtime.read('releasePreview', {});
   });
 
@@ -576,7 +577,7 @@ void main() {
     expect(fixture.exits, isEmpty);
   });
 
-  test('context 变化保留实际策略结果、captured identity 和未知字段并标 stale', () async {
+  test('context 变化保留策略业务字段和 captured identity 并标 stale', () async {
     await create(preview: true);
     await fixture.warmUp();
     final captured = fixture.core;
@@ -612,14 +613,18 @@ void main() {
     for (final entry in fixture.identity(captured).entries) {
       expect(value[entry.key], entry.value, reason: entry.key);
     }
-    expect(value['future'], {'Authorization': modeStrategyOriginal});
-    expect(value['values'], [false, null]);
-    expect((value['terminal'] as Map)['nativeFuture'], {
-      'Authorization': modeStrategyOriginal,
-    });
-    expect((value['terminal'] as Map)['nativeValues'], [false, null]);
-    expect((value['groups'] as List).single['future'], rawGroup['future']);
-    expect((value['groups'] as List).single['values'], [false, null]);
+    expect(value['mode'], 'rule');
+    expect(value['globalReferenced'], isFalse);
+    expect(value.containsKey('terminal'), isFalse);
+    final group = (value['groups'] as List).single as Map;
+    expect(group['name'], rawGroup['name']);
+    expect(group['type'], rawGroup['type']);
+    expect(group['now'], rawGroup['now']);
+    expect(group['fixed'], rawGroup['fixed']);
+    expect(group['members'], rawGroup['members']);
+    expect(group['sourceIdentity'], rawGroup['sourceIdentity']);
+    expect(group['currentIdentity'], rawGroup['currentIdentity']);
+    expect(jsonEncode(value), isNot(contains(modeStrategyOriginal)));
     expect(value['stale'], isTrue);
     expect(StrategySnapshot.fromMap(value).matches(fixture.core), isFalse);
     expect(fixture.core.processId, 'replacement-process');
@@ -639,7 +644,7 @@ void main() {
             request,
           ) {
             request.strategies(
-              [],
+              [fixture.strategyRecord()],
               metadata: {'future': modeStrategyOriginal},
               terminal: {
                 'complete': !failing,
@@ -671,7 +676,10 @@ void main() {
             expectOriginalError(result.error, failure);
           } else {
             expect(result.error, isNull);
-            expect(result.value!.raw['future'], modeStrategyOriginal);
+            expect(
+              result.value!.find(fixture.groupName)!.now,
+              fixture.actualMember,
+            );
             expect(result.value!.stale, isFalse);
           }
           expect(fixture.core.identity, captured);
@@ -682,7 +690,7 @@ void main() {
     }
   }
 
-  test('非法策略 JSON 保留实际 parser error 和完整原值，仍等实际退出', () async {
+  test('非法策略 JSON 保留 parser 错误且不包含原值，仍等实际退出', () async {
     await create(preview: true);
     await fixture.warmUp();
     fixture.script(ApplicationContract.coreOperationStrategies, (request) {
@@ -711,8 +719,10 @@ void main() {
     await result.done;
     expect(result.value, isNull);
     expect(result.error, isA<FormatException>());
-    expect((result.error as FormatException).source, modeStrategyOriginal);
-    expect(errorText(result.error), contains(modeStrategyOriginal));
+    final parseError = result.error as FormatException;
+    expect(parseError.source, isNull);
+    expect(parseError.message, isNotEmpty);
+    expect(errorText(parseError), isNot(contains(modeStrategyOriginal)));
     expect(fixture.core.ready, isTrue);
     await fixture.runtime.read('releasePreview', {});
   });
@@ -975,7 +985,9 @@ void main() {
                 ? (result.value!['failure'] as Map)['details'] as Map
                 : result.value!;
             final actualTerminal = {
-              ...terminal,
+              'complete': !workFails,
+              if (workFails) 'error': work,
+              'exited': true,
               'nativeReceipt': receipt,
               'cancellation': {
                 'cancelled': true,
@@ -991,10 +1003,42 @@ void main() {
             } else {
               expect(result.value!['failure'], isNull);
             }
-            expect(details['actual'], {
-              'value': workFails ? null : workValue,
-              'terminal': actualTerminal,
-            });
+            final actual = details['actual'] as Map;
+            expect(
+              actual['value'],
+              workFails
+                  ? null
+                  : {
+                      for (final key in [
+                        'prepared',
+                        'attached',
+                        'vpnIntent',
+                        'lanIntent',
+                        'processId',
+                        'inputId',
+                        'generation',
+                        'networkRevision',
+                      ])
+                        key: workValue[key],
+                      'platform': {
+                        'vpn': {'running': false},
+                        'lan': {'running': false},
+                      },
+                    },
+            );
+            expect(actual['terminal'], actualTerminal);
+            expect(
+              jsonEncode(actual['value']),
+              isNot(contains(modeStrategyOriginal)),
+            );
+            expect(
+              (actual['terminal'] as Map).containsKey('nativeFuture'),
+              isFalse,
+            );
+            expect(
+              (actual['terminal'] as Map).containsKey('nativeValues'),
+              isFalse,
+            );
             if (workFails) {
               final actualFailure = details['error'] as Map;
               expect(actualFailure['dartStack'], isA<String>());
@@ -1003,10 +1047,10 @@ void main() {
                 ApplicationContract.coreErrorCallFailed,
               );
               expect(actualFailure['details'], {
+                'complete': false,
+                'exited': true,
                 'error': work,
-                'cancelError': null,
-                'result': null,
-                ...actualTerminal,
+                'nativeReceipt': receipt,
               });
             }
             final cleanupFailure = Map<String, dynamic>.from(
@@ -1554,8 +1598,10 @@ void main() {
     });
     final value = await fixture.operation.strategies(fixture.core);
     expect(value.groups, hasLength(2));
-    expect((value.raw['groups'] as List)[0]['padding'], padding);
-    expect((value.raw['groups'] as List)[1]['padding'], padding);
+    expect(value.groups.map((group) => group.name), [
+      fixture.groupName,
+      '第二个组🌐',
+    ]);
   });
 
   for (final field in [
@@ -1678,7 +1724,11 @@ void main() {
       'name': name,
       'sourceIdentity': '$name-source',
       'currentIdentity': '$name-current',
-      'raw': {'type': type, 'now': now, 'fixed': fixed},
+      'type': type,
+      'now': now,
+      'fixed': fixed,
+      'hidden': false,
+      'icon': '',
       'members': [
         for (final member in members)
           {'name': member, 'type': 'Direct', 'identity': '$name/$member'},
@@ -1728,8 +1778,7 @@ void main() {
     expect(snapshot.find('manual')!.now, 'provider-node');
     expect(snapshot.find('automatic')!.fixed, 'COMPATIBLE');
     expect(snapshot.find('fallback')!.fixed, '');
-    final warnings = (snapshot.raw['unrestored'] as List).cast<Map>();
-    expect(warnings.map((row) => row['group']).toSet(), {
+    expect(snapshot.unrestored.keys.toSet(), {
       'GLOBAL',
       'wrong-type',
       'missing-member',
@@ -1747,9 +1796,7 @@ void main() {
     );
     final updated = await fixture.runtime.strategies(fixture.core);
     expect(
-      (updated.raw['unrestored'] as List).cast<Map>().map(
-        (row) => row['group'],
-      ),
+      updated.unrestored.keys,
       unorderedEquals(['wrong-type', 'missing-member']),
     );
     expect(fixture.nativeCacheWrites, 1);
@@ -1770,7 +1817,7 @@ void main() {
       hasLength(before),
     );
     expect(
-      (await fixture.runtime.strategies(fixture.core)).raw['unrestored'],
+      (await fixture.runtime.strategies(fixture.core)).unrestored,
       isEmpty,
     );
   });

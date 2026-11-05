@@ -159,15 +159,35 @@ class AppRuntime {
         name: command['name'] as String,
       );
       if (!core.matchesWireIdentity(value)) {
-        throw FormatException(
-          'Resource result context changed: ${jsonEncode(value)}',
-        );
+        throw FormatException('Resource result context changed', {
+          'expected': {
+            'processId': core.processId,
+            'inputId': core.inputId,
+            'generation': core.generation,
+            'configId': core.configId,
+            'revision': core.revision,
+            'composition': core.composition,
+            'purpose': core.purpose,
+          },
+          'actual': {
+            for (final key in [
+              'processId',
+              'inputId',
+              'generation',
+              'configId',
+              'revision',
+              'composition',
+              'purpose',
+            ])
+              if (value[key] is String || value[key] is num) key: value[key],
+          },
+        });
       }
       final update = value['update'];
       if (update is! Map) {
-        throw FormatException(
-          'Invalid resource update result: ${jsonEncode(value)}',
-        );
+        throw FormatException('Invalid resource update result', {
+          'updateType': value['updateType'] ?? update.runtimeType.toString(),
+        });
       }
       final error = update['error'];
       status = error == null && update['status'] == 'ok'
@@ -181,7 +201,16 @@ class AppRuntime {
           ? messages.resourceUpdateStopped
           : messages.resourceUpdateFailed;
       if (status != 'ok') {
-        message = message.withDetail(update['detail'] ?? jsonEncode(update));
+        message = message.withDetail(
+          update['detail'] ?? update['error'] ?? update['status'],
+        );
+      }
+      if (value['cancelError'] != null) {
+        message = message.withDetail({
+          'cancelError': value['cancelError'],
+          if (value['nativeReceipt'] != null)
+            'nativeReceipt': value['nativeReceipt'],
+        });
       }
     } on PlatformFailure catch (error, stack) {
       failure = failureValue(error, stack);

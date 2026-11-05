@@ -1,21 +1,18 @@
 import '../../components/feedback/operation_feedback.dart';
 import '../../components/feedback/operation_notice.dart';
 import '../../../model/app_message.dart';
-import '../../navigation/page_route.dart';
-
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../../components/input/task_shortcuts.dart';
+import '../../components/input/toolbar_search_field.dart';
 
 import '../../app/app_controller.dart';
 import '../../navigation/task_activity.dart';
 import '../../theme/app_theme.dart';
 import '../../components/input/choice_menu_button.dart';
 import '../../../l10n/app_localizations.dart';
-import '../../components/reading/original_text_view.dart';
 import '../../components/reading/technical_reading_pane.dart';
 import 'logs_controller.dart';
 
@@ -149,6 +146,14 @@ class _CoreLogsPageState extends State<CoreLogsPage> {
       eligibilityChanges: Listenable.merge([_controller, widget.app]),
       isCurrent: current,
       isCurrentWithPopup: (popup) => current(popup: popup),
+      onRetry: () async {
+        if (!current()) return;
+        await _controller.refresh();
+        if (current()) {
+          _quiet = false;
+          _syncFeedback();
+        }
+      },
     );
   }
 
@@ -317,30 +322,6 @@ class _CoreLogsPageState extends State<CoreLogsPage> {
     if (atEnd != _controller.follow) _controller.setFollow(atEnd);
   }
 
-  void _showRaw(Object? value, {Object? query}) {
-    if (!_pageLive) return;
-    final strings = AppLocalizations.of(context);
-    Navigator.of(context).push<void>(
-      FocusedPageRoute(
-        builder: (_) => Scaffold(
-          appBar: AppBar(title: Text(strings.resourceRawData)),
-          body: OriginalTextView(
-            text: const JsonEncoder.withIndent('  ').convert(value),
-            header: query == null
-                ? null
-                : Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: SelectableText(
-                      const JsonEncoder.withIndent('  ')
-                          .convert({'query': query}),
-                    ),
-                  ),
-          ),
-        ),
-      ),
-    );
-  }
-
   String _levelLabel(AppLocalizations strings, String value) => switch (value) {
     'debug' => strings.logLevelDebug,
     'warning' => strings.logLevelWarning,
@@ -355,19 +336,18 @@ class _CoreLogsPageState extends State<CoreLogsPage> {
     return material.formatTimeOfDay(TimeOfDay.fromDateTime(time));
   }
 
-  Color? _levelColor(BuildContext context, String level) => switch (level) {
-    'error' => Theme.of(context).colorScheme.error,
-    'warning' => ConnectionPalette(
-      Theme.of(context).brightness == Brightness.dark,
-    ).warning,
-    _ => null,
-  };
+  Color _levelColor(BuildContext context, String level) {
+    final palette = HomePalette.of(context);
+    return switch (level) {
+      'debug' => palette.muted,
+      'info' => palette.cobalt,
+      'warning' => palette.warning,
+      'error' => Theme.of(context).colorScheme.error,
+      _ => palette.ink,
+    };
+  }
 
-  Widget _logRows(
-    BuildContext context,
-    AppLocalizations strings, {
-    bool before = false,
-  }) {
+  Widget _logRows(BuildContext context, {bool before = false}) {
     final count = before ? _centerIndex : _rows.length - _centerIndex;
     return SliverList(
       key: before ? null : _center,
@@ -379,6 +359,7 @@ class _CoreLogsPageState extends State<CoreLogsPage> {
           final row = _rows[index];
           final seq = row['seq'] as int;
           final level = row['level']?.toString() ?? '';
+          final color = _levelColor(context, level);
           return Padding(
             key: _rowKeys.putIfAbsent(
               seq,
@@ -388,28 +369,22 @@ class _CoreLogsPageState extends State<CoreLogsPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '${_time(context, row['time']?.toString() ?? '')} · ${level.toUpperCase()}',
-                        style: Theme.of(context).textTheme.labelSmall
-                            ?.copyWith(color: _levelColor(context, level)),
+                Text.rich(
+                  TextSpan(
+                    text: '${_time(context, row['time']?.toString() ?? '')} · ',
+                    children: [
+                      TextSpan(
+                        text: level.toUpperCase(),
+                        style: TextStyle(color: color),
                       ),
-                    ),
-                    IconButton(
-                      key: ValueKey('log-raw-$seq'),
-                      tooltip: strings.resourceRawData,
-                      visualDensity: VisualDensity.compact,
-                      iconSize: 16,
-                      onPressed: () => _showRaw(row),
-                      icon: const Icon(Icons.data_object),
-                    ),
-                  ],
+                    ],
+                  ),
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
                 SelectableText(
                   row['text']?.toString() ?? '',
-                  style: TechnicalReadingPane.textStyleOf(context),
+                  style: TechnicalReadingPane.textStyleOf(context)
+                      .copyWith(color: color),
                 ),
               ],
             ),
@@ -451,76 +426,10 @@ class _CoreLogsPageState extends State<CoreLogsPage> {
     listenable: _controller,
     builder: (context, _) {
       final strings = AppLocalizations.of(context);
-      final readError = _controller.readErrorSource == _sourceIdentity
-          ? _controller.readError
-          : null;
       final rows = _rows;
       if (_scroll.hasClients) _scheduleFollow();
-      final feedbackSource = _sourceIdentity;
-      final feedbackPeriod = _feedbackPeriod;
       return Scaffold(
-        appBar: AppBar(
-          title: Text(strings.coreLogs),
-          actions: [
-            IconButton(
-              key: const ValueKey('log-feedback-raw'),
-              tooltip: strings.resourceRawData,
-              onPressed: _controller.data == null
-                  ? null
-                  : () => _showRaw(
-                      _controller.data,
-                      query: _controller.dataQuery,
-                    ),
-              icon: const Icon(Icons.data_object),
-            ),
-            ChoiceMenuButton<String>(
-              tooltip: strings.refresh,
-              identity: (feedbackSource, feedbackPeriod),
-              enabled: _pageLive,
-              options: {
-                'log-refresh': strings.refresh,
-                if (readError != null)
-                  'log-error-details': strings.errorDetails,
-              },
-              disabledOptions: {if (!_controller.canRefresh) 'log-refresh'},
-              leadingIcon: (action) => Icon(
-                action == 'log-refresh' ? Icons.refresh : Icons.error_outline,
-              ),
-              onSelected: (action) {
-                if (!_pageLive ||
-                    feedbackSource != _sourceIdentity ||
-                    feedbackPeriod != _feedbackPeriod) {
-                  return;
-                }
-                if (action == 'log-error-details' && readError != null) {
-                  _showError(
-                    readError,
-                    source: feedbackSource,
-                    period: feedbackPeriod,
-                  );
-                } else if (_controller.canRefresh) {
-                  _controller.refresh();
-                }
-              },
-              buttonBuilder: (context, open, focus) => IconButton(
-                key: const ValueKey('log-actions'),
-                focusNode: focus,
-                tooltip: strings.refresh,
-                onPressed: _pageLive ? open : null,
-                color: HomePalette.of(context).syncAction,
-                icon: _controller.loading
-                    ? SizedBox.square(
-                        dimension: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: HomePalette.of(context).syncAction,
-                        ),
-                      )
-                    : const Icon(Icons.refresh),
-              ),
-            ),
-          ],
-        ),
+        appBar: AppBar(title: Text(strings.coreLogs)),
         body: TechnicalReadingPane(
           child: LayoutBuilder(
             builder: (context, constraints) => Column(
@@ -538,27 +447,15 @@ class _CoreLogsPageState extends State<CoreLogsPage> {
                           Row(
                             children: [
                               Expanded(
-                                child: TextField(
+                                child: ToolbarSearchField(
                                   controller: _search,
                                   focusNode: _searchFocus,
+                                  hintText: strings.logSearch,
+                                  enabled: _pageLive,
+                                  canClear: () => _pageLive,
                                   onChanged: (value) {
                                     if (_pageLive) _controller.filter(value);
                                   },
-                                  decoration: InputDecoration(
-                                    labelText: strings.logSearch,
-                                    prefixIconColor: HomePalette.of(context)
-                                        .moreAction,
-                                    prefixIcon: const Icon(Icons.search),
-                                    suffixIcon: IconButton(
-                                      tooltip: strings.clearSearch,
-                                      onPressed: () {
-                                        if (!_pageLive) return;
-                                        _search.clear();
-                                        _controller.filter('');
-                                      },
-                                      icon: const Icon(Icons.close),
-                                    ),
-                                  ),
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -668,8 +565,8 @@ class _CoreLogsPageState extends State<CoreLogsPage> {
                                   controller: _scroll,
                                   center: _center,
                                   slivers: [
-                                    _logRows(context, strings, before: true),
-                                    _logRows(context, strings),
+                                    _logRows(context, before: true),
+                                    _logRows(context),
                                   ],
                                 ),
                               ),

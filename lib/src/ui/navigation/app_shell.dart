@@ -9,6 +9,10 @@ import '../configs/configs_page.dart';
 import '../connections/connections_page.dart';
 import '../overview/overview_page.dart';
 import '../settings/settings_page.dart';
+import '../settings/core_cleanup_action.dart';
+import '../locale/message_text.dart';
+import '../../model/messages.dart';
+import '../../l10n/app_localizations.dart';
 import '../strategies/strategies_page.dart';
 import '../strategies/strategy_controller.dart';
 import 'page_route.dart';
@@ -57,6 +61,268 @@ class _AppShellState extends State<AppShell> {
   WorkspaceLayout? _railLayout;
   WorkspaceLayout? _barLayout;
   bool _rail = false;
+  Object? _recoverySource;
+  Object? _recoveryTicket;
+  bool _recoveryDismissed = false;
+  ModalRoute<dynamic>? _recoveryDialog;
+
+  Object get _currentRecoverySource => (
+    widget.controller,
+    widget.controller.storageEpoch,
+    widget.controller.state.generation,
+    widget.controller.state.core.identity,
+  );
+
+  void _scheduleRecovery(BuildContext noticeContext) {
+    final app = widget.controller;
+    if (!app.state.recoveryRequired) {
+      _recoverySource = null;
+      _recoveryTicket = null;
+      _recoveryDismissed = false;
+      return;
+    }
+    final source = _currentRecoverySource;
+    if (_recoverySource != source) {
+      _recoverySource = source;
+      _recoveryTicket = null;
+      _recoveryDismissed = false;
+    }
+    bool canPresent() =>
+        mounted &&
+        noticeContext.mounted &&
+        app.interactive &&
+        identical(widget.controller, app) &&
+        AppTaskActivity.isActive(noticeContext) &&
+        AppTaskActivity.routeIsActive(ModalRoute.of(noticeContext)) &&
+        _routes.stack.lastOrNull is! PopupRoute<dynamic>;
+    if (!canPresent()) {
+      if (_recoveryDialog == null) _recoveryTicket = null;
+      return;
+    }
+    if (_recoveryDismissed || _recoveryTicket != null) return;
+    final ticket = _recoveryTicket = Object();
+    bool current() =>
+        _recoveryTicket == ticket &&
+        source == _currentRecoverySource &&
+        app.state.recoveryRequired &&
+        canPresent();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!current()) {
+        if (_recoveryTicket == ticket) _recoveryTicket = null;
+        return;
+      }
+      unawaited(
+        showLocalizedOperationNotice(
+          noticeContext,
+          (strings) => strings.coreInterruptedTitle,
+          identity: ticket,
+          eligibilityChanges: Listenable.merge([app, _routes]),
+          isCurrent: current,
+          isCurrentWithPopup: (popup) =>
+              mounted &&
+              source == _currentRecoverySource &&
+              app.state.recoveryRequired &&
+              app.interactive &&
+              AppTaskActivity.isActive(noticeContext, ownedPopup: popup) &&
+              AppTaskActivity.routeIsActive(
+                ModalRoute.of(noticeContext),
+                ownedPopup: popup,
+              ),
+          onDetails: () async {
+            if (!current()) return;
+            _recoveryDismissed = true;
+            await _showRecovery(noticeContext, source);
+          },
+          onClosed: (reason) {
+            if (_recoveryTicket != ticket) return;
+            _recoveryTicket = null;
+            if (reason == SnackBarClosedReason.action ||
+                reason == SnackBarClosedReason.dismiss ||
+                reason == SnackBarClosedReason.swipe) {
+              _recoveryDismissed = true;
+            }
+          },
+        ).then((presented) {
+          if (!presented && _recoveryTicket == ticket) _recoveryTicket = null;
+        }),
+      );
+    });
+  }
+
+  Future<void> _showRecovery(BuildContext noticeContext, Object source) async {
+    final app = widget.controller;
+    if (!noticeContext.mounted ||
+        source != _currentRecoverySource ||
+        !app.state.recoveryRequired) {
+      return;
+    }
+    final origin = ModalRoute.of(noticeContext);
+    final navigator = Navigator.of(noticeContext, rootNavigator: true);
+    late DialogRoute<String> dialog;
+    var retired = false;
+    var closing = false;
+    var dismissalScheduled = false;
+    bool current(ModalRoute<dynamic> popup) =>
+        !retired &&
+        mounted &&
+        noticeContext.mounted &&
+        source == _currentRecoverySource &&
+        app.state.recoveryRequired &&
+        app.interactive &&
+        AppTaskActivity.isActive(noticeContext, ownedPopup: popup) &&
+        AppTaskActivity.routeIsActive(origin, ownedPopup: popup);
+    void check() {
+      if (closing) {
+        if (source != _currentRecoverySource || !app.state.recoveryRequired) {
+          retired = true;
+        }
+        return;
+      }
+      if (dialog.animation?.status == AnimationStatus.reverse) return;
+      final popup = AppTaskNavigatorObserver.coveringPopup(dialog) ?? dialog;
+      if (current(popup)) return;
+      retired = true;
+      if (dismissalScheduled) return;
+      dismissalScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!navigator.mounted || !dialog.isActive) return;
+        if (dialog.isCurrent) {
+          navigator.pop();
+        } else {
+          navigator.removeRoute(dialog);
+        }
+      });
+      WidgetsBinding.instance.ensureVisualUpdate();
+    }
+
+    final changes = Listenable.merge([
+      app,
+      _routes,
+      AppTaskNavigatorObserver.changesFor(origin),
+    ]);
+    dialog = DialogRoute<String>(
+      context: noticeContext,
+      themes: InheritedTheme.capture(
+        from: noticeContext,
+        to: navigator.context,
+      ),
+      animationStyle: MediaQuery.disableAnimationsOf(noticeContext)
+          ? AnimationStyle.noAnimation
+          : null,
+      builder: (context) {
+        ModalRoute.isCurrentOf(context);
+        return ListenableBuilder(
+          listenable: changes,
+          builder: (context, _) {
+            check();
+            final active = current(dialog);
+            final strings = AppLocalizations.of(context);
+            void close([String? action]) {
+              if (!current(dialog)) return;
+              closing = true;
+              navigator.pop(action);
+            }
+
+            return IgnorePointer(
+              ignoring: !active,
+              child: ExcludeFocus(
+                excluding: !active,
+                child: ExcludeSemantics(
+                  excluding: !active,
+                  child: AlertDialog(
+                    key: const ValueKey('overview-core-recovery'),
+                    scrollable: true,
+                    title: Text(strings.coreInterruptedTitle),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SelectableText(strings.coreInterruptedMessage),
+                        for (final text in {
+                          for (final error in [
+                            app.errorMessage,
+                            app.state.errorMessage,
+                            app.state.modeErrorMessage,
+                            if (!app.state.resultSuccess)
+                              app.state.resultMessageDescription,
+                          ].whereType<AppMessage>())
+                            error.resolve(strings),
+                        }) ...[
+                          const SizedBox(height: 12),
+                          SelectableText(text),
+                        ],
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 8,
+                          children: [
+                            FilledButton.icon(
+                              onPressed: active && app.canEdit && !app.busy
+                                  ? () => close('restart')
+                                  : null,
+                              icon: const Icon(Icons.restart_alt),
+                              label: Text(strings.coreRecoveryRestart),
+                            ),
+                            TextButton(
+                              onPressed: active ? () => close('select') : null,
+                              child: Text(strings.coreRecoverySelect),
+                            ),
+                          ],
+                        ),
+                        CoreCleanupAction(
+                          app: app,
+                          request: const {},
+                          enabled: active,
+                          isCurrent: () => current(dialog),
+                          isCurrentWithPopup: current,
+                          title: (strings) => strings.coreCleanupSelect,
+                          description: (strings) =>
+                              strings.coreCleanupSelectionNotice,
+                          icon: Icons.delete_sweep_outlined,
+                        ),
+                      ],
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: active ? close : null,
+                        child: Text(strings.close),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    _recoveryDialog = dialog;
+    changes.addListener(check);
+    final String? action;
+    try {
+      action = await navigator.push(dialog);
+      await dialog.completed;
+    } finally {
+      changes.removeListener(check);
+      if (identical(_recoveryDialog, dialog)) _recoveryDialog = null;
+    }
+    if (retired ||
+        !mounted ||
+        !noticeContext.mounted ||
+        source != _currentRecoverySource ||
+        !app.state.recoveryRequired ||
+        !app.interactive) {
+      return;
+    }
+    if (action == 'restart' && app.canEdit && !app.busy) {
+      await app.submit({
+        'action': 'start',
+        'vpnIntent': app.state.vpnIntent || !app.state.lanIntent,
+      });
+    } else if (action == 'select') {
+      await _openTask(app, AppTask.configurations);
+    }
+  }
 
   void _openNavigation(AppTask task, {required bool rail}) {
     if (_focused ||
@@ -95,6 +361,11 @@ class _AppShellState extends State<AppShell> {
   void _routesChanged() {
     final focused = _routes.stack.any((route) => route is FocusedPageRoute);
     if (mounted && focused != _focused) setState(() => _focused = focused);
+    if (mounted && widget.controller.state.recoveryRequired) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() {});
+      });
+    }
   }
 
   void _readOverviewRequest() {
@@ -334,6 +605,7 @@ class _AppShellState extends State<AppShell> {
         mounted &&
         identical(widget.controller, app) &&
         app.interactive &&
+        AppTaskActivity.isActive(context, ownedPopup: ownedPopup) &&
         AppTaskActivity.routeIsActive(outer, ownedPopup: ownedPopup);
     bool activeNow() => current();
     bool activeWithPopup(Route<dynamic> popup) => current(ownedPopup: popup);
@@ -411,214 +683,225 @@ class _AppShellState extends State<AppShell> {
             ? constraints.maxWidth
             : layout.navigationWidth + padding.horizontal;
         final barHeight = barLayout.navigationHeight + padding.bottom;
-        return AppTaskScope(
-          open: _open,
-          task: _task,
-          owner: widget.controller,
-          child: TweenAnimationBuilder<double>(
-            tween: Tween(end: showBar ? barHeight : 0),
-            duration: duration,
-            curve: Curves.easeInOutCubic,
-            builder: (context, value, child) {
-              final extent =
-                  (reducedMotion ? (showBar ? barHeight : 0.0) : value).clamp(
-                    0.0,
-                    (constraints.maxHeight -
-                            (layout.compact
-                                ? 1
-                                : WorkspaceLayout.minimumBodyHeight))
-                        .clamp(0.0, constraints.maxHeight),
-                  );
-              return Scaffold(
-                body: SafeArea(
-                  top: false,
-                  child: Row(
-                    children: [
-                      TweenAnimationBuilder<double>(
-                        key: const ValueKey('navigation-rail-extent'),
-                        tween: Tween(end: showRail ? navigationWidth : 0),
-                        duration: duration,
-                        curve: Curves.easeInOutCubic,
-                        builder: (context, value, child) => SizedBox(
-                          width:
-                              (reducedMotion
-                                      ? (showRail ? navigationWidth : 0.0)
-                                      : value)
-                                  .clamp(
-                                    0.0,
-                                    (constraints.maxWidth -
-                                            padding.horizontal -
-                                            WorkspaceLayout.minimumContentWidth)
-                                        .clamp(0.0, constraints.maxWidth),
-                                  ),
-                          child: ClipRect(
-                            child: OverflowBox(
-                              alignment: AlignmentDirectional.centerStart,
-                              minWidth: navigationWidth,
-                              maxWidth: navigationWidth,
-                              child: (!reducedMotion && value > 0) || showRail
-                                  ? child
-                                  : null,
-                            ),
-                          ),
-                        ),
-                        child: NavigationActivity(
-                          active: showRail,
-                          child: SafeArea(
-                            child: SizedBox(
-                              width: railLayout.navigationWidth,
-                              child: LayoutBuilder(
-                                builder: (context, railConstraints) =>
-                                    NavigationRail(
-                                      groupAlignment: 0,
-                                      minWidth: railLayout.navigationWidth,
-                                      scrollable: true,
-                                      selectedLabelTextStyle:
-                                          WorkspaceLayout.navigationLabelStyle(
-                                            context,
-                                            rail: true,
-                                            selected: true,
-                                          ),
-                                      unselectedLabelTextStyle:
-                                          WorkspaceLayout.navigationLabelStyle(
-                                            context,
-                                            rail: true,
-                                            selected: false,
-                                          ),
-                                      selectedIndex: selected(railLayout),
-                                      onDestinationSelected: (index) =>
-                                          _openNavigation(
-                                            railLayout.tasks[index],
-                                            rail: true,
-                                          ),
-                                      labelType: NavigationRailLabelType.all,
-                                      destinations: [
-                                        for (final task in railLayout.tasks)
-                                          NavigationRailDestination(
-                                            padding: EdgeInsets.symmetric(
-                                              vertical:
-                                                  railLayout.destinationPadding,
-                                            ),
-                                            icon: Icon(
-                                              icons[task]!.$1,
-                                              color: icons[task]!.$3,
-                                            ),
-                                            selectedIcon: Icon(
-                                              icons[task]!.$2,
-                                              color: icons[task]!.$3,
-                                            ),
-                                            label: Text(labels[task]!),
-                                          ),
-                                      ],
-                                    ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        key: const ValueKey('app-pages'),
-                        child: OperationNoticeHost(
-                          child: OperationFeedback(
-                            controller: widget.controller,
-                            child: NavigatorPopHandler<Object?>(
-                              onPopWithResult: (result) =>
-                                  _navigator.currentState?.maybePop(result),
-                              child: Semantics(
-                                container: true,
-                                explicitChildNodes: true,
-                                child: Navigator(
-                                  key: _navigator,
-                                  observers: [_routes],
-                                  onGenerateRoute: (_) => MaterialPageRoute<void>(
-                                    builder: (context) {
-                                      AppTaskScope.maybeOf(context);
-                                      final root = ModalRoute.of(context)!;
-                                      return ListenableBuilder(
-                                        listenable: Listenable.merge([
-                                          widget.controller,
-                                          _routes,
-                                          AppTaskNavigatorObserver.changesFor(
-                                            ModalRoute.of(this.context),
-                                          ),
-                                        ]),
-                                        builder: (context, _) =>
-                                            RouteStatusBuilder(
-                                              animation: root.animation!,
-                                              builder: (context) => _pages(
-                                                AppTaskActivity.isActive(
-                                                      context,
-                                                    ) &&
-                                                    AppTaskActivity.routeIsActive(
-                                                      root,
-                                                    ),
-                                                root,
-                                              ),
-                                            ),
-                                      );
-                                    },
-                                  ),
+        return TweenAnimationBuilder<double>(
+          tween: Tween(end: showBar ? barHeight : 0),
+          duration: duration,
+          curve: Curves.easeInOutCubic,
+          builder: (context, value, child) {
+            final extent = (reducedMotion ? (showBar ? barHeight : 0.0) : value)
+                .clamp(
+                  0.0,
+                  (constraints.maxHeight -
+                          (layout.compact
+                              ? 1
+                              : WorkspaceLayout.minimumBodyHeight))
+                      .clamp(0.0, constraints.maxHeight),
+                );
+            return Scaffold(
+              body: SafeArea(
+                top: false,
+                child: Row(
+                  children: [
+                    TweenAnimationBuilder<double>(
+                      key: const ValueKey('navigation-rail-extent'),
+                      tween: Tween(end: showRail ? navigationWidth : 0),
+                      duration: duration,
+                      curve: Curves.easeInOutCubic,
+                      builder: (context, value, child) => SizedBox(
+                        width:
+                            (reducedMotion
+                                    ? (showRail ? navigationWidth : 0.0)
+                                    : value)
+                                .clamp(
+                                  0.0,
+                                  (constraints.maxWidth -
+                                          padding.horizontal -
+                                          WorkspaceLayout.minimumContentWidth)
+                                      .clamp(0.0, constraints.maxWidth),
                                 ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // Scaffold 仅按非 null 判断是否消费 body 的底部 padding。
-                bottomNavigationBar: extent == 0 && !showBar
-                    ? null
-                    : SizedBox(
-                        key: const ValueKey('navigation-bar-extent'),
-                        height: extent,
                         child: ClipRect(
                           child: OverflowBox(
-                            alignment: Alignment.bottomCenter,
-                            minHeight: barHeight,
-                            maxHeight: barHeight,
-                            child: (!reducedMotion && value > 0) || showBar
+                            alignment: AlignmentDirectional.centerStart,
+                            minWidth: navigationWidth,
+                            maxWidth: navigationWidth,
+                            child: (!reducedMotion && value > 0) || showRail
                                 ? child
                                 : null,
                           ),
                         ),
                       ),
-              );
-            },
-            child: NavigationActivity(
-              active: showBar,
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: SizedBox(
-                  width: barWidth,
-                  child: NavigationBar(
-                    height: barLayout.navigationHeight,
-                    labelTextStyle: WidgetStateProperty.resolveWith(
-                      (states) => WorkspaceLayout.navigationLabelStyle(
-                        context,
-                        rail: false,
-                        selected: states.contains(WidgetState.selected),
+                      child: NavigationActivity(
+                        active: showRail,
+                        child: SafeArea(
+                          child: SizedBox(
+                            width: railLayout.navigationWidth,
+                            child: LayoutBuilder(
+                              builder: (context, railConstraints) =>
+                                  NavigationRail(
+                                    groupAlignment: 0,
+                                    minWidth: railLayout.navigationWidth,
+                                    scrollable: true,
+                                    selectedLabelTextStyle:
+                                        WorkspaceLayout.navigationLabelStyle(
+                                          context,
+                                          rail: true,
+                                          selected: true,
+                                        ),
+                                    unselectedLabelTextStyle:
+                                        WorkspaceLayout.navigationLabelStyle(
+                                          context,
+                                          rail: true,
+                                          selected: false,
+                                        ),
+                                    selectedIndex: selected(railLayout),
+                                    onDestinationSelected: (index) =>
+                                        _openNavigation(
+                                          railLayout.tasks[index],
+                                          rail: true,
+                                        ),
+                                    labelType: NavigationRailLabelType.all,
+                                    destinations: [
+                                      for (final task in railLayout.tasks)
+                                        NavigationRailDestination(
+                                          padding: EdgeInsets.symmetric(
+                                            vertical:
+                                                railLayout.destinationPadding,
+                                          ),
+                                          icon: Icon(
+                                            icons[task]!.$1,
+                                            color: icons[task]!.$3,
+                                          ),
+                                          selectedIcon: Icon(
+                                            icons[task]!.$2,
+                                            color: icons[task]!.$3,
+                                          ),
+                                          label: Text(labels[task]!),
+                                        ),
+                                    ],
+                                  ),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                    labelBehavior: barLayout.compact
-                        ? NavigationDestinationLabelBehavior.alwaysHide
-                        : NavigationDestinationLabelBehavior.alwaysShow,
-                    selectedIndex: selected(barLayout),
-                    onDestinationSelected: (index) =>
-                        _openNavigation(barLayout.tasks[index], rail: false),
-                    destinations: [
-                      for (final task in barLayout.tasks)
-                        NavigationDestination(
-                          icon: Icon(icons[task]!.$1, color: icons[task]!.$3),
-                          selectedIcon: Icon(
-                            icons[task]!.$2,
-                            color: icons[task]!.$3,
-                          ),
-                          label: labels[task]!,
+                    Expanded(
+                      key: const ValueKey('app-pages'),
+                      child: OperationNoticeHost(
+                        child: ListenableBuilder(
+                          listenable: Listenable.merge([
+                            widget.controller,
+                            AppTaskNavigatorObserver.changesFor(
+                              ModalRoute.of(this.context),
+                            ),
+                          ]),
+                          builder: (noticeContext, _) {
+                            _scheduleRecovery(noticeContext);
+                            return AppTaskScope(
+                              open: _open,
+                              task: _task,
+                              owner: widget.controller,
+                              child: OperationFeedback(
+                                controller: widget.controller,
+                                child: NavigatorPopHandler<Object?>(
+                                  onPopWithResult: (result) =>
+                                      _navigator.currentState?.maybePop(result),
+                                  child: Semantics(
+                                    container: true,
+                                    explicitChildNodes: true,
+                                    child: Navigator(
+                                      key: _navigator,
+                                      observers: [_routes],
+                                      onGenerateRoute: (_) => MaterialPageRoute<void>(
+                                        builder: (context) {
+                                          AppTaskScope.maybeOf(context);
+                                          final root = ModalRoute.of(context)!;
+                                          return ListenableBuilder(
+                                            listenable: Listenable.merge([
+                                              widget.controller,
+                                              _routes,
+                                              AppTaskNavigatorObserver.changesFor(
+                                                ModalRoute.of(this.context),
+                                              ),
+                                            ]),
+                                            builder: (context, _) =>
+                                                RouteStatusBuilder(
+                                                  animation: root.animation!,
+                                                  builder: (context) => _pages(
+                                                    AppTaskActivity.isActive(
+                                                          context,
+                                                        ) &&
+                                                        AppTaskActivity.routeIsActive(
+                                                          root,
+                                                        ),
+                                                    root,
+                                                  ),
+                                                ),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
                         ),
-                    ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Scaffold 仅按非 null 判断是否消费 body 的底部 padding。
+              bottomNavigationBar: extent == 0 && !showBar
+                  ? null
+                  : SizedBox(
+                      key: const ValueKey('navigation-bar-extent'),
+                      height: extent,
+                      child: ClipRect(
+                        child: OverflowBox(
+                          alignment: Alignment.bottomCenter,
+                          minHeight: barHeight,
+                          maxHeight: barHeight,
+                          child: (!reducedMotion && value > 0) || showBar
+                              ? child
+                              : null,
+                        ),
+                      ),
+                    ),
+            );
+          },
+          child: NavigationActivity(
+            active: showBar,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: barWidth,
+                child: NavigationBar(
+                  height: barLayout.navigationHeight,
+                  labelTextStyle: WidgetStateProperty.resolveWith(
+                    (states) => WorkspaceLayout.navigationLabelStyle(
+                      context,
+                      rail: false,
+                      selected: states.contains(WidgetState.selected),
+                    ),
                   ),
+                  labelBehavior: barLayout.compact
+                      ? NavigationDestinationLabelBehavior.alwaysHide
+                      : NavigationDestinationLabelBehavior.alwaysShow,
+                  selectedIndex: selected(barLayout),
+                  onDestinationSelected: (index) =>
+                      _openNavigation(barLayout.tasks[index], rail: false),
+                  destinations: [
+                    for (final task in barLayout.tasks)
+                      NavigationDestination(
+                        icon: Icon(icons[task]!.$1, color: icons[task]!.$3),
+                        selectedIcon: Icon(
+                          icons[task]!.$2,
+                          color: icons[task]!.$3,
+                        ),
+                        label: labels[task]!,
+                      ),
+                  ],
                 ),
               ),
             ),

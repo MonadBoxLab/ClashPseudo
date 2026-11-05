@@ -5,6 +5,7 @@ import 'package:clash_pseudo/src/model/application_contract.dart';
 import 'package:clash_pseudo/src/ui/overview/widgets/status_hero.dart';
 
 import 'package:clash_pseudo/src/ui/navigation/task_activity.dart';
+import 'package:clash_pseudo/src/ui/navigation/app_shell.dart';
 import 'package:clash_pseudo/src/model/app_snapshot.dart';
 import 'package:clash_pseudo/src/ui/app/app_controller.dart';
 import 'package:clash_pseudo/src/ui/theme/app_theme.dart';
@@ -119,6 +120,7 @@ void main() {
     Locale locale = const Locale('zh'),
     EdgeInsets padding = EdgeInsets.zero,
     bool active = true,
+    bool shell = false,
     bool Function()? isActiveNow,
   }) => tester.pumpWidget(
     MaterialApp(
@@ -135,10 +137,12 @@ void main() {
       home: AppTaskActivity(
         active: active,
         isActiveNow: isActiveNow,
-        child: OperationFeedback(
-          controller: controller,
-          child: OverviewPage(controller: controller, active: active),
-        ),
+        child: shell
+            ? AppShell(controller: controller)
+            : OperationFeedback(
+                controller: controller,
+                child: OverviewPage(controller: controller, active: active),
+              ),
       ),
     ),
   );
@@ -201,7 +205,7 @@ void main() {
           entries: [config('one')],
           selectedId: 'one',
         );
-        await show(tester, locale: locale, scale: 2);
+        await show(tester, locale: locale, scale: 2, shell: true);
         await tester.pumpAndSettle();
         final page = tester.state(find.byType(OverviewPage));
         final scroll = tester
@@ -260,7 +264,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(
           find.byKey(const ValueKey('overview-core-recovery')),
-          findsOneWidget,
+          findsNothing,
         );
         expect(controller.commands, isEmpty);
         expect(tester.takeException(), isNull);
@@ -280,7 +284,7 @@ void main() {
         selectedId: 'one',
       );
       controller.state = recovery(vpnIntent: vpnIntent, lanIntent: lanIntent);
-      await show(tester);
+      await show(tester, shell: true);
       await openRecovery(tester);
       final strings = AppLocalizations.of(
         tester.element(find.byType(AlertDialog)),
@@ -300,7 +304,7 @@ void main() {
 
   testWidgets('恢复详情中的 Select 打开配置管理', (tester) async {
     controller.state = recovery();
-    await show(tester);
+    await show(tester, shell: true);
     await openRecovery(tester);
     final strings = AppLocalizations.of(
       tester.element(find.byType(AlertDialog)),
@@ -318,7 +322,7 @@ void main() {
 
   testWidgets('恢复详情保留文件选择、取消和真实 cleanup 提交', (tester) async {
     controller.state = recovery();
-    await show(tester);
+    await show(tester, shell: true);
     await openRecovery(tester);
     final parent = tester.element(find.byType(AlertDialog));
     final strings = AppLocalizations.of(
@@ -396,7 +400,7 @@ void main() {
       );
       final original = recovery();
       controller.state = original;
-      await show(tester, isActiveNow: () => live);
+      await show(tester, isActiveNow: () => live, shell: true);
       await openRecovery(tester);
       final strings = AppLocalizations.of(
         tester.element(find.byType(AlertDialog)),
@@ -442,20 +446,24 @@ void main() {
   }
 
   for (final change in ['process', 'input']) {
-    testWidgets('旧状态详情入口拒绝同 generation 的 Core 替换 $change', (tester) async {
+    testWidgets('旧恢复提示拒绝同 generation 的 Core 替换 $change', (tester) async {
       final original = recovery();
       controller.state = original;
-      await show(tester);
+      await show(tester, shell: true);
       await tester.pumpAndSettle();
       final invoke = tester
-          .widget<SessionUptime>(find.byType(SessionUptime))
-          .onIssue!;
+          .widget<TextButton>(
+            find.descendant(
+              of: find.byType(SnackBar),
+              matching: find.byType(TextButton),
+            ),
+          )
+          .onPressed!;
       controller.state = recovery(
         processId: change == 'process' ? 'process-two' : 'process-one',
         inputId: change == 'input' ? 'input-two' : 'input-one',
         error: original.errorMessage,
       );
-      // 不重建页面，直接检查已缓存的状态详情回调。
       invoke();
       await tester.pump();
       expect(find.byType(AlertDialog), findsNothing);
@@ -553,10 +561,7 @@ void main() {
             final strings = AppLocalizations.of(
               tester.element(find.byType(StatusHero)),
             );
-            expect(
-              find.text(strings.statusIssue),
-              modeFailed ? findsOneWidget : findsNothing,
-            );
+            expect(find.text(strings.statusIssue), findsNothing);
             fixture.onExit = (_) async {
               entered.complete();
               await release.future;
@@ -592,10 +597,7 @@ void main() {
             expect(app.state.running, isTrue);
             expect(app.state.core.matchesIdentity(source), isTrue);
             expect(app.state.modeErrorMessage?.toMap(), original);
-            expect(
-              find.text(strings.statusIssue),
-              modeFailed ? findsOneWidget : findsNothing,
-            );
+            expect(find.text(strings.statusIssue), findsNothing);
             expect(fixture.exits.single['admittedAt'], fixture.admittedAt);
             expect(fixture.exits.single['deadline'], fixture.deadline);
             await tester.runAsync(() async {
@@ -626,10 +628,11 @@ void main() {
               expect(find.text(strings.stateStopped), findsOneWidget);
               expect(find.text(strings.statusReady), findsOneWidget);
               expect(
-                tester
-                    .widget<SessionUptime>(find.byType(SessionUptime))
-                    .onIssue,
-                isNull,
+                find.descendant(
+                  of: find.byKey(const ValueKey('status-details')),
+                  matching: find.byType(InkWell),
+                ),
+                findsNothing,
               );
               if (modeFailed) {
                 final diagnostic = await tester.runAsync(
@@ -648,7 +651,7 @@ void main() {
               expect(app.state.core.ready, isTrue);
               expect(app.state.modeErrorMessage?.toMap(), original);
               expect(find.text(strings.stateRunning), findsOneWidget);
-              expect(find.text(strings.statusIssue), findsOneWidget);
+              expect(find.text(strings.statusIssue), findsNothing);
               expectOriginalError(outcome, exitFailure);
             }
             expect(tester.takeException(), isNull);
@@ -1319,9 +1322,11 @@ void main() {
       error: AppMessage('androidErrorTakeoverStartFailed'),
     );
     await show(tester);
+    await tester.pumpAndSettle();
     expect(find.text('接管已关闭'), findsWidgets);
+    expect(find.byType(SnackBar), findsOneWidget);
     await tester.tap(
-      find.byKey(const ValueKey('status-details')).hitTestable(),
+      find.descendant(of: find.byType(SnackBar), matching: find.text('错误详情')),
     );
     await tester.pumpAndSettle();
     expect(
@@ -1337,10 +1342,12 @@ void main() {
     controller.changed();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 320));
+    await tester.pump(const Duration(milliseconds: 320));
     expect(find.text('状态未确认'), findsWidgets);
     expect(find.text('接管已关闭'), findsNothing);
+    expect(find.byType(SnackBar), findsOneWidget);
     await tester.tap(
-      find.byKey(const ValueKey('status-details')).hitTestable(),
+      find.descendant(of: find.byType(SnackBar), matching: find.text('错误详情')),
     );
     await tester.pumpAndSettle();
     expect(

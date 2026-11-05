@@ -260,12 +260,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(getNotice(), findsNothing);
       await openActions(tester);
-      await tester.tap(
+      expect(
         find.byKey(const ValueKey('connection-list-error-details')),
+        findsNothing,
       );
-      await tester.pumpAndSettle();
-      expect(find.byType(AlertDialog), findsOneWidget);
-      await tester.tap(find.text('关闭'));
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       bridge.data = fixtures.snapshot([fixtures.row('one')]);
       await tester.pump(const Duration(seconds: 1));
@@ -496,9 +495,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('clearInactive 与 releaseDetail 原错误可查看，但不触发自动读取提示', (
-    tester,
-  ) async {
+  testWidgets('清理和释放失败通过 SnackBar 保留原因，不被后续读取覆盖', (tester) async {
     await show(tester);
     final current = controller(tester);
     final revision = current.readRevision;
@@ -509,28 +506,45 @@ void main() {
     await tester.pumpAndSettle();
     expect(current.errorSource, ConnectionErrorSource.clearInactive);
     expect(current.readRevision, revision);
-    expect(current.error, contains('清理原始错误'));
-    expect(getNotice(), findsNothing);
-    await openActions(tester);
-    await tester.tap(
-      find.byKey(const ValueKey('connection-list-error-details')),
-    );
-    await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsOneWidget);
-    await tester.tap(find.text('关闭'));
-    await tester.pumpAndSettle();
+    expect(getNotice(), findsOneWidget);
     pending.complete(bridge.data);
     bridge.pending = null;
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 1));
     await tester.pumpAndSettle();
+    expect(current.readFailed, isFalse);
+    expect(getNotice(), findsOneWidget);
+    await tester.tap(noticeDetails());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('operation-technical-details')));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<SelectableText>(
+            find.byKey(const ValueKey('operation-technical-text')),
+          )
+          .data,
+      contains('清理原始错误'),
+    );
+    await tester.tap(find.text('关闭'));
+    await tester.pumpAndSettle();
     current.openDetail(current.data!.records.first);
     bridge.releaseFailure = StateError('释放原始错误');
     current.closeDetail();
     await tester.pumpAndSettle();
-    expect(current.errorSource, ConnectionErrorSource.releaseDetail);
-    expect(current.error, contains('释放原始错误'));
-    expect(getNotice(), findsNothing);
+    expect(getNotice(), findsOneWidget);
+    await tester.tap(noticeDetails());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('operation-technical-details')));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<SelectableText>(
+            find.byKey(const ValueKey('operation-technical-text')),
+          )
+          .data,
+      contains('释放原始错误'),
+    );
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -639,8 +653,8 @@ void main() {
     expect(getNotice(), findsNothing);
     await openActions(tester);
     expect(
-      find.byKey(const ValueKey('connection-list-error-details')).hitTestable(),
-      findsOneWidget,
+      find.byKey(const ValueKey('connection-list-error-details')),
+      findsNothing,
     );
     await tester.pumpWidget(const SizedBox());
   });
@@ -791,8 +805,8 @@ void main() {
     expect(getNotice(), findsOneWidget);
     await tester.tap(closeNotice());
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('原始数据'));
-    expect(find.text('原始数据').hitTestable(), findsOneWidget);
+    expect(find.text('原始数据'), findsNothing);
+    expect(current.detailLease, same(lease));
     await tester.pumpWidget(const SizedBox());
   });
 }

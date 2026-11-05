@@ -46,7 +46,6 @@ type dnsReply struct {
 	Authority  []dnsRecord `json:"authority"`
 	Additional []dnsRecord `json:"additional"`
 	Stale      bool        `json:"stale,omitempty"`
-	Message    *D.Msg      `json:"message"`
 	Error      string      `json:"error,omitempty"`
 	Detail     string      `json:"detail,omitempty"`
 }
@@ -199,9 +198,6 @@ func normalizeDNSQuestion(body []byte) (DNSQuestion, uint16, error) {
 	return q, kind, nil
 }
 
-func (e *Engine) DNSQuery(body []byte) string {
-	return e.DNSQueryContext(context.Background(), body)
-}
 func (e *Engine) DNSQueryContext(ctx context.Context, body []byte) string {
 	q, kind, err := normalizeDNSQuestion(body)
 	if err != nil {
@@ -261,7 +257,7 @@ func (e *Engine) DNSQueryContext(ctx context.Context, body []byte) string {
 		return out
 	}
 	value := dnsReply{Question: q, Rcode: answer.Rcode, RcodeName: D.RcodeToString[answer.Rcode], ElapsedMS: float64(elapsed) / float64(time.Millisecond), Truncated: answer.Truncated,
-		Answer: project(answer.Answer), Authority: project(answer.Ns), Additional: project(answer.Extra), Stale: !e.dnsCurrent(op), Message: answer, Error: code}
+		Answer: project(answer.Answer), Authority: project(answer.Ns), Additional: project(answer.Extra), Stale: !e.dnsCurrent(op), Error: code}
 	if err != nil {
 		value.Detail = err.Error()
 	}

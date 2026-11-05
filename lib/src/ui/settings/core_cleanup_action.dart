@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:clash_pseudo/src/model/platform_failure.dart';
 import 'package:flutter/material.dart';
 
@@ -7,7 +9,41 @@ import '../app/app_controller.dart';
 import '../components/feedback/confirm_action.dart';
 import '../components/feedback/operation_feedback.dart';
 import '../components/feedback/operation_notice.dart';
+import '../locale/message_text.dart';
 import '../navigation/task_activity.dart';
+
+List<(String, bool, AppMessage?)> coreCleanupFiles(Map cleanup) => [
+  for (final item in cleanup['files'] as List? ?? const [])
+    if (item is Map)
+      (
+        item['path'] as String? ?? '',
+        item['completed'] == true,
+        AppMessage.fromNullable(item['error']),
+      ),
+];
+
+String coreCleanupDetails(
+  AppLocalizations strings,
+  Map cleanup, {
+  AppMessage? message,
+}) {
+  final error = AppMessage.fromNullable(cleanup['error']);
+  return [
+    ?message?.technicalDetail(strings),
+    if (error != null && error != message)
+      error.technicalDetail(strings) ?? error.summary(strings),
+    for (final file in coreCleanupFiles(cleanup))
+      [
+        '${file.$1} · ${file.$2
+            ? strings.cleanupFileCompleted
+            : file.$3 != null
+            ? strings.cleanupFileFailed
+            : strings.cleanupFilePending}',
+        if (file.$3 case final itemError?)
+          itemError.technicalDetail(strings) ?? itemError.summary(strings),
+      ].join('\n'),
+  ].join('\n\n');
+}
 
 class CoreCleanupAction extends StatefulWidget {
   const CoreCleanupAction({
@@ -41,10 +77,12 @@ class CoreCleanupAction extends StatefulWidget {
 
 class _CoreCleanupActionState extends State<CoreCleanupAction> {
   final _feedbackOwner = ValueNotifier(false);
+  final _presentations = <Object>{};
   final _content = GlobalKey();
   bool _working = false;
   bool _pending = false;
   bool _retired = false;
+  int _sourceRevision = 0;
   Object? _feedbackPeriod;
   ModalRoute<dynamic>? _popup;
 
@@ -73,6 +111,7 @@ class _CoreCleanupActionState extends State<CoreCleanupAction> {
   void didUpdateWidget(CoreCleanupAction oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.app, widget.app)) {
+      _sourceRevision++;
       _retired = true;
       _feedbackPeriod = null;
     }
@@ -88,53 +127,88 @@ class _CoreCleanupActionState extends State<CoreCleanupAction> {
     });
   }
 
+  void _syncFeedbackOwner() {
+    _feedbackOwner.value = _pending || _presentations.isNotEmpty;
+  }
+
   Future<void> _clean(
     AppController app,
     Map<String, Object?> sourceRequest,
     int epoch,
   ) async {
     final period = Object();
+    final sourceRevision = _sourceRevision;
     bool current() =>
         _current &&
         identical(app, widget.app) &&
         epoch == app.storageEpoch &&
         identical(_feedbackPeriod, period);
-    bool popupCurrent(ModalRoute<dynamic> route) {
-      if (!identical(_popup, route)) return false;
-      if (current() && app.interactive) return true;
-      _retired = true;
-      _feedbackOwner.value = false;
-      return false;
-    }
+    bool feedbackCurrent({ModalRoute<dynamic>? popup}) =>
+        mounted &&
+        sourceRevision == _sourceRevision &&
+        identical(app, widget.app) &&
+        epoch == app.storageEpoch &&
+        app.interactive &&
+        AppTaskActivity.isActive(context, ownedPopup: popup) &&
+        AppTaskActivity.routeIsActive(
+          ModalRoute.of(context),
+          ownedPopup: popup,
+        ) &&
+        (popup != null && widget.isCurrentWithPopup != null
+            ? widget.isCurrentWithPopup!(popup)
+            : widget.isCurrent?.call() ?? true);
+    bool popupCurrent(ModalRoute<dynamic> route) =>
+        identical(_popup, route) && feedbackCurrent(popup: route);
 
-    Future<bool> present(
+    void present(
       AppMessage message, {
       bool error = true,
+      Map? cleanup,
       String Function(AppLocalizations)? title,
-    }) => showAppNotice(
-      context,
-      message,
-      title: title,
-      subject: widget.subject,
-      error: error,
-      identity: period,
-      isCurrent: () => current() && app.interactive,
-      isCurrentWithPopup: popupCurrent,
-      eligibilityChanges: app,
-      onDetails: error || message.detail != null
-          ? () => showAppMessage(
-              context,
-              message,
-              title: title,
-              subject: widget.subject,
-              error: error,
-              isCurrent: current,
-              isCurrentWithPopup: popupCurrent,
-              eligibilityChanges: app,
-              onRoute: (route) => _popup = route,
-            )
-          : null,
-    );
+      VoidCallback? onPresented,
+    }) {
+      String? technicalDetail(AppLocalizations strings) {
+        final detail = cleanup == null
+            ? message.technicalDetail(strings)
+            : coreCleanupDetails(strings, cleanup, message: message);
+        return detail == null || detail.isEmpty ? null : detail;
+      }
+
+      _presentations.add(period);
+      unawaited(
+        showLocalizedOperationNotice(
+          context,
+          message.summary,
+          technicalDetail: technicalDetail,
+          title: title,
+          subject: widget.subject,
+          error: error,
+          identity: period,
+          isCurrent: feedbackCurrent,
+          isCurrentWithPopup: popupCurrent,
+          eligibilityChanges: app,
+          onDetails: error || message.detail != null
+              ? () => showLocalizedOperationMessage(
+                  context,
+                  message.summary,
+                  technicalDetail: technicalDetail,
+                  title: title,
+                  subject: widget.subject,
+                  error: error,
+                  isCurrent: feedbackCurrent,
+                  isCurrentWithPopup: popupCurrent,
+                  eligibilityChanges: app,
+                  onRoute: (route) => _popup = route,
+                )
+              : null,
+        ).then((presented) {
+          _presentations.remove(period);
+          if (!mounted) return;
+          if (presented) onPresented?.call();
+          _syncFeedbackOwner();
+        }),
+      );
+    }
 
     if (_working ||
         !_live ||
@@ -261,23 +335,27 @@ class _CoreCleanupActionState extends State<CoreCleanupAction> {
       }
       final success =
           result?.resultSuccess == true && app.commandErrorMessage == null;
-      final presented = await present(
+      final command = app.lastCommand;
+      present(
         result?.resultMessageDescription ??
             app.commandErrorMessage ??
             messages.operationNotCompletedRetry,
         title: (strings) =>
             success ? strings.operationFinished : strings.operationNotCompleted,
         error: !success,
+        cleanup: success ? null : result?.coreCleanup,
+        onPresented: () {
+          if (identical(app.lastCommand, command)) {
+            app.acknowledgeLocalFeedback(_feedbackOwner, result: result);
+          }
+        },
       );
-      if (presented && current()) {
-        app.acknowledgeLocalFeedback(_feedbackOwner, result: result);
-      }
     } catch (error) {
       if (current() &&
           await app.waitUntilInteractive() &&
           mounted &&
           current()) {
-        await present(
+        present(
           error is PlatformFailure
               ? messageFromFailure(
                   error,
@@ -287,9 +365,9 @@ class _CoreCleanupActionState extends State<CoreCleanupAction> {
         );
       }
     } finally {
-      if (mounted) {
-        _feedbackOwner.value = false;
+      if (mounted && identical(_feedbackPeriod, period)) {
         setState(() => _working = false);
+        _syncFeedbackOwner();
       }
     }
   }

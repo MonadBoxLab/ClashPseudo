@@ -120,10 +120,10 @@ proxy-groups:
 ''');
       await store.save([original]);
       final editor = LocalYamlEdit(original.body);
-      final target = editor.definitionNamed(
-        LocalYamlSection.strategyGroups,
-        'target',
-      )!;
+      final target = editor
+          .definitions(LocalYamlSection.strategyGroups)
+          .where((item) => item.value == 'target')
+          .firstOrNull!;
       final value = editor.definitionValue(target);
       await actions.execute({
         'action': 'saveLocalDefinition',
@@ -147,10 +147,10 @@ proxy-groups:
             .map((definition) => definition.value),
         ['before', 'renamed', 'after'],
       );
-      final renamed = parsed.definitionNamed(
-        LocalYamlSection.strategyGroups,
-        'renamed',
-      )!;
+      final renamed = parsed
+          .definitions(LocalYamlSection.strategyGroups)
+          .where((item) => item.value == 'renamed')
+          .firstOrNull!;
       expect(parsed.definitionValue(renamed), {...value, 'name': 'renamed'});
       expect(parsed.definitionValue(renamed)['interval'], 0);
       expect(parsed.definitionValue(renamed)['lazy'], false);
@@ -183,7 +183,10 @@ ${section.key}:
 ''');
         await store.save([original]);
         final editor = LocalYamlEdit(original.body);
-        final target = editor.definitionNamed(section, 'target')!;
+        final target = editor
+            .definitions(section)
+            .where((item) => item.value == 'target')
+            .firstOrNull!;
         final value = editor.definitionValue(target);
         const renamed = 'renamed: "name"';
         await actions.execute({
@@ -224,7 +227,10 @@ ${section.key}:
         );
         expect(saved.body, contains('# provider comment'));
         final definition = changed.definitionValue(
-          changed.definitionNamed(section, renamed)!,
+          changed
+              .definitions(section)
+              .where((item) => item.value == renamed)
+              .firstOrNull!,
         );
         expect((definition['health-check'] as Map)['timeout'], 6000);
         expect(saved.enabled, isFalse);
@@ -279,7 +285,9 @@ rules:
       });
       final saved = (await store.read()).single;
       final target = LocalYamlEdit(saved.body)
-          .definitionNamed(LocalYamlSection.strategyGroups, 'old')!;
+          .definitions(LocalYamlSection.strategyGroups)
+          .where((item) => item.value == 'old')
+          .firstOrNull!;
       await actions.execute({
         'action': 'saveLocalDefinition',
         'id': saved.id,

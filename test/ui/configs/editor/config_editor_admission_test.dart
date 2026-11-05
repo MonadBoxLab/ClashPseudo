@@ -63,8 +63,22 @@ void main() {
                   expect(find.byType(TextField), findsNothing);
                   expect(find.byType(CircularProgressIndicator), findsNothing);
                   expect(
-                    find.text(strings.editorLineTooLong(1, maxEditorCodeUnits)),
+                    find.descendant(
+                      of: find.byType(SnackBar),
+                      matching: find.text(
+                        strings.editorLineTooLong(1, maxEditorCodeUnits),
+                      ),
+                    ),
                     findsOneWidget,
+                  );
+                  expect(
+                    find.descendant(
+                      of: find.byType(OriginalTextView),
+                      matching: find.text(
+                        strings.editorLineTooLong(1, maxEditorCodeUnits),
+                      ),
+                    ),
+                    findsNothing,
                   );
                   expect(
                     tester
@@ -97,6 +111,46 @@ void main() {
       }
     }
   }
+
+  testWidgets('正文准备失败通过 SnackBar 提示并保留原文', (tester) async {
+    final app = EditorApp();
+    addTearDown(app.dispose);
+    final body = 'x' * (maxConfigBytes + 1);
+    const locale = Locale('en');
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: locale,
+        home: ConfigTextPage(app: app, initialText: body),
+      ),
+    );
+    await tester.runAsync(() async {
+      final elapsed = Stopwatch()..start();
+      while (find.byType(OriginalTextView).evaluate().isEmpty &&
+          elapsed.elapsed < const Duration(seconds: 10)) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        await tester.pump();
+      }
+    });
+    await tester.pumpAndSettle();
+    expect(find.byType(OriginalTextView), findsOneWidget);
+    expect(
+      tester.widget<OriginalTextView>(find.byType(OriginalTextView)).text,
+      body,
+    );
+    expect(find.byType(CodeEditor), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.text(lookupAppLocalizations(locale).textTooLargeSave),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byIcon(Icons.error_outline), findsNothing);
+    expect(app.commands, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('exactly 32768 code units still open the wrapped editor', (
     tester,

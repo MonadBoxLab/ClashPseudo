@@ -24,14 +24,19 @@
   "lanProxyInvalidPort": "Enter an integer port from 1 to 65535.",
   "lanProxyUdp": "Allow UDP",
   "lanProxyUnknownInterface": "The network type of this interface could not be identified. Select it only after confirming that it belongs to a trusted local network.",
-  "lanProxyNoAddress": "No local network address is available. Connect to Wi-Fi or Ethernet, then refresh.",
+  "lanProxyNoAddress": "No local network address is available. Connect to Wi-Fi or Ethernet.",
   "lanProxyActual": "Actual listener status",
   "lanProxyNotRunning": "Not listening",
+  "lanProxySocketBound": "Socket bound",
+  "lanProxySocketFailed": "Failed",
+  "lanProxySocketClosed": "Closed",
+  "lanProxySocketCloseFailed": "Close failed",
+  "lanProxyListenerFailed": "A listener failed.",
   "lanProxyUnavailable": "Address unavailable",
   "lanProxyRaw": "Edit YAML source",
   "lanProxyFormUnavailable": "This YAML cannot be fully represented by the form. Edit the source to preserve its contents.",
   "coreInterruptedTitle": "Core interrupted",
-  "coreInterruptedMessage": "Automatic start is paused. The current page and edits are retained. Open Overview to restart, choose a configuration, or clean up files.",
+  "coreInterruptedMessage": "Automatic start is paused.",
   "coreRecoveryRestart": "Restart",
   "coreRecoverySelect": "Choose configuration",
   "coreCleanupSelect": "Clean up core files",
@@ -100,13 +105,14 @@
   "versionUnavailable": "Version information is unavailable.",
   "coreVersion": "mihomo version",
   "refresh": "Refresh",
-  "runtimeConfigSearch": "Find fields or values",
+  "runtimeConfigSearch": "Search YAML",
   "clearSearch": "Clear search",
   "runtimeConfigLive": "Running",
   "runtimeConfigPreview": "Preview · VPN off",
   "runtimeConfigEmpty": "Select a configuration with saved content first.",
   "noSearchResults": "No matching lines",
   "nodeSearch": "Name, provider or type",
+  "nodeDelayHistoryFailed": "Some delay samples have no valid latency",
   "coreReadLoading": "Reading core data…",
   "coreReadFailed": "Read failed · refresh to retry",
   "coreSnapshotStale": "Previous snapshot · not current",
@@ -118,10 +124,6 @@
   "errorDetails": "Error details",
   "@errorDetails": {
     "description": "打开错误详情的入口文字和详情标题。"
-  },
-  "viewError": "View error",
-  "@viewError": {
-    "description": "查看相关操作或对象的错误。"
   },
   "technicalDetails": "Technical details",
   "@technicalDetails": {
@@ -250,6 +252,7 @@
   "delayPending": "Not tested",
   "delayRunning": "Testing",
   "delayFailed": "Failed",
+  "delayBatchFailed": "Some latency tests failed or timed out.",
   "delayTimeout": "Timed out",
   "delayExpired": "Result expired",
   "delayStartFailed": "Could not start the delay test",
@@ -614,6 +617,7 @@
     }
   },
   "modeTitle": "Tunnel mode",
+  "modeFallbackLabel": "Fallback",
   "modeReadFailed": "Cannot read the mode",
   "modeDiffers": "Running mode and saved fallback mode",
   "modeSaved": "Saved fallback mode: {mode}; used only if the configuration does not specify a mode.",
@@ -648,7 +652,6 @@
       }
     }
   },
-  "rawData": "Original data",
   "copyOriginalText": "Copy original text",
   "connectionLimitedNotice": "The record limit has been reached, so some connections are not shown. Clear ended records to make room.",
   "@connectionLimitedNotice": {
@@ -779,7 +782,6 @@
   "autoLabel": "Auto",
   "restoreAuto": "Restore auto",
   "sameNameMember": "Same-name member",
-  "pinned": "Pinned",
   "closeStrategyPopup": "Close strategy popup",
   "strategyChoiceSelect": "Manual select",
   "strategyChoiceUrlTest": "Auto test",
@@ -980,6 +982,7 @@
   },
   "privacyNoticeTitle": "Privacy and license",
   "privacyNoticeUnderstood": "Understood",
+  "privacyNoticeReadFailed": "Could not read the privacy notice status.",
   "privacyNoticeNotSaved": "Could not confirm that the notice was recorded. It may appear again on next launch.",
   "privacyNoticeBody": "Clash Pseudo is free and open source. It does not collect or report user data and does not provide any proxy nodes or subscription services.\n\nData processing\n\nThe app does not include usage analytics, behavioral analysis, or automatic crash reporting. Configurations, plugins, and app settings are stored on the device. Proxying and rule matching process traffic, domains, and IP addresses on the device. Connection information and logs support display and diagnostics; the installed app list is used to choose which apps the VPN handles.\n\nNetwork communication\n\nConfiguration and plugin downloads, DNS queries, proxy connections, latency tests, remote icons, and rule or geographic database updates contact their respective network services. Destinations come from configurations and application defaults. Turning off VPN traffic handling does not disable network access for these features.\n\nRequests send the content and authentication information needed by the feature, and the receiving service sees the connection's source IP address. Downloads from HTTP sources have no transport encryption.\n\nPermission purposes\n\n- Internet access and network state: establish connections, download content, and check the network.\n- Foreground services and notifications: run the VPN, local network proxy service, and background tasks and display their status.\n- Installed app visibility: display the app list and choose which apps the VPN handles.\n- VPN authorization: create a VPN interface after Android authorization and handle traffic within the selected scope.\n\nFiles and backups\n\nConfiguration and plugin contents, source addresses, and credentials saved in them are stored in the app's private directory without additional application-level encryption. Exported ZIP files are not encrypted and include configurations, plugins, app settings, and the source addresses and credentials saved in them. Backup import and export are available under Settings → Storage and data and use Android's file picker; the save location is chosen during export.\n\nAndroid system backup and device transfer can copy configurations, plugins, and app settings. Whether they are enabled depends on system settings and the backup service in use. A file provider's synchronization features can also keep cloud copies of selected files.\n\nConnection records, core logs, and original content\n\nRecent connection records and logs are held only in device memory, within bounded capacities and retention windows. They are not saved as history files. They can be cleared on their respective pages and disappear when the process ends.\n\nSettings → Diagnostics → Core logs displays core operation, connection, and error messages. Retained logs show original core messages. When capacity is insufficient, whole entries are removed or skipped and omissions are reported; message content is not truncated or rewritten. The configuration editor and backups retain original content.\n\nDeleting data and viewing this notice\n\nConfigurations and plugins can be deleted in the app, recent records and logs can be cleared, and the cache database and rebuildable geographic data files can be selected individually for cleanup. The core must stop before cleanup. Only confirmed files are deleted; protocol identities, custom provider files, and other user files are retained.\n\nVPN authorization can also be revoked and app data cleared in Android settings. Clearing app data or uninstalling does not delete exported files, system backups, or other external copies.\n\nThis notice is updated as features change. The version included with the current installation is available under Settings → About.\n\nProject repository\n\nhttps://github.com/MonadBoxLab/ClashPseudo\n\nSee GPLv3 for more information.",
   "privacyNoticeIntro": "Clash Pseudo is free and open source. It does not collect or report user data and does not provide any proxy nodes or subscription services.",
@@ -1148,6 +1151,7 @@
   "strategyContextChangedRetry": "The strategy context changed; wait for the current configuration to be read again.",
   "applyingStrategySelection": "Applying the strategy selection",
   "trafficUpdateFailed": "Update failed",
+  "applicationSharedUidShort": "Shared UID · linked selection",
   "applicationSharedUidNotice": "These apps share an Android UID. Selecting or excluding one also affects: {packages}",
   "@applicationSharedUidNotice": {
     "placeholders": {
@@ -1333,10 +1337,6 @@
   "@dnsViewPreviousQuery": {
     "description": "查看页面保留的上次 DNS 查询结果。"
   },
-  "dnsQueryRawData": "DNS query raw data",
-  "@dnsQueryRawData": {
-    "description": "查看完整 DNS 查询原始响应时使用的标题；入口文字使用 rawData。"
-  },
   "dnsQueryIdentity": "Query: {name} · {type}",
   "@dnsQueryIdentity": {
     "description": "显示这次响应对应的查询名称和记录类型；name 和 type 使用发起查询时保存的值。",
@@ -1361,10 +1361,6 @@
   "dnsCacheOperationDetails": "Cache operation details",
   "@dnsCacheOperationDetails": {
     "description": "查看 DNS 缓存或 fake-IP 清理详情的入口文字和标题，包括清理对象、实际状态和各缓存池或映射池的结果。"
-  },
-  "dnsCacheRawData": "Cache operation raw data",
-  "@dnsCacheRawData": {
-    "description": "查看 DNS 缓存操作完整原始响应时使用的标题。"
   },
   "dnsResolverNotice": "Current core resolver; may use cached data and does not reproduce client DNS responses.",
   "dnsExpired": "Result expired · query again",
@@ -1452,6 +1448,9 @@
   "coreCleanupInitializing": "Checking the core data cleanup request.",
   "coreCleanupRequired": "Core directory cleanup is pending. Exit the app from Storage and data, then open it again.",
   "coreCleanupFailed": "Core data cleanup did not complete.",
+  "cleanupFileCompleted": "Completed",
+  "cleanupFileFailed": "Failed",
+  "cleanupFilePending": "Pending",
   "coreCleanupCompleted": "Selected core files were cleaned up. Using the core again may create new files.",
   "coreCleanupNeedsSelection": "Select the core files to clean up first.",
   "resourceLocalFile": "Local file: {path}",
@@ -1555,7 +1554,6 @@
   "backupConnectionFailed": "The connection after restoration could not be established.",
   "backupSchedulesFailed": "Automatic update tasks were not fully registered.",
   "backupSettingsRefreshFailed": "The displayed settings could not be read again.",
-  "resourceRawData": "Original resource data",
   "localCustomDeleteConfirm": "Delete this entry only from the local custom plugin? A lower-priority definition may reappear, and existing references will not be changed.",
   "connectionRuleScope": "Match scope",
   "connectionRuleUnavailable": "Current connection information cannot be used to add a rule.",

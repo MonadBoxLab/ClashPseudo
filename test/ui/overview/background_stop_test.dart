@@ -158,9 +158,12 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(find.byType(AlertDialog), findsOneWidget);
-        await tester.tap(
-          find.byKey(const ValueKey('operation-technical-details')),
+        final technical = find.byKey(
+          const ValueKey('operation-technical-details'),
         );
+        await tester.ensureVisible(technical);
+        await tester.pumpAndSettle();
+        await tester.tap(technical);
         await tester.pumpAndSettle();
         expect(find.text('Bad state: settings unavailable'), findsOneWidget);
         Navigator.of(tester.element(find.byType(AlertDialog))).pop();

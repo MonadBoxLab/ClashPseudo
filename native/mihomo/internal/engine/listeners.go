@@ -38,7 +38,6 @@ func workingConfig(cfg *config.Config, preview bool) *config.Config {
 	}
 	return &work
 }
-func resourceConfig(cfg *config.Config) *config.Config { return workingConfig(cfg, true) }
 func (e *Engine) activateIngress() error {
 	result := ingress.Activate(e.cfg, tunnel.Tunnel, ingress.Options{Protect: func(fd int) error { return e.owner.socket(fd, false) }, Observer: &e.listenerStates})
 	if result.CleanupUncertain {

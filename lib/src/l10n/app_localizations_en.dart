@@ -47,13 +47,28 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get lanProxyNoAddress =>
-      'No local network address is available. Connect to Wi-Fi or Ethernet, then refresh.';
+      'No local network address is available. Connect to Wi-Fi or Ethernet.';
 
   @override
   String get lanProxyActual => 'Actual listener status';
 
   @override
   String get lanProxyNotRunning => 'Not listening';
+
+  @override
+  String get lanProxySocketBound => 'Socket bound';
+
+  @override
+  String get lanProxySocketFailed => 'Failed';
+
+  @override
+  String get lanProxySocketClosed => 'Closed';
+
+  @override
+  String get lanProxySocketCloseFailed => 'Close failed';
+
+  @override
+  String get lanProxyListenerFailed => 'A listener failed.';
 
   @override
   String get lanProxyUnavailable => 'Address unavailable';
@@ -69,8 +84,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get coreInterruptedTitle => 'Core interrupted';
 
   @override
-  String get coreInterruptedMessage =>
-      'Automatic start is paused. The current page and edits are retained. Open Overview to restart, choose a configuration, or clean up files.';
+  String get coreInterruptedMessage => 'Automatic start is paused.';
 
   @override
   String get coreRecoveryRestart => 'Restart';
@@ -255,7 +269,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get refresh => 'Refresh';
 
   @override
-  String get runtimeConfigSearch => 'Find fields or values';
+  String get runtimeConfigSearch => 'Search YAML';
 
   @override
   String get clearSearch => 'Clear search';
@@ -275,6 +289,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get nodeSearch => 'Name, provider or type';
+
+  @override
+  String get nodeDelayHistoryFailed =>
+      'Some delay samples have no valid latency';
 
   @override
   String get coreReadLoading => 'Reading core data…';
@@ -302,9 +320,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get errorDetails => 'Error details';
-
-  @override
-  String get viewError => 'View error';
 
   @override
   String get technicalDetails => 'Technical details';
@@ -483,6 +498,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get delayFailed => 'Failed';
+
+  @override
+  String get delayBatchFailed => 'Some latency tests failed or timed out.';
 
   @override
   String get delayTimeout => 'Timed out';
@@ -1265,6 +1283,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get modeTitle => 'Tunnel mode';
 
   @override
+  String get modeFallbackLabel => 'Fallback';
+
+  @override
   String get modeReadFailed => 'Cannot read the mode';
 
   @override
@@ -1309,9 +1330,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String connectionOmitted(int count) {
     return '$count whole records omitted by capacity limits';
   }
-
-  @override
-  String get rawData => 'Original data';
 
   @override
   String get copyOriginalText => 'Copy original text';
@@ -1501,9 +1519,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get sameNameMember => 'Same-name member';
-
-  @override
-  String get pinned => 'Pinned';
 
   @override
   String get closeStrategyPopup => 'Close strategy popup';
@@ -1958,6 +1973,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get privacyNoticeUnderstood => 'Understood';
+
+  @override
+  String get privacyNoticeReadFailed =>
+      'Could not read the privacy notice status.';
 
   @override
   String get privacyNoticeNotSaved =>
@@ -2518,6 +2537,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get trafficUpdateFailed => 'Update failed';
 
   @override
+  String get applicationSharedUidShort => 'Shared UID · linked selection';
+
+  @override
   String applicationSharedUidNotice(String packages) {
     return 'These apps share an Android UID. Selecting or excluding one also affects: $packages';
   }
@@ -2915,9 +2937,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get dnsViewPreviousQuery => 'View previous query';
 
   @override
-  String get dnsQueryRawData => 'DNS query raw data';
-
-  @override
   String dnsQueryIdentity(String name, String type) {
     return 'Query: $name · $type';
   }
@@ -2929,9 +2948,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get dnsCacheOperationDetails => 'Cache operation details';
-
-  @override
-  String get dnsCacheRawData => 'Cache operation raw data';
 
   @override
   String get dnsResolverNotice =>
@@ -3092,6 +3108,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get coreCleanupFailed => 'Core data cleanup did not complete.';
+
+  @override
+  String get cleanupFileCompleted => 'Completed';
+
+  @override
+  String get cleanupFileFailed => 'Failed';
+
+  @override
+  String get cleanupFilePending => 'Pending';
 
   @override
   String get coreCleanupCompleted =>
@@ -3292,9 +3317,6 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get backupSettingsRefreshFailed =>
       'The displayed settings could not be read again.';
-
-  @override
-  String get resourceRawData => 'Original resource data';
 
   @override
   String get localCustomDeleteConfirm =>

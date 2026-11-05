@@ -49,7 +49,13 @@ void main() {
         expect(traffic.errorMessage?.detail, original);
         expect(traffic.data?.generation, core.generation);
         expect(traffic.data?.activeCount, isNull);
-        await tester.tap(find.byKey(const ValueKey('status-details')));
+        expect(find.byType(AlertDialog), findsNothing);
+        await tester.pump(const Duration(milliseconds: 300));
+        final notice = find.byType(SnackBar);
+        expect(notice, findsOneWidget);
+        await tester.tap(
+          find.descendant(of: notice, matching: find.byType(TextButton)),
+        );
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 250));
         expect(find.textContaining(original), findsNothing);
@@ -172,18 +178,21 @@ void main() {
               await tester.pump(Duration(milliseconds: ms));
               check();
             }
-            expect(find.text(strings.statusIssue), findsOneWidget);
+            expect(find.text(strings.statusIssue), findsNothing);
             final details = find.byKey(const ValueKey('status-details'));
             expect(tester.getSize(details).height, greaterThanOrEqualTo(48));
             final node = tester.getSemantics(details);
-            expect(node.label, strings.statusIssue);
             expect(node.rect.height, greaterThanOrEqualTo(48));
             expect(
               node.getSemanticsData().hasAction(ui.SemanticsAction.tap),
-              isTrue,
+              isFalse,
             );
-            expect(details.hitTestable(), findsOneWidget);
-            await tester.tap(details);
+            expect(find.byType(AlertDialog), findsNothing);
+            final notice = find.byType(SnackBar);
+            expect(notice, findsOneWidget);
+            await tester.tap(
+              find.descendant(of: notice, matching: find.byType(TextButton)),
+            );
             await tester.pump();
             await tester.pump(const Duration(milliseconds: 200));
             expect(find.byType(AlertDialog), findsOneWidget);

@@ -52,7 +52,7 @@ func providersCurrent(cfg *config.Config, stamps []proxyStamp) bool {
 	return true
 }
 
-// StreamNodes逐条导出公开JSON，不执行搜索、分页或保留另一份节点模型。
+// StreamNodes 逐条导出节点的类型、能力和测速历史。
 func StreamNodes(cfg *config.Config, p *configinput.Provenance, sources DiagnosticSources, source *string, emit func(any) error) (string, error) {
 	if source != nil && len(*source) > 4096 {
 		return "", errors.New("proxy provider source is too long")
@@ -66,7 +66,33 @@ func StreamNodes(cfg *config.Config, p *configinput.Provenance, sources Diagnost
 		if err != nil {
 			return err
 		}
-		row := map[string]any{"kind": "node", "name": proxy.Name(), "sourceKind": kind, "sourceName": name, "sourceVersion": version, "raw": json.RawMessage(raw)}
+		var public struct {
+			Type    string                  `json:"type"`
+			UDP     *bool                   `json:"udp"`
+			UOT     *bool                   `json:"uot"`
+			XUDP    *bool                   `json:"xudp"`
+			TFO     *bool                   `json:"tfo"`
+			MPTCP   *bool                   `json:"mptcp"`
+			SMUX    *bool                   `json:"smux"`
+			History []C.DelayHistory        `json:"history"`
+			Extra   map[string]C.ProxyState `json:"extra"`
+		}
+		if err := json.Unmarshal(raw, &public); err != nil {
+			return err
+		}
+		row := map[string]any{
+			"kind": "node", "name": proxy.Name(), "type": public.Type,
+			"sourceKind": kind, "sourceName": name, "sourceVersion": version,
+			"history": public.History, "extra": public.Extra,
+		}
+		for key, capability := range map[string]*bool{
+			"udp": public.UDP, "uot": public.UOT, "xudp": public.XUDP,
+			"tfo": public.TFO, "mptcp": public.MPTCP, "smux": public.SMUX,
+		} {
+			if capability != nil {
+				row[key] = *capability
+			}
+		}
 		if kind == "proxyProvider" {
 			row["providerProvenance"] = p.Definition("proxy-providers", name)
 		} else {
@@ -131,10 +157,6 @@ func StreamGroups(cfg *config.Config, p *configinput.Provenance, emit func(any) 
 		if !ok {
 			continue
 		}
-		raw, err := proxy.MarshalJSON()
-		if err != nil {
-			return identity, err
-		}
 		state, err := StrategyState(group)
 		if err != nil {
 			return identity, err
@@ -149,7 +171,7 @@ func StreamGroups(cfg *config.Config, p *configinput.Provenance, emit func(any) 
 				currentIdentity = memberIdentity
 			}
 		}
-		if err = emit(map[string]any{"kind": "group", "name": name, "raw": json.RawMessage(raw), "members": members, "sourceIdentity": sourceIdentity, "currentIdentity": currentIdentity, "provenance": p.Definition("proxy-groups", name)}); err != nil {
+		if err = emit(map[string]any{"kind": "group", "name": name, "type": state.Type, "hidden": state.Hidden, "now": state.Now, "fixed": state.Fixed, "icon": state.Icon, "members": members, "sourceIdentity": sourceIdentity, "currentIdentity": currentIdentity, "provenance": p.Definition("proxy-groups", name)}); err != nil {
 			return identity, err
 		}
 	}

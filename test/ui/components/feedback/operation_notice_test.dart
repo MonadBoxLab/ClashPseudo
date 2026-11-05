@@ -77,6 +77,65 @@ Future<BuildContext> _host(
 }
 
 void main() {
+  testWidgets('收缩宿主保留内容尺寸和可操作性', (tester) async {
+    late BuildContext origin;
+    var taps = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorObservers: [AppTaskNavigatorObserver()],
+        locale: const Locale('en'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.topCenter,
+            child: OperationNoticeHost(
+              shrinkWrap: true,
+              child: Builder(
+                builder: (context) {
+                  origin = context;
+                  return SizedBox(
+                    width: 320,
+                    height: 400,
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: TextButton(
+                        onPressed: () => taps++,
+                        child: const Text('Continue editing'),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final host = find.byType(OperationNoticeHost);
+    expect(tester.getSize(host), const Size(320, 400));
+    await tester.tap(find.text('Continue editing'));
+    expect(taps, 1);
+    final shown = showLocalizedOperationNotice(
+      origin,
+      (_) => 'Reading failed',
+      technicalDetail: (_) => 'original cause',
+    );
+    await tester.pumpAndSettle();
+    expect(await shown, isTrue);
+    expect(tester.getSize(host), const Size(320, 400));
+    await tester.tap(find.text('Continue editing'));
+    expect(taps, 2);
+    await tester.tap(find.widgetWithText(TextButton, 'Error details'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('operation-technical-details')));
+    await tester.pumpAndSettle();
+    expect(find.text('original cause'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final width in [320.0, 960.0]) {
     for (final scale in [1.0, 2.0]) {
       testWidgets('SnackBar 不移动正文或抢占输入焦点 width=$width scale=$scale', (
@@ -198,26 +257,57 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('显示前被替换的结果不确认，旧回调不能重试或关闭新提示', (tester) async {
+  testWidgets('提示按顺序显示，相同 identity 只呈现一次', (tester) async {
     final origin = await _host(tester);
-    var oldAcknowledgements = 0;
-    final old = showLocalizedOperationNotice(
+    var acknowledgements = 0;
+    final first = showLocalizedOperationNotice(
       origin,
-      (_) => '未显示的旧错误',
-      onPresented: () => oldAcknowledgements++,
+      (_) => '第一条错误',
+      identity: 'first',
+      onPresented: () => acknowledgements++,
     );
+    final duplicate = showLocalizedOperationNotice(
+      origin,
+      (_) => '重复错误',
+      identity: 'first',
+    );
+    bool? secondPresented;
+    final second = showLocalizedOperationNotice(
+      origin,
+      (_) => '下一条成功提示',
+      error: false,
+      persist: true,
+    ).then((value) => secondPresented = value);
+    await tester.pumpAndSettle();
+    expect(await first, isTrue);
+    expect(await duplicate, isTrue);
+    expect(acknowledgements, 1);
+    expect(secondPresented, isNull);
+    expect(find.text('第一条错误'), findsOneWidget);
+    expect(find.text('重复错误'), findsNothing);
+    await tester.tap(find.byTooltip('Close'));
+    await tester.pumpAndSettle();
+    await second;
+    expect(secondPresented, isTrue);
+    expect(find.text('下一条成功提示'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('来源失效后旧操作不能重试或关闭下一条提示', (tester) async {
+    final eligible = ValueNotifier(true);
+    addTearDown(eligible.dispose);
+    final origin = await _host(tester);
     var retries = 0;
-    final shown = showLocalizedOperationNotice(
+    final first = showLocalizedOperationNotice(
       origin,
       (_) => '可以重试的错误',
-      onRetry: () async {
-        retries++;
-      },
+      isCurrent: () => eligible.value,
+      eligibilityChanges: eligible,
+      onRetry: () async => retries++,
     );
     await tester.pumpAndSettle();
-    expect(await old, isFalse);
-    expect(oldAcknowledgements, 0);
-    expect(await shown, isTrue);
+    expect(await first, isTrue);
     final retry = tester
         .widget<TextButton>(find.widgetWithText(TextButton, 'Retry'))
         .onPressed!;
@@ -229,6 +319,8 @@ void main() {
         )
         .onPressed!;
     final next = showLocalizedOperationNotice(origin, (_) => '新的错误');
+    eligible.value = false;
+    eligible.value = true;
     await tester.pumpAndSettle();
     expect(await next, isTrue);
     retry();
@@ -236,6 +328,72 @@ void main() {
     await tester.pumpAndSettle();
     expect(retries, 0);
     expect(find.text('新的错误'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('详情暂停队列，关闭后重试一次并显示下一条提示', (tester) async {
+    final origin = await _host(tester);
+    var retries = 0;
+    var closures = 0;
+    final first = showLocalizedOperationNotice(
+      origin,
+      (_) => '读取失败',
+      technicalDetail: (_) => 'read failed',
+      onRetry: () async => retries++,
+      onClosed: (_) => closures++,
+    );
+    bool? nextPresented;
+    final next = showLocalizedOperationNotice(
+      origin,
+      (_) => '其他错误',
+    ).then((value) => nextPresented = value);
+    await tester.pumpAndSettle();
+    expect(await first, isTrue);
+    await tester.tap(find.widgetWithText(TextButton, 'Error details'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(nextPresented, isNull);
+    expect(closures, 0);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.widgetWithText(TextButton, 'Retry'),
+      ),
+    );
+    await tester.pump();
+    expect(retries, 0);
+    await tester.pumpAndSettle();
+    expect(retries, 1);
+    expect(closures, 1);
+    expect(await next, isTrue);
+    expect(find.text('其他错误'), findsOneWidget);
+    expect(find.text('读取失败'), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('等待中的来源失效时完成请求并显示后续提示', (tester) async {
+    final eligible = ValueNotifier(true);
+    addTearDown(eligible.dispose);
+    final origin = await _host(tester);
+    final first = showLocalizedOperationNotice(origin, (_) => '第一条错误');
+    final stale = showLocalizedOperationNotice(
+      origin,
+      (_) => '已失效的错误',
+      isCurrent: () => eligible.value,
+      eligibilityChanges: eligible,
+    );
+    final last = showLocalizedOperationNotice(origin, (_) => '最后一条错误');
+    await tester.pumpAndSettle();
+    expect(await first, isTrue);
+    eligible.value = false;
+    eligible.value = true;
+    expect(await stale, isFalse);
+    await tester.tap(find.byTooltip('Close'));
+    await tester.pumpAndSettle();
+    expect(await last, isTrue);
+    expect(find.text('最后一条错误'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });

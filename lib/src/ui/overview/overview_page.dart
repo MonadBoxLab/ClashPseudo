@@ -11,7 +11,6 @@ import '../../model/app_message.dart';
 import '../components/feedback/operation_notice.dart';
 import '../locale/message_text.dart';
 import '../navigation/task_activity.dart';
-import '../navigation/route_observer.dart';
 import '../theme/app_theme.dart';
 import '../configs/configs_page.dart';
 import '../configs/dialogs/import_dialog.dart';
@@ -20,8 +19,6 @@ import '../strategies/mode_sheet.dart';
 import 'traffic_controller.dart';
 import 'widgets/status_hero.dart';
 import 'widgets/traffic_panel.dart';
-import '../settings/core_cleanup_action.dart';
-import '../../l10n/app_localizations.dart';
 import '../navigation/page_route.dart';
 
 class OverviewPage extends StatefulWidget {
@@ -72,14 +69,19 @@ class _OverviewPageState extends State<OverviewPage> {
   }
 
   Object? _noticeSource;
-  final _readFaults = <String>{};
+  final _readFaults = <String, AppMessage>{};
   bool _noticeScheduled = false;
 
   Map<String, AppMessage> get _readErrors {
     final app = widget.controller;
     return {
       if (app.errorMessage case final error?)
-        if (!identical(error, app.commandErrorMessage)) 'application': error,
+        if (!identical(error, app.commandErrorMessage) &&
+            !(app.state.recoveryRequired &&
+                error == app.state.core.errorMessage))
+          'application': error,
+      if (!app.state.recoveryRequired) 'state': ?app.state.errorMessage,
+      'mode': ?app.state.modeErrorMessage,
       'traffic': ?_traffic.errorMessage,
       'memory': ?_traffic.memoryErrorMessage,
     };
@@ -105,25 +107,19 @@ class _OverviewPageState extends State<OverviewPage> {
         _readFaults.clear();
       }
       final errors = _readErrors;
-      final recovery = widget.controller.state.recoveryRequired;
-      _readFaults.removeWhere(
-        (key) => key == 'recovery' ? !recovery : !errors.containsKey(key),
-      );
+      _readFaults.removeWhere((key, _) => !errors.containsKey(key));
       if (!_current) return;
       final fresh = Map.of(errors)
-        ..removeWhere((key, _) => _readFaults.contains(key));
-      final recoveryNotice = recovery && !_readFaults.contains('recovery');
-      if (fresh.isEmpty && !recoveryNotice) return;
-      _readFaults.addAll(fresh.keys);
-      if (recoveryNotice) _readFaults.add('recovery');
+        ..removeWhere((key, error) => _readFaults[key] == error);
+      if (fresh.isEmpty) return;
+      _readFaults.addAll(fresh);
       unawaited(
         showLocalizedOperationNotice(
           context,
-          (strings) => {
-            if (recoveryNotice) strings.coreInterruptedTitle,
-            ...fresh.values.map((error) => error.summary(strings)),
-          }.join('\n'),
-          onDetails: recovery ? _showRecovery : null,
+          (strings) => fresh.values
+              .map((error) => error.summary(strings))
+              .toSet()
+              .join('\n'),
           technicalDetail: (strings) {
             final details = fresh.values
                 .map((error) => error.technicalDetail(strings))
@@ -139,8 +135,9 @@ class _OverviewPageState extends State<OverviewPage> {
           isCurrent: () =>
               source == _feedbackSource &&
               _current &&
-              (recoveryNotice && widget.controller.state.recoveryRequired ||
-                  fresh.keys.any(_readErrors.containsKey)),
+              fresh.entries.any(
+                (entry) => _readErrors[entry.key] == entry.value,
+              ),
           isCurrentWithPopup: (popup) =>
               source == _feedbackSource &&
               _ownsPresentation(ownedPopup: popup) &&
@@ -148,8 +145,9 @@ class _OverviewPageState extends State<OverviewPage> {
                 ModalRoute.of(context),
                 ownedPopup: popup,
               ) &&
-              (recoveryNotice && widget.controller.state.recoveryRequired ||
-                  fresh.keys.any(_readErrors.containsKey)),
+              fresh.entries.any(
+                (entry) => _readErrors[entry.key] == entry.value,
+              ),
         ),
       );
     });
@@ -174,13 +172,24 @@ class _OverviewPageState extends State<OverviewPage> {
     } else {
       _owner.value++;
     }
-    if (!widget.active || !_foreground) _traffic.setVisible(false);
+    if (!widget.active || !_foreground) _hideTraffic();
+  }
+
+  void _hideTraffic() {
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_current) _traffic.setVisible(false);
+      });
+    } else {
+      _traffic.setVisible(false);
+    }
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!AppTaskActivity.isActive(context)) _traffic.setVisible(false);
+    if (!AppTaskActivity.isActive(context)) _hideTraffic();
     _syncOwner();
   }
 
@@ -367,175 +376,11 @@ class _OverviewPageState extends State<OverviewPage> {
                 ownedPopup: popup,
               ),
           onManage: _manage,
-          onRecovery: _showRecovery,
           onMode: _mode,
           onImport: () => _open(() => openImport(context, widget.controller)),
         ),
       ),
     );
-  }
-
-  Future<void> _showRecovery() async {
-    if (!_current || !widget.controller.state.recoveryRequired) return;
-    final app = widget.controller;
-    final source = _feedbackSource;
-    final origin = ModalRoute.of(context);
-    final navigator = Navigator.of(context, rootNavigator: true);
-    late DialogRoute<String> dialog;
-    var retired = false;
-    var closing = false;
-    var dismissalScheduled = false;
-    bool current(ModalRoute<dynamic> popup) =>
-        !retired &&
-        source == _feedbackSource &&
-        app.state.recoveryRequired &&
-        !_covered &&
-        _ownsPresentation(ownedPopup: popup) &&
-        AppTaskActivity.routeIsActive(origin, ownedPopup: popup);
-    void check() {
-      if (closing) {
-        if (source != _feedbackSource || !app.state.recoveryRequired) {
-          retired = true;
-        }
-        return;
-      }
-      if (dialog.animation?.status == AnimationStatus.reverse) return;
-      final popup = AppTaskNavigatorObserver.coveringPopup(dialog) ?? dialog;
-      if (current(popup)) return;
-      retired = true;
-      if (dismissalScheduled) return;
-      dismissalScheduled = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!navigator.mounted || !dialog.isActive) return;
-        if (dialog.isCurrent) {
-          navigator.pop();
-        } else {
-          navigator.removeRoute(dialog);
-        }
-      });
-      WidgetsBinding.instance.ensureVisualUpdate();
-    }
-
-    final changes = Listenable.merge([
-      app,
-      _owner,
-      AppTaskNavigatorObserver.changesFor(origin),
-    ]);
-    dialog = DialogRoute<String>(
-      context: context,
-      themes: InheritedTheme.capture(from: context, to: navigator.context),
-      animationStyle: MediaQuery.disableAnimationsOf(context)
-          ? AnimationStyle.noAnimation
-          : null,
-      builder: (context) {
-        ModalRoute.isCurrentOf(context);
-        return ListenableBuilder(
-          listenable: changes,
-          builder: (context, _) {
-            check();
-            final active = current(dialog);
-            final strings = AppLocalizations.of(context);
-            void close([String? action]) {
-              if (!current(dialog)) return;
-              closing = true;
-              navigator.pop(action);
-            }
-
-            return IgnorePointer(
-              ignoring: !active,
-              child: ExcludeFocus(
-                excluding: !active,
-                child: ExcludeSemantics(
-                  excluding: !active,
-                  child: AlertDialog(
-                    key: const ValueKey('overview-core-recovery'),
-                    scrollable: true,
-                    title: Text(strings.coreInterruptedTitle),
-                    content: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        SelectableText(strings.coreInterruptedMessage),
-                        for (final text in {
-                          for (final error in [
-                            app.errorMessage,
-                            app.state.errorMessage,
-                            app.state.modeErrorMessage,
-                            if (!app.state.resultSuccess)
-                              app.state.resultMessageDescription,
-                          ].whereType<AppMessage>())
-                            error.resolve(strings),
-                        }) ...[
-                          const SizedBox(height: 12),
-                          SelectableText(text),
-                        ],
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 12,
-                          runSpacing: 8,
-                          children: [
-                            FilledButton.icon(
-                              onPressed: active && app.canEdit && !app.busy
-                                  ? () => close('restart')
-                                  : null,
-                              icon: const Icon(Icons.restart_alt),
-                              label: Text(strings.coreRecoveryRestart),
-                            ),
-                            TextButton(
-                              onPressed: active ? () => close('select') : null,
-                              child: Text(strings.coreRecoverySelect),
-                            ),
-                          ],
-                        ),
-                        CoreCleanupAction(
-                          app: app,
-                          request: const {},
-                          enabled: active,
-                          isCurrent: () => current(dialog),
-                          isCurrentWithPopup: current,
-                          title: (strings) => strings.coreCleanupSelect,
-                          description: (strings) =>
-                              strings.coreCleanupSelectionNotice,
-                          icon: Icons.delete_sweep_outlined,
-                        ),
-                      ],
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: active ? close : null,
-                        child: Text(strings.close),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-    changes.addListener(check);
-    final String? action;
-    try {
-      action = await navigator.push(dialog);
-      await dialog.completed;
-    } finally {
-      changes.removeListener(check);
-    }
-    if (retired ||
-        !_current ||
-        source != _feedbackSource ||
-        !app.state.recoveryRequired) {
-      return;
-    }
-    if (action == 'restart' && app.canEdit && !app.busy) {
-      await app.submit({
-        'action': 'start',
-        'vpnIntent': app.state.vpnIntent || !app.state.lanIntent,
-      });
-    } else if (action == 'select') {
-      await _manage();
-    }
   }
 
   Widget _pageActivity(Widget child) {

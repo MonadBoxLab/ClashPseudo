@@ -7,6 +7,8 @@ import 'package:clash_pseudo/src/model/app_snapshot.dart';
 import 'package:flutter/services.dart';
 import 'package:clash_pseudo/src/model/core_snapshot.dart';
 import 'package:clash_pseudo/src/platform/channel/app_bridge.dart';
+import 'package:clash_pseudo/src/platform/channel/method_channel_port.dart';
+import 'package:clash_pseudo/src/platform/core/core_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -147,6 +149,121 @@ void main() {
       expect(result['error'], 'unavailable');
     },
   );
+
+  test('响应解析错误保留原因和位置，不包含完整响应', () async {
+    const wire = '{"responseOnly":"not-for-display",!';
+    late final FormatException original;
+    try {
+      jsonDecode(wire);
+      fail('无效 JSON 不应解析成功');
+    } on FormatException catch (error) {
+      original = error;
+    }
+    final bridge = AppBridge().forOperation(operationId: 'operation');
+    final calls = <String, Future<Map<String, dynamic>> Function()>{
+      'appMemory': bridge.appMemory,
+      'coreMemory': () => bridge.coreMemory(core),
+      'dnsQuery': () => bridge.dnsQuery(
+        core,
+        name: 'example.test',
+        type: 'A',
+        queryOwner: 'query',
+      ),
+      'clearDnsCache': () => bridge.clearDnsCache(core),
+      'flushFakeIp': () => bridge.flushFakeIp(core),
+      'sampleConnections': () => bridge.sampleConnections(core, {}),
+      'updateResource': () =>
+          bridge.updateResource(core, kind: 'proxy', name: 'provider'),
+    };
+    for (final entry in calls.entries) {
+      messenger.setMockMethodCallHandler(AppBridge.channel, (call) async {
+        expect(call.method, entry.key);
+        return wire;
+      });
+      await expectLater(
+        entry.value(),
+        throwsA(
+          isA<FormatException>()
+              .having((error) => error.message, 'message', original.message)
+              .having((error) => error.offset, 'offset', original.offset)
+              .having((error) => error.source, 'source', isNull)
+              .having(
+                (error) => error.toString(),
+                'detail',
+                isNot(contains(wire)),
+              ),
+        ),
+      );
+    }
+  });
+
+  test('存储提交身份异常只保留实际状态和错误', () async {
+    messenger.setMockMethodCallHandler(AppBridge.channel, (call) async {
+      expect(call.method, 'publishStore');
+      return {
+        'saved': true,
+        'durable': false,
+        'epoch': 4,
+        'errorCode': 'publishedDirectorySyncFailed',
+        'errorDetail': {'id': 'storageUnavailable', 'detail': 'fsync failed'},
+        'responseOnly': 'not-for-display',
+      };
+    });
+    final bridge = AppBridge().forOperation(operationId: 'operation');
+    await expectLater(
+      bridge.publishStore('preferences.json', 3),
+      throwsA(
+        isA<PlatformFailure>()
+            .having((error) => error.code, 'code', 'storage')
+            .having(
+              (error) => error.details.toString(),
+              'detail',
+              allOf(
+                contains('expectedEpoch: 3'),
+                contains('epoch: 4'),
+                contains('saved: true'),
+                contains('durable: false'),
+                contains('publishedDirectorySyncFailed'),
+                contains('fsync failed'),
+                isNot(contains('not-for-display')),
+              ),
+            ),
+      ),
+    );
+  });
+
+  test('运行输入发布异常保留身份和错误，不携带完整响应', () async {
+    messenger.setMockMethodCallHandler(AppBridge.channel, (call) async {
+      expect(call.method, 'publishRunInput');
+      expect(call.arguments, {'path': '/tmp/input', 'inputId': 'expected'});
+      return {
+        'saved': true,
+        'durable': false,
+        'path': '/private/published',
+        'inputId': 'other',
+        'error': {'message': '实际 fsync 错误'},
+        'cancelError': {'message': '实际取消错误'},
+        'responseOnly': '不显示的完整响应字段',
+      };
+    });
+    final client = CoreClient(const MethodChannelPort(AppBridge.channel));
+    await expectLater(
+      client.publishRunInput('/tmp/input', 'expected'),
+      throwsA(
+        isA<PlatformFailure>()
+            .having((error) => error.code, 'code', 'storage')
+            .having((error) => error.details, 'details', {
+              'expectedInputId': 'expected',
+              'inputId': 'other',
+              'saved': true,
+              'durable': false,
+              'path': '/private/published',
+              'error': {'message': '实际 fsync 错误'},
+              'cancelError': {'message': '实际取消错误'},
+            }),
+      ),
+    );
+  });
 
   test('native DNS slot is not a global application writer', () {
     final state = AppSnapshot.fromMap({

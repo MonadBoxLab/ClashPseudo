@@ -56,6 +56,8 @@ const (
 	CoreChannelReadRunInputRecord        = "readRunInputRecord"
 	CoreChannelLocalInterfaces           = "localInterfaces"
 	CoreChannelRuntimeChanged            = "runtimeChanged"
+	UiEventLocalInterfacesChanged        = "localInterfacesChanged"
+	UiEventApplicationsChanged           = "applicationsChanged"
 	CoreFieldProtocol                    = "protocol"
 	CoreFieldOperation                   = "operation"
 	CoreFieldProcessId                   = "processId"

@@ -30,6 +30,14 @@ class ConnectionController extends ChangeNotifier {
   ConnectionSnapshot? data;
   AppMessage? errorMessage;
   ConnectionErrorSource? errorSource;
+  ({Object identity, Object source, AppMessage message})? operationError;
+
+  void _operationFailure(Object source) {
+    final message = errorMessage;
+    if (message != null) {
+      operationError = (identity: Object(), source: source, message: message);
+    }
+  }
 
   // 仅记录明确的读取结果；可见性清理和主动操作不表示读取恢复。
   int readRevision = 0;
@@ -291,6 +299,11 @@ class ConnectionController extends ChangeNotifier {
     clearing = true;
     final detailOwner = _detailOwner;
     final detailQuery = _detailQuery;
+    final source = (
+      app.storageEpoch,
+      app.state.generation,
+      app.state.core.identity,
+    );
     final request = ++_request;
     final began = _clock.elapsedMilliseconds;
     _timer?.cancel();
@@ -301,6 +314,7 @@ class ConnectionController extends ChangeNotifier {
         TimeoutException('Clearing connection records is still in progress'),
       );
       errorSource = ConnectionErrorSource.clearInactive;
+      _operationFailure(source);
       notifyListeners();
     });
     try {
@@ -312,10 +326,14 @@ class ConnectionController extends ChangeNotifier {
       );
       if (_disposed || request != _request) return;
       _accept(result, began, detailOwner, ConnectionErrorSource.clearInactive);
+      if (errorSource == ConnectionErrorSource.clearInactive) {
+        _operationFailure(source);
+      }
     } catch (failure) {
       if (_disposed || request != _request) return;
       errorMessage = messages.trafficUpdateFailed.withDetail(failure);
       errorSource = ConnectionErrorSource.clearInactive;
+      _operationFailure(source);
     } finally {
       deadline.cancel();
       clearing = false;
@@ -474,6 +492,7 @@ class ConnectionController extends ChangeNotifier {
 
   void closeDetail() {
     _detailEpoch++;
+    _releaseDetail();
     _detail = null;
     _detailIdentity = null;
     _detailSource = null;
@@ -483,22 +502,34 @@ class ConnectionController extends ChangeNotifier {
     _closeStatus = null;
     closeMessageDescription = null;
     closing = false;
-    _releaseDetail();
   }
 
   void _releaseDetail() {
     final owner = _detailOwner;
     if (owner == null) return;
+    final source = (
+      _detailStorageEpoch,
+      _detailSession,
+      _detailSource?.identity,
+    );
     _detailOwner = null;
     unawaited(() async {
       try {
         await app.platform.releaseConnectionDetail(owner: owner);
       } catch (failure) {
-        // Releasing an old selection cannot alter the new pin or its result,
-        // but an actual bridge failure must remain available to the reader.
+        if (_disposed ||
+            source !=
+                (
+                  app.storageEpoch,
+                  app.state.generation,
+                  app.state.core.identity,
+                )) {
+          return;
+        }
         errorMessage = messages.trafficUpdateFailed.withDetail(failure);
         errorSource = ConnectionErrorSource.releaseDetail;
-        if (!_disposed) notifyListeners();
+        _operationFailure(source);
+        notifyListeners();
       }
     }());
   }

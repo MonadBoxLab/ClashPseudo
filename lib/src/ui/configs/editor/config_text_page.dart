@@ -1,4 +1,3 @@
-import 'package:clash_pseudo/src/ui/locale/message_text.dart';
 import 'package:clash_pseudo/src/model/app_snapshot.dart';
 
 import 'dart:async';
@@ -16,7 +15,6 @@ import 'package:re_editor/re_editor.dart';
 import 'package:clash_pseudo/src/ui/app/app_controller.dart';
 import 'package:clash_pseudo/src/ui/navigation/task_activity.dart';
 import 'package:clash_pseudo/src/ui/theme/app_theme.dart';
-import 'package:clash_pseudo/src/ui/components/feedback/operation_feedback.dart';
 import 'package:clash_pseudo/src/ui/components/feedback/operation_notice.dart';
 import 'package:clash_pseudo/src/ui/components/reading/original_text_view.dart';
 import 'package:clash_pseudo/src/l10n/app_localizations.dart';
@@ -140,6 +138,8 @@ class _ConfigTextPageState extends State<ConfigTextPage> {
   Object? _saveFeedbackIdentity;
   CodeLineEditingController? _editor;
   ConfigFindController? _find;
+  Object? _findErrorNoticed;
+  bool _findNoticeScheduled = false;
   ConfigTextDocument? _document;
   CodeLines? _savedLines;
   CodeLines? _lastLines;
@@ -149,8 +149,8 @@ class _ConfigTextPageState extends State<ConfigTextPage> {
   int? _previewLine;
   bool _preparationStarted = false;
   AppMessage? _preparationErrorMessage;
-  String? get _preparationError =>
-      _preparationErrorMessage?.summary(AppLocalizations.of(context));
+  bool _preparationNoticed = false;
+  bool _preparationNoticeScheduled = false;
   bool _contentDirty = false;
   bool get _dirty => _contentDirty;
   bool _saving = false;
@@ -158,7 +158,6 @@ class _ConfigTextPageState extends State<ConfigTextPage> {
   bool _sizeCheckFailed = false;
   (Object, AppMessage)? _inputNotice;
   AppMessage? _saveError;
-  String? _saveStatus;
   (String?, int?, int, int, bool, bool, bool)? _admissionIdentity;
   bool get _taskActive => mounted && AppTaskActivity.isActive(context);
   Object _inputAuthority = Object();
@@ -186,7 +185,9 @@ class _ConfigTextPageState extends State<ConfigTextPage> {
       AppTaskActivity.routeIsActive(_overviewRoute, ownedPopup: ownedPopup);
   bool get _interactive => _eligible();
   bool get _readOnly =>
-      widget.readOnly || widget.entry?.remote == true || _previewLine != null;
+      widget.readOnly ||
+      widget.entry?.remote == true ||
+      _preparationErrorMessage != null;
   bool get _canWrite =>
       (widget.onSave == null
           ? widget.app.canEdit
@@ -249,7 +250,12 @@ class _ConfigTextPageState extends State<ConfigTextPage> {
       unawaited(_prepare());
     }
     _refreshAdmission();
-    if (!_interactive) _retireInput();
+    if (!_interactive) {
+      _retireInput();
+    } else {
+      _schedulePreparationNotice();
+      _scheduleFindNotice();
+    }
   }
 
   void _retireInput() {
@@ -266,7 +272,12 @@ class _ConfigTextPageState extends State<ConfigTextPage> {
   }
 
   void _routeStatusChanged(AnimationStatus status) {
-    if (!mounted || status != AnimationStatus.reverse) return;
+    if (!mounted) return;
+    if (status == AnimationStatus.completed) {
+      _schedulePreparationNotice();
+      _scheduleFindNotice();
+    }
+    if (status != AnimationStatus.reverse) return;
     _refreshAdmission();
     _retireInput();
   }
@@ -282,7 +293,12 @@ class _ConfigTextPageState extends State<ConfigTextPage> {
       _previewLine = prepared.$3;
       final lines = prepared.$2;
       if (lines == null) {
+        _preparationErrorMessage = AppMessage.withArgs('editorLineTooLong', {
+          'line': _previewLine!,
+          'limit': maxEditorCodeUnits,
+        });
         setState(() {});
+        _schedulePreparationNotice();
         return;
       }
       final editor = CodeLineEditingController(codeLines: lines);
@@ -301,7 +317,40 @@ class _ConfigTextPageState extends State<ConfigTextPage> {
             ? error.message
             : messages.bodyPrepFailed.withDetail(error),
       );
+      _schedulePreparationNotice();
     }
+  }
+
+  void _schedulePreparationNotice() {
+    if (_preparationErrorMessage == null ||
+        _preparationNoticed ||
+        _preparationNoticeScheduled) {
+      return;
+    }
+    _preparationNoticeScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      _preparationNoticeScheduled = false;
+      final message = _preparationErrorMessage;
+      if (!mounted || message == null || _preparationNoticed || !_interactive) {
+        return;
+      }
+      _preparationNoticed = true;
+      bool current() => mounted && identical(_preparationErrorMessage, message);
+      final presented = await showAppNotice(
+        context,
+        message,
+        identity: message,
+        eligibilityChanges: widget.app,
+        isCurrent: () => current() && _interactive,
+        isCurrentWithPopup: (popup) =>
+            current() && _eligible(ownedPopup: popup),
+      );
+      if (!presented && current()) {
+        _preparationNoticed = false;
+        if (_interactive) _schedulePreparationNotice();
+      }
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   void _refreshAdmission() {
@@ -366,7 +415,6 @@ class _ConfigTextPageState extends State<ConfigTextPage> {
           showAppNotice(
             context,
             message,
-            error: false,
             identity: notice,
             isCurrent: () => current() && _interactive,
             isCurrentWithPopup: (popup) =>
@@ -397,6 +445,10 @@ class _ConfigTextPageState extends State<ConfigTextPage> {
         _inputNotice?.$2.id == 'editorContextChanged') {
       _inputNotice = null;
     }
+    if (_interactive) {
+      _schedulePreparationNotice();
+      _scheduleFindNotice();
+    }
     setState(() {});
   }
 
@@ -405,7 +457,50 @@ class _ConfigTextPageState extends State<ConfigTextPage> {
   );
 
   void _findChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    if (_find?.error == null) _findErrorNoticed = null;
+    _scheduleFindNotice();
+    setState(() {});
+  }
+
+  void _scheduleFindNotice() {
+    final find = _find;
+    final error = find?.error;
+    if (error == null ||
+        identical(_findErrorNoticed, error) ||
+        _findNoticeScheduled) {
+      return;
+    }
+    _findNoticeScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      _findNoticeScheduled = false;
+      bool current() =>
+          mounted && identical(_find, find) && identical(find!.error, error);
+      if (!current()) {
+        if (mounted) _scheduleFindNotice();
+        return;
+      }
+      if (!_interactive || identical(_findErrorNoticed, error)) return;
+      _findErrorNoticed = error;
+      final presented = await showLocalizedOperationNotice(
+        context,
+        (strings) => strings.operationFailed,
+        technicalDetail: (_) => error.toString(),
+        identity: error,
+        eligibilityChanges: Listenable.merge([find, widget.app]),
+        isCurrent: () => current() && _interactive,
+        isCurrentWithPopup: (popup) =>
+            current() && _eligible(ownedPopup: popup),
+        onRetry: () async {
+          if (current() && _interactive) find!.retry();
+        },
+      );
+      if (!presented && current() && identical(_findErrorNoticed, error)) {
+        _findErrorNoticed = null;
+        if (_interactive) _scheduleFindNotice();
+      }
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   void _edited() {
@@ -422,8 +517,8 @@ class _ConfigTextPageState extends State<ConfigTextPage> {
   Future<void> _measureSize() async {
     if (_sizeChecking || !mounted) return;
     _sizeChecking = true;
+    var revision = _sizeRevision;
     try {
-      int revision;
       do {
         revision = _sizeRevision;
         // Save unchanged text with its original bytes and mixed line endings.
@@ -444,16 +539,44 @@ class _ConfigTextPageState extends State<ConfigTextPage> {
         if (!mounted) return;
         if (revision == _sizeRevision &&
             (_sizeCheckFailed || _overLimit != (size > maxConfigBytes))) {
+          final notifyLimit = !_overLimit && size > maxConfigBytes;
           setState(() {
             _overLimit = size > maxConfigBytes;
             _sizeCheckFailed = false;
           });
+          if (notifyLimit) {
+            unawaited(
+              showLocalizedOperationNotice(
+                context,
+                (strings) => strings.tooLarge,
+                isCurrent: () => _interactive && _overLimit,
+                isCurrentWithPopup: (popup) =>
+                    _eligible(ownedPopup: popup) && _overLimit,
+                eligibilityChanges: widget.app,
+              ),
+            );
+          }
         }
       } while (revision != _sizeRevision);
-    } catch (_) {
-      if (mounted) setState(() => _sizeCheckFailed = true);
+    } catch (error) {
+      if (mounted && revision == _sizeRevision) {
+        setState(() => _sizeCheckFailed = true);
+        unawaited(
+          showLocalizedOperationNotice(
+            context,
+            (strings) => strings.sizePending,
+            technicalDetail: (_) => error.toString(),
+            isCurrent: () => _interactive && _sizeCheckFailed,
+            isCurrentWithPopup: (popup) =>
+                _eligible(ownedPopup: popup) && _sizeCheckFailed,
+            eligibilityChanges: widget.app,
+            onRetry: _measureSize,
+          ),
+        );
+      }
     } finally {
       _sizeChecking = false;
+      if (mounted && revision != _sizeRevision) unawaited(_measureSize());
     }
   }
 
@@ -658,7 +781,6 @@ class _ConfigTextPageState extends State<ConfigTextPage> {
           _saving = false;
           _unconfirmed = true;
           _saveError = message;
-          _saveStatus = null;
           _refreshAdmission();
         });
         feedbackSource = currentSource();
@@ -696,7 +818,6 @@ class _ConfigTextPageState extends State<ConfigTextPage> {
           (_id == null || _id == targetId);
       setState(() {
         _saving = false;
-        _saveStatus = status;
         _saveError =
             saved && status != 'applyFailed' && result?.resultSuccess == true
             ? null
@@ -805,19 +926,16 @@ class _ConfigTextPageState extends State<ConfigTextPage> {
           width: stacked ? null : countWidth,
           height: countHeight,
           child: Center(
-            child: find?.failed == true
-                ? TextButton(
-                    onPressed: _inputAction(find!.retry),
-                    child: Text(strings.retry),
-                  )
-                : Text(
-                    find?.value?.searching == true
-                        ? '…'
-                        : '${(find?.value?.result?.index ?? -1) + 1}/${splitCount ? '\n' : ''}${find?.value?.result?.matches.length ?? 0}',
-                    style: style,
-                    textAlign: TextAlign.center,
-                    maxLines: splitCount ? 2 : 1,
-                  ),
+            child: Text(
+              find?.failed == true
+                  ? '—'
+                  : find?.value?.searching == true
+                  ? '…'
+                  : '${(find?.value?.result?.index ?? -1) + 1}/${splitCount ? '\n' : ''}${find?.value?.result?.matches.length ?? 0}',
+              style: style,
+              textAlign: TextAlign.center,
+              maxLines: splitCount ? 2 : 1,
+            ),
           ),
         );
         final searchControls = find == null
@@ -898,30 +1016,10 @@ class _ConfigTextPageState extends State<ConfigTextPage> {
                           ? strings.saving
                           : _unconfirmed
                           ? strings.resultUnconfirmed
-                          : _overLimit
-                          ? strings.tooLarge
-                          : _sizeCheckFailed
-                          ? strings.sizePending
-                          : _saveError != null
-                          ? _saveStatus == 'applyFailed'
-                                ? strings.savedApplyFailed
-                                : _saveStatus == 'notSaved'
-                                ? strings.saveFailed
-                                : strings.submittedSavedTitle
                           : _dirty
                           ? strings.unsavedChanges
                           : strings.configBody,
                     ),
-                    if (!_readOnly &&
-                        !_saving &&
-                        !_unconfirmed &&
-                        !_overLimit &&
-                        !_sizeCheckFailed &&
-                        _saveError != null &&
-                        _dirty) ...[
-                      const Text(' · '),
-                      Text(strings.unsavedChanges),
-                    ],
                   ],
                 ),
               ),
@@ -1153,56 +1251,19 @@ class _ConfigTextPageState extends State<ConfigTextPage> {
             children: [
               _toolbar(context),
               Expanded(
-                child: _previewLine != null
-                    ? OriginalTextView(
-                        text: _document!.original,
-                        identity: (_storageEpoch, _id, _revision),
-                        isCurrent: () => _interactive,
-                        isCurrentWithPopup: (popup) =>
-                            _eligible(ownedPopup: popup),
-                        header: Padding(
-                          padding: const EdgeInsets.only(bottom: 16),
-                          child: SelectableText(
-                            AppLocalizations.of(context).editorLineTooLong(
-                              _previewLine!,
-                              maxEditorCodeUnits,
-                            ),
-                          ),
-                        ),
-                      )
-                    : editor == null
-                    ? Center(
-                        child: _preparationError == null
-                            ? const CircularProgressIndicator()
-                            : SingleChildScrollView(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(24),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(_preparationError!),
-                                      const SizedBox(height: 12),
-                                      TextButton.icon(
-                                        onPressed: () => showAppMessage(
-                                          context,
-                                          _preparationErrorMessage!,
-                                          title: (strings) =>
-                                              strings.bodyPrepFailed,
-                                          isCurrent: () => _interactive,
-                                          isCurrentWithPopup: (popup) =>
-                                              _eligible(ownedPopup: popup),
-                                        ),
-                                        icon: const Icon(Icons.error_outline),
-                                        label: Text(
-                                          AppLocalizations.of(context)
-                                              .viewError,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                      )
+                child: editor == null
+                    ? _preparationErrorMessage == null
+                          ? const Center(child: CircularProgressIndicator())
+                          : OriginalTextView(
+                              text:
+                                  _document?.original ??
+                                  widget.entry?.body ??
+                                  widget.initialText,
+                              identity: (_storageEpoch, _id, _revision),
+                              isCurrent: () => _interactive,
+                              isCurrentWithPopup: (popup) =>
+                                  _eligible(ownedPopup: popup),
+                            )
                     : ListenableBuilder(
                         listenable: _focus,
                         builder: (context, child) => Semantics(

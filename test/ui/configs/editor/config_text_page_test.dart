@@ -241,7 +241,14 @@ void main() {
       tester.widget<CodeEditor>(find.byType(CodeEditor)).readOnly,
       isFalse,
     );
-    expect(find.text('已保存，应用未完成'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.text(zh.configSavedApplyReleasePending),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('已保存，应用未完成'), findsNothing);
     expect(find.byKey(const ValueKey('editor-input-notice')), findsNothing);
     final retainedEditor = tester.state(find.byType(CodeEditor));
     await tester.tap(
@@ -914,7 +921,14 @@ void main() {
           await tester.pumpAndSettle();
           expect(find.byType(SnackBar), findsOneWidget);
           expect(find.byType(AlertDialog), findsNothing);
-          expect(find.text('已保存，应用未完成'), findsOneWidget);
+          expect(
+            find.descendant(
+              of: find.byType(SnackBar),
+              matching: find.text(zh.configSavedApplyReleasePending),
+            ),
+            findsOneWidget,
+          );
+          expect(find.text('已保存，应用未完成'), findsNothing);
           await tester.tap(
             find
                 .descendant(

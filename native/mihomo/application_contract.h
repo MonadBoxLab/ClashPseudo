@@ -56,6 +56,8 @@
 #define APP_CORE_CHANNEL_READ_RUN_INPUT_RECORD "readRunInputRecord"
 #define APP_CORE_CHANNEL_LOCAL_INTERFACES "localInterfaces"
 #define APP_CORE_CHANNEL_RUNTIME_CHANGED "runtimeChanged"
+#define APP_UI_EVENT_LOCAL_INTERFACES_CHANGED "localInterfacesChanged"
+#define APP_UI_EVENT_APPLICATIONS_CHANGED "applicationsChanged"
 #define APP_CORE_FIELD_PROTOCOL "protocol"
 #define APP_CORE_FIELD_OPERATION "operation"
 #define APP_CORE_FIELD_PROCESS_ID "processId"

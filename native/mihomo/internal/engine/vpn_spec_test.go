@@ -80,7 +80,7 @@ rules: ["MATCH,DIRECT"]
 	if !slices.Equal(spec.DNSServers, []string{"10.55.0.2"}) {
 		t.Fatal("announced DNS is not the effective reachable hijack target", spec.DNSServers)
 	}
-	if executorCopy := resourceConfig(e.cfg); executorCopy.General.Tun.Enable || !e.cfg.General.Tun.Enable || executorCopy.General.Tun.MTU != spec.MTU {
+	if executorCopy := workingConfig(e.cfg, true); executorCopy.General.Tun.Enable || !e.cfg.General.Tun.Enable || executorCopy.General.Tun.MTU != spec.MTU {
 		t.Fatal("resource copy replaced the actual TUN configuration")
 	}
 	requireStop(t, &e)
@@ -226,7 +226,7 @@ func TestGeoSeedEligibilityUsesComposedPerKeyPresenceAndSelectedPaths(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, presence, err := configinput.RunningDefaults(composed, "", "")
+	_, presence, err := configinput.Decode(composed, "", "", true)
 	if err != nil {
 		t.Fatal(err)
 	}

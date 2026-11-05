@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:clash_pseudo/src/logic/diagnostics/core_collection_page.dart';
 import 'package:clash_pseudo/src/model/application_contract.dart';
+import 'package:clash_pseudo/src/model/platform_failure.dart';
+import 'package:clash_pseudo/src/platform/core/core_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/core_diagnostic_fixture.dart';
@@ -125,10 +127,42 @@ void main() {
     expect(rows.first.containsKey('readingDefinition'), isFalse);
   });
 
-  diagnosticTest('完整nodes stream先关联再分页，跨页对象不重复且原始raw不变', (
-    tester,
-    fixture,
-  ) async {
+  diagnosticTest('未完整返回保留实际取消错误与 native receipt', (tester, fixture) async {
+    await fixture.warmUp(tester);
+    fixture.script(ApplicationContract.coreOperationNodes, (request) {
+      request.frame(ApplicationContract.coreIpcFrameMetadata, {
+        'source': 'source',
+      });
+      request.terminal({
+        'complete': false,
+        'recordCount': 0,
+        'source': 'source',
+        'cancelError': 'actual cancellation failure',
+        'raw': 'unrelated terminal payload',
+      });
+      request.signalExit(receipt: {'status': 'actual exit'});
+    });
+    final call = await fixture.client.submit(
+      ApplicationContract.coreOperationNodes,
+      CoreIdentity(processId: diagnosticSource.processId!),
+    );
+    await expectLater(
+      CoreCollectionPage.read(call, offset: 0, limit: 50, search: ''),
+      throwsA(
+        isA<PlatformFailure>().having(
+          (failure) => failure.details,
+          'details',
+          allOf(
+            containsPair('cancelError', 'actual cancellation failure'),
+            containsPair('nativeReceipt', {'status': 'actual exit'}),
+            isNot(containsPair('raw', 'unrelated terminal payload')),
+          ),
+        ),
+      ),
+    );
+  });
+
+  diagnosticTest('节点 stream 先关联再分页，跨页对象不重复', (tester, fixture) async {
     await fixture.warmUp(tester);
     final records = [
       for (var index = 0; index < 120; index++)
@@ -136,10 +170,9 @@ void main() {
           'name': index == 99 ? 'needle' : 'node-$index',
           'sourceKind': 'configuration',
           'sourceName': '',
-          'raw': {
-            'type': 'Direct',
-            'unknown': [null, false, index],
-          },
+          'type': 'Direct',
+          'udp': false,
+          'history': <Object>[],
           if (index == 99) 'provenance': provenance('/proxies/0'),
         },
     ];
@@ -173,7 +206,9 @@ void main() {
     expect(middle['nodes'], hasLength(50));
     final associated = (middle['nodes'] as List).last as Map;
     expect(associated['localDefinition'], definitions.first['localDefinition']);
-    expect(associated['raw'], records[99]['raw']);
+    expect(associated['type'], 'Direct');
+    expect(associated['udp'], isFalse);
+    expect(associated.containsKey('raw'), isFalse);
     final last = await read(
       fixture,
       'nodes',
@@ -205,7 +240,7 @@ void main() {
         <String, dynamic>{
           'name': index == 90 ? 'needle' : 'node-$index',
           'sourceKind': 'configuration',
-          'raw': {'type': 'Direct'},
+          'type': 'Direct',
           if (index == 90) 'provenance': provenance('/proxies/0'),
         },
     ];
@@ -365,7 +400,7 @@ void main() {
         {
           'name': 'needle',
           'sourceKind': 'proxyProvider',
-          'raw': {'type': 'Direct'},
+          'type': 'Direct',
           'providerProvenance': provenance('/proxy-providers/feed'),
         },
       ],

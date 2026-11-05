@@ -49,6 +49,32 @@ class _EpochAccessApp extends AccessApp {
   }
 }
 
+void packageChanged(AccessApp app, String package) {
+  app.changedApplication = package;
+  app.applicationsRevision++;
+  app.publish(app.state);
+}
+
+Future<void> retryList(WidgetTester tester) async {
+  final strings = AppLocalizations.of(
+    tester.element(find.byType(ApplicationsPage)),
+  );
+  await tester.tap(
+    find.descendant(
+      of: find.byType(SnackBar),
+      matching: find.text(strings.errorDetails),
+    ),
+  );
+  await tester.pumpAndSettle();
+  await tester.tap(
+    find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.text(strings.retry),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -204,17 +230,11 @@ void main() {
             find.byKey(const ValueKey('application-app.alpha')),
           )
           .onChanged!;
-      final refreshButton = find.ancestor(
-        of: find.byIcon(Icons.refresh),
-        matching: find.byType(IconButton),
-      );
-      expect(refreshButton, findsOneWidget);
-      final refresh = tester.widget<IconButton>(refreshButton).onPressed!;
+      expect(find.byIcon(Icons.refresh), findsNothing);
       final reads = bridge.listCalls;
       active = false;
       toggle(true);
       save();
-      refresh();
       await tester.pumpAndSettle();
       expect(app.commands, isEmpty);
       expect(bridge.listCalls, reads);
@@ -353,6 +373,80 @@ void main() {
     expect(app.commands, isEmpty);
     expect(tester.takeException(), isNull);
   });
+
+  for (final succeeds in [true, false]) {
+    testWidgets('应用列表详情打开期间保留在途读取：成功=$succeeds', (tester) async {
+      final pending = Completer<List<Map<String, dynamic>>>();
+      final bridge = AccessBridge()..listReply = pending;
+      final app = AccessApp(bridge);
+      addTearDown(app.dispose);
+      await show(tester, ApplicationsPage(app: app));
+      await tester.pump();
+      final field = find.byType(TextField);
+      await tester.showKeyboard(field);
+      final focus = tester.widget<TextField>(field).focusNode!;
+      await tester.enterText(field, 'Alpha');
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      expect(focus.hasFocus, isTrue, reason: '打开详情之前保留搜索焦点');
+      final strings = AppLocalizations.of(
+        tester.element(find.byType(ApplicationsPage)),
+      );
+      await tester.tap(
+        find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.text(strings.errorDetails),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+      app.publish(app.state);
+      if (succeeds) {
+        pending.complete(bridge.installed);
+      } else {
+        pending.completeError(StateError('实际应用列表读取失败'));
+      }
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(bridge.listCalls, 1);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text(strings.close),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(bridge.listCalls, 1);
+      expect(tester.widget<TextField>(field).controller!.text, 'Alpha');
+      expect(focus.hasFocus, isTrue);
+      if (succeeds) {
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('application-app.alpha')),
+            matching: find.text('Alpha'),
+          ),
+          findsOneWidget,
+        );
+        expect(find.byType(SnackBar), findsNothing);
+      } else {
+        expect(find.byType(SnackBar), findsOneWidget);
+        await tester.tap(
+          find.descendant(
+            of: find.byType(SnackBar),
+            matching: find.text(strings.errorDetails),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('operation-technical-details')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.textContaining('实际应用列表读取失败'), findsOneWidget);
+      }
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
 
   testWidgets(
     'a list failure feedback is readable and closable through its own popup',
@@ -683,14 +777,16 @@ void main() {
         final row = find.byKey(const ValueKey('application-app.alpha'));
         final geometry = [
           tester.getRect(save),
-          tester.getRect(status),
+          tester.getTopLeft(status),
+          tester.getSize(status).height,
           tester.getRect(search),
           tester.getRect(row),
         ];
         void stable() {
           expect([
             tester.getRect(save),
-            tester.getRect(status),
+            tester.getTopLeft(status),
+            tester.getSize(status).height,
             tester.getRect(search),
             tester.getRect(row),
           ], geometry);
@@ -800,13 +896,11 @@ void main() {
         );
         final row = find.byKey(const ValueKey('application-app.alpha'));
         final search = find.byType(TextField);
-        final refresh = find.byKey(const ValueKey('applications-refresh'));
         final policy = find.byKey(const ValueKey('applications-policy-status'));
         final save = find.byKey(const ValueKey('applications-save'));
         final before = [
           tester.getRect(row),
           tester.getRect(search),
-          tester.getRect(refresh),
           tester.getRect(policy),
           tester.getRect(save),
         ];
@@ -815,7 +909,6 @@ void main() {
           expect([
             tester.getRect(row),
             tester.getRect(search),
-            tester.getRect(refresh),
             tester.getRect(policy),
             tester.getRect(save),
           ], before);
@@ -825,12 +918,12 @@ void main() {
 
         final pending = bridge.listReply =
             Completer<List<Map<String, dynamic>>>();
-        await tester.tap(refresh);
+        packageChanged(app, 'app.alpha');
         await tester.pump();
         stable();
-        expect(find.byType(CircularProgressIndicator), findsOneWidget);
-        pending.completeError(StateError('list original cause'));
+        expect(find.byType(CircularProgressIndicator), findsNothing);
         bridge.listReply = null;
+        pending.completeError(StateError('list original cause'));
         await tester.pumpAndSettle();
         stable();
         expect(find.byType(AlertDialog), findsNothing);
@@ -853,7 +946,7 @@ void main() {
         app.setForeground(true);
         await tester.pumpAndSettle();
         stable();
-        expect(find.byType(SnackBar), findsNothing);
+        expect(find.byType(SnackBar), findsOneWidget);
         expect(app.commands, isEmpty);
         await tester.pumpWidget(const SizedBox());
       });
@@ -883,8 +976,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('无法读取'), findsOneWidget);
     bridge.fail = false;
-    await tester.tap(find.byTooltip('重试'));
-    await tester.pumpAndSettle();
+    await retryList(tester);
     expect(find.byKey(const ValueKey('application-app.alpha')), findsOne);
     await tester.pumpWidget(const SizedBox());
   });
@@ -1030,6 +1122,35 @@ void main() {
     addTearDown(app.dispose);
     await show(tester, ApplicationsPage(app: app));
     await tester.pumpAndSettle();
+    final row = find.byKey(const ValueKey('application-shared.alpha'));
+    final strings = AppLocalizations.of(tester.element(row));
+    expect(
+      find.descendant(
+        of: row,
+        matching: find.textContaining(strings.applicationSharedUidShort),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: row, matching: find.byIcon(Icons.link)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: row,
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is Text &&
+              widget.semanticsLabel?.contains(
+                    strings.applicationSharedUidNotice(
+                      'shared.alpha, shared.beta, shared.system',
+                    ),
+                  ) ==
+                  true,
+        ),
+      ),
+      findsOneWidget,
+    );
     await tester.tap(find.byKey(const ValueKey('access-only')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('application-shared.alpha')));
@@ -1239,23 +1360,82 @@ void main() {
     addTearDown(app.dispose);
     await show(tester, ApplicationsPage(app: app));
     await tester.pump(const Duration(seconds: 5));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(find.textContaining('无法读取'), findsOneWidget);
     bridge.listReply = null;
     bridge.installed = [
       {'package': 'current.app', 'label': 'Current', 'system': false},
     ];
-    await tester.tap(find.byTooltip('重试'));
-    await tester.pumpAndSettle();
+    await retryList(tester);
+    expect(bridge.listCalls, 1);
     late.complete([
       {'package': 'obsolete.app', 'label': 'Obsolete', 'system': false},
     ]);
     await tester.pumpAndSettle();
+    expect(bridge.listCalls, 2);
     expect(find.byKey(const ValueKey('application-current.app')), findsOne);
     expect(
       find.byKey(const ValueKey('application-obsolete.app')),
       findsNothing,
     );
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('package 变化合并读取并只失效对应 icon', (tester) async {
+    final bridge = AccessBridge()
+      ..installed = [
+        {'package': 'app.alpha', 'label': 'Alpha', 'updatedAt': 1},
+        {'package': 'app.beta', 'label': 'Beta', 'updatedAt': 1},
+      ];
+    final app = AccessApp(bridge);
+    addTearDown(app.dispose);
+    await show(tester, ApplicationsPage(app: app));
+    await tester.pumpAndSettle();
+    expect(bridge.icons.where((name) => name == 'app.alpha').length, 1);
+    expect(bridge.icons.where((name) => name == 'app.beta').length, 1);
+
+    final pending = bridge.listReply = Completer<List<Map<String, dynamic>>>();
+    packageChanged(app, 'app.alpha');
+    await tester.pump();
+    expect(bridge.listCalls, 2);
+    expect(bridge.icons.where((name) => name == 'app.alpha').length, 2);
+    expect(bridge.icons.where((name) => name == 'app.beta').length, 1);
+    packageChanged(app, 'app.beta');
+    packageChanged(app, 'app.alpha');
+    expect(bridge.listCalls, 2);
+    bridge.listReply = null;
+    bridge.installed = [
+      {'package': 'app.alpha', 'label': 'Alpha updated', 'updatedAt': 2},
+      {'package': 'app.beta', 'label': 'Beta', 'updatedAt': 1},
+    ];
+    pending.complete([
+      {'package': 'obsolete.app', 'label': 'Obsolete', 'updatedAt': 1},
+    ]);
+    await tester.pumpAndSettle();
+    expect(bridge.listCalls, 3);
+    expect(find.text('Alpha updated'), findsOneWidget);
+    expect(find.text('Obsolete'), findsNothing);
+    expect(bridge.icons.where((name) => name == 'app.beta').length, 2);
+
+    final alphaCalls = bridge.icons.where((name) => name == 'app.alpha').length;
+    final betaCalls = bridge.icons.where((name) => name == 'app.beta').length;
+    bridge.installed = [
+      {'package': 'app.alpha', 'label': 'Alpha updated', 'updatedAt': 2},
+      {'package': 'app.beta', 'label': 'Beta updated', 'updatedAt': 2},
+    ];
+    app.setForeground(false);
+    app.setForeground(true);
+    await tester.pumpAndSettle();
+    expect(find.text('Beta updated'), findsOneWidget);
+    expect(
+      bridge.icons.where((name) => name == 'app.alpha').length,
+      alphaCalls,
+    );
+    expect(
+      bridge.icons.where((name) => name == 'app.beta').length,
+      betaCalls + 1,
+    );
+    expect(app.commands, isEmpty);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -1421,8 +1601,7 @@ void main() {
     expect(tester.getRect(row), rowRect);
     expect(find.textContaining('无法读取'), findsOneWidget);
     bridge.fail = false;
-    await tester.tap(find.byTooltip('重试'));
-    await tester.pumpAndSettle();
+    await retryList(tester);
     expect(bridge.listCalls, 3);
     expect(tester.getRect(row), rowRect);
     await tester.pumpWidget(const SizedBox());

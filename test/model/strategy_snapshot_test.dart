@@ -83,7 +83,6 @@ void main() {
       expect(group.type, type);
       expect(group.selectable, type?.selectable ?? false);
       expect(group.automatic, type?.automatic ?? false);
-      expect((snapshot.raw['groups'] as List).single['type'], rawType);
       if (group.selectable) {
         final choice = StrategyChoice(type: group.type!, member: group.now);
         expect(choice.toJson(), {'type': type!.value, 'member': 'A'});

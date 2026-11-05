@@ -23,6 +23,10 @@ import 'package:clash_pseudo/src/ui/locale/model_text.dart';
 import 'package:clash_pseudo/src/model/messages.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/preferences_fakes.dart';
+import '../../support/readonly_override_store.dart';
+import '../app/app_controller_test.dart' show MemoryStore, SnapshotBridge;
+
 const _modeFailureDetail =
     '模式保存失败：https://user:pass@fixture.test/?token=原文🙂\n'
     'Authorization: Bearer fixture';
@@ -80,7 +84,9 @@ void main() {
     Locale locale = const Locale('zh'),
     bool Function()? isTaskActive,
     bool workspaceNavigator = false,
+    AppController? owner,
   }) async {
+    final app = owner ?? controller;
     final workspaceRoutes = workspaceNavigator
         ? AppTaskNavigatorObserver()
         : null;
@@ -105,15 +111,15 @@ void main() {
         ),
         home: OperationNoticeHost(
           child: OperationFeedback(
-            controller: controller,
+            controller: app,
             child: workspaceNavigator
                 ? Navigator(
                     observers: [workspaceRoutes!],
                     onGenerateRoute: (_) => MaterialPageRoute<void>(
-                      builder: (_) => OverviewPage(controller: controller),
+                      builder: (_) => OverviewPage(controller: app),
                     ),
                   )
-                : OverviewPage(controller: controller),
+                : OverviewPage(controller: app),
           ),
         ),
       ),
@@ -147,11 +153,16 @@ void main() {
     WidgetTester tester,
     String summary, {
     String? detail,
+    bool local = true,
   }) async {
     await tester.pumpAndSettle();
     expect(find.byType(AlertDialog), findsNothing);
     final notice = find.byType(SnackBar);
     expect(notice, findsOneWidget);
+    expect(
+      find.descendant(of: find.byType(ModeSheet), matching: notice),
+      local ? findsOneWidget : findsNothing,
+    );
     expect(
       find.descendant(of: notice, matching: find.text(summary)),
       findsOneWidget,
@@ -244,7 +255,11 @@ void main() {
       });
       expect(controller.collection.mode, TunnelMode.global);
       expect(find.text(messages.storageUnavailable.text), findsWidgets);
-      await openErrorDetails(tester, messages.storageUnavailable.text);
+      await openErrorDetails(
+        tester,
+        messages.storageUnavailable.text,
+        local: false,
+      );
       await tester.tap(find.text('关闭').hitTestable());
       await tester.pumpAndSettle();
       expect(find.byType(ModeSheet), findsOneWidget);
@@ -315,29 +330,24 @@ void main() {
             of: find.byType(ModeSheet),
             matching: find.byIcon(Icons.info_outline),
           ),
-          findsOneWidget,
-        );
-        expect(
-          find.descendant(
-            of: find.byType(ModeSheet),
-            matching: find.byIcon(Icons.error_outline),
-          ),
           findsNothing,
         );
-        final info = find.descendant(
-          of: find.byType(ModeSheet),
-          matching: find.byIcon(Icons.info_outline),
-        );
         expect(
-          tester.widget<Icon>(info).color,
-          Theme.of(tester.element(info)).colorScheme.primary,
+          find.text('${strings.modeRule} · ${strings.modeFallbackLabel}'),
+          findsOneWidget,
         );
         controller.state = const AppSnapshot(
           phase: 'RUNNING',
-          modeError: AppMessage('androidErrorModeUnconfirmed'),
+          modeError: AppMessage(
+            'androidErrorModeUnconfirmed',
+            detail: 'original mode read error',
+          ),
         );
         controller.changed();
         await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
         expect(tester.getRect(title), titleRect);
         expect([for (final button in buttons) tester.getRect(button)], rows);
         expect(
@@ -345,16 +355,28 @@ void main() {
             of: find.byType(ModeSheet),
             matching: find.byIcon(Icons.error_outline),
           ),
-          findsOneWidget,
+          findsNothing,
         );
-        final failure = find.descendant(
+        final notice = find.descendant(
           of: find.byType(ModeSheet),
-          matching: find.byIcon(Icons.error_outline),
+          matching: find.byType(SnackBar),
         );
-        expect(
-          tester.widget<Icon>(failure).color,
-          Theme.of(tester.element(failure)).colorScheme.error,
+        expect(notice, findsOneWidget);
+        await tester.tap(
+          find.descendant(
+            of: notice,
+            matching: find.text(strings.errorDetails),
+          ),
         );
+        await tester.pumpAndSettle();
+        final technical = find.byKey(
+          const ValueKey('operation-technical-details'),
+        );
+        await tester.ensureVisible(technical);
+        await tester.pumpAndSettle();
+        await tester.tap(technical);
+        await tester.pumpAndSettle();
+        expect(find.text('original mode read error'), findsOneWidget);
         expect(tester.takeException(), isNull);
       },
     );
@@ -442,7 +464,7 @@ void main() {
         ], rows.map((r) => r.size).toList());
         controller.state = const AppSnapshot(
           phase: 'STOPPED',
-          resultId: 'failed',
+          resultId: 'operation-1',
           resultMessage: AppMessage(
             'configSaveFailed',
             detail: _modeFailureDetail,
@@ -503,7 +525,7 @@ void main() {
     );
     controller.state = const AppSnapshot(
       phase: 'STOPPED',
-      resultId: 'real-save',
+      resultId: 'operation-1',
       resultSuccess: true,
     );
     controller.changed();
@@ -541,7 +563,7 @@ void main() {
     );
     controller.state = const AppSnapshot(
       phase: 'STOPPED',
-      resultId: 'actual-save',
+      resultId: 'operation-1',
       resultSuccess: true,
     );
     controller.changed();
@@ -611,11 +633,11 @@ void main() {
         );
         controller.state = const AppSnapshot(
           phase: 'STOPPED',
-          resultId: 'captured-save',
+          resultId: 'operation-1',
           resultSuccess: true,
         );
         controller.changed();
-        replaceEmptyContext(invalidation, resultId: 'captured-save');
+        replaceEmptyContext(invalidation, resultId: 'operation-1');
         await tester.pumpAndSettle();
         expect(controller.commands, hasLength(1));
         expect(find.byType(ModeSheet), findsOneWidget);
@@ -665,11 +687,15 @@ void main() {
       await open(tester);
       final button = find.byKey(const ValueKey('mode-global'));
       final oldChoose = tester.widget<OutlinedButton>(button).onPressed!;
-      final info = find.descendant(
+      final notice = find.descendant(
         of: find.byType(ModeSheet),
-        matching: find.byType(IconButton),
+        matching: find.byType(SnackBar),
       );
-      await tester.tap(info);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(
+        find.descendant(of: notice, matching: find.text('错误详情')),
+      );
       await tester.pumpAndSettle();
       expect(find.byType(AlertDialog), findsOneWidget);
       oldChoose();
@@ -704,7 +730,7 @@ void main() {
     );
     controller.state = const AppSnapshot(
       phase: 'STOPPED',
-      resultId: 'one',
+      resultId: 'operation-1',
       resultSuccess: true,
     );
     controller.changed();
@@ -748,7 +774,7 @@ void main() {
       controller.state = const AppSnapshot(
         phase: 'RUNNING',
         mode: TunnelMode.global,
-        resultId: 'one',
+        resultId: 'operation-1',
         resultSuccess: true,
       );
       controller.changed();
@@ -761,6 +787,80 @@ void main() {
       expect(tester.binding.transientCallbackCount, 0);
     },
   );
+
+  AppController receiptApp(SnapshotBridge bridge) {
+    final app = AppController(
+      bridge,
+      store: MemoryStore(),
+      overrideStore: ReadOnlyOverrideStore(),
+      preferencesStore: MemoryPreferencesStore(),
+    );
+    addTearDown(app.dispose);
+    return app;
+  }
+
+  testWidgets('实际提交拒绝由模式浮板显示原始原因', (tester) async {
+    final bridge = SnapshotBridge()
+      ..submitResult = () async => throw StateError('mode admission rejected');
+    final app = receiptApp(bridge);
+    await app.refresh();
+    await show(tester, workspaceNavigator: true, owner: app);
+    await open(tester);
+    await tester.tap(find.byKey(const ValueKey('mode-global')));
+    final strings = AppLocalizations.of(tester.element(find.byType(ModeSheet)));
+    await openErrorDetails(
+      tester,
+      messages.requestNotAccepted.summary(strings),
+      detail: 'Bad state: mode admission rejected',
+    );
+    expect(bridge.commands, hasLength(1));
+    expect(find.byType(ModeSheet), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('实际失败结果没有消息时显示通用失败提示', (tester) async {
+    var snapshot = const AppSnapshot(phase: 'STOPPED');
+    final bridge = SnapshotBridge()..read = () async => snapshot;
+    final app = receiptApp(bridge);
+    await app.refresh();
+    await show(tester, workspaceNavigator: true, owner: app);
+    await open(tester);
+    await tester.tap(find.byKey(const ValueKey('mode-global')));
+    await tester.pump();
+    expect(bridge.commands, hasLength(1));
+    expect(app.hasLocalFeedbackOwner, isTrue);
+    snapshot = const AppSnapshot(phase: 'STOPPED', resultId: 'operation-1');
+    await app.refresh();
+    await tester.pumpAndSettle();
+    final notice = find.descendant(
+      of: find.byType(ModeSheet),
+      matching: find.byType(SnackBar),
+    );
+    expect(notice, findsOneWidget);
+    expect(
+      find.descendant(
+        of: notice,
+        matching: find.text(
+          messages.operationFailed.summary(
+            AppLocalizations.of(tester.element(find.byType(ModeSheet))),
+          ),
+        ),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      app.feedbackHandledLocally(
+        app.lastCommand!,
+        submissionFailed: false,
+        resultId: 'operation-1',
+      ),
+      isTrue,
+    );
+    expect(find.byType(ModeSheet), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets('failed apply keeps sheet open and actual selection unchanged', (
     tester,
@@ -779,7 +879,7 @@ void main() {
     controller.state = const AppSnapshot(
       phase: 'RUNNING',
       mode: TunnelMode.rule,
-      resultId: 'failed',
+      resultId: 'operation-1',
       resultMessage: AppMessage('modeNotConfirmed', detail: _modeFailureDetail),
     );
     controller.changed();
@@ -909,7 +1009,7 @@ void main() {
         controller.changed();
         await tester.pump();
         expect(tester.getRect(rule), originalRect);
-        expect(find.byIcon(Icons.check), findsOneWidget);
+        expect(find.byIcon(Icons.check), findsNothing);
         expect(
           tester
               .widget<OutlinedButton>(rule)
@@ -918,26 +1018,27 @@ void main() {
               .resolve({}),
           colors.surfaceContainer,
         );
-        expect(
-          tester.widget<Icon>(find.byIcon(Icons.check)).color,
-          colors.primary,
+        final strings = AppLocalizations.of(tester.element(rule));
+        final ruleLabel = find.descendant(
+          of: rule,
+          matching: find.text(TunnelMode.rule.label(strings)),
         );
-        await tester.tap(find.byKey(const ValueKey('mode-direct')));
+        expect(
+          tester.widget<Text>(ruleLabel).style!.fontWeight,
+          FontWeight.w700,
+        );
+        final direct = find.byKey(const ValueKey('mode-direct'));
+        final directLabel = find.descendant(
+          of: direct,
+          matching: find.text(TunnelMode.direct.label(strings)),
+        );
+        expect(
+          tester.widget<Text>(directLabel).style!.fontWeight,
+          FontWeight.w400,
+        );
+        await tester.tap(direct);
         await tester.pump();
-        expect(
-          find.descendant(
-            of: find.byKey(const ValueKey('mode-rule')),
-            matching: find.byIcon(Icons.check),
-          ),
-          findsOneWidget,
-        );
-        expect(
-          find.descendant(
-            of: find.byKey(const ValueKey('mode-direct')),
-            matching: find.byIcon(Icons.check),
-          ),
-          findsNothing,
-        );
+        expect(find.byIcon(Icons.check), findsNothing);
         await tester.pumpWidget(const SizedBox());
       },
     );

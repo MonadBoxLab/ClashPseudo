@@ -1,16 +1,14 @@
 import 'package:clash_pseudo/src/model/platform_failure.dart';
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
 
 import '../app/app_controller.dart';
 import '../navigation/task_activity.dart';
-import '../navigation/page_route.dart';
 import '../theme/app_theme.dart';
-import '../components/reading/original_text_view.dart';
+import '../components/feedback/operation_notice.dart';
 import '../../l10n/app_localizations.dart';
 import '../../model/messages.dart';
 import '../../model/app_snapshot.dart';
@@ -36,6 +34,7 @@ class BackupSettingsActions extends StatefulWidget {
 
 class _BackupSettingsActionsState extends State<BackupSettingsActions> {
   final _feedbackOwner = ValueNotifier(false);
+  final _presentations = <Object>{};
   final _rowKeys = {true: GlobalKey(), false: GlobalKey()};
   bool _working = false;
   bool _waiting = false;
@@ -60,15 +59,6 @@ class _BackupSettingsActionsState extends State<BackupSettingsActions> {
 
   AppController get app => widget.app;
   bool get _interactive => app.foreground && app.interactive;
-  ModalRoute<dynamic>? _readerPopup;
-  ModalRoute<dynamic>? get _ownedPopup {
-    final popup = _readerPopup;
-    return popup != null &&
-            popup.isActive &&
-            popup.animation?.status != AnimationStatus.reverse
-        ? popup
-        : _dialogRoute;
-  }
 
   bool get _routeCurrent {
     if (!mounted || !widget.active) return false;
@@ -87,12 +77,12 @@ class _BackupSettingsActionsState extends State<BackupSettingsActions> {
         return false;
       }
     }
-    return AppTaskActivity.routeIsActive(route, ownedPopup: _ownedPopup);
+    return AppTaskActivity.routeIsActive(route, ownedPopup: _dialogRoute);
   }
 
   bool get _current =>
       _routeCurrent &&
-      AppTaskActivity.isActive(context, ownedPopup: _ownedPopup);
+      AppTaskActivity.isActive(context, ownedPopup: _dialogRoute);
   bool _live(int run) => mounted && run == _runner;
   bool _usable(int run) =>
       _live(run) && !_cancelRequested && _current && _interactive;
@@ -160,7 +150,10 @@ class _BackupSettingsActionsState extends State<BackupSettingsActions> {
 
   void _syncOwner() {
     _feedbackOwner.value =
-        _working && _interactive && _current && !_relinquished;
+        (_working || _presentations.isNotEmpty) &&
+        _interactive &&
+        _current &&
+        !_relinquished;
     if (!_working) return;
     // Lifecycle suspension preserves I/O, never a changed task or route identity.
     if (!_routeCurrent || (_interactive && !_current)) {
@@ -225,7 +218,7 @@ class _BackupSettingsActionsState extends State<BackupSettingsActions> {
       _originRoute = null;
       _originTask = null;
     });
-    _feedbackOwner.value = false;
+    _syncOwner();
   }
 
   void _wait(int run, bool value) {
@@ -311,7 +304,6 @@ class _BackupSettingsActionsState extends State<BackupSettingsActions> {
     final run = _begin(false);
     String? token;
     AppSnapshot? result;
-    var adopted = false;
     try {
       _wait(run, true);
       final request = _newRequest();
@@ -342,7 +334,6 @@ class _BackupSettingsActionsState extends State<BackupSettingsActions> {
         token = prepared.token;
         // Adopt the prepared candidate for the requested operation.
         app.acknowledgeLocalFeedback(_feedbackOwner, result: result);
-        adopted = true;
         final saveRequest = _newRequest();
         _requestId = saveRequest;
         final saved = await app.platform.backupSaveExport(
@@ -376,9 +367,8 @@ class _BackupSettingsActionsState extends State<BackupSettingsActions> {
         );
       }
       if (_message != null || _outcome != null) {
-        adopted = await _presentResult(run) || adopted;
+        _presentResult(run, result);
       }
-      if (adopted) app.acknowledgeLocalFeedback(_feedbackOwner, result: result);
       _finish(run);
     }
   }
@@ -389,7 +379,6 @@ class _BackupSettingsActionsState extends State<BackupSettingsActions> {
     final run = _begin(true);
     String? token;
     AppSnapshot? result;
-    var adopted = false;
     var submitted = false;
     try {
       final pickRequest = _newRequest();
@@ -506,9 +495,8 @@ class _BackupSettingsActionsState extends State<BackupSettingsActions> {
         );
       }
       if (_message != null || _outcome != null) {
-        adopted = await _presentResult(run) || adopted;
+        _presentResult(run, result);
       }
-      if (adopted) app.acknowledgeLocalFeedback(_feedbackOwner, result: result);
       _finish(run);
     }
   }
@@ -518,33 +506,23 @@ class _BackupSettingsActionsState extends State<BackupSettingsActions> {
       ? app.commandErrorMessage ?? messages.operationNotCompletedRetry
       : messages.requestNotAccepted;
 
-  void _showRaw(Map<String, dynamic> detail) {
-    if (!mounted || _working || !_current || !_interactive) return;
-    Navigator.of(context).push<void>(
-      FocusedPageRoute(
-        builder: (context) => Scaffold(
-          appBar: AppBar(title: Text(AppLocalizations.of(context).rawData)),
-          body: OriginalTextView(
-            text: const JsonEncoder.withIndent('  ')
-                .convert(encodeAppMessages(detail)),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<bool> _presentResult(int run) async {
-    _wait(run, false);
-    if (!await _awaitForeground(run) || !mounted) return false;
+  void _presentResult(int run, AppSnapshot? result) {
+    if (!_live(run) || _relinquished || !_current || !_interactive) return;
+    final owner = app;
+    final command = owner.lastCommand;
+    final epoch = owner.storageEpoch;
+    final importing = _importing;
     final message = _message;
     final detail = _outcome;
+    final resultSuccess = _resultSuccess;
     if (message?.id == 'backupCancelled' &&
         message?.detail == null &&
         (detail == null || !detail.containsKey('committed'))) {
-      return true;
+      owner.acknowledgeLocalFeedback(_feedbackOwner, result: result);
+      return;
     }
     final issue =
-        _resultSuccess == false ||
+        resultSuccess == false ||
         (detail != null && detail.containsKey('committed')
             ? detail['committed'] != true ||
                   detail['ready'] == false ||
@@ -566,202 +544,49 @@ class _BackupSettingsActionsState extends State<BackupSettingsActions> {
         detail?['errorCode'] != null ||
         detail?['errorDetail'] != null ||
         detail?['cleanupError'] != null;
-    if (!issue) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Builder(
-            builder: (context) {
-              final strings = AppLocalizations.of(context);
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _resultText(
-                      strings,
-                      detail,
-                      message,
-                      resultSuccess: _resultSuccess,
-                    ),
-                  ),
-                  if (detail != null)
-                    Align(
-                      alignment: AlignmentDirectional.centerEnd,
-                      child: SnackBarAction(
-                        label: strings.rawData,
-                        onPressed: () => _showRaw(detail),
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
-        ),
-      );
-      return true;
+    final identity = Object();
+    _presentations.add(identity);
+    bool current({ModalRoute<dynamic>? popup}) =>
+        mounted &&
+        identical(app, owner) &&
+        widget.active &&
+        _interactive &&
+        owner.storageEpoch == epoch &&
+        AppTaskActivity.isActive(context, ownedPopup: popup) &&
+        AppTaskActivity.routeIsActive(
+          ModalRoute.of(context),
+          ownedPopup: popup,
+        );
+    void release() {
+      if (!mounted) return;
+      _presentations.remove(identity);
+      _syncOwner();
     }
-    var retirementScheduled = false;
-    var technicalExpanded = false;
-    var rawExpanded = false;
-    try {
-      await showDialog<void>(
-        context: context,
-        animationStyle: MediaQuery.disableAnimationsOf(context)
-            ? AnimationStyle.noAnimation
-            : null,
-        builder: (context) {
-          final route = ModalRoute.of(context)!;
-          _observeDialog(route);
-          final strings = AppLocalizations.of(context);
-          final technical = _resultTechnicalText(strings, detail, message);
-          bool eligible() =>
-              _live(run) &&
-              _current &&
-              _interactive &&
-              identical(_dialogRoute, route) &&
-              route.isCurrent &&
-              route.isActive &&
-              route.animation?.status != AnimationStatus.reverse;
-          bool readerEligible(ModalRoute<dynamic> popup) {
-            if (!_live(run) ||
-                !identical(_dialogRoute, route) ||
-                !AppTaskActivity.routeIsActive(route, ownedPopup: popup)) {
-              return false;
-            }
-            _readerPopup = popup;
-            return _current && _interactive;
-          }
 
-          final dialog = AlertDialog(
-            title: Text(
-              _importing ? strings.backupImport : strings.backupExport,
-            ),
-            scrollable: true,
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SelectableText(
-                  _resultText(
-                    strings,
-                    detail,
-                    message,
-                    resultSuccess: _resultSuccess,
-                  ),
-                  key: const ValueKey('backup-result-summary'),
-                ),
-                if (technical != null)
-                  ExpansionTile(
-                    key: const ValueKey('backup-result-technical'),
-                    maintainState: true,
-                    onExpansionChanged: (expanded) =>
-                        technicalExpanded = expanded,
-                    expansionAnimationStyle:
-                        MediaQuery.disableAnimationsOf(context)
-                        ? AnimationStyle.noAnimation
-                        : null,
-                    title: Text(strings.technicalDetails),
-                    children: [
-                      SizedBox(
-                        width: double.maxFinite,
-                        height: min(
-                          360,
-                          MediaQuery.sizeOf(context).height * .5,
-                        ),
-                        child: OriginalTextView(
-                          key: const ValueKey(
-                            'backup-result-technical-content',
-                          ),
-                          identity: (run, technical),
-                          text: technical,
-                          isCurrent: () => technicalExpanded && eligible(),
-                          isCurrentWithPopup: (popup) =>
-                              technicalExpanded && readerEligible(popup),
-                        ),
-                      ),
-                    ],
-                  ),
-                if (detail != null)
-                  ExpansionTile(
-                    key: const ValueKey('backup-result-raw'),
-                    onExpansionChanged: (expanded) => rawExpanded = expanded,
-                    expansionAnimationStyle:
-                        MediaQuery.disableAnimationsOf(context)
-                        ? AnimationStyle.noAnimation
-                        : null,
-                    title: Text(strings.rawData),
-                    children: [
-                      SizedBox(
-                        width: double.maxFinite,
-                        height: min(
-                          360,
-                          MediaQuery.sizeOf(context).height * .5,
-                        ),
-                        child: OriginalTextView(
-                          identity: (run, detail),
-                          isCurrent: () => rawExpanded && eligible(),
-                          isCurrentWithPopup: (popup) =>
-                              rawExpanded && readerEligible(popup),
-                          text: const JsonEncoder.withIndent('  ')
-                              .convert(encodeAppMessages(detail)),
-                        ),
-                      ),
-                    ],
-                  ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  if (eligible()) Navigator.pop(context);
-                },
-                child: Text(strings.close),
-              ),
-            ],
-          );
-          return AnimatedBuilder(
-            animation: Listenable.merge([app, route.animation!]),
-            child: dialog,
-            builder: (_, child) {
-              final active = eligible();
-              final sourceRetired =
-                  _relinquished ||
-                  !_routeCurrent ||
-                  (_interactive && !_current);
-              if (sourceRetired && !retirementScheduled) {
-                retirementScheduled = true;
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  final navigator = route.navigator;
-                  if (navigator == null ||
-                      !navigator.mounted ||
-                      !route.isActive ||
-                      route.animation?.status == AnimationStatus.reverse) {
-                    return;
-                  }
-                  if (route.isCurrent) {
-                    navigator.pop();
-                  } else {
-                    navigator.removeRoute(route);
-                  }
-                });
-              }
-              return IgnorePointer(
-                ignoring: !active,
-                child: ExcludeFocus(
-                  excluding: !active,
-                  child: ExcludeSemantics(excluding: !active, child: child!),
-                ),
-              );
-            },
-          );
+    unawaited(
+      showLocalizedOperationNotice(
+        context,
+        (strings) =>
+            _resultText(strings, detail, message, resultSuccess: resultSuccess),
+        technicalDetail: (strings) =>
+            _resultTechnicalText(strings, detail, message),
+        title: (strings) =>
+            importing ? strings.backupImport : strings.backupExport,
+        error: issue,
+        identity: identity,
+        eligibilityChanges: owner,
+        isCurrent: current,
+        isCurrentWithPopup: (popup) => current(popup: popup),
+        onPresented: () {
+          if (identical(owner.lastCommand, command)) {
+            owner.acknowledgeLocalFeedback(_feedbackOwner, result: result);
+          }
+          release();
         },
-      );
-      return true;
-    } finally {
-      _readerPopup = null;
-      _dialogRoute = null;
-      if (mounted) _syncOwner();
-    }
+      ).then((presented) {
+        if (!presented) release();
+      }),
+    );
   }
 
   Widget _slot(BuildContext context, Widget child) {
@@ -991,8 +816,11 @@ String? _resultTechnicalText(
     try {
       parts.add(AppMessage.fromMap(value).resolve(strings));
     } on FormatException {
+      final cause = value is Map ? value['detail'] : null;
       parts.add(
-        const JsonEncoder.withIndent('  ').convert(encodeAppMessages(value)),
+        cause is String && cause.isNotEmpty
+            ? cause
+            : 'Invalid backup $field message',
       );
     }
   }
@@ -1020,7 +848,17 @@ AppMessage _documentMessage(Map<String, dynamic> response) {
       response['cleanupError'] == null) {
     return message;
   }
-  return message.withDetail(response);
+  return message.withDetail({
+    for (final key in [
+      'status',
+      'errorCode',
+      'errorDetail',
+      'cleanupError',
+      'externalMayBePartial',
+      'retired',
+    ])
+      if (response[key] != null) key: response[key],
+  });
 }
 
 AppMessage _failureMessage(Object error) => switch (error) {

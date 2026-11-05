@@ -27,11 +27,7 @@ Map<String, dynamic> response(CoreSnapshot source) => {
   'revision': source.revision,
   'composition': source.composition,
   'purpose': source.purpose,
-  'configuration': {
-    'mode': 'rule',
-    'authentication': ['[redacted]'],
-    'mixed-port': 0,
-  },
+  'configuration': 'mode: rule\nmixed-port: 0\n',
 };
 
 class TestBridge extends AppBridge {

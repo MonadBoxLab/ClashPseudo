@@ -7,7 +7,6 @@ import 'package:clash_pseudo/src/ui/navigation/task_activity.dart';
 import 'package:clash_pseudo/src/ui/theme/app_theme.dart';
 import 'package:clash_pseudo/src/ui/components/feedback/operation_feedback.dart';
 import 'package:clash_pseudo/src/ui/components/feedback/operation_notice.dart';
-import 'package:clash_pseudo/src/ui/components/reading/original_text_view.dart';
 import 'package:clash_pseudo/src/ui/diagnostics/resources/resources_page.dart';
 import 'package:clash_pseudo/src/ui/settings/storage_data_page.dart';
 import 'package:clash_pseudo/src/ui/settings/core_cleanup_action.dart';
@@ -315,6 +314,7 @@ void main() {
     String language = 'en',
     double scale = 1,
     bool disableAnimations = false,
+    bool dismissNotice = true,
     List<NavigatorObserver>? navigatorObservers,
   }) async {
     final observers = navigatorObservers ?? [AppTaskNavigatorObserver()];
@@ -347,7 +347,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    if (find.byType(SnackBar).evaluate().isNotEmpty) {
+    if (dismissNotice && find.byType(SnackBar).evaluate().isNotEmpty) {
       await _closeNotice(tester);
     }
   }
@@ -557,7 +557,7 @@ void main() {
             find.descendant(of: cacheAction(), matching: find.byType(ListTile)),
           )
           .onTap,
-      isNull,
+      isNotNull,
     );
     tester.view.physicalSize = const Size(360, 900);
     await _pumpNoticeFrames(tester);
@@ -581,6 +581,68 @@ void main() {
         ).toMap(),
       },
     ]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('多个清理结果按顺序显示，不阻塞后续操作', (tester) async {
+    final strings = lookupAppLocalizations(locale.value);
+    await show(
+      tester,
+      home: OperationNoticeHost(child: admissionPage(canStart: () => true)),
+    );
+    await beginCache(tester);
+    app.complete(
+      success: false,
+      message: const AppMessage('coreCleanupFailed', detail: 'first failure'),
+    );
+    await _pumpNoticeFrames(tester);
+    expect(find.byType(SnackBar), findsOneWidget);
+    expect(app.hasLocalFeedbackOwner, isFalse);
+
+    await beginCache(tester);
+    expect(bridge.commands, hasLength(2));
+    app.complete(
+      success: false,
+      message: const AppMessage('coreCleanupFailed', detail: 'second failure'),
+    );
+    await _pumpNoticeFrames(tester);
+    expect(app.hasLocalFeedbackOwner, isTrue);
+    expect(find.byType(SnackBar), findsOneWidget);
+    expect(await _readFailure(tester), contains('first failure'));
+    await tester.tap(find.widgetWithText(TextButton, strings.close));
+    await _pumpNoticeFrames(tester);
+    for (var frame = 0; frame < 40 && app.hasLocalFeedbackOwner; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(find.byType(SnackBar), findsOneWidget);
+    expect(app.hasLocalFeedbackOwner, isFalse);
+    expect(await _readFailure(tester), contains('second failure'));
+    await tester.tap(find.widgetWithText(TextButton, strings.close));
+    await _pumpNoticeFrames(tester);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(bridge.commands, hasLength(2));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('存储页的清理失败只提示一次并保留文件结果', (tester) async {
+    app.configErrorMessage = null;
+    app.overrideErrorMessage = null;
+    await show(
+      tester,
+      home: OperationNoticeHost(child: StorageDataPage(app: app)),
+    );
+    await beginCache(tester);
+    failedResult();
+    await _pumpNoticeFrames(tester);
+    expect(find.byType(SnackBar), findsOneWidget);
+    final details = await _readFailure(tester);
+    expect(details, contains('cleanup-result-original'));
+    expect(details, contains('cache.db'));
+    final strings = lookupAppLocalizations(locale.value);
+    await tester.tap(find.widgetWithText(TextButton, strings.close));
+    await tester.pumpAndSettle();
+    expect(find.byType(SnackBar), findsNothing);
+    expect(bridge.commands, hasLength(1));
     expect(tester.takeException(), isNull);
   });
 
@@ -1307,7 +1369,7 @@ void main() {
     );
   }
 
-  testWidgets('清理 spinner 只等待实际 submit Future，实际显示结果后释放操作锁', (tester) async {
+  testWidgets('清理 spinner 和操作锁只等待实际 submit Future', (tester) async {
     await show(tester, home: admissionPage(canStart: () => true));
     final target = cacheAction();
     final state = tester.state(target);
@@ -1373,7 +1435,7 @@ void main() {
     );
     expect(fade.status, AnimationStatus.reverse);
     expect(fade.value, 1);
-    expect(tile().onTap, isNull);
+    expect(tile().onTap, isNotNull);
     await pumpCacheResult(tester);
     expect(app.hasLocalFeedbackOwner, isFalse);
     expect(progress, findsNothing);
@@ -1537,7 +1599,7 @@ void main() {
               find.descendant(of: target, matching: find.byType(ListTile)),
             )
             .onTap,
-        isNull,
+        isNotNull,
       );
       expect(bridge.exits, 0);
       await _pumpNoticeFrames(tester);
@@ -1869,7 +1931,9 @@ void main() {
         await _closeNotice(tester);
       } else {
         expect(find.text(strings.operationFinished), findsNothing);
-        expect(await _readFailure(tester), failure.resolve(strings));
+        final details = await _readFailure(tester);
+        expect(details, contains(failure.resolve(strings)));
+        expect(details, contains('cache.db · ${strings.cleanupFileFailed}'));
         await tester.tap(find.widgetWithText(TextButton, strings.close));
         await tester.pumpAndSettle();
       }
@@ -1947,7 +2011,10 @@ void main() {
   });
 
   testWidgets('清理失败保留 Stop 原错误，已打开的结果与技术详情随 locale 更新', (tester) async {
-    await show(tester);
+    await show(
+      tester,
+      home: OperationNoticeHost(child: StorageDataPage(app: app)),
+    );
     await beginCache(tester);
     const original =
         'https://user:password@fixture.test/?token=完整🙂\nStop IOException 原文';
@@ -1970,13 +2037,11 @@ void main() {
     expect(find.textContaining(original), findsNothing);
     await tester.tap(find.byKey(const ValueKey('operation-technical-details')));
     await tester.pumpAndSettle();
+    final technical = find.byKey(const ValueKey('operation-technical-text'));
+    expect(tester.widget<SelectableText>(technical).data, contains(original));
     expect(
-      tester
-          .widget<SelectableText>(
-            find.byKey(const ValueKey('operation-technical-text')),
-          )
-          .data,
-      original,
+      tester.widget<SelectableText>(technical).data,
+      contains('cache.db · ${strings.cleanupFileFailed}'),
     );
     final resultRoute = ModalRoute.of(
       tester.element(find.text(strings.operationNotCompleted)),
@@ -1993,13 +2058,10 @@ void main() {
       tester.widget<SelectableText>(summary).data,
       strings.coreCleanupFailed,
     );
+    expect(tester.widget<SelectableText>(technical).data, contains(original));
     expect(
-      tester
-          .widget<SelectableText>(
-            find.byKey(const ValueKey('operation-technical-text')),
-          )
-          .data,
-      original,
+      tester.widget<SelectableText>(technical).data,
+      contains('cache.db · ${strings.cleanupFileFailed}'),
     );
     expect(bridge.exits, 0);
     await tester.tap(find.widgetWithText(TextButton, strings.close));
@@ -2018,10 +2080,10 @@ void main() {
     );
     app.complete(success: false, message: failure);
     await pumpCacheResult(tester, message: true);
-    expect(
-      await _readFailure(tester),
-      failure.resolve(lookupAppLocalizations(locale.value)),
-    );
+    final strings = lookupAppLocalizations(locale.value);
+    final details = await _readFailure(tester);
+    expect(details, contains(failure.resolve(strings)));
+    expect(details, contains('cache.db · ${strings.cleanupFileFailed}'));
     expect(bridge.exits, 0);
     expect(
       find.text(lookupAppLocalizations(locale.value).operationFinished),
@@ -2169,36 +2231,36 @@ void main() {
           },
         ),
       );
-      await show(tester);
-      final state = find.byKey(const ValueKey('storage-core-cleanup-state'));
-      await reveal(tester, state);
-      final strings = lookupAppLocalizations(locale.value);
-      final title = status == 'completed'
-          ? strings.coreCleanupCompleted
-          : status == 'failed'
-          ? strings.coreCleanupFailed
-          : strings.coreCleanupScheduled;
-      expect((tester.widget<ListTile>(state).title! as Text).data, title);
       if (status == 'failed') {
+        app.configErrorMessage = null;
+        app.overrideErrorMessage = null;
+      }
+      await show(
+        tester,
+        dismissNotice: status != 'failed',
+        home: status == 'failed'
+            ? OperationNoticeHost(child: StorageDataPage(app: app))
+            : null,
+      );
+      final state = find.byKey(const ValueKey('storage-core-cleanup-state'));
+      final strings = lookupAppLocalizations(locale.value);
+      if (status == 'failed') {
+        expect(state, findsNothing);
+        expect(find.text(strings.coreCleanupFailed), findsOneWidget);
         expect(find.textContaining(original), findsNothing);
-        final details = find.byKey(
-          const ValueKey('storage-core-cleanup-state-details'),
-        );
-        await reveal(tester, details);
-        await tester.tap(details);
-        await tester.pumpAndSettle();
-        expect(
-          await _readFailure(tester),
-          const AppMessage(
-            'coreCleanupFailed',
-            detail: original,
-          ).resolve(strings),
-        );
-        expect(find.textContaining(original), findsOneWidget);
+        final detail = await _readFailure(tester);
+        expect(detail, contains(original));
+        expect(detail, contains('cache.db · ${strings.cleanupFileFailed}'));
         await tester.tap(
           find.widgetWithText(TextButton, strings.close).hitTestable(),
         );
         await tester.pumpAndSettle();
+      } else {
+        await reveal(tester, state);
+        final title = status == 'completed'
+            ? strings.coreCleanupCompleted
+            : strings.coreCleanupScheduled;
+        expect((tester.widget<ListTile>(state).title! as Text).data, title);
       }
       expect(
         find.byKey(const ValueKey('storage-core-cleanup-exit')),
@@ -2641,30 +2703,26 @@ void main() {
       final delete = find.byKey(const ValueKey('resource-delete-file'));
       if (kind != 'geo') {
         expect(delete, findsNothing);
-        expect(bridge.commands, isEmpty);
-        final raw = find.byKey(const ValueKey('resource-raw-data'));
-        await tester.ensureVisible(raw);
-        await tester.tap(raw);
-        await tester.pumpAndSettle();
-        final original = tester
-            .widget<OriginalTextView>(find.byType(OriginalTextView))
-            .text;
-        expect(original, contains(path));
         expect(
-          original,
-          contains('https://user:password@fixture.test/?token=完整🙂'),
+          find.byWidgetPredicate(
+            (widget) =>
+                widget is SelectableText &&
+                widget.data == 'https://user:password@fixture.test/?token=完整🙂',
+          ),
+          findsOneWidget,
         );
-        expect(original, contains(kind));
-        expect(original, contains(vehicle));
+        expect(
+          find.byWidgetPredicate(
+            (widget) =>
+                widget is SelectableText &&
+                widget.data ==
+                    '${kind == 'proxyProvider' ? strings.resourceProxyProvider : strings.resourceRuleProvider} · $vehicle',
+          ),
+          findsOneWidget,
+        );
+        expect(find.byKey(const ValueKey('resource-raw-data')), findsNothing);
         expect(bridge.commands, isEmpty);
         expect(bridge.exits, 0);
-        Navigator.of(tester.element(find.byType(OriginalTextView))).pop();
-        await tester.pumpAndSettle();
-        expect(find.text(strings.resourceLocalFile(path)), findsOneWidget);
-        expect(
-          find.byKey(const ValueKey('resource-delete-file')),
-          findsNothing,
-        );
         return;
       }
       await tester.ensureVisible(delete);
@@ -2722,9 +2780,10 @@ void main() {
           'ready': false,
           'status': 'partial',
           'scope': 'files',
-          'paths': ['cache.db', 'Geo/完整 名🙂.dat'],
+          'paths': ['cache.db', 'Geo/完整 名🙂.dat', 'pending.db'],
           'files': [
             {'path': 'cache.db', 'completed': true},
+            {'path': 'pending.db', 'completed': false},
             {
               'path': 'Geo/完整 名🙂.dat',
               'completed': false,
@@ -2738,52 +2797,36 @@ void main() {
         },
       ),
     );
-    await show(tester);
-    final state = find.byKey(const ValueKey('storage-core-cleanup-state'));
-    await reveal(tester, state);
+    app.configErrorMessage = null;
+    app.overrideErrorMessage = null;
+    await show(
+      tester,
+      dismissNotice: false,
+      home: OperationNoticeHost(child: StorageDataPage(app: app)),
+    );
     final strings = lookupAppLocalizations(locale.value);
     expect(
-      find.descendant(
-        of: state,
-        matching: find.text(strings.coreCleanupPartial),
-      ),
-      findsOneWidget,
+      find.byKey(const ValueKey('storage-core-cleanup-state')),
+      findsNothing,
     );
-    for (final (path, complete) in [
-      ('cache.db', true),
-      ('Geo/完整 名🙂.dat', false),
-    ]) {
-      final row = find.ancestor(
-        of: find.text(path),
-        matching: find.byType(ListTile),
-      );
-      await reveal(tester, row);
-      final leading = tester.widget<ListTile>(row).leading;
-      expect(leading, isA<Icon>());
-      expect(
-        (leading! as Icon).icon,
-        complete ? Icons.check_circle_outline : Icons.error_outline,
-      );
-    }
+    expect(find.text(strings.coreCleanupPartial), findsOneWidget);
     expect(find.textContaining(original), findsNothing);
-    final failed = find.ancestor(
-      of: find.text('Geo/完整 名🙂.dat'),
-      matching: find.byType(ListTile),
-    );
-    final details = find.descendant(
-      of: failed,
-      matching: find.widgetWithText(TextButton, strings.errorDetails),
-    );
-    await reveal(tester, details);
-    await tester.tap(details);
-    await tester.pumpAndSettle();
-    expect(
-      await _readFailure(tester),
-      const AppMessage('coreCleanupFailed', detail: original).resolve(strings),
-    );
+    final details = await _readFailure(tester);
+    for (final (path, label) in [
+      ('cache.db', strings.cleanupFileCompleted),
+      ('Geo/完整 名🙂.dat', strings.cleanupFileFailed),
+      ('pending.db', strings.cleanupFilePending),
+    ]) {
+      expect(details, contains('$path · $label'));
+    }
+    expect(details, contains(original));
     await tester.tap(find.widgetWithText(TextButton, strings.close));
     await tester.pumpAndSettle();
-    expect(app.state.coreCleanup['paths'], ['cache.db', 'Geo/完整 名🙂.dat']);
+    expect(app.state.coreCleanup['paths'], [
+      'cache.db',
+      'Geo/完整 名🙂.dat',
+      'pending.db',
+    ]);
     expect(find.textContaining('providers/'), findsNothing);
     expect(bridge.commands, isEmpty);
     expect(bridge.exits, 0);

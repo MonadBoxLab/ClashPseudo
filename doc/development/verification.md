@@ -28,7 +28,9 @@ AVD用于功能、状态变化、取消、实际退出和数据完整性的定�
 2. 选择布局切换点两侧的尺寸，并检查窄窗、高度较小窗口、大字号和长内容。测量控件尺寸、位置及点击范围，核对焦点、读屏内容和阅读位置；在小窗口完成停止、导航、编辑和错误查看。
 3. 打开和关闭详情，连续改变窗口与字号。核对同一任务、Controller、草稿、查询链和两区阅读位置。
 4. 表单校验包含折叠及离屏项，检查完整草稿校验、首错章节展开及定位、字段错误样式和语义。一次提交只出现一次SnackBar，普通输入不重复提示，修正后清除对应错误状态；子编辑取消、保存失败及重试保留草稿和输入身份。
-5. 通过真实IME delta输入，读取应用接受值、selection和composing。ACTION_SET_TEXT及预测节点的SDK回执与应用最终值分别记录。
+5. 通过真实 IME delta 输入，读取应用接受值、selection 和 composing。ACTION_SET_TEXT 及预测节点的 SDK 回执与应用最终值分别记录。
+6. 核对同类标题、正文、输入、菜单和操作使用约定的 TextTheme；在浅色／深色及三种品牌色下检查对比度。内容单选验证选中 `w700`、未选中 `w400`、背景及选中语义，混合 emoji 与文字保持原字符串。
+7. 在手机和平板分别从多个设置二级页返回，逐帧比较分组横坐标、尺寸与滚动位置；单独记录页面路由过渡。
 
 使用真实Tab／Shift+Tab遍历，Enter／Space激活主动作和独立子动作。逐项测量错误、缓存详情、菜单及卡片子动作的至少48逻辑像素命中区；禁用与退场起点核对键盘、指针、焦点是否已移除、读屏是否仍能访问。
 
@@ -37,9 +39,9 @@ AVD用于功能、状态变化、取消、实际退出和数据完整性的定�
 | 配置卡 | 点击选择、更新、编辑和更多，分别检查选择、保存及接管状态；子动作保持独立，无错误时没有空提示区域，状态变化不移动正文及操作 |
 | 设置与关于 | 组内与组间间距一致，关于为独立页尾surface；宽窄屏顺序、浅深主题边界、Tab顺序与末项可达 |
 | 自动更新 | 修改开关和周期后取消，核对旧值；再保存，核对提交结果；保存失败保留草稿，通过SnackBar及用户打开的详情反馈 |
-| DNS | 分别点击“查询”和“刷新内核状态”，统计新查询次数；改草稿后旧摘要保留捕获Question和来源 |
-| DNS结果 | 测摘要右上“原始数据”的窄宽换行；用户打开错误／缓存／上次查询入口后，比较完整响应及未知字段复制 |
-| 连接 | 健康时没有提示占位或虚构错误；真实错误可关闭、重新查看；错误状态不改变搜索框和工具栏几何；lifecycle／规则筛选只改变条件 |
+| DNS | 点击“查询”，统计新查询次数；状态自动读取不触发新查询，改草稿后旧摘要保留捕获的 Question 和来源 |
+| DNS 结果 | 检查 Question、RCODE、各 RR 及可复制记录；失败通过 SnackBar 查看实际错误，不出现完整响应入口 |
+| 连接 | 健康时没有提示占位或虚构错误；真实错误由 SnackBar 查看和关闭，错误状态不改变搜索框和工具栏几何；lifecycle／规则筛选只改变条件 |
 | 反馈 | 首层核对保存／恢复与连接结果；技术详情只由用户点击打开，逐项比较完整错误对象、`stack`、`cause`、`suppressed`及复制内容 |
 
 在配置／插件卡片、About、表单、保存栏、原文编辑器及诊断分类中，分别比较健康、等待、失败、成功、重试及SnackBar开合前后的正文、工具栏和按钮矩形。健康时无提示占位，固定内容下状态反馈不移动操作目标；真实内容编辑、集合增删、章节展开、类型切换及语言／窗口／字号／IME变化允许对应重排。检查Overview数值在既有区域更新、备份动作按当前语言布局、LAN页面安全区只处理一次。
@@ -60,17 +62,17 @@ AVD用于功能、状态变化、取消、实际退出和数据完整性的定�
 
 1. 在已有连接时使当前读取失败，核对原记录、简短摘要、“错误详情”和关闭按钮。筛选至列表的基础间距为12逻辑像素，错误通知不增加正文行，不改变 AppBar 高度和列表 viewport；分别比较顶部及中段阅读位置。
 2. 持续返回不同错误内容，检查只有首次自动显示，不排队、不重复动画或读屏播报。点击关闭或滑动关闭后继续失败，提示不重弹，当前业务错误仍保留；关闭后最后一条连接及详情末尾完整可读、可操作。
-3. 点击“错误详情”，比较打开时捕获的完整错误、未知字段、stack、cause、suppressed及复制内容；后续读取不能改写正在阅读的Dialog。返回后本轮故障保持安静。通过所属更多菜单重新查看当前错误；健康时没有可打开的错误结果，点击记录状态标识不会打开Dialog。
+3. 点击“错误详情”，比较打开时捕获的实际错误、stack、cause、suppressed 及复制内容；后续读取不能改写正在阅读的 Dialog。返回后本轮故障保持安静，菜单不提供独立错误入口，点击记录状态标识不会打开 Dialog。
 4. 在同一来源成功读取后检查故障结束，再次失败时检查新故障能显示。仅清空错误字段、切换可见性或使数据待更新时，不能当成成功恢复。clearInactive／releaseDetail、主动断开及新增规则失败按所属操作反馈，不冒充自动读取故障，技术详情均由用户打开。
 5. 在待展示frame、提示显示和Dialog打开时切任务、打开菜单、转入后台或替换core／会话／storageEpoch，检查旧action、关闭回调和异步结果不影响新来源。返回同一来源后，已关闭故障不重弹；未查看故障须在有效读取再次确认后显示。其他任务按各自operation identity处理反馈。
 6. 保持搜索focus、selection和composing，触发提示并关闭，比较输入状态、搜索框宽度和工具栏操作位置；错误变化不插入新的警告按钮，自动提示不抢焦点，Escape仍执行原搜索或详情返回。检查Tab顺序、tooltip、至少48逻辑像素点击区域、当前语言、浅深主题及减少动效。
-7. 选择280、320、600／840断点附近、1200和1600逻辑像素宽度的代表性组合，搭配矮窗、高窗、TextScaler 1／2及非线性缩放、安全区和真实IME。连续resize时保留同一Controller、详情lease和阅读位置。剩余空间不足时暂缓浮层，实际错误入口仍可达；恢复空间后只显示当前有效且未关闭的故障，不出现floating出屏异常，不缩小用户字号。
+7. 选择280、320、600／840断点附近、1200和1600逻辑像素宽度的代表性组合，搭配矮窗、高窗、TextScaler 1／2及非线性缩放、安全区和真实 IME。连续 resize 时保留同一 Controller、详情 lease 和阅读位置。剩余空间不足时暂缓浮层；恢复空间后只显示当前有效且未关闭的故障，不出现 floating 出屏异常，不缩小用户字号。
 
 分别记录widget故障注入、配套debug APK和最终release的结果。release未实际触发的错误场景列为未执行，正常布局及导航操作另列；测试注入结果不替代真实core错误观察。
 
 ### 动效与可见性
 
-对五个主任务、导航、四类对象详情、设置分组、存储、DNS、编辑器，以及应用自有菜单、确认／错误／原始数据Dialog、首次提示和关于页分别采样。记录正常动画初frame、中间frame及结束frame的尺寸、位置和可见度，再检查快速反向、连续调整窗口及系统减少或停用动画。
+对五个主任务、导航、四类对象详情、设置分组、存储、DNS、编辑器，以及应用自有菜单、确认／错误 Dialog、首次提示和关于页分别采样。记录正常动画初帧、中间帧及结束帧的尺寸、位置和可见度，再检查快速反向、连续调整窗口及系统减少或停用动画。
 
 - 输入、IME、光标、滚动、拖拽及实时数字直接响应，结构变化按所属过渡采样。
 - 开始关闭时检查控件已停止响应点击、焦点和读屏内容已移除，旧异步callback不能发起动作；同时记录Stop、取消和I/O返回的时刻。
@@ -108,13 +110,13 @@ AVD用于功能、状态变化、取消、实际退出和数据完整性的定�
 | --- | --- |
 | VPN／FD | [NativeCoreFailureTest](../../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/nativecore/NativeCoreFailureTest.kt)：FD接收、消费、失败回收、资源身份及再次准备 |
 | TCP／UDP | [数据面用例](../../native/mihomo/internal/engine/tun_dataplane_test.go)：真实请求；Android核对protect、Network绑定及受影响TUN栈流量 |
-| 模式／策略 | [ModeCallsTest](../../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/bridge/core/ModeCallsTest.kt)、[StrategyCallsTest](../../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/bridge/core/StrategyCallsTest.kt)、[策略原数据](../../test/ui/strategies/strategy_passthrough_test.dart)：保存、读回、热切换、重连和EOF；取消／期限／换源后的原结果及完整复制；旧清理与新租约隔离 |
+| 模式／策略 | [ModeCallsTest](../../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/bridge/core/ModeCallsTest.kt)、[StrategyCallsTest](../../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/bridge/core/StrategyCallsTest.kt)、[策略测试](../../test/ui/strategies/strategy_passthrough_test.dart)：保存、读回、热切换、重连和 EOF；取消／期限／换源后的实际结果与错误；旧清理与新租约隔离 |
 | 应用访问 | 独立UID客户端请求，覆盖all／only／except、共享UID、缺包和空有效allow |
 | 系统启动 | [SystemStartLifecycleTest](../../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/vpn/SystemStartLifecycleTest.kt)：SERVICE_INTERFACE、系统撤权、STARTING取消及退出 |
 | Activity与授权 | [AuthorizationRecreationTest](../../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/bridge/operation/AuthorizationRecreationTest.kt)：授权取消／同意、重建和请求归属 |
 | 通知／Tile／widget | 从SDK入口和Launcher点击，关联MainActivity焦点、运行代次及结果 |
 | TLS／Geo | [AppTrustAndroidTest](../../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/trust/AppTrustAndroidTest.kt)、[GeoResourceNativeTest](../../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/nativecore/GeoResourceNativeTest.kt)：根策略、TLS及加载／更新结果 |
-| DNS | [调用](../../native/mihomo/internal/engine/dns_tools_test.go)、[系统resolver](../../native/mihomo/internal/androidnet/system_dns_test.go)、[模型](../../test/model/dns_passthrough_test.dart)、[Controller与UI](../../test/ui/diagnostics/dns)：输入名称、完整DNS消息、查询返回的错误、取消后完成、缓存计数及原始数据复制 |
+| DNS | [调用](../../native/mihomo/internal/engine/dns_tools_test.go)、[系统 resolver](../../native/mihomo/internal/androidnet/system_dns_test.go)、[模型](../../test/model/dns_passthrough_test.dart)、[Controller 与 UI](../../test/ui/diagnostics/dns)：输入名称、DNS 记录、查询错误、取消后完成、缓存状态及记录复制 |
 
 VPN授权、Activity重建、前后台、锁屏和Always-on从对应系统路径触发；手动callback注入另记录覆盖的竞态。isAlwaysOn／isLockdownEnabled仅在API29+且有可读实例时记录具体值。
 
@@ -261,7 +263,7 @@ Store读取和编码时检查JSON深度、节点数、正文及集合大小。An
 | 场景组 | 设备操作 |
 | --- | --- |
 | 提示与许可 | 首次提示、全文、本地GPL及链接 |
-| 配置和插件 | 导入、编辑、保存、预览、原始数据和失败重试 |
+| 配置和插件 | 导入、编辑、保存、预览、YAML 正文和失败重试 |
 | 网络任务 | 模式、策略、测速、连接、日志及图标 |
 | VPN与系统 | 授权、受控流量、通知Stop、锁屏返回及Always-on |
 | 设置和输入 | 设置、存储、DNS、动效及真实IME |

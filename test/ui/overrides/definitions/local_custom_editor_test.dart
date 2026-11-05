@@ -215,10 +215,11 @@ void main() {
                                 if (editGroup != null) {
                                   final entry = app.overrides.single;
                                   final definition = LocalYamlEdit(entry.body)
-                                      .definitionNamed(
+                                      .definitions(
                                         LocalYamlSection.strategyGroups,
-                                        editGroup,
-                                      )!;
+                                      )
+                                      .where((item) => item.value == editGroup)
+                                      .firstOrNull!;
                                   showLocalCustomDefinitionEditor(
                                     context,
                                     app: app,
@@ -656,6 +657,10 @@ rules: [MATCH,DIRECT] # unrelated
       await finish(tester, status: 'notSaved', success: false);
       await openNoticeDetails(tester);
       expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.text(en.operationNotCompletedRetry), findsOneWidget);
+      await tester.tap(find.text(en.close));
+      await settleLocalDefinitions(tester);
+      await openNoticeDetails(tester);
       expect(find.text(en.overrideChangedReopen), findsOneWidget);
       await tester.tap(find.text(en.close));
       await settleLocalDefinitions(tester);

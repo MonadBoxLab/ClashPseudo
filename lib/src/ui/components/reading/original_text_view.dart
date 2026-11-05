@@ -41,6 +41,8 @@ class OriginalTextView extends StatefulWidget {
   const OriginalTextView({
     super.key,
     required this.text,
+    this.displayText,
+    this.scrollController,
     this.header,
     this.identity,
     this.isCurrent,
@@ -48,6 +50,8 @@ class OriginalTextView extends StatefulWidget {
   });
 
   final String text;
+  final String? displayText;
+  final ScrollController? scrollController;
   final Widget? header;
   final Object? identity;
 
@@ -62,7 +66,8 @@ class OriginalTextView extends StatefulWidget {
 }
 
 class _OriginalTextViewState extends State<OriginalTextView> {
-  late List<int> _ends = originalTextChunkEnds(widget.text);
+  String get _displayText => widget.displayText ?? widget.text;
+  late List<int> _ends = originalTextChunkEnds(_displayText);
   ModalRoute<dynamic>? _route;
   late bool Function({Route<dynamic>? ownedPopup}) _taskActive;
   bool _attached = true;
@@ -89,8 +94,8 @@ class _OriginalTextViewState extends State<OriginalTextView> {
   @override
   void didUpdateWidget(OriginalTextView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.text != widget.text) {
-      _ends = originalTextChunkEnds(widget.text);
+    if ((oldWidget.displayText ?? oldWidget.text) != _displayText) {
+      _ends = originalTextChunkEnds(_displayText);
     }
   }
 
@@ -156,6 +161,7 @@ class _OriginalTextViewState extends State<OriginalTextView> {
               child: TechnicalReadingPane(
                 child: ListView.builder(
                   key: const ValueKey('original-text-blocks'),
+                  controller: widget.scrollController,
                   padding: const EdgeInsets.all(16),
                   itemCount: _ends.length + (widget.header == null ? 0 : 1),
                   itemBuilder: (context, index) {
@@ -164,7 +170,7 @@ class _OriginalTextViewState extends State<OriginalTextView> {
                       index--;
                     }
                     return SelectableText(
-                      widget.text.substring(
+                      _displayText.substring(
                         index == 0 ? 0 : _ends[index - 1],
                         _ends[index],
                       ),

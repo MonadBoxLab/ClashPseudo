@@ -17,7 +17,7 @@ import (
 
 func parsedTunOptions(t *testing.T, body string) LC.Tun {
 	t.Helper()
-	raw, _, err := configinput.RunningDefaults([]byte(body), "rule", "")
+	raw, _, err := configinput.Decode([]byte(body), "rule", "", true)
 	if err != nil {
 		t.Fatal(err)
 	}

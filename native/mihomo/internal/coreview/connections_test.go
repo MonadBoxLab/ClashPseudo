@@ -295,11 +295,14 @@ func TestConnectionsStableTieAndDisappearingCandidate(t *testing.T) {
 	}
 }
 
-func TestConnectionProjectionKeepsEveryPublicTrackerField(t *testing.T) {
+func TestConnectionProjectionKeepsBusinessFieldsOnly(t *testing.T) {
 	row := fixtureConnection(1)
 	row.info.Metadata.Host = strings.Repeat("目标🌐\x00", 10000)
 	row.info.RulePayload = strings.Repeat("\x01", 10000)
 	row.info.Rule = "Domain"
+	row.info.Metadata.ProcessPath = "unrelated-private-process"
+	row.info.Metadata.InUser = "unrelated-private-user"
+	row.info.ProviderChain = C.Chain{"unrelated-provider"}
 	for i := 0; i < 100; i++ {
 		row.info.Chain = append(row.info.Chain, strings.Repeat("节点🌐\x02", 1000))
 	}
@@ -318,10 +321,20 @@ func TestConnectionProjectionKeepsEveryPublicTrackerField(t *testing.T) {
 	if err := json.Unmarshal(body, &actual); err != nil {
 		t.Fatal(err)
 	}
-	for key, value := range expected {
-		if !reflect.DeepEqual(actual[key], value) {
-			t.Errorf("public tracker field %s changed", key)
+	for _, key := range []string{"id", "upload", "download", "start", "chains", "rule", "rulePayload"} {
+		if !reflect.DeepEqual(actual[key], expected[key]) {
+			t.Errorf("business tracker field %s changed", key)
 		}
+	}
+	metadata := actual["metadata"].(map[string]any)
+	originalMetadata := expected["metadata"].(map[string]any)
+	for _, key := range []string{"network", "type", "sourceIP", "destinationIP", "sourcePort", "destinationPort", "host"} {
+		if !reflect.DeepEqual(metadata[key], originalMetadata[key]) {
+			t.Errorf("business metadata field %s changed", key)
+		}
+	}
+	if len(metadata) != 7 || actual["providerChains"] != nil || strings.Contains(string(body), "unrelated-private") || strings.Contains(string(body), "unrelated-provider") {
+		t.Fatal("projection retained unrelated tracker metadata")
 	}
 	var result connectionRow
 	if err := json.Unmarshal(body, &result); err != nil {

@@ -309,7 +309,7 @@ void main() {
           );
           app.state = const AppSnapshot(
             phase: 'STOPPED',
-            resultId: 'saved',
+            resultId: 'operation-1',
             resultSuccess: true,
           );
           app.changed();

@@ -47,9 +47,12 @@ const _override = OverrideEntry(
 
 class _Configs extends ConfigStore {
   _Configs() : super(Directory.systemTemp);
+  ConfigCollection collection = ConfigCollection(
+    entries: [_config],
+    selectedId: 'one',
+  );
   @override
-  Future<ConfigCollection> read() async =>
-      ConfigCollection(entries: [_config], selectedId: 'one');
+  Future<ConfigCollection> read() async => collection;
 }
 
 class _Bridge extends AppBridge {
@@ -77,13 +80,17 @@ class _Bridge extends AppBridge {
 
 void main() {
   late _Bridge bridge;
+  late _Configs configs;
+  late ReadOnlyOverrideStore overrides;
   late AppController app;
   setUp(() {
     bridge = _Bridge();
+    configs = _Configs();
+    overrides = ReadOnlyOverrideStore();
     app = AppController(
       bridge,
-      store: _Configs(),
-      overrideStore: ReadOnlyOverrideStore(),
+      store: configs,
+      overrideStore: overrides,
       preferencesStore: MemoryPreferencesStore(),
     );
   });
@@ -94,6 +101,9 @@ void main() {
     double width = 390,
     double scale = 1,
     bool fragment = false,
+    bool backgroundBeforeFrame = false,
+    ConfigEntry configEntry = _config,
+    OverrideEntry overrideEntry = _override,
   }) async {
     tester.view.physicalSize = Size(width, 900);
     tester.view.devicePixelRatio = 1;
@@ -120,8 +130,8 @@ void main() {
                   showAutoUpdateDialog(
                     context,
                     app,
-                    config: fragment ? null : _config,
-                    override: fragment ? _override : null,
+                    config: fragment ? null : configEntry,
+                    override: fragment ? overrideEntry : null,
                   ),
                 ),
                 child: const Text('Open'),
@@ -132,6 +142,7 @@ void main() {
       ),
     );
     await tester.tap(find.text('Open'));
+    if (backgroundBeforeFrame) app.setForeground(false);
     await tester.pumpAndSettle();
     final strings = lookupAppLocalizations(const Locale('en'));
     for (final target in [
@@ -230,12 +241,31 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(MenuItemButton), findsNWidgets(3));
     for (final option in UpdatePolicy.intervals) {
+      final finder = find.byKey(ValueKey(option));
+      final item = tester.widget<MenuItemButton>(finder);
+      final selected = option == hours;
+      final colors = Theme.of(tester.element(finder)).colorScheme;
       expect(
-        find.descendant(
-          of: find.byKey(ValueKey(option)),
-          matching: find.byIcon(Icons.check),
+        item.style!.backgroundColor!.resolve({}),
+        selected ? colors.surfaceContainerHighest : Colors.transparent,
+      );
+      expect(
+        item.style!.textStyle!.resolve({})!.fontWeight,
+        selected ? FontWeight.w700 : FontWeight.w400,
+      );
+      final semantics = find.ancestor(
+        of: finder,
+        matching: find.byWidgetPredicate(
+          (widget) => widget is Semantics && widget.properties.selected != null,
         ),
-        option == hours ? findsOneWidget : findsNothing,
+      );
+      expect(
+        tester.widget<Semantics>(semantics.first).properties.selected,
+        selected,
+      );
+      expect(
+        find.descendant(of: finder, matching: find.byIcon(Icons.check)),
+        findsNothing,
       );
     }
     await tester.binding.handlePopRoute();
@@ -323,7 +353,22 @@ void main() {
               _ => strings.resultUnconfirmed,
             };
             expect(tester.element(find.byType(AlertDialog)), same(dialog));
-            expect(find.text(expected), findsOneWidget);
+            final historicalFailure =
+                status == 'failed' || status == 'applyFailed';
+            expect(
+              find.descendant(
+                of: find.byType(AlertDialog),
+                matching: find.text(expected),
+              ),
+              historicalFailure ? findsNothing : findsOneWidget,
+            );
+            expect(
+              find.descendant(
+                of: find.byType(SnackBar),
+                matching: find.text(expected),
+              ),
+              historicalFailure ? findsOneWidget : findsNothing,
+            );
             if (status != null) {
               expect(find.text(strings.autoUpdateNever), findsNothing);
             }
@@ -334,6 +379,120 @@ void main() {
       );
     }
   }
+
+  for (final fragment in [false, true]) {
+    for (final status in ['failed', 'applyFailed']) {
+      testWidgets('历史 $status 保留实际原因并随来源失效 fragment=$fragment', (tester) async {
+        final failure = messages.preferencesSaveFailed.withDetail('实际下载原因');
+        final policy = UpdatePolicy(
+          lastAttempt: DateTime(2026, 10, 18),
+          lastResult: status,
+        );
+        final config = ConfigEntry(
+          id: _config.id,
+          name: _config.name,
+          source: _config.source,
+          revision: _config.revision,
+          body: _config.body,
+          error: failure,
+          update: policy,
+        );
+        final plugin = OverrideEntry(
+          id: _override.id,
+          name: _override.name,
+          kind: _override.kind,
+          source: _override.source,
+          revision: _override.revision,
+          body: _override.body,
+          error: failure,
+          update: policy,
+        );
+        configs.collection = ConfigCollection(
+          entries: [config],
+          selectedId: config.id,
+        );
+        overrides.entries = [plugin];
+        await open(
+          tester,
+          fragment: fragment,
+          configEntry: config,
+          overrideEntry: plugin,
+        );
+        final strings = lookupAppLocalizations(const Locale('en'));
+        final expected = status == 'applyFailed'
+            ? strings.autoUpdateApplyFailed
+            : failure.summary(strings);
+        expect(tester.widget<Text>(noticeText()).data, expected);
+        expect(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.text(expected),
+          ),
+          findsNothing,
+        );
+        await openNoticeDetails(tester);
+        await tester.tap(
+          find.byKey(const ValueKey('operation-technical-details')),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<SelectableText>(
+                find.byKey(const ValueKey('operation-technical-text')),
+              )
+              .data,
+          contains('实际下载原因'),
+        );
+        if (fragment) {
+          overrides.entries = [
+            plugin.changed(source: 'https://fixture.test/changed'),
+          ];
+        } else {
+          configs.collection = ConfigCollection(
+            entries: [config.withSource('https://fixture.test/changed')],
+            selectedId: config.id,
+          );
+        }
+        await app.refresh();
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('operation-technical-text')),
+          findsNothing,
+        );
+        expect(find.byType(AlertDialog), findsOneWidget);
+        expect(find.byType(SnackBar), findsNothing);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
+  testWidgets('历史失败等待 Dialog 返回前台后显示一次', (tester) async {
+    final config = ConfigEntry(
+      id: _config.id,
+      name: _config.name,
+      source: _config.source,
+      revision: _config.revision,
+      body: _config.body,
+      error: messages.preferencesSaveFailed.withDetail('暂时不可见的实际原因'),
+      update: UpdatePolicy(
+        lastAttempt: DateTime(2026, 10, 18),
+        lastResult: 'failed',
+      ),
+    );
+    configs.collection = ConfigCollection(
+      entries: [config],
+      selectedId: config.id,
+    );
+    await open(tester, configEntry: config, backgroundBeforeFrame: true);
+    expect(find.byType(SnackBar), findsNothing);
+    app.setForeground(true);
+    await tester.pumpAndSettle();
+    expect(find.byType(SnackBar), findsOneWidget);
+    await closeNotice(tester);
+    await app.refresh();
+    await tester.pumpAndSettle();
+    expect(find.byType(SnackBar), findsNothing);
+  });
 
   for (final (width, scale) in [(390.0, 1.0), (320.0, 2.0)]) {
     testWidgets('disabled schedule preserves anchors $width/$scale', (
@@ -721,18 +880,15 @@ void main() {
       await expectStableFrames();
       expect(find.byType(AlertDialog), findsOneWidget);
       expect(find.byKey(const ValueKey('auto-update-error')), findsNothing);
-      expect(find.byType(SnackBar), findsNothing);
-      expect(app.hasLocalFeedbackOwner, isTrue);
-      tester.view.physicalSize = Size(width, 8192);
-      await tester.pumpAndSettle();
+      expect(find.byType(SnackBar), findsOneWidget);
+      final summary = tester.widget<Text>(noticeText());
       expect(
-        tester.widget<Text>(noticeText()).data,
+        summary.data,
         error.resolve(lookupAppLocalizations(const Locale('en'))),
       );
+      expect(summary.maxLines, 2);
       expect(app.hasLocalFeedbackOwner, isFalse);
       await openNoticeDetails(tester);
-      tester.view.physicalSize = Size(width, 900);
-      await tester.pumpAndSettle();
       await expectStableFrames();
       final reader = find.byType(AlertDialog).last;
       final text = find.descendant(

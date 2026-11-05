@@ -184,6 +184,45 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  void expectSelection(WidgetTester tester, int index, bool selected) {
+    final surface = find.byKey(ValueKey('strategy-member-surface-$index'));
+    final name = tester.widget<Text>(
+      find.byKey(ValueKey('strategy-member-name-$index')),
+    );
+    final colors = Theme.of(tester.element(surface)).colorScheme;
+    expect(
+      tester.widget<Material>(surface).color,
+      selected ? colors.surfaceContainerHighest : Colors.transparent,
+    );
+    expect(
+      name.style!.fontWeight,
+      selected ? FontWeight.w700 : FontWeight.w400,
+    );
+    expect(
+      name.style!.color,
+      Theme.of(tester.element(surface)).textTheme.bodyLarge!.color,
+    );
+    final semantics = tester.widget<Semantics>(
+      find
+          .ancestor(
+            of: surface,
+            matching: find.byWidgetPredicate(
+              (widget) =>
+                  widget is Semantics && widget.properties.selected != null,
+            ),
+          )
+          .first,
+    );
+    expect(semantics.properties.selected, selected);
+    expect(
+      find.descendant(
+        of: find.byType(StrategyPopup),
+        matching: find.byIcon(Icons.check_rounded),
+      ),
+      findsNothing,
+    );
+  }
+
   testWidgets(
     'popup member failures retain complete selectable and copyable originals',
     (tester) async {
@@ -210,10 +249,7 @@ void main() {
       final surface = tester.getRect(
         find.byKey(const ValueKey('strategy-member-surface-0')),
       );
-      for (final slot in [
-        'strategy-member-marks-0',
-        'strategy-delay-result-0',
-      ]) {
+      for (final slot in ['strategy-delay-result-0']) {
         final rect = tester.getRect(find.byKey(ValueKey(slot)));
         expect(rect.width, greaterThan(0));
         expect(rect.left, greaterThanOrEqualTo(surface.left));
@@ -238,7 +274,7 @@ void main() {
       final strings = AppLocalizations.of(tester.element(result));
       expect(
         find.descendant(of: result, matching: find.text(strings.delayFailed)),
-        findsOneWidget,
+        findsNothing,
       );
       expect(
         tester
@@ -248,14 +284,23 @@ void main() {
             .message,
         isNot(contains(original)),
       );
-      final heading = find
-          .ancestor(
-            of: find.byKey(const ValueKey('strategy-popup-title')),
-            matching: find.byType(InkWell),
-          )
-          .first;
-      await tester.ensureVisible(heading);
-      await tester.tap(heading);
+      await tester.pumpAndSettle();
+      final notice = find.byType(SnackBar);
+      expect(
+        notice,
+        findsOneWidget,
+        reason: 'popup=${tester.getSize(find.byType(StrategyPopup))}',
+      );
+      expect(
+        find.descendant(
+          of: notice,
+          matching: find.text(strings.delayBatchFailed),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.descendant(of: notice, matching: find.text(strings.errorDetails)),
+      );
       await tester.pumpAndSettle();
       expect(find.byType(AlertDialog), findsOneWidget);
       expect(
@@ -268,13 +313,15 @@ void main() {
       );
       await tester.pumpAndSettle();
       final text = find.byKey(const ValueKey('operation-technical-text'));
-      expect(tester.widget<SelectableText>(text).data, 'A\n$original');
+      final detail = tester.widget<SelectableText>(text).data!;
+      expect(detail, contains('A · ${strings.delayFailed}'));
+      expect(detail, contains(original));
       final copy = find.byKey(const ValueKey('operation-technical-copy'));
       await tester.ensureVisible(copy);
       final cachedCopy = tester.widget<TextButton>(copy).onPressed!;
       await tester.tap(copy);
       await tester.pump();
-      expect(copied, 'A\n$original');
+      expect(copied, detail);
       expect(copies, 1);
       Navigator.of(tester.element(text)).pop();
       cachedCopy();
@@ -433,7 +480,16 @@ void main() {
         await tester.pumpAndSettle();
         await open(tester, '出口');
         final popup = tester.state(find.byType(StrategyPopup));
-        await tester.tap(find.text(zh.popupNotRestoredShort));
+        expect(find.text(zh.popupNotRestoredShort), findsNothing);
+        final notice = find.byType(SnackBar);
+        expect(notice, findsOneWidget);
+        await tester.tap(
+          find.descendant(of: notice, matching: find.text(zh.errorDetails)),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('operation-technical-details')),
+        );
         await tester.pumpAndSettle();
         final detail = tester.element(find.byType(AlertDialog));
         for (final strings in [zh, en, zh]) {
@@ -442,7 +498,7 @@ void main() {
           expect(tester.state(find.byType(StrategyPopup)), same(popup));
           expect(tester.element(find.byType(AlertDialog)), same(detail));
           expect(
-            find.text(strings.popupNotRestored(label(strings))),
+            find.textContaining(strings.unrestoredLine('出口', label(strings))),
             findsOneWidget,
           );
           expect(find.textContaining(reason), findsNothing);
@@ -588,24 +644,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('策略尚未加载。'), findsNothing);
     expect(find.text('加载策略'), findsNothing);
-    expect(find.byTooltip('刷新'), findsOneWidget);
+    expect(find.byTooltip('刷新'), findsNothing);
     expect(app.commands.single['action'], 'prepareStrategies');
-    await dismissNotice(tester);
-    await tester.tap(find.byTooltip('刷新'));
-    await tester.pumpAndSettle();
-    expect(app.commands.length, 2);
-    final load = find.byWidgetPredicate(
-      (widget) => widget is IconButton && widget.tooltip == '刷新',
-    );
-    final beforeBusy = tester.getRect(load);
-    app.dispatching = true;
-    app.changed();
-    await tester.pump();
-    expect(tester.getRect(load), beforeBusy);
-    expect(tester.widget<IconButton>(load).onPressed, isNull);
-    expect(find.text('重试加载策略'), findsNothing);
-    expect(find.byType(LinearProgressIndicator), findsNothing);
-    expect(find.text('正在加载策略…'), findsNothing);
+    await tester.pump(const Duration(seconds: 30));
+    expect(app.commands.length, 1);
+    expect(find.byType(SnackBar), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -624,22 +667,23 @@ void main() {
       app.commandErrorMessage = null;
       await show(tester);
       await strategies(tester);
-      await openNoticeDetails(tester);
-      await tester.pumpAndSettle();
       expect(
         find.text(messages.androidErrorStrategyPrepare.text),
         findsOneWidget,
       );
-      await tester.tap(find.text('关闭'));
-      await tester.pumpAndSettle();
+      expect(find.byType(SnackBar), findsOneWidget);
       expect(find.text('策略尚未加载。'), findsNothing);
       expect(find.text('加载策略'), findsNothing);
-      expect(find.byTooltip('刷新'), findsOneWidget);
+      expect(find.byTooltip('刷新'), findsNothing);
       expect(app.commands, isEmpty);
       await tester.pump(const Duration(seconds: 30));
       expect(app.commands, isEmpty);
-      await dismissNotice(tester);
-      await tester.tap(find.byTooltip('刷新'));
+      await tester.tap(
+        find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.widgetWithText(TextButton, '重试'),
+        ),
+      );
       await tester.pumpAndSettle();
       expect(app.commands.single['action'], 'prepareStrategies');
       await tester.pumpWidget(const SizedBox());
@@ -652,10 +696,19 @@ void main() {
     bridge.failRead = true;
     await show(tester);
     await strategies(tester);
-    await openNoticeDetails(tester);
-    await tester.pumpAndSettle();
     expect(find.textContaining('应用在前台时会自动重试'), findsOneWidget);
-    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.byType(SnackBar), findsOneWidget);
+    await openNoticeDetails(tester);
+    expect(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.textContaining('应用在前台时会自动重试'),
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('operation-technical-details')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('read failed'), findsOneWidget);
     bridge.failRead = false;
     await tester.tap(find.text('关闭'));
     await tester.pumpAndSettle();
@@ -787,13 +840,91 @@ void main() {
     },
   );
 
+  for (final dark in [false, true]) {
+    for (final brand in BrandColor.values) {
+      testWidgets('选中名称保留 emoji 原文和默认颜色 dark=$dark brand=$brand', (
+        tester,
+      ) async {
+        final semantics = tester.ensureSemantics();
+        try {
+          const names = [
+            '自动 🇯🇵 English 👩🏽‍💻 1️⃣ ☀️ ☀︎',
+            '🌍👨‍👩‍👧‍👦🇺🇸👍🏿2️⃣',
+          ];
+          StrategySnapshot snapshot(String now) => StrategySnapshot(
+            generation: previewCore.generation,
+            processId: previewCore.processId,
+            inputId: previewCore.inputId,
+            configId: previewCore.configId!,
+            revision: previewCore.revision!,
+            purpose: previewCore.purpose!,
+            composition: previewCore.composition,
+            mode: strategyData().mode,
+            globalReferenced: false,
+            unrestored: {},
+            groups: [
+              StrategyGroup(
+                name: '出口',
+                rawType: 'select',
+                now: now,
+                currentIdentity: '',
+                hidden: false,
+                fixed: '',
+                members: [
+                  for (final name in names)
+                    StrategyMember(name: name, type: 'Direct'),
+                ],
+              ),
+            ],
+          );
+          bridge.data = snapshot(names.first);
+          await show(tester, dark: dark, brand: brand, width: 400, scale: 1.3);
+          await strategies(tester);
+          await open(tester, '出口');
+          expectSelection(tester, 0, true);
+          expectSelection(tester, 1, false);
+          for (final (index, name) in names.indexed) {
+            final finder = find.byKey(ValueKey('strategy-member-name-$index'));
+            final text = tester.widget<Text>(finder);
+            expect(text.data, name);
+            expect(text.textSpan, isNull);
+            final style = Theme.of(tester.element(finder)).textTheme.bodyLarge!;
+            expect(text.style!.fontFamily, style.fontFamily);
+            expect(text.style!.fontFamilyFallback, style.fontFamilyFallback);
+            expect(tester.getSemantics(finder).label, contains(name));
+          }
+          final second = find.byKey(const ValueKey('strategy-member-1'));
+          await tester.ensureVisible(second);
+          await tester.tap(second);
+          await tester.pump();
+          expectSelection(tester, 0, true);
+          expectSelection(tester, 1, false);
+          bridge.data = snapshot(names.last);
+          app.state = const AppSnapshot(
+            phase: 'STOPPED',
+            core: previewCore,
+            resultId: 'emoji-choice',
+            resultSuccess: true,
+          );
+          app.changed();
+          await tester.pumpAndSettle();
+          expectSelection(tester, 0, false);
+          expectSelection(tester, 1, true);
+          expect(tester.takeException(), isNull);
+          await tester.pumpWidget(const SizedBox());
+        } finally {
+          semantics.dispose();
+        }
+      });
+    }
+  }
+
   testWidgets(
     'choice waits for actual result and keeps the member panel open',
     (tester) async {
       await show(tester);
       await strategies(tester);
       await open(tester, '出口');
-      final memberA = find.byKey(const ValueKey('strategy-member-0'));
       final memberB = find.byKey(const ValueKey('strategy-member-1'));
       await tester.ensureVisible(memberB);
       final card = find.byKey(const ValueKey('strategy-card-出口'));
@@ -806,20 +937,8 @@ void main() {
       expect(find.text('正在切换…'), findsOneWidget);
       expect(tester.getRect(card), sourceBefore);
       expect(tester.getTopLeft(popup), popupBefore);
-      expect(
-        find.descendant(
-          of: memberA,
-          matching: find.byIcon(Icons.check_rounded),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(
-          of: memberB,
-          matching: find.byIcon(Icons.check_rounded),
-        ),
-        findsNothing,
-      );
+      expectSelection(tester, 0, true);
+      expectSelection(tester, 1, false);
       bridge.data = strategyData(now: 'B');
       app.state = const AppSnapshot(
         phase: 'STOPPED',
@@ -830,13 +949,8 @@ void main() {
       app.changed();
       await tester.pumpAndSettle();
       expect(find.byType(StrategyPopup), findsOneWidget);
-      expect(
-        find.descendant(
-          of: memberB,
-          matching: find.byIcon(Icons.check_rounded),
-        ),
-        findsOneWidget,
-      );
+      expectSelection(tester, 0, false);
+      expectSelection(tester, 1, true);
       expect(app.commands.single['action'], 'setStrategy');
       await tester.pumpWidget(const SizedBox());
     },
@@ -849,8 +963,9 @@ void main() {
       await strategies(tester);
       await open(tester, '均衡');
       expect(find.text('负载均衡 · 2'), findsOneWidget);
-      expect(find.byKey(const ValueKey('strategy-automatic')), findsNothing);
-      expect(find.byIcon(Icons.check_rounded), findsNothing);
+      expect(find.widgetWithText(TextButton, '恢复自动'), findsNothing);
+      expectSelection(tester, 0, false);
+      expectSelection(tester, 1, false);
       expect(
         tester
             .widget<InkWell>(find.byKey(const ValueKey('strategy-member-0')))
@@ -886,13 +1001,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(app.commands, hasLength(1));
       await open(tester, '出口');
-      expect(
-        find.descendant(
-          of: find.byKey(const ValueKey('strategy-member-1')),
-          matching: find.byIcon(Icons.check_rounded),
-        ),
-        findsOneWidget,
-      );
+      expectSelection(tester, 1, true);
       await tester.pumpWidget(const SizedBox());
     },
   );
@@ -1537,9 +1646,19 @@ void main() {
     await open(tester, '出口');
     bridge.failRead = true;
     await tester.pump(const Duration(seconds: 5));
-    await tester.pump();
-    expect(find.text('更新失败 · 查看原因'), findsOneWidget);
-    expect(find.byIcon(Icons.check_rounded), findsNothing);
+    await tester.pumpAndSettle();
+    expect(find.text('更新失败 · 查看原因'), findsNothing);
+    final notice = find.byType(SnackBar);
+    expect(notice, findsOneWidget);
+    await tester.tap(find.descendant(of: notice, matching: find.text('错误详情')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('operation-technical-details')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('read failed'), findsOneWidget);
+    await tester.tap(find.text('关闭'));
+    await tester.pumpAndSettle();
+    expectSelection(tester, 0, false);
+    expectSelection(tester, 1, false);
     expect(
       tester
           .widget<InkWell>(find.byKey(const ValueKey('strategy-member-1')))
@@ -1666,6 +1785,7 @@ void main() {
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.resetPhysicalSize);
         addTearDown(tester.view.resetDevicePixelRatio);
+        bridge.data = strategyData(fixed: 'A');
         await show(tester, dark: dark, scale: 2);
         await strategies(tester);
         await open(tester, '自动');
@@ -1682,11 +1802,17 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
-        await tester.ensureVisible(
-          find.byKey(const ValueKey('strategy-automatic')),
-        );
+        final automatic = find.widgetWithText(TextButton, '恢复自动');
+        await tester.ensureVisible(automatic);
         await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const ValueKey('strategy-automatic')));
+        final automaticArea = find
+            .ancestor(of: automatic, matching: find.byType(Opacity))
+            .first;
+        expect(
+          tester.getRect(automatic).right,
+          closeTo(tester.getRect(automaticArea).right, 0.01),
+        );
+        await tester.tap(automatic);
         await tester.pump();
         expect(app.commands.single['choice'], {
           'type': 'url-test',
@@ -1716,8 +1842,22 @@ void main() {
     await tester.pump(const Duration(milliseconds: 700));
     await tester.pump();
     expect(find.text('42 ms'), findsOneWidget);
-    expect(find.text('超时'), findsOneWidget);
+    expect(find.text('超时'), findsNothing);
     expect(find.text('测试完成'), findsOneWidget);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    final notice = find.byType(SnackBar);
+    expect(
+      find.descendant(of: notice, matching: find.text('部分测速失败或超时。')),
+      findsOneWidget,
+    );
+    await tester.tap(find.descendant(of: notice, matching: find.text('错误详情')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('operation-technical-details')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('B · 超时'), findsOneWidget);
+    await tester.tap(find.text('关闭'));
+    await tester.pumpAndSettle();
     expect(
       find.byTooltip(
         '测试完成\n目标：https://www.gstatic.com/generate_204 · HTTP 延迟，非 ICMP',
@@ -1785,12 +1925,15 @@ void main() {
     final popup = find.byKey(const ValueKey('strategy-popup-出口'));
     final before = tester.getRect(popup);
     await tester.tap(find.byKey(const ValueKey('strategy-delay-group')));
-    await tester.pump();
-    await tester.pump();
-    expect(find.text('无法启动延迟测试'), findsOneWidget);
+    await tester.pumpAndSettle();
+    final notice = find.byType(SnackBar);
+    expect(
+      find.descendant(of: notice, matching: find.text('无法启动延迟测试')),
+      findsOneWidget,
+    );
     expect(tester.getRect(popup), before);
     bridge.failDelayStart = false;
-    await tester.tap(find.byKey(const ValueKey('strategy-delay-group')));
+    await tester.tap(find.descendant(of: notice, matching: find.text('重试')));
     await tester.pump();
     expect(find.text('已完成 0/2'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
@@ -1840,7 +1983,6 @@ void main() {
               'strategy-popup-出口',
               'strategy-delay-group',
               'strategy-member-name-0',
-              'strategy-member-marks-0',
               'strategy-delay-result-0',
               'strategy-delay-0',
             ];
@@ -2037,13 +2179,21 @@ void main() {
             await strategies(tester);
             final cardName = find.byKey(ValueKey('strategy-name-$groupName'));
             final current = find.byKey(ValueKey('strategy-current-$groupName'));
-            final pin = find.byKey(ValueKey('strategy-pin-$groupName'));
+            final card = find.byKey(ValueKey('strategy-group-$groupName'));
+            final strings = AppLocalizations.of(tester.element(card));
+            final kind = find.descendant(
+              of: card,
+              matching: find.textContaining(strings.strategyChoiceUrlTest),
+            );
             expect(
               tester.getTopLeft(current).dx,
               tester.getTopLeft(cardName).dx,
             );
             final beforeCurrent = tester.getRect(current);
-            final beforePin = tester.getRect(pin);
+            expect(
+              tester.widget<Text>(kind).data,
+              strings.strategyChoiceUrlTest,
+            );
             bridge.data = data(fixed: nodeName);
             app.state = const AppSnapshot(
               phase: 'STOPPED',
@@ -2055,10 +2205,9 @@ void main() {
             await tester.pump();
             await tester.pump();
             expect(tester.getRect(current), beforeCurrent);
-            expect(tester.getRect(pin), beforePin);
             expect(
-              tester.getTopLeft(pin).dx,
-              greaterThan(tester.getTopLeft(current).dx),
+              tester.widget<Text>(kind).data,
+              strings.strategyChoiceUrlTest,
             );
             bridge.data = data();
             app.state = const AppSnapshot(
@@ -2070,7 +2219,10 @@ void main() {
             app.changed();
             await tester.pump();
             expect(tester.getRect(current), beforeCurrent);
-            expect(tester.getRect(pin), beforePin);
+            expect(
+              tester.widget<Text>(kind).data,
+              strings.strategyChoiceUrlTest,
+            );
             bridge.data = data(fixed: nodeName);
             app.state = const AppSnapshot(
               phase: 'STOPPED',
@@ -2081,10 +2233,12 @@ void main() {
             app.changed();
             await tester.pump();
             expect(tester.getRect(current), beforeCurrent);
-            expect(tester.getRect(pin), beforePin);
+            expect(
+              tester.widget<Text>(kind).data,
+              strings.strategyChoiceUrlTest,
+            );
             await open(tester, groupName);
             final popup = find.byKey(ValueKey('strategy-popup-$groupName'));
-            final strings = AppLocalizations.of(tester.element(popup));
             final groupAction = find.byKey(
               const ValueKey('strategy-delay-group'),
             );
@@ -2122,8 +2276,6 @@ void main() {
             final surface = find.byKey(
               const ValueKey('strategy-member-surface-0'),
             );
-            final marks = find.byKey(const ValueKey('strategy-member-marks-0'));
-            final beforeMarks = tester.getRect(marks);
             final beforePopup = tester.getRect(popup);
             final beforeGroupAction = tester.getRect(groupAction);
             final beforeClose = tester.getRect(close);
@@ -2142,7 +2294,6 @@ void main() {
               expect(tester.getRect(popup), beforePopup);
               expect(tester.getRect(groupAction), beforeGroupAction);
               expect(tester.getRect(close), beforeClose);
-              expect(tester.getRect(marks), beforeMarks);
               expect(tester.getRect(name), beforeName);
               expect(tester.getRect(result), beforeResult);
               expect(tester.getRect(test), beforeTest);
@@ -2177,7 +2328,7 @@ void main() {
                 of: result,
                 matching: find.text(strings.delayFailed),
               ),
-              findsOneWidget,
+              findsNothing,
             );
             bridge.failDelayStart = true;
             await tester.tap(groupAction);

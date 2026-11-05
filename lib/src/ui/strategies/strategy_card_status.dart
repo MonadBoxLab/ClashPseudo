@@ -15,16 +15,19 @@ class StrategyCardStatus extends StatelessWidget {
   final DelayMemberResult? result;
   final bool rejected;
 
-  static const style = TextStyle(
-    fontSize: 11,
-    height: 1.3,
-    fontFeatures: [FontFeature.tabularFigures()],
-  );
+  static TextStyle styleOf(BuildContext context) => Theme.of(context)
+      .textTheme
+      .bodySmall!
+      .copyWith(
+        height: 1.3,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      );
 
-  static double width(BuildContext context, {TextStyle textStyle = style}) =>
-      _measure(context, textStyle).width;
+  static double width(BuildContext context, {TextStyle? textStyle}) =>
+      _measure(context, textStyle ?? styleOf(context)).width;
 
-  static double height(BuildContext context) => _measure(context, style).height;
+  static double height(BuildContext context) =>
+      _measure(context, styleOf(context)).height;
 
   static Size _measure(BuildContext context, TextStyle textStyle) {
     final resolved = DefaultTextStyle.of(context).style.merge(textStyle);
@@ -32,6 +35,7 @@ class StrategyCardStatus extends StatelessWidget {
       text: TextSpan(text: '0', style: resolved),
       textDirection: Directionality.of(context),
       textScaler: MediaQuery.textScalerOf(context),
+      locale: Localizations.maybeLocaleOf(context),
       maxLines: 1,
     )..layout();
     final digitWidth = painter.width;
@@ -54,15 +58,11 @@ class StrategyCardStatus extends StatelessWidget {
             DelayMemberStatus.success => '${result!.delay} ms',
             DelayMemberStatus.pending => '',
             DelayMemberStatus.running => strings.delayRunning,
-            DelayMemberStatus.failed => strings.delayFailed,
-            DelayMemberStatus.timeout => strings.delayTimeout,
+            DelayMemberStatus.failed || DelayMemberStatus.timeout => '',
             DelayMemberStatus.cancelled => strings.delayCancelled,
             DelayMemberStatus.expired || null => '',
           };
-    final failed =
-        rejected ||
-        result?.status == DelayMemberStatus.failed ||
-        result?.status == DelayMemberStatus.timeout;
+    final failed = rejected;
     return SizedBox(
       width: slotWidth,
       height: height(context),
@@ -82,7 +82,7 @@ class StrategyCardStatus extends StatelessWidget {
               textAlign: TextAlign.end,
               maxLines: 1,
               softWrap: false,
-              style: style.copyWith(
+              style: styleOf(context).copyWith(
                 color: failed ? colors.error : colors.onSurfaceVariant,
               ),
             ),

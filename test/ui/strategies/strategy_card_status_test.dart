@@ -138,7 +138,6 @@ void main() {
                   'strategy-name-出口',
                   'strategy-current-出口',
                   'strategy-status-出口',
-                  'strategy-pin-出口',
                 ];
                 final rectangles = {
                   for (final key in keys)
@@ -260,7 +259,7 @@ void main() {
             text: TextSpan(
               text: '00000 ms',
               style: DefaultTextStyle.of(context).style
-                  .merge(StrategyCardStatus.style),
+                  .merge(StrategyCardStatus.styleOf(context)),
             ),
             textDirection: Directionality.of(context),
             textScaler: MediaQuery.textScalerOf(context),
@@ -331,7 +330,7 @@ void main() {
       ),
     );
     expect(find.text('Reject'), findsOneWidget);
-    expect(find.text('Failed'), findsOneWidget);
+    expect(find.text('Failed'), findsNothing);
     expect(find.text('0 ms'), findsNothing);
   });
 }

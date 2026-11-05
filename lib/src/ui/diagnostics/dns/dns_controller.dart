@@ -34,9 +34,11 @@ class DnsController extends ChangeNotifier {
   bool _submitting = false;
   int _request = 0;
   Object? _observed;
+  Object? _context;
   Object? _attempted;
   CoreSnapshot? _queryCore;
   String? _queryOwner;
+  bool _queryCancelled = false;
 
   bool get active => !_disposed && _visible && app.foreground;
   int get contextVersion => _request;
@@ -115,9 +117,18 @@ class DnsController extends ChangeNotifier {
       return;
     }
     _observed = key;
-    _request++;
-    _cancelQuery();
-    if (response != null) stale = true;
+    final context = (
+      active,
+      core.identity,
+      core.networkRevision,
+      app.state.networkEpoch,
+    );
+    if (_context != context) {
+      _context = context;
+      _request++;
+      _cancelQuery();
+      if (response != null) stale = true;
+    }
     if (!active || app.busy) {
       status = response == null ? DnsStatus.unavailable : DnsStatus.stale;
     } else if (app.platformError != null ||
@@ -128,7 +139,7 @@ class DnsController extends ChangeNotifier {
     } else if (core.ready && core.hasIdentity) {
       status = queryBusy
           ? DnsStatus.querying
-          : response == null
+          : response == null || !stale
           ? DnsStatus.ready
           : DnsStatus.stale;
     } else if (!app.configsCurrent || core.errorMessage != null) {
@@ -159,7 +170,6 @@ class DnsController extends ChangeNotifier {
   bool _current(int request, CoreSnapshot core, int? network) =>
       active &&
       request == _request &&
-      available &&
       core.matchesIdentity(app.state.core) &&
       core.networkRevision == app.state.core.networkRevision &&
       app.state.networkEpoch == network;
@@ -172,6 +182,23 @@ class DnsController extends ChangeNotifier {
       core.matchesWireIdentity(value) &&
       value['networkRevision'] == core.networkRevision &&
       value['networkEpoch'] == network;
+
+  DnsFailure _identityFailure(Map<String, dynamic> value) {
+    final section = value['dns'] ?? value['cache'];
+    final data = section is Map ? section : const {};
+    return DnsFailure(
+      'invalidResponse',
+      detail: [
+        'DNS 响应来源与请求不一致',
+        if (data['error'] != null) data['error'].toString(),
+        if (data['detail'] != null) data['detail'].toString(),
+        if (value['error'] != null) value['error'].toString(),
+        if (value['operationErrorDetail'] != null)
+          value['operationErrorDetail'].toString(),
+      ].join('\n'),
+      cancellationError: value['cancelError'],
+    );
+  }
 
   Future<void> query() async {
     if (!canQuery) return;
@@ -188,6 +215,7 @@ class DnsController extends ChangeNotifier {
     _submitting = true;
     _queryCore = core;
     _queryOwner = owner;
+    _queryCancelled = false;
     errorCode = null;
     errorDetail = null;
     cancellationError = null;
@@ -203,7 +231,7 @@ class DnsController extends ChangeNotifier {
       );
       if (_disposed) return;
       if (!_envelopeMatches(value, core, network)) {
-        throw DnsFailure('invalidResponse', detail: value.toString());
+        throw _identityFailure(value);
       }
       final result = DnsResponse.fromMap(value);
       response = result;
@@ -225,6 +253,9 @@ class DnsController extends ChangeNotifier {
       if (_disposed) return;
       errorCode = _code(error);
       errorDetail = _detail(error);
+      if (error is DnsFailure && error.cancellationError != null) {
+        cancellationError = error.cancellationError.toString();
+      }
       stale |= !_current(request, core, network);
       status = stale || errorCode == 'obsolete'
           ? DnsStatus.stale
@@ -251,7 +282,7 @@ class DnsController extends ChangeNotifier {
           ? app.platform.flushFakeIp(core)
           : app.platform.clearDnsCache(core));
       if (!_envelopeMatches(value, core, network)) {
-        throw DnsFailure('invalidResponse', detail: value.toString());
+        throw _identityFailure(value);
       }
       return DnsCacheResult.fromMap(value, fakeIp: fakeIp);
     } on PlatformFailure catch (error) {
@@ -278,7 +309,8 @@ class DnsController extends ChangeNotifier {
   void _cancelQuery() {
     final core = _queryCore;
     final owner = _queryOwner;
-    if (core == null || owner == null) return;
+    if (core == null || owner == null || _queryCancelled) return;
+    _queryCancelled = true;
     unawaited(
       app.platform.cancelDnsQuery(core, queryOwner: owner).catchError((
         Object error,

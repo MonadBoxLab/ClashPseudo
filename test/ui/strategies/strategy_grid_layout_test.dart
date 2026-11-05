@@ -84,8 +84,9 @@ void main() {
             skipOffstage: false,
           );
           final headerElement = tester.element(header);
-          final refresh = find.byTooltip(strings.refresh);
-          final refreshRect = tester.getRect(refresh);
+          final search = find.byTooltip(strings.searchStrategies);
+          final searchRect = tester.getRect(search);
+          expect(find.byTooltip(strings.refresh), findsNothing);
           final reader = find.byWidgetPredicate(
             (widget) =>
                 widget is Scrollable &&
@@ -102,7 +103,7 @@ void main() {
               same(controller),
             );
             expect(tester.element(header), same(headerElement));
-            expect(tester.getRect(refresh), refreshRect);
+            expect(tester.getRect(search), searchRect);
             expect(
               find.descendant(of: header, matching: find.byType(Scrollable)),
               findsNothing,
@@ -122,7 +123,7 @@ void main() {
           expect(controller.loading, isTrue);
           expect(controller.data, isNull);
           expect(bridge.reads, 1);
-          expect(find.byType(CircularProgressIndicator), findsOneWidget);
+          expect(find.text(strings.coreReadLoading), findsOneWidget);
           for (final value in [!initiallyReduced, initiallyReduced, true]) {
             reduce.value = value;
             await tester.pump();
@@ -131,6 +132,8 @@ void main() {
             expect(bridge.reads, 1);
           }
           final loadingHeight = tester.getSize(header).height;
+          final loadingContentHeight =
+              tester.getSize(find.text(strings.coreReadLoading)).height + 12;
           final loaded = _snapshot([for (var i = 0; i < 64; i++) 'Group $i']);
           pending.complete(loaded);
           await tester.idle();
@@ -141,8 +144,11 @@ void main() {
           stable();
           expect(controller.loading, isFalse);
           expect(controller.data, same(loaded));
-          expect(tester.getSize(header).height, loadingHeight);
-          expect(find.byType(CircularProgressIndicator), findsNothing);
+          expect(
+            tester.getSize(header).height,
+            closeTo(loadingHeight - loadingContentHeight, .01),
+          );
+          expect(find.text(strings.coreReadLoading), findsNothing);
           final card = find.byKey(const ValueKey('strategy-group-Group 1'));
           final cardElement = tester.element(card);
           controller.setShowHidden(true);

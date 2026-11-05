@@ -20,6 +20,7 @@ class DelayTestController extends ChangeNotifier {
   String? batch;
   bool running = false;
   bool finished = false;
+  bool accepted = false;
   String? terminalState;
   String? target;
   Object? failure;
@@ -32,7 +33,6 @@ class DelayTestController extends ChangeNotifier {
           if (failure != null) failure.toString(),
           if (cleanupFailure != null) cleanupFailure.toString(),
         ].join('\n');
-  Map<String, dynamic>? lastReply;
   Map<String, DelayMemberResult> results = const {};
   Timer? _poll;
   bool _disposed = false;
@@ -118,6 +118,7 @@ class DelayTestController extends ChangeNotifier {
       if (cleanupFailure != null || _abandoned || _disposed) return;
       running = true;
       finished = false;
+      accepted = false;
       terminalState = null;
       target = null;
       failure = null;
@@ -140,12 +141,12 @@ class DelayTestController extends ChangeNotifier {
           if (members != null && members.isNotEmpty) 'members': members,
         }),
       );
-      lastReply = Map.unmodifiable(value);
       final id = (value['start'] as Map?)?['id'];
       if (id is String) batch = id;
       if (!_sameReply(value) || id is! String) {
-        throw FormatException('Invalid delay start identity', value);
+        throw const FormatException('Invalid delay start identity');
       }
+      accepted = true;
       failure = null;
       failureStack = null;
       if (_disposed || _abandoned) {
@@ -172,14 +173,13 @@ class DelayTestController extends ChangeNotifier {
     if (_disposed || _abandoned || id == null || _requests != 0) return;
     try {
       final value = await _track(() => platform.delayTest(source, id));
-      lastReply = Map.unmodifiable(value);
       final data = value['batch'] as Map;
       if (data['id'] != id || data['group'] != group) {
-        throw FormatException('Invalid delay batch identity', value);
+        throw const FormatException('Invalid delay batch identity');
       }
       final state = data['state'] as String;
       if (!const ['running', 'done', 'cancelled', 'expired'].contains(state)) {
-        throw FormatException('Invalid delay batch state', value);
+        throw FormatException('Invalid delay batch state: $state');
       }
       final next = <String, DelayMemberResult>{};
       for (final item in data['members'] as List) {
@@ -193,7 +193,7 @@ class DelayTestController extends ChangeNotifier {
         if (next.containsKey(name) ||
             (status == DelayMemberStatus.success &&
                 (delay == null || delay < 0))) {
-          throw FormatException('Invalid delay member result', value);
+          throw FormatException('Invalid delay result for $name');
         }
         next[name] = DelayMemberResult(
           name: name,
@@ -201,7 +201,12 @@ class DelayTestController extends ChangeNotifier {
           status: status,
           delay: delay,
           error: observation['error']?.toString(),
-          raw: Map.unmodifiable(row),
+          cancellationError: (observation['cancelError'] ?? row['cancelError'])
+              ?.toString(),
+          time: switch (observation['time'] ?? row['time']) {
+            final String value => DateTime.tryParse(value),
+            _ => null,
+          },
         );
       }
       results = Map.unmodifiable(next);
@@ -247,7 +252,8 @@ class DelayTestController extends ChangeNotifier {
                 status: DelayMemberStatus.expired,
                 delay: row.delay,
                 error: row.error,
-                raw: row.raw,
+                cancellationError: row.cancellationError,
+                time: row.time,
               )
             : row,
     });

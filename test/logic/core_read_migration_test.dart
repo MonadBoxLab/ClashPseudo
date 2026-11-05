@@ -52,8 +52,29 @@ void _completeRead(
       ...terminal,
     });
   } else {
-    request.complete(row, terminal: {'exited': exited, ...terminal});
+    request.complete(
+      request.operation == ApplicationContract.coreOperationRuntimeConfig
+          ? jsonEncode(row)
+          : row,
+      terminal: {'exited': exited, ...terminal},
+    );
   }
+}
+
+void _expectSanitizedFormat(Object? failure) {
+  expect(failure, isA<FormatException>());
+  late FormatException original;
+  try {
+    jsonDecode(modeStrategyOriginal);
+    fail('无效 JSON 未触发解析错误');
+  } on FormatException catch (error) {
+    original = error;
+  }
+  final actual = failure as FormatException;
+  expect(actual.message, original.message);
+  expect(actual.offset, original.offset);
+  expect(actual.source, isNull);
+  expect(actual.toString(), isNot(contains(modeStrategyOriginal)));
 }
 
 void main() {
@@ -98,12 +119,99 @@ void main() {
   }
 
   Map rowFrom(String method, Map<String, dynamic> value) => switch (method) {
-    'runtimeConfig' => value['configuration'] as Map,
+    'runtimeConfig' => jsonDecode(value['configuration'] as String) as Map,
     'resources' => (value['resources'] as List).single as Map,
     'nodes' => ((value['page'] as Map)['nodes'] as List).single as Map,
     'rules' => ((value['page'] as Map)['rows'] as List).single as Map,
+    'updateResource' => value['update'] as Map,
     _ => value,
   };
+
+  Map<String, dynamic> successfulRead(String method) =>
+      method == 'updateResource' ? {'status': 'ok'} : {'ready': true};
+
+  for (final valid in [false, true]) {
+    test('内核内存采样保留实际字段和错误，不传递完整响应 valid=$valid', () async {
+      await create();
+      final processId = fixture.core.processId!;
+      fixture.script(ApplicationContract.coreOperationMemory, (request) {
+        request.complete({
+          'valid': valid,
+          'processRssBytes': valid ? 321 : null,
+          'sampledAt': 123,
+          if (!valid) 'error': 'actual memory failure',
+          'unused': {'private': 'memory-response-only'},
+        });
+      });
+      final result = FutureProbe(
+        fixture.runtime.read('coreMemory', {'processId': processId}),
+      );
+      await result.done;
+      if (valid) {
+        expect(decoded(result.value), {
+          'valid': true,
+          'processRssBytes': 321,
+          'sampledAt': 123,
+          'processId': processId,
+        });
+      } else {
+        expect(result.error, isA<FormatException>());
+        final error = result.error as FormatException;
+        expect(error.message, contains('actual memory failure'));
+        expect(error.message, contains('processRssBytesType'));
+        expect(error.message, isNot(contains('memory-response-only')));
+        expect(error.source, isNull);
+      }
+    });
+  }
+
+  test('内核内存采样身份不匹配保留实际 processId 和 phase', () async {
+    await create();
+    final result = FutureProbe(
+      fixture.runtime.read('coreMemory', {'processId': 'other-process'}),
+    );
+    await result.done;
+    expect(result.error, isA<PlatformFailure>());
+    final details = (result.error as PlatformFailure).details as Map;
+    expect(details['expectedProcessId'], 'other-process');
+    expect(details['processId'], fixture.core.processId);
+    expect(details['phase'], 'ready');
+    expect(details.containsKey('coreLifecycle'), isFalse);
+  });
+
+  test('日志 watermark 失败保留身份和数值，不展示完整响应', () async {
+    fixture = await CoreRuntimeFixture.create(preview: true);
+    addTearDown(fixture.dispose);
+    fixture.script(ApplicationContract.coreOperationLogs, (request) {
+      request.metadata({'source': request.source});
+      request.record({'seq': 1, 'level': 'info', 'text': 'retained log'});
+    });
+    await fixture.warmUp();
+    final window = fixture.runtime.logs.source!;
+    fixture.script(ApplicationContract.coreOperationLogs, (request) {
+      expect(request.arguments['watermark'], isTrue);
+      request.complete({
+        'source': 'different-window',
+        'next': -1,
+        'dropped': 0,
+        'unused': {'private': 'watermark-response-only'},
+      });
+    });
+    final result = FutureProbe(
+      fixture.runtime.read('logs', {
+        'query': {'window': window, 'clear': true},
+      }),
+    );
+    await result.done;
+    expect(result.error, isA<FormatException>());
+    final error = result.error as FormatException;
+    expect(error.message, contains('expectedSource: $window'));
+    expect(error.message, contains('source: different-window'));
+    expect(error.message, contains('next: -1'));
+    expect(error.message, isNot(contains('watermark-response-only')));
+    expect(error.source, isNull);
+    expect(fixture.runtime.logs.length, 1);
+  });
 
   test('CoreReadCallsTest.stoppedLogsReadTheirWindowAndKeepCapturedResultsAfterReplacement', () async {
     fixture = await CoreRuntimeFixture.create(preview: true);
@@ -158,11 +266,11 @@ void main() {
       final source = fixture.core;
       fixture.script(
         ApplicationContract.coreOperationRuntimeConfig,
-        (request) => request.complete({'mode': 'rule'}),
+        (request) => request.complete('mode: rule\n'),
       );
       final first = decoded(await read('runtimeConfig'));
       expectIdentity(first, source);
-      expect((first['configuration'] as Map)['mode'], 'rule');
+      expect(first['configuration'], 'mode: rule\n');
       fixture.replaceCore(
         composition: 'replacement-composition',
         generation: 2,
@@ -177,6 +285,59 @@ void main() {
       );
     },
   );
+
+  test('运行配置跨多个 frame 保留完整 YAML 和 Unicode', () async {
+    await create();
+    final text =
+        'global-ua: ${'x' * ApplicationContract.coreIpcFrameBytes}🙂\n';
+    final bytes = Uint8List.fromList(utf8.encode(jsonEncode(text)));
+    fixture.script(ApplicationContract.coreOperationRuntimeConfig, (request) {
+      for (var start = 0; start < bytes.length;) {
+        final end = (start + ApplicationContract.coreIpcFrameBytes).clamp(
+          0,
+          bytes.length,
+        );
+        request.bytes(
+          ApplicationContract.coreIpcFrameData,
+          Uint8List.sublistView(bytes, start, end),
+        );
+        start = end;
+      }
+      request.terminal({'complete': true, 'exited': true});
+    });
+    final value = decoded(await read('runtimeConfig'));
+    expect(value['configuration'], text);
+    expectIdentity(value, fixture.core);
+  });
+
+  test('运行配置超过总预算时保留真实退出并反馈超限', () async {
+    await create();
+    fixture.onCancel = (request) {
+      request.signalExit();
+      return {'accepted': true, 'exited': true};
+    };
+    fixture.script(ApplicationContract.coreOperationRuntimeConfig, (request) {
+      final frame = Uint8List(ApplicationContract.coreIpcFrameBytes);
+      for (var i = 0; i < 8; i++) {
+        request.bytes(ApplicationContract.coreIpcFrameData, frame);
+      }
+      request.bytes(ApplicationContract.coreIpcFrameData, Uint8List(1));
+      request.terminal({'complete': true, 'exited': false});
+    });
+    final result = FutureProbe(read('runtimeConfig'));
+    await result.done;
+    expect(result.value, isNull);
+    expect(result.error, isA<PlatformFailure>());
+    expect(
+      (result.error as PlatformFailure).code,
+      ApplicationContract.coreErrorResultTooLarge,
+    );
+    final request = fixture
+        .calls(ApplicationContract.coreOperationRuntimeConfig)
+        .single;
+    expect(request.cancellations, 1);
+    expect(request.actualExited, isTrue);
+  });
 
   test('CoreReadCallsTest.executingPageDeadlineKeepsItsOriginalReplyAndBusyReportsActualPending', () async {
     await create();
@@ -257,7 +418,7 @@ void main() {
         };
         fixture.script(
           _reads[method]!,
-          (request) => _completeRead(request, {'ready': true}),
+          (request) => _completeRead(request, successfulRead(method)),
         );
         final result = FutureProbe(read(method));
         await entered.future;
@@ -272,9 +433,15 @@ void main() {
         fixture.now = fixture.admittedAt;
         fixture.script(
           _reads[method]!,
-          (request) => _completeRead(request, {'ready': true}),
+          (request) => _completeRead(request, successfulRead(method)),
         );
-        expect(rowFrom(method, decoded(await read(method)))['ready'], isTrue);
+        expect(
+          rowFrom(method, decoded(await read(method))),
+          containsPair(
+            successfulRead(method).keys.single,
+            successfulRead(method).values.single,
+          ),
+        );
         expect(fixture.calls(_reads[method]!), hasLength(1));
       },
     );
@@ -283,7 +450,7 @@ void main() {
   test('CoreReadCallsTest.latePagesStayWithTheirOriginalQueryMethodAndIdentityWithoutCachingReplies', () async {
     await create();
     final source = fixture.core;
-    final row = {'search': 'original', ..._originalRow()};
+    final row = {'payload': 'original', ..._originalRow()};
     fixture.script(
       ApplicationContract.coreOperationRules,
       (request) => _completeRead(request, row, exited: false),
@@ -308,10 +475,10 @@ void main() {
     expect(fixture.calls(ApplicationContract.coreOperationRules), hasLength(1));
     fixture.script(
       ApplicationContract.coreOperationRules,
-      (request) => _completeRead(request, {'search': 'current'}),
+      (request) => _completeRead(request, {'payload': 'current'}),
     );
     final refreshed = decoded(await read('rules', search: 'current'));
-    expect(rowFrom('rules', refreshed)['search'], 'current');
+    expect(rowFrom('rules', refreshed)['payload'], 'current');
     expect(fixture.calls(ApplicationContract.coreOperationRules), hasLength(2));
   });
 
@@ -361,9 +528,15 @@ void main() {
       fixture.now = fixture.admittedAt;
       fixture.script(
         _reads[method]!,
-        (request) => _completeRead(request, {'ready': true}),
+        (request) => _completeRead(request, successfulRead(method)),
       );
-      expect(rowFrom(method, decoded(await read(method)))['ready'], isTrue);
+      expect(
+        rowFrom(method, decoded(await read(method))),
+        containsPair(
+          successfulRead(method).keys.single,
+          successfulRead(method).values.single,
+        ),
+      );
       expect(fixture.calls(_reads[method]!), hasLength(2));
     });
     for (final kind in [
@@ -476,9 +649,13 @@ void main() {
         expectIdentity(value, source);
         expect(value['stale'], isTrue);
         final actual = rowFrom(method, value);
-        for (final item in row.entries) {
-          expect(actual.containsKey(item.key), isTrue, reason: item.key);
-          expect(actual[item.key], item.value, reason: item.key);
+        if (method == 'updateResource') {
+          expect(actual, {'detail': modeStrategyOriginal});
+        } else {
+          for (final item in row.entries) {
+            expect(actual.containsKey(item.key), isTrue, reason: item.key);
+            expect(actual[item.key], item.value, reason: item.key);
+          }
         }
         expect(fixture.runtime.dns.busy, isFalse);
         expect(fixture.exits, isEmpty);
@@ -521,7 +698,7 @@ void main() {
     }
 
     test(
-      'CoreReadCallsErrorTest.malformedReadWiresKeepThePublicParserErrorAndCompleteOriginalInput $method',
+      'CoreReadCallsErrorTest.malformedReadWiresKeepParserErrorWithoutInput $method',
       () async {
         await create();
         fixture.script(_reads[method]!, (request) {
@@ -556,9 +733,7 @@ void main() {
         request.signalExit();
         await result.done;
         expect(result.value, isNull);
-        expect(result.error, isA<FormatException>());
-        expect((result.error as FormatException).source, modeStrategyOriginal);
-        expect(errorText(result.error), contains(modeStrategyOriginal));
+        _expectSanitizedFormat(result.error);
         expect(result.replies, 1);
       },
     );
@@ -589,9 +764,15 @@ void main() {
           fixture.beforePlatformCall = null;
           fixture.script(
             _reads[method]!,
-            (request) => _completeRead(request, {'ready': true}),
+            (request) => _completeRead(request, successfulRead(method)),
           );
-          expect(rowFrom(method, decoded(await read(method)))['ready'], isTrue);
+          expect(
+            rowFrom(method, decoded(await read(method))),
+            containsPair(
+              successfulRead(method).keys.single,
+              successfulRead(method).values.single,
+            ),
+          );
           expect(fixture.calls(_reads[method]!), hasLength(1));
         },
       );
@@ -846,7 +1027,7 @@ void main() {
     );
 
     test(
-      'CoreReadCallsErrorTest.malformedDnsAndCacheWiresKeepTheParserErrorAndCompleteOriginalInput $method',
+      'CoreReadCallsErrorTest.malformedDnsAndCacheWiresKeepParserErrorWithoutInput $method',
       () async {
         await create();
         fixture.script(_dns[method]!, (request) {
@@ -865,8 +1046,7 @@ void main() {
         expect(fixture.runtime.dns.busy, isTrue);
         request.signalExit();
         await result.done;
-        expect(result.error, isA<FormatException>());
-        expect((result.error as FormatException).source, modeStrategyOriginal);
+        _expectSanitizedFormat(result.error);
         expect(result.value, isNull);
         expect(fixture.runtime.dns.busy, isFalse);
       },
@@ -1425,39 +1605,40 @@ void main() {
     expect(result['stale'], isTrue);
   });
 
-  test('CoreReadCallsErrorTest.malformedReadWiresKeepThePublicParserErrorAndCompleteOriginalInput logs', () async {
-    fixture = await CoreRuntimeFixture.create(preview: true);
-    addTearDown(fixture.dispose);
-    fixture.script(ApplicationContract.coreOperationLogs, (request) {
-      request.metadata({'source': request.source});
-      request.bytes(
-        ApplicationContract.coreIpcFrameRecord,
-        Uint8List.fromList(utf8.encode(modeStrategyOriginal)),
+  test(
+    'CoreReadCallsErrorTest.malformedReadWiresKeepParserErrorWithoutInput logs',
+    () async {
+      fixture = await CoreRuntimeFixture.create(preview: true);
+      addTearDown(fixture.dispose);
+      fixture.script(ApplicationContract.coreOperationLogs, (request) {
+        request.metadata({'source': request.source});
+        request.bytes(
+          ApplicationContract.coreIpcFrameRecord,
+          Uint8List.fromList(utf8.encode(modeStrategyOriginal)),
+        );
+        request.terminal({'complete': false, 'exited': false});
+      });
+      await fixture.warmUp();
+      final request = fixture
+          .calls(ApplicationContract.coreOperationLogs)
+          .single;
+      expect(request.actualExited, isFalse);
+      _expectSanitizedFormat(fixture.runtime.logError);
+      final result = decoded(
+        await fixture.runtime.read('logs', {
+          'query': {'window': fixture.runtime.logs.source},
+        }),
       );
-      request.terminal({'complete': false, 'exited': false});
-    });
-    await fixture.warmUp();
-    final request = fixture.calls(ApplicationContract.coreOperationLogs).single;
-    expect(request.actualExited, isFalse);
-    expect(fixture.runtime.logError, isA<FormatException>());
-    expect(
-      (fixture.runtime.logError as FormatException).source,
-      modeStrategyOriginal,
-    );
-    final result = decoded(
-      await fixture.runtime.read('logs', {
-        'query': {'window': fixture.runtime.logs.source},
-      }),
-    );
-    expect((result['error'] as Map)['source'], modeStrategyOriginal);
-    expect(
-      (result['error'] as Map)['message'],
-      (fixture.runtime.logError as FormatException).message,
-    );
-    request.signalExit();
-    await fixture.flush();
-    expect(request.actualExited, isTrue);
-  });
+      expect((result['error'] as Map).containsKey('source'), isFalse);
+      expect(
+        (result['error'] as Map)['message'],
+        (fixture.runtime.logError as FormatException).message,
+      );
+      request.signalExit();
+      await fixture.flush();
+      expect(request.actualExited, isTrue);
+    },
+  );
 
   for (final kind in [
     'java.util.concurrent.RejectedExecutionException',
@@ -1515,8 +1696,8 @@ void main() {
     final result = FutureProbe(read('rules'));
     await result.done;
     expect(result.value, isNull);
-    expect(result.error, isA<FormatException>());
-    expect(((result.error as FormatException).source as Map)['error'], raw);
+    expect(result.error, isA<PlatformFailure>());
+    expect((result.error as PlatformFailure).details, {'error': raw});
     expect(errorText(result.error), contains(modeStrategyOriginal));
   });
 
@@ -1527,10 +1708,8 @@ void main() {
         await create();
         final source = fixture.core;
         final raw = {
-          'update': {
-            success ? 'status' : 'error': success ? 'ok' : 'updateFailed',
-            ..._originalRow(),
-          },
+          success ? 'status' : 'error': success ? 'ok' : 'updateFailed',
+          ..._originalRow(),
         };
         fixture.script(
           ApplicationContract.coreOperationResourceUpdate,
@@ -1551,7 +1730,11 @@ void main() {
         expect(result.error, isNull);
         final value = decoded(result.value);
         expectIdentity(value, source);
-        expect(value['update'], raw['update']);
+        expect(value['update'], {
+          success ? 'status' : 'error': success ? 'ok' : 'updateFailed',
+          'detail': modeStrategyOriginal,
+        });
+        expect((value['update'] as Map).containsKey('future'), isFalse);
         expect(value['stale'], isTrue);
         expect(result.replies, 1);
       },

@@ -5,11 +5,11 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../components/input/task_shortcuts.dart';
-
-import '../theme/app_theme.dart';
+import '../components/input/toolbar_search_field.dart';
 
 import '../app/app_controller.dart';
 import '../navigation/task_activity.dart';
+import '../components/feedback/operation_feedback.dart';
 import '../components/feedback/operation_notice.dart';
 import '../../l10n/app_localizations.dart';
 import '../components/feedback/confirm_action.dart';
@@ -46,6 +46,10 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
   bool _failed = false;
   Object? _listError;
   bool _readFailed = false;
+  bool _readingDetails = false;
+  Object? _detailError;
+  (Object, (int, int), int)? _pendingListError;
+  ModalRoute<dynamic>? _detailsRoute;
   bool _epochNoticeShown = false;
   final _noticeChanges = ValueNotifier(0);
   bool _active = false;
@@ -59,7 +63,13 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
   bool _leaving = false;
   String? _query;
   int _request = 0;
-  late bool _foreground;
+  bool _reading = false;
+  bool _readAgain = false;
+  bool _readAgainReport = false;
+  int _readFailures = 0;
+  Timer? _retry;
+  Timer? _deadline;
+  late int _seenApplicationsRevision;
   double _rowHeight = 72;
 
   @override
@@ -70,17 +80,19 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
     _selected = app.preferences.packages.toSet();
     _knownPackages.addAll(_selected);
     _preferencesLoaded = app.preferencesLoaded && app.preferencesError == null;
-    _foreground = app.foreground;
+    _seenApplicationsRevision = app.applicationsRevision;
     app.addListener(_appChanged);
   }
 
   bool _current({ModalRoute<dynamic>? ownedPopup}) =>
       mounted &&
-      app.foreground &&
+      app.interactive &&
       AppTaskActivity.isActive(context, ownedPopup: ownedPopup) &&
       AppTaskActivity.routeIsActive(_route, ownedPopup: ownedPopup);
 
   bool get _eligible => _current();
+  bool get _detailsActive =>
+      _readingDetails && _current(ownedPopup: _detailsRoute);
 
   @override
   void didChangeDependencies() {
@@ -94,17 +106,23 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
       _route = route;
       if (route != null) app.registerOverviewLeave(route, _overviewLeave);
     }
+    if (_syncReadVisibility()) unawaited(_load());
+  }
+
+  bool _syncReadVisibility() {
+    if (_detailsActive) return false;
     final active = _eligible;
-    if (_active == active) return;
+    if (_active == active) return false;
     _active = active;
     if (active) {
-      unawaited(_load());
-    } else {
-      _request++;
-      _loading = false;
-      _searchFocus.unfocus();
-      _icons.clear();
+      _readFailed = false;
+      return true;
     }
+    _request++;
+    _retry?.cancel();
+    _loading = false;
+    _searchFocus.unfocus();
+    return false;
   }
 
   void _appChanged() {
@@ -120,20 +138,31 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
         _keepReadingAnchor(_applications ?? const [], previous: previous);
       });
     }
-    if (_foreground == app.foreground) return;
-    _foreground = app.foreground;
-    if (_foreground) {
-      unawaited(_load());
-    } else {
+    var refresh = _syncReadVisibility();
+    if (_seenApplicationsRevision != app.applicationsRevision) {
+      _seenApplicationsRevision = app.applicationsRevision;
+      if (app.changedApplication case final package?) _icons.remove(package);
       _request++;
-      _searchFocus.unfocus();
-      setState(() => _loading = false);
+      _readFailures = 0;
+      _readFailed = false;
+      _listError = null;
+      _pendingListError = null;
+      refresh = true;
+    }
+    if (refresh) {
+      if (_eligible) {
+        unawaited(_load());
+      } else if (_detailsActive) {
+        _readAgain = true;
+      }
     }
   }
 
   @override
   void dispose() {
     _request++;
+    _retry?.cancel();
+    _deadline?.cancel();
     final route = _route;
     if (route != null) app.unregisterOverviewLeave(route, _overviewLeave);
     app.removeListener(_appChanged);
@@ -145,25 +174,137 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
     super.dispose();
   }
 
+  void _scheduleReadRetry() {
+    if (!_eligible || !_readFailed || _reading || _retry?.isActive == true) {
+      return;
+    }
+    const backoff = [5, 10, 30, 60];
+    final seconds = backoff[(_readFailures - 1).clamp(0, 3)];
+    _retry = Timer(Duration(seconds: seconds), _load);
+  }
+
+  void _reportListFailure(Object error, (int, int) epoch, int request) {
+    final owner = app;
+    bool sameSource() =>
+        mounted &&
+        identical(owner, app) &&
+        epoch == (owner.state.storageEpoch, owner.storageEpoch) &&
+        _storageEpoch == app.storageEpoch &&
+        request == _request &&
+        (identical(_listError, error) ||
+            _readingDetails && identical(_detailError, error));
+    String summary(AppLocalizations strings) => strings.applicationListFailed;
+    String detail(AppLocalizations _) => error.toString();
+    Future<void> showDetails() async {
+      final restoreSearch = _searchFocus.hasFocus;
+      _readingDetails = true;
+      _detailError = error;
+      try {
+        await showLocalizedOperationMessage(
+          context,
+          summary,
+          technicalDetail: detail,
+          title: (strings) => strings.errorDetails,
+          eligibilityChanges: Listenable.merge([owner, _noticeChanges]),
+          isCurrent: () => sameSource() && _eligible,
+          isCurrentWithPopup: (popup) =>
+              sameSource() && _current(ownedPopup: popup),
+          onRoute: (route) => _detailsRoute = route,
+          onRetry: () => _load(reportFailure: true),
+        );
+      } finally {
+        _readingDetails = false;
+        _detailsRoute = null;
+        _detailError = null;
+        if (mounted) {
+          _syncReadVisibility();
+          if (_eligible) {
+            if (restoreSearch &&
+                epoch == (app.state.storageEpoch, app.storageEpoch)) {
+              _searchFocus.requestFocus();
+            }
+            final pending = _pendingListError;
+            _pendingListError = null;
+            if (pending != null &&
+                _readFailed &&
+                pending.$2 == (app.state.storageEpoch, app.storageEpoch) &&
+                pending.$3 == _request) {
+              _reportListFailure(pending.$1, pending.$2, pending.$3);
+            }
+            if (_readAgain && !_reading) {
+              unawaited(_load(reportFailure: _readAgainReport));
+            } else {
+              _scheduleReadRetry();
+            }
+          }
+        }
+      }
+    }
+
+    unawaited(
+      showLocalizedOperationNotice(
+        context,
+        summary,
+        technicalDetail: detail,
+        eligibilityChanges: Listenable.merge([owner, _noticeChanges]),
+        isCurrent: () => sameSource() && _eligible,
+        isCurrentWithPopup: (popup) =>
+            sameSource() && _current(ownedPopup: popup),
+        onRetry: () => _load(reportFailure: true),
+        onDetails: showDetails,
+        identity: ('applications-read', _storageEpoch, request),
+      ),
+    );
+  }
+
   Future<void> _load({bool reportFailure = false}) async {
     if (!_eligible) return;
+    if (_reading) {
+      if (reportFailure) _request++;
+      _readAgain = true;
+      _readAgainReport |= reportFailure;
+      return;
+    }
+    _retry?.cancel();
+    _readAgain = _readAgainReport = false;
+    _reading = true;
     final owner = app;
     final epoch = (owner.state.storageEpoch, owner.storageEpoch);
-    final session = (owner.state.generation, owner.state.phase);
     final request = ++_request;
-    setState(() {
-      _loading = true;
-      _failed = false;
-      _listError = null;
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _noticeChanges.value++;
+    bool current() =>
+        mounted &&
+        identical(owner, app) &&
+        (_eligible || _detailsActive) &&
+        request == _request &&
+        epoch == (owner.state.storageEpoch, owner.storageEpoch);
+    var failed = false;
+    void failure(Object error) {
+      if (!current()) return;
+      final notify = !_readFailed || reportFailure || failed;
+      if (!failed) _readFailures++;
+      failed = true;
+      if (notify) _listError = error;
+      _readFailed = true;
+      setState(() {
+        _failed = true;
+        _loading = false;
+      });
+      if (notify) {
+        if (_detailsActive) {
+          _pendingListError = (error, epoch, request);
+        } else {
+          _reportListFailure(error, epoch, request);
+        }
+      }
+    }
+
+    setState(() => _loading = true);
+    _deadline = Timer(const Duration(seconds: 5), () {
+      failure(TimeoutException('Reading applications is still in progress'));
     });
     try {
-      final value = await app.platform.applications().timeout(
-        const Duration(seconds: 5),
-      );
-      if (!mounted || !_eligible || request != _request) return;
+      final value = await owner.platform.applications();
+      if (!current()) return;
       final byUid = <int, Set<String>>{};
       for (final row in value) {
         if (row['uid'] case final int uid) {
@@ -174,42 +315,47 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
         for (final group in byUid.values)
           for (final package in group) package: group,
       };
+      final previous = {
+        for (final row in _applications ?? const <Map<String, dynamic>>[])
+          row['package'] as String: row['updatedAt'],
+      };
+      final versions = {
+        for (final row in value) row['package'] as String: row['updatedAt'],
+      };
+      _icons.removeWhere(
+        (package, _) =>
+            !versions.containsKey(package) ||
+            !previous.containsKey(package) ||
+            previous[package] != versions[package],
+      );
       _keepReadingAnchor(value);
       setState(() {
         _applications = value;
         _groups = groups;
-        _icons.clear();
         _loading = false;
+        _failed = false;
+        _listError = null;
+        _pendingListError = null;
       });
       _readFailed = false;
+      _readFailures = 0;
+      _noticeChanges.value++;
     } catch (error) {
-      if (!mounted || !_eligible || request != _request) return;
-      final notify = !_readFailed || reportFailure;
-      _readFailed = true;
-      setState(() {
-        _failed = true;
-        _listError = error;
-        _loading = false;
-      });
-      if (notify) {
-        bool sameSource() =>
-            mounted &&
-            identical(owner, app) &&
-            epoch == (owner.state.storageEpoch, owner.storageEpoch) &&
-            _storageEpoch == app.storageEpoch &&
-            identical(error, _listError) &&
-            session == (app.state.generation, app.state.phase);
-        await showLocalizedOperationNotice(
-          context,
-          (strings) => strings.applicationListFailed,
-          technicalDetail: (_) => error.toString(),
-          eligibilityChanges: Listenable.merge([owner, _noticeChanges]),
-          isCurrent: () => sameSource() && _eligible && request == _request,
-          isCurrentWithPopup: (popup) =>
-              sameSource() && _current(ownedPopup: popup),
-          onRetry: () => _load(reportFailure: true),
-          identity: ('applications-read', _storageEpoch, request),
-        );
+      failure(error);
+    } finally {
+      _deadline?.cancel();
+      _deadline = null;
+      _reading = false;
+      if (mounted) {
+        if (_loading) setState(() => _loading = false);
+        if (_eligible) {
+          if (_readAgain) {
+            final report = _readAgainReport;
+            unawaited(_load(reportFailure: report));
+          } else {
+            _scheduleReadRetry();
+          }
+        }
       }
     }
   }
@@ -424,7 +570,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
   Widget build(BuildContext context) => IgnorePointer(
     ignoring: !_eligible,
     child: ExcludeFocus(
-      excluding: !_eligible,
+      excluding: !_eligible && !_detailsActive,
       child: ExcludeSemantics(
         excluding: !_eligible,
         child: TaskShortcuts(
@@ -542,33 +688,14 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 8),
-              SizedBox(
-                height: math.max(56, lineHeight(text.bodyLarge) + 24),
-                child: TextField(
-                  controller: _search,
-                  focusNode: _searchFocus,
-                  decoration: InputDecoration(
-                    hintText: strings.searchApplications,
-                    isDense: true,
-                    suffixIcon: IconButton(
-                      tooltip: strings.clearSearch,
-                      onPressed: _query?.isNotEmpty == true
-                          ? () {
-                              _search.clear();
-                              setState(() {
-                                _resetCenter();
-                                _query = '';
-                              });
-                            }
-                          : null,
-                      icon: const Icon(Icons.close_rounded),
-                    ),
-                  ),
-                  onChanged: (value) => setState(() {
-                    _resetCenter();
-                    _query = value;
-                  }),
-                ),
+              ToolbarSearchField(
+                controller: _search,
+                focusNode: _searchFocus,
+                hintText: strings.searchApplications,
+                onChanged: (value) => setState(() {
+                  _resetCenter();
+                  _query = value;
+                }),
               ),
               Wrap(
                 spacing: 8,
@@ -619,54 +746,27 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
                         ),
                       ),
               ),
-              Row(
-                children: [
-                  Expanded(
-                    child: Tooltip(
-                      key: const ValueKey('applications-policy-status'),
-                      message: policyStatus,
-                      child: _ApplicationStatusText(
-                        text: _storageEpoch != app.storageEpoch
-                            ? strings.applicationPolicyUnknownShort
-                            : app.preferencesError != null ||
-                                  !_preferencesLoaded ||
-                                  !app.state.confirmed ||
-                                  app.platformError != null
-                            ? strings.applicationPolicyUnknownShort
-                            : !app.state.running
-                            ? strings.applicationPolicyNextConnectionShort
-                            : actual == null ||
-                                  actual.generation != app.state.generation
-                            ? strings.applicationPolicyUnknownShort
-                            : _needsApply
-                            ? strings.applicationPolicyPendingShort
-                            : strings.applicationPolicyAppliedShort,
-                        style: text.bodySmall,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    key: const ValueKey('applications-refresh'),
-                    tooltip: _failed ? strings.retry : strings.refresh,
-                    onPressed: _loading || !_eligible
-                        ? null
-                        : () => _load(reportFailure: true),
-                    color: HomePalette.of(context).syncAction,
-                    icon: SizedBox.square(
-                      dimension: 24,
-                      child: _loading
-                          ? const Center(
-                              child: SizedBox.square(
-                                dimension: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              ),
-                            )
-                          : const Icon(Icons.refresh),
-                    ),
-                  ),
-                ],
+              Tooltip(
+                key: const ValueKey('applications-policy-status'),
+                message: policyStatus,
+                child: _ApplicationStatusText(
+                  text: _storageEpoch != app.storageEpoch
+                      ? strings.applicationPolicyUnknownShort
+                      : app.preferencesError != null ||
+                            !_preferencesLoaded ||
+                            !app.state.confirmed ||
+                            app.platformError != null
+                      ? strings.applicationPolicyUnknownShort
+                      : !app.state.running
+                      ? strings.applicationPolicyNextConnectionShort
+                      : actual == null ||
+                            actual.generation != app.state.generation
+                      ? strings.applicationPolicyUnknownShort
+                      : _needsApply
+                      ? strings.applicationPolicyPendingShort
+                      : strings.applicationPolicyAppliedShort,
+                  style: text.bodySmall,
+                ),
               ),
             ],
           ),
@@ -871,6 +971,9 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
           final group = _group(package).toList()..sort();
           final selected = group.any(_selected.contains);
           final installed = row['installed'] != false;
+          final subtitle = installed
+              ? package
+              : strings.applicationNotInstalled;
           final iconColor = selecting && selected
               ? colors.primary
               : colors.onSurfaceVariant;
@@ -879,39 +982,22 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
             value: selecting && selected,
             onChanged: selecting && canEdit ? (_) => _toggle(package) : null,
             secondary: Tooltip(
+              excludeFromSemantics: true,
               message: group.length > 1
                   ? strings.applicationSharedUidNotice(group.join(', '))
                   : '',
               child: SizedBox(
                 width: 32,
                 height: 32,
-                child: Stack(
-                  children: [
-                    if (installed)
-                      ApplicationIcon(
+                child: installed
+                    ? ApplicationIcon(
                         icon: _iconFor(package),
                         fallback: row['system'] == true
                             ? Icons.memory
                             : Icons.apps,
                         color: iconColor,
                       )
-                    else
-                      SizedBox(
-                        width: 32,
-                        height: 32,
-                        child: Icon(Icons.apps_outlined, color: iconColor),
-                      ),
-                    if (group.length > 1)
-                      Align(
-                        alignment: Alignment.bottomRight,
-                        child: Icon(
-                          Icons.link,
-                          size: 16,
-                          color: colors.primary,
-                        ),
-                      ),
-                  ],
-                ),
+                    : Icon(Icons.apps_outlined, color: iconColor),
               ),
             ),
             title: Text(
@@ -920,9 +1006,14 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
               overflow: TextOverflow.ellipsis,
             ),
             subtitle: Text(
-              installed ? package : strings.applicationNotInstalled,
+              group.length > 1
+                  ? '${strings.applicationSharedUidShort} · $subtitle'
+                  : subtitle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
+              semanticsLabel: group.length > 1
+                  ? '$subtitle · ${strings.applicationSharedUidNotice(group.join(', '))}'
+                  : null,
             ),
             controlAffinity: ListTileControlAffinity.trailing,
           );

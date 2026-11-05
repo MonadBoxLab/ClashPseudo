@@ -19,39 +19,83 @@ class AboutPage extends StatefulWidget {
 class _AboutPageState extends State<AboutPage> {
   late Future<Map<String, dynamic>> _info = _read();
   final _readChanges = ValueNotifier(0);
+  Timer? _deadline;
+  bool _reading = false;
+  bool _timedOut = false;
+  bool _retryQueued = false;
+  int _failureVersion = 0;
 
   Future<Map<String, dynamic>> _read() {
-    final info = widget.platform.applicationInfo().timeout(
-      const Duration(seconds: 5),
-    );
+    final info = widget.platform.applicationInfo();
+    _reading = true;
+    _timedOut = false;
+    _deadline = Timer(const Duration(seconds: 5), () {
+      if (mounted && identical(_info, info)) setState(() => _timedOut = true);
+      _report(
+        info,
+        TimeoutException('Reading version information is still in progress'),
+      );
+    });
     unawaited(
       info.then<void>(
-        (_) {},
+        (_) {
+          if (!mounted || !identical(_info, info)) return;
+          _deadline?.cancel();
+          _deadline = null;
+          _reading = false;
+          _retryQueued = false;
+          _failureVersion++;
+          _readChanges.value++;
+        },
         onError: (Object error, StackTrace stack) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!_active || !identical(_info, info)) return;
-            unawaited(
-              showLocalizedOperationNotice(
-                context,
-                (strings) => strings.versionUnavailable,
-                technicalDetail: (_) => error.toString(),
-                title: (strings) => strings.coreVersion,
-                isCurrent: () => _active && identical(_info, info),
-                isCurrentWithPopup: (_) => mounted && identical(_info, info),
-                onRetry: () => _retry(info),
-                eligibilityChanges: _readChanges,
-                identity: info,
-              ),
-            );
-          });
+          if (!mounted || !identical(_info, info)) return;
+          _deadline?.cancel();
+          _deadline = null;
+          _reading = false;
+          if (_retryQueued && _active) {
+            _retryQueued = false;
+            unawaited(_retry(info));
+          } else {
+            _retryQueued = false;
+            _report(info, error);
+          }
         },
       ),
     );
     return info;
   }
 
+  void _report(Future<Map<String, dynamic>> info, Object error) {
+    if (!mounted || !identical(_info, info)) return;
+    final version = ++_failureVersion;
+    _readChanges.value++;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      bool current() =>
+          _active && identical(_info, info) && version == _failureVersion;
+      if (!current()) return;
+      unawaited(
+        showLocalizedOperationNotice(
+          context,
+          (strings) => strings.versionUnavailable,
+          technicalDetail: (_) => error.toString(),
+          title: (strings) => strings.coreVersion,
+          isCurrent: current,
+          isCurrentWithPopup: (_) =>
+              mounted && identical(_info, info) && version == _failureVersion,
+          onRetry: () => _retry(info),
+          eligibilityChanges: _readChanges,
+          identity: (info, version),
+        ),
+      );
+    });
+  }
+
   Future<void> _retry(Future<Map<String, dynamic>> info) async {
     if (!_active || !identical(_info, info)) return;
+    if (_reading) {
+      _retryQueued = true;
+      return;
+    }
     setState(() {
       _info = _read();
     });
@@ -60,6 +104,7 @@ class _AboutPageState extends State<AboutPage> {
 
   @override
   void dispose() {
+    _deadline?.cancel();
     _readChanges.dispose();
     super.dispose();
   }
@@ -122,43 +167,19 @@ class _AboutPageState extends State<AboutPage> {
                           ),
                           trailing: SizedBox.square(
                             dimension: 48,
-                            child: AnimatedSwitcher(
-                              duration: MediaQuery.disableAnimationsOf(context)
-                                  ? Duration.zero
-                                  : const Duration(milliseconds: 160),
-                              layoutBuilder: (current, previous) => Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  for (final child in previous)
-                                    IgnorePointer(
-                                      child: ExcludeFocus(
-                                        child: ExcludeSemantics(child: child),
+                            child:
+                                snapshot.connectionState ==
+                                        ConnectionState.waiting &&
+                                    !_timedOut
+                                ? const Center(
+                                    child: SizedBox.square(
+                                      dimension: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
                                       ),
                                     ),
-                                  ?current,
-                                ],
-                              ),
-                              child:
-                                  snapshot.connectionState ==
-                                      ConnectionState.waiting
-                                  ? const Center(
-                                      child: SizedBox.square(
-                                        dimension: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      ),
-                                    )
-                                  : snapshot.hasError
-                                  ? IconButton(
-                                      tooltip:
-                                          '${strings.versionUnavailable} ${strings.retry}',
-                                      onPressed: () => _retry(info),
-                                      color: HomePalette.of(context).syncAction,
-                                      icon: const Icon(Icons.refresh),
-                                    )
-                                  : null,
-                            ),
+                                  )
+                                : null,
                           ),
                         ),
                       ],

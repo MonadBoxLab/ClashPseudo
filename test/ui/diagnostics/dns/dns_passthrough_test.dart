@@ -146,7 +146,6 @@ void main() {
         app.syncRuntime();
         expect(native.cancellations.single.id, request.id);
         final value = dnsReply(core: native.core);
-        final expected = {...value, 'phase': native.core.phase};
         request.complete(value['dns']);
         await tester.pump();
         expect(controller.queryBusy, isTrue);
@@ -159,7 +158,11 @@ void main() {
         app.syncRuntime();
         expect(controller.cancellationError, failure.toMap().toString());
         expect(native.dns.snapshot()['cancelError'], failure.toMap());
-        expect(controller.response!.raw, expected);
+        expect(controller.response!.answer.single.data, '192.0.2.1');
+        expect(
+          controller.response!.source.matchesIdentity(native.core),
+          isTrue,
+        );
         expect(controller.errorCode, isNull);
         expect(controller.queryBusy, isFalse);
         controller.dispose();
@@ -198,12 +201,6 @@ void main() {
           (value['dns'] as Map)
             ..['detail'] = original
             ..['future'] = [original, false, null];
-          final expected = {
-            ...value,
-            'phase': source.phase,
-            'operationError': 'future-error',
-            'operationErrorDetail': 'future-error',
-          };
           request.complete(value['dns']);
           await tester.pump();
           expect(request.actualExited, isFalse);
@@ -213,12 +210,14 @@ void main() {
           await pending;
           expect(controller.response, isNull);
           expect(controller.errorCode, 'future-error');
-          expect(jsonDecode(controller.errorDetail!), expected);
+          expect(controller.errorDetail, contains(original));
+          expect(controller.errorDetail, isNot(contains('"future"')));
           expect(controller.stale, networkChanges);
           native.replaceCore(networkRevision: 3);
           app.syncRuntime();
           expect(controller.errorCode, 'future-error');
-          expect(jsonDecode(controller.errorDetail!), expected);
+          expect(controller.errorDetail, contains(original));
+          expect(controller.errorDetail, isNot(contains('"future"')));
           controller.dispose();
           app.dispose();
         },
@@ -279,7 +278,6 @@ void main() {
         expect(native.cancellations.length, 1);
         expect(native.cancellations.single.id, request.id);
         final value = dnsReply(core: native.core);
-        final expected = {...value, 'phase': native.core.phase};
         request.complete(value['dns']);
         await tester.pump();
         expect(controller.queryBusy, isTrue);
@@ -287,7 +285,11 @@ void main() {
         request.signalExit();
         await tester.pump();
         await pending;
-        expect(controller.response!.raw, expected);
+        expect(controller.response!.answer.single.data, '192.0.2.1');
+        expect(
+          controller.response!.source.matchesIdentity(native.core),
+          isTrue,
+        );
         expect(controller.errorCode, isNull);
         expect(controller.status, DnsStatus.ready);
         cancellation.complete();
@@ -295,7 +297,11 @@ void main() {
         app.syncRuntime();
         expect(controller.cancellationError, failure.toMap().toString());
         expect(native.dns.snapshot()['cancelError'], failure.toMap());
-        expect(controller.response!.raw, expected);
+        expect(controller.response!.answer.single.data, '192.0.2.1');
+        expect(
+          controller.response!.source.matchesIdentity(native.core),
+          isTrue,
+        );
         expect(controller.errorCode, isNull);
         expect(controller.queryBusy, isFalse);
         controller.dispose();
@@ -322,7 +328,8 @@ void main() {
             ..['future'] = [original, false, null];
           bridge.clearPending!.complete(value);
           final result = (await pending)!;
-          expect(result.raw, value);
+          expect(result.detail, original);
+          expect(result.cancellationError, isNull);
           expect(result.networkEpoch, 1);
           expect(result.source.matchesIdentity(dnsCore()), isTrue);
           expect(

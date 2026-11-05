@@ -348,6 +348,7 @@ class _ProxyFormPageState extends State<ProxyFormPage> {
         title: (strings) => strings.errorDetails,
         isCurrent: current,
         isCurrentWithPopup: (_) => current(),
+        onRetry: _save,
       );
     }
     return showLocalizedOperationMessage(
@@ -357,6 +358,7 @@ class _ProxyFormPageState extends State<ProxyFormPage> {
       title: (strings) => strings.errorDetails,
       isCurrent: current,
       isCurrentWithPopup: (_) => current(),
+      onRetry: _save,
     );
   }
 

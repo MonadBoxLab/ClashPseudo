@@ -542,15 +542,13 @@ func TestStrategyCurrentDelayIdentityMatchesSingleCallAndSurvivesCompletion(t *t
 			var row struct {
 				Name            string `json:"name"`
 				CurrentIdentity string `json:"currentIdentity"`
-				Raw             struct {
-					Now string `json:"now"`
-				} `json:"raw"`
+				Now             string `json:"now"`
 			}
 			if err = json.Unmarshal(body, &row); err != nil {
 				return err
 			}
 			if row.Name == "choice" {
-				current, identity = row.Raw.Now, row.CurrentIdentity
+				current, identity = row.Now, row.CurrentIdentity
 			}
 			return nil
 		})

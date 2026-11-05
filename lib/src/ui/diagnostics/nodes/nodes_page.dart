@@ -1,14 +1,11 @@
 import '../../components/feedback/operation_notice.dart';
-import '../../navigation/page_route.dart';
 
 import 'package:clash_pseudo/src/model/core_snapshot.dart';
 
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 
-import '../../components/reading/original_text_view.dart';
 import '../../components/input/task_shortcuts.dart';
+import '../../components/input/toolbar_search_field.dart';
 
 import '../../app/app_controller.dart';
 import '../../navigation/task_activity.dart';
@@ -195,30 +192,59 @@ class _NodesPageState extends State<NodesPage> {
       _selectedEpoch = widget.app.storageEpoch;
       _selectionExpired = false;
     });
-  }
+    final failures = <String>[];
+    void collect(Object? history, String target) {
+      if (history is! List) return;
+      for (final sample in history.whereType<Map>()) {
+        if (sample['delay'] is num && (sample['delay'] as num) <= 0) {
+          final time = sample['time'];
+          failures.add('$target · ${time is String ? time : '—'}');
+        }
+      }
+    }
 
-  void _showRaw(Object? value, {Object? query, bool Function()? isCurrent}) {
-    if (!(isCurrent?.call() ?? _masterLive)) return;
-    final strings = AppLocalizations.of(context);
-    Navigator.of(context).push<void>(
-      FocusedPageRoute(
-        builder: (_) => Scaffold(
-          appBar: AppBar(title: Text(strings.resourceRawData)),
-          body: OriginalTextView(
-            text: const JsonEncoder.withIndent('  ').convert(value),
-            header: query == null
-                ? null
-                : Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: SelectableText(
-                      const JsonEncoder.withIndent('  ')
-                          .convert({'query': query}),
-                    ),
-                  ),
-          ),
-        ),
-      ),
-    );
+    collect(node['history'], node['name'] as String);
+    if (node['extra'] case final Map extra) {
+      for (final entry in extra.entries) {
+        if (entry.key is String && entry.value is Map) {
+          collect((entry.value as Map)['history'], entry.key as String);
+        }
+      }
+    }
+    if (failures.isEmpty) return;
+    final detailKey = _detailKey;
+    bool sameSelection() =>
+        mounted &&
+        _detailKey == detailKey &&
+        _selected != null &&
+        _selectedEpoch == widget.app.storageEpoch &&
+        !_selectionExpired &&
+        _nodeIdentity(_selected!) == _nodeIdentity(node) &&
+        _selectedSource?.matchesIdentity(widget.app.state.core) == true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!sameSelection() ||
+          !_pageLive ||
+          _workspace.currentState?.detailVisible != true) {
+        return;
+      }
+      showLocalizedOperationNotice(
+        context,
+        (strings) => strings.nodeDelayHistoryFailed,
+        technicalDetail: (_) => failures.join('\n'),
+        identity: (detailKey, 'delay-history'),
+        eligibilityChanges: Listenable.merge([widget.app, _controller]),
+        isCurrent: () =>
+            sameSelection() &&
+            _pageLive &&
+            _workspace.currentState?.detailVisible == true,
+        isCurrentWithPopup: (popup) =>
+            sameSelection() &&
+            widget.app.foreground &&
+            AppTaskActivity.isActive(context, ownedPopup: popup) &&
+            AppTaskActivity.routeIsActive(_route, ownedPopup: popup) &&
+            _workspace.currentState?.detailPresented == true,
+      );
+    });
   }
 
   Widget _nodeDetails(BuildContext context, Map<String, dynamic> node) {
@@ -231,10 +257,7 @@ class _NodesPageState extends State<NodesPage> {
         _selected != null &&
         _detailKey == detailKey &&
         CollectionWorkspace.paneActiveOf(context, listen: false);
-    final paneActive = CollectionWorkspace.paneActiveOf(context);
-    final properties = node['raw'] is Map
-        ? node['raw'] as Map
-        : node['definition'] as Map? ?? node;
+    final properties = node['definition'] as Map? ?? node;
     final strings = AppLocalizations.of(context);
     return Scaffold(
       key: _detailKey,
@@ -259,14 +282,6 @@ class _NodesPageState extends State<NodesPage> {
               ),
               const SizedBox(height: 12),
               ?_local.actions(context, node),
-              TextButton.icon(
-                key: const ValueKey('node-raw-data'),
-                onPressed: paneActive
-                    ? () => _showRaw(node, isCurrent: current)
-                    : null,
-                icon: const Icon(Icons.data_object),
-                label: Text(strings.resourceRawData),
-              ),
               const SizedBox(height: 16),
               for (final (key, label) in [
                 ('type', strings.proxyFormType),
@@ -304,22 +319,15 @@ class _NodesPageState extends State<NodesPage> {
                 List value => value,
                 _ => const [],
               }),
-              for (final test in switch (properties['tests']) {
-                List value => value,
-                _ => const [],
+              for (final entry in switch (properties['extra']) {
+                Map value => value.entries,
+                _ => const <MapEntry>[],
               })
-                if (test is Map) ...[
+                if (entry.key is String && entry.value is Map) ...[
                   const Divider(),
-                  SelectableText(
-                    test['target']?.toString() ?? strings.notProvided,
-                  ),
-                  if (test['alive'] is bool)
-                    Text(
-                      test['alive'] == true
-                          ? strings.proxyTrue
-                          : strings.proxyFalse,
-                    ),
-                  ..._historyRows(context, switch (test['history']) {
+                  SelectableText(entry.key as String),
+                  ..._historyRows(context, switch ((entry.value
+                      as Map)['history']) {
                     List value => value,
                     _ => const [],
                   }),
@@ -336,17 +344,15 @@ class _NodesPageState extends State<NodesPage> {
     if (history.isEmpty) return [Text(strings.notProvided)];
     return [
       for (final sample in history)
-        if (sample is Map)
+        if (sample is Map &&
+            sample['delay'] is int &&
+            (sample['delay'] as int) > 0)
           ListTile(
             contentPadding: EdgeInsets.zero,
             title: SelectableText(
               sample['time']?.toString() ?? strings.notProvided,
             ),
-            subtitle: SelectableText(
-              sample['delay'] is int && (sample['delay'] as int) > 0
-                  ? '${sample['delay']} ms'
-                  : strings.delayFailed,
-            ),
+            subtitle: SelectableText('${sample['delay']} ms'),
           ),
     ];
   }
@@ -447,6 +453,21 @@ class _NodesPageState extends State<NodesPage> {
           : _controller.preview
           ? strings.runtimeConfigPreview
           : strings.runtimeConfigLive;
+      final subtitleStyle = Theme.of(context).textTheme.bodySmall!
+          .copyWith(height: 1.5);
+      final subtitleStrut = StrutStyle.fromTextStyle(
+        subtitleStyle,
+        forceStrutHeight: true,
+      );
+      final subtitleMeasure = TextPainter(
+        text: TextSpan(text: 'Ag', style: subtitleStyle),
+        strutStyle: subtitleStrut,
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+        locale: Localizations.maybeLocaleOf(context),
+      )..layout();
+      final subtitleHeight = subtitleMeasure.height * 2;
+      subtitleMeasure.dispose();
       Widget content() => Align(
         alignment: Alignment.topCenter,
         child: ConstrainedBox(
@@ -464,29 +485,13 @@ class _NodesPageState extends State<NodesPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  TextField(
+                  ToolbarSearchField(
                     enabled:
                         widget.provider == null || !_controller.sourceExpired,
                     controller: _search,
                     focusNode: _searchFocus,
+                    hintText: strings.nodeSearch,
                     onChanged: _controller.filter,
-                    decoration: InputDecoration(
-                      labelText: strings.nodeSearch,
-                      prefixIconColor: WidgetStateColor.resolveWith(
-                        (states) => states.contains(WidgetState.disabled)
-                            ? Theme.of(context).disabledColor
-                            : HomePalette.of(context).moreAction,
-                      ),
-                      prefixIcon: const Icon(Icons.search),
-                      suffixIcon: IconButton(
-                        tooltip: strings.clearSearch,
-                        onPressed: () {
-                          _search.clear();
-                          _controller.filter('');
-                        },
-                        icon: const Icon(Icons.close),
-                      ),
-                    ),
                   ),
                 ],
               ),
@@ -520,13 +525,15 @@ class _NodesPageState extends State<NodesPage> {
                       else if (fromProvider)
                         source.isEmpty ? '""' : source,
                     ].join(' · ');
+                    final selected =
+                        !_selectionExpired &&
+                        _selected != null &&
+                        _nodeIdentity(node) == _nodeIdentity(_selected!) &&
+                        node['sourceVersion'] == _selected!['sourceVersion'];
+                    final colors = Theme.of(context).colorScheme;
                     return ListTile(
                       key: ValueKey(_nodeIdentity(node)),
-                      selected:
-                          !_selectionExpired &&
-                          _selected != null &&
-                          _nodeIdentity(node) == _nodeIdentity(_selected!) &&
-                          node['sourceVersion'] == _selected!['sourceVersion'],
+                      selected: selected,
                       selectedTileColor: Theme.of(context)
                           .colorScheme
                           .secondaryContainer,
@@ -547,16 +554,17 @@ class _NodesPageState extends State<NodesPage> {
                         overflow: TextOverflow.ellipsis,
                       ),
                       subtitle: SizedBox(
-                        height: MediaQuery.textScalerOf(context).scale(14) * 3,
+                        height: subtitleHeight,
                         child: Text(
                           description,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          strutStyle: const StrutStyle(
-                            fontSize: 14,
-                            height: 1.5,
-                            forceStrutHeight: true,
+                          style: subtitleStyle.copyWith(
+                            color: selected
+                                ? colors.onSecondaryContainer
+                                : colors.onSurfaceVariant,
                           ),
+                          strutStyle: subtitleStrut,
                         ),
                       ),
                       trailing:
@@ -595,16 +603,6 @@ class _NodesPageState extends State<NodesPage> {
                   : widget.provider!,
             ),
             actions: [
-              IconButton(
-                tooltip: strings.resourceRawData,
-                icon: const Icon(Icons.data_object),
-                onPressed: _controller.data == null
-                    ? null
-                    : () => _showRaw(
-                        _controller.data,
-                        query: _controller.dataQuery,
-                      ),
-              ),
               const CollectionDetailsAction(),
               if (widget.provider == null) ...[
                 IconButton(
@@ -615,27 +613,6 @@ class _NodesPageState extends State<NodesPage> {
                   icon: const Icon(Icons.add),
                 ),
               ],
-              IconButton(
-                tooltip: strings.refresh,
-                onPressed:
-                    _controller.active &&
-                        !_controller.sourceExpired &&
-                        !_controller.loading &&
-                        !widget.app.busy
-                    ? () {
-                        if (_masterLive) {
-                          (_local.retry ?? _controller.refresh)();
-                        }
-                      }
-                    : null,
-                color: HomePalette.of(context).syncAction,
-                icon: _controller.loading
-                    ? const SizedBox.square(
-                        dimension: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.refresh),
-              ),
             ],
           ),
           body: content(),

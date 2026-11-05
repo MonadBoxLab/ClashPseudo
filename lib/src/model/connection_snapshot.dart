@@ -6,62 +6,42 @@ class ConnectionRecord {
   ConnectionRecord.fromMap(
     Map<String, dynamic> value, {
     CoreSnapshot source = const CoreSnapshot(),
-  }) : this._(
-         value['raw'] is Map
-             ? Map<String, dynamic>.from(value['raw'] as Map)
-             : value,
-         value['raw'] is Map ? value['observation'] as Map? ?? const {} : value,
-         source,
-       );
-
-  ConnectionRecord._(
-    Map<String, dynamic> value,
-    Map observation,
-    CoreSnapshot source,
-  ) : raw = _freezeMap(value),
-      rawBytes = utf8.encode(jsonEncode(value)).length,
-      id = value['id'] as String,
-      start = value['startMicros'] is int
-          ? DateTime.fromMicrosecondsSinceEpoch(value['startMicros'] as int)
-          : DateTime.tryParse(value['start'] as String? ?? '')?.toLocal(),
-      upload = _count(value['upload']),
-      download = _count(value['download']),
-      chains = List<String>.unmodifiable(value['chains'] as List? ?? const []),
-      strategyType = _strategyText(value['strategy'], 'type'),
-      strategyIcon = _strategyText(value['strategy'], 'icon'),
-      rule = value['rule'] as String? ?? '',
-      rulePayload = value['rulePayload'] as String? ?? '',
-      host = (value['metadata'] as Map?)?['host'] as String? ?? '',
-      destinationIP =
-          (value['metadata'] as Map?)?['destinationIP'] as String? ?? '',
-      destinationPort =
-          (value['metadata'] as Map?)?['destinationPort']?.toString() ?? '',
-      sourceIP = (value['metadata'] as Map?)?['sourceIP'] as String? ?? '',
-      sourcePort = (value['metadata'] as Map?)?['sourcePort']?.toString() ?? '',
-      network = (value['metadata'] as Map?)?['network'] as String? ?? '',
-      type = (value['metadata'] as Map?)?['type'] as String? ?? '',
-      active = observation['active'] != false,
-      observedAt = observation['observedAt'] is int
-          ? DateTime.fromMillisecondsSinceEpoch(
-              observation['observedAt'] as int,
-            )
-          : null,
-      uploadSpeed = _rate(observation['uploadSpeed']),
-      downloadSpeed = _rate(observation['downloadSpeed']) {
+  }) : id = value['id'] as String,
+       start = value['startMicros'] is int
+           ? DateTime.fromMicrosecondsSinceEpoch(value['startMicros'] as int)
+           : DateTime.tryParse(value['start'] as String? ?? '')?.toLocal(),
+       upload = _count(value['upload']),
+       download = _count(value['download']),
+       chains = List<String>.unmodifiable(value['chains'] as List? ?? const []),
+       strategyType = _strategyText(value['strategy'], 'type'),
+       strategyIcon = _strategyText(value['strategy'], 'icon'),
+       rule = value['rule'] as String? ?? '',
+       rulePayload = value['rulePayload'] as String? ?? '',
+       host = (value['metadata'] as Map?)?['host'] as String? ?? '',
+       destinationIP =
+           (value['metadata'] as Map?)?['destinationIP'] as String? ?? '',
+       destinationPort =
+           (value['metadata'] as Map?)?['destinationPort']?.toString() ?? '',
+       sourceIP = (value['metadata'] as Map?)?['sourceIP'] as String? ?? '',
+       sourcePort =
+           (value['metadata'] as Map?)?['sourcePort']?.toString() ?? '',
+       network = (value['metadata'] as Map?)?['network'] as String? ?? '',
+       type = (value['metadata'] as Map?)?['type'] as String? ?? '',
+       active = value['active'] != false,
+       observedAt = value['observedAt'] is int
+           ? DateTime.fromMillisecondsSinceEpoch(value['observedAt'] as int)
+           : null,
+       uploadSpeed = _rate(value['uploadSpeed']),
+       downloadSpeed = _rate(value['downloadSpeed']) {
     if (id.isEmpty) throw const FormatException('Missing connection identity');
     try {
-      final rules = _rules(
-        observation['ruleSuggestions'] != null
-            ? {...value, 'ruleSuggestions': observation['ruleSuggestions']}
-            : value,
-        source,
-      );
-      final failure = observation['ruleError'] as String?;
+      final rules = _rules(value, source);
+      final failure = value['ruleError'] as String?;
       ruleMetadata = rules;
       ruleError = failure;
     } catch (failure) {
       ruleMetadata = null;
-      final original = observation['ruleError'] as String?;
+      final original = value['ruleError'] as String?;
       final diagnostic = failure.toString();
       // 保留原始错误文本及其中的重复行，仅追加新产生的解析错误。
       ruleError = original == null
@@ -70,23 +50,10 @@ class ConnectionRecord {
           ? original
           : '$original\n$diagnostic';
     }
+    retainedBytes = utf8.encode(jsonEncode(toMap())).length;
   }
 
-  static Map<String, dynamic> _freezeMap(Map<String, dynamic> value) =>
-      Map<String, dynamic>.unmodifiable({
-        for (final entry in value.entries) entry.key: _freeze(entry.value),
-      });
-
-  static Object? _freeze(Object? value) => switch (value) {
-    Map value => Map.unmodifiable({
-      for (final entry in value.entries) entry.key: _freeze(entry.value),
-    }),
-    List value => List.unmodifiable(value.map(_freeze)),
-    _ => value,
-  };
-
-  final Map<String, dynamic> raw;
-  final int rawBytes;
+  late final int retainedBytes;
   late final ConnectionRuleSuggestions? ruleMetadata;
   late final String? ruleError;
 
@@ -129,15 +96,29 @@ class ConnectionRecord {
   final double? downloadSpeed;
 
   Map<String, Object?> toMap() => {
-    'raw': raw,
-    'observation': {
-      'active': active,
-      'observedAt': observedAt?.millisecondsSinceEpoch,
-      'uploadSpeed': uploadSpeed,
-      'downloadSpeed': downloadSpeed,
-      if (ruleMetadata != null) 'ruleSuggestions': ruleMetadata!.toMap(),
-      if (ruleError != null) 'ruleError': ruleError,
+    'id': id,
+    if (start != null) 'start': start!.toIso8601String(),
+    'upload': upload,
+    'download': download,
+    'chains': chains,
+    'strategy': {'type': strategyType, 'icon': strategyIcon},
+    'rule': rule,
+    'rulePayload': rulePayload,
+    'metadata': {
+      'host': host,
+      'destinationIP': destinationIP,
+      'destinationPort': destinationPort,
+      'sourceIP': sourceIP,
+      'sourcePort': sourcePort,
+      'network': network,
+      'type': type,
     },
+    'active': active,
+    'observedAt': observedAt?.millisecondsSinceEpoch,
+    'uploadSpeed': uploadSpeed,
+    'downloadSpeed': downloadSpeed,
+    if (ruleMetadata != null) 'ruleSuggestions': ruleMetadata!.toMap(),
+    if (ruleError != null) 'ruleError': ruleError,
   };
 
   ConnectionRecord._observed(
@@ -148,9 +129,7 @@ class ConnectionRecord {
     required this.downloadSpeed,
     ConnectionRuleSuggestions? ruleMetadata,
     String? ruleError,
-  }) : raw = source.raw,
-       rawBytes = source.rawBytes,
-       ruleMetadata = source.ruleMetadata ?? ruleMetadata,
+  }) : ruleMetadata = source.ruleMetadata ?? ruleMetadata,
        ruleError = source.ruleError ?? ruleError,
        id = source.id,
        start = source.start,
@@ -167,7 +146,9 @@ class ConnectionRecord {
        sourceIP = source.sourceIP,
        sourcePort = source.sourcePort,
        network = source.network,
-       type = source.type;
+       type = source.type {
+    retainedBytes = utf8.encode(jsonEncode(toMap())).length;
+  }
 
   ConnectionRecord observed({
     required bool active,

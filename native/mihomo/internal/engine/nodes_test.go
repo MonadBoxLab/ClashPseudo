@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -23,7 +22,8 @@ type nodeStreamRow struct {
 	SourceKind         string                            `json:"sourceKind"`
 	Source             string                            `json:"sourceName"`
 	SourceVersion      uint32                            `json:"sourceVersion"`
-	Raw                map[string]any                    `json:"raw"`
+	History            []C.DelayHistory                  `json:"history"`
+	Extra              map[string]C.ProxyState           `json:"extra"`
 	Provenance         *configinput.DefinitionProvenance `json:"provenance"`
 	ProviderProvenance *configinput.DefinitionProvenance `json:"providerProvenance"`
 }
@@ -146,20 +146,19 @@ func TestNodeTestHistoryKeepsCompletePublicTarget(t *testing.T) {
 	}
 	for _, row := range rows {
 		if row.Name == "history-node" {
-			raw, err := proxy.MarshalJSON()
+			actual, err := json.Marshal(row.Extra)
 			if err != nil {
 				t.Fatal(err)
 			}
-			var original map[string]any
-			if err = json.Unmarshal(raw, &original); err != nil {
+			expected, err := json.Marshal(proxy.ExtraDelayHistories())
+			if err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(row.Raw, original) {
-				t.Fatal("公开history或原始target改变", row.Raw, original)
+			if string(actual) != string(expected) {
+				t.Fatal("测速历史或目标不匹配", string(actual), string(expected))
 			}
-			extra, ok := row.Raw["extra"].(map[string]any)
-			if !ok || extra[target] == nil {
-				t.Fatal("完整公开target丢失", row.Raw)
+			if _, ok := row.Extra[target]; !ok {
+				t.Fatal("缺少测速目标", row.Extra)
 			}
 			return
 		}

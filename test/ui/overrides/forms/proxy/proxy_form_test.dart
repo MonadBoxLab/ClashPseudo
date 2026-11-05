@@ -2034,18 +2034,24 @@ void main() {
       expect(find.text('do-not-lose'), findsOneWidget);
       expect(tester.getRect(keyed('proxy-save')), save);
       expect(tester.getRect(keyed('proxy-select-type')), type);
-      await tester.tap(
-        find
-            .descendant(
-              of: find.byType(SnackBar),
-              matching: find.byType(TextButton),
-            )
-            .first,
-      );
-      await tester.pumpAndSettle();
       final strings = AppLocalizations.of(
-        tester.element(find.byType(AlertDialog)),
+        tester.element(find.byType(ProxyFormPage)),
       );
+      final details = find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.widgetWithText(TextButton, strings.errorDetails),
+      );
+      for (
+        var frame = 0;
+        frame < 30 && details.hitTestable().evaluate().isEmpty;
+        frame++
+      ) {
+        await tester.pump(const Duration(milliseconds: 16));
+        expectAnchors();
+      }
+      expect(details.hitTestable(), findsOneWidget);
+      await tester.tap(details.hitTestable());
+      await tester.pumpAndSettle();
       expect(find.text(strings.configSavedReconnectIncomplete), findsOneWidget);
       await tester.tap(find.text(strings.close));
       await tester.pumpAndSettle();

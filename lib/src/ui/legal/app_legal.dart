@@ -4,8 +4,8 @@ import 'package:flutter/services.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../model/messages.dart';
-import '../components/feedback/operation_feedback.dart';
-import '../locale/message_text.dart';
+import '../components/feedback/operation_notice.dart';
+import '../navigation/task_activity.dart';
 
 void registerAppLicenses() {
   LicenseRegistry.addLicense(() async* {
@@ -95,51 +95,12 @@ class LegalRouteContent extends StatelessWidget {
   }
 }
 
-class PrivacyNoticeDialog extends StatefulWidget {
-  const PrivacyNoticeDialog({super.key, this.persistenceFailure});
-
-  final AppMessage? persistenceFailure;
-
-  @override
-  State<PrivacyNoticeDialog> createState() => _PrivacyNoticeDialogState();
-}
-
-class _PrivacyNoticeDialogState extends State<PrivacyNoticeDialog> {
-  // Only the local failure content moves when reduced motion bypasses the wrapper.
-  final _failureContentKey = GlobalKey();
+class PrivacyNoticeDialog extends StatelessWidget {
+  const PrivacyNoticeDialog({super.key});
 
   @override
   Widget build(BuildContext context) {
     final strings = AppLocalizations.of(context);
-    final failureContent = KeyedSubtree(
-      key: _failureContentKey,
-      child: widget.persistenceFailure == null
-          ? const SizedBox.shrink()
-          : Padding(
-              padding: const EdgeInsets.only(top: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(widget.persistenceFailure!.summary(strings)),
-                  if (widget.persistenceFailure!.technicalDetail(strings) !=
-                      null)
-                    TextButton.icon(
-                      key: const ValueKey('privacy-notice-error-details'),
-                      onPressed: () {
-                        if (!_legalRouteActive(context)) return;
-                        showAppMessage(
-                          context,
-                          widget.persistenceFailure!,
-                          title: (strings) => strings.privacyNoticeTitle,
-                        );
-                      },
-                      icon: const Icon(Icons.error_outline),
-                      label: Text(strings.errorDetails),
-                    ),
-                ],
-              ),
-            ),
-    );
     return LegalRouteContent(
       child: AlertDialog(
         scrollable: true,
@@ -152,14 +113,6 @@ class _PrivacyNoticeDialogState extends State<PrivacyNoticeDialog> {
               Text(strings.privacyNoticeIntro),
               const SizedBox(height: 16),
               const _LocalGplLink(),
-              if (MediaQuery.disableAnimationsOf(context))
-                failureContent
-              else
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 160),
-                  alignment: Alignment.topLeft,
-                  child: failureContent,
-                ),
             ],
           ),
         ),
@@ -292,70 +245,80 @@ class _LocalGplPage extends StatefulWidget {
 }
 
 class _LocalGplPageState extends State<_LocalGplPage> {
-  late Future<String> _license = rootBundle.loadString('LICENSE');
+  late Future<String> _license = rootBundle.loadString('LICENSE', cache: false);
+  Future<String>? _noticed;
+
+  void _scheduleFailure(
+    BuildContext context,
+    Future<String> source,
+    Object error,
+  ) {
+    if (identical(_noticed, source)) return;
+    _noticed = source;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted ||
+          !context.mounted ||
+          !identical(_license, source) ||
+          !_legalRouteActive(context)) {
+        if (identical(_noticed, source)) _noticed = null;
+        return;
+      }
+      final route = ModalRoute.of(context);
+      bool current({ModalRoute<dynamic>? popup}) =>
+          mounted &&
+          context.mounted &&
+          identical(_license, source) &&
+          AppTaskActivity.routeIsActive(route, ownedPopup: popup);
+      final shown = await showAppNotice(
+        context,
+        messages.operationNotCompletedRetry.withDetail(error),
+        title: (strings) => strings.privacyNoticeLicenseName,
+        isCurrent: current,
+        isCurrentWithPopup: (popup) => current(popup: popup),
+        onRetry: () async {
+          if (current()) {
+            setState(() {
+              _license = rootBundle.loadString('LICENSE', cache: false);
+            });
+          }
+        },
+        identity: source,
+      );
+      if (!shown && mounted && identical(_noticed, source)) _noticed = null;
+    });
+  }
 
   @override
-  Widget build(BuildContext context) => LegalRouteContent(
-    child: Scaffold(
-      appBar: AppBar(
-        title: Text(AppLocalizations.of(context).privacyNoticeLicenseName),
-      ),
-      body: SafeArea(
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 840),
-            child: FutureBuilder<String>(
-              future: _license,
-              builder: (context, snapshot) {
-                if (snapshot.hasData) {
-                  return SingleChildScrollView(
-                    padding: const EdgeInsets.all(24),
-                    child: SelectableText(snapshot.requireData),
-                  );
-                }
-                if (snapshot.hasError) {
-                  return SingleChildScrollView(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      children: [
-                        Text(
-                          AppLocalizations.of(context)
-                              .operationNotCompletedRetry,
-                        ),
-                        TextButton.icon(
-                          key: const ValueKey('license-load-error-details'),
-                          onPressed: () {
-                            if (!_legalRouteActive(context)) return;
-                            showAppMessage(
-                              context,
-                              messages.operationNotCompletedRetry.withDetail(
-                                snapshot.error,
-                              ),
-                              title: (strings) =>
-                                  strings.privacyNoticeLicenseName,
-                            );
-                          },
-                          icon: const Icon(Icons.error_outline),
-                          label: Text(
-                            AppLocalizations.of(context).errorDetails,
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () {
-                            if (!_legalRouteActive(context)) return;
-                            setState(
-                              () => _license = rootBundle.loadString('LICENSE'),
-                            );
-                          },
-                          child: Text(AppLocalizations.of(context).retry),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-                return const Center(child: CircularProgressIndicator());
-              },
+  Widget build(BuildContext context) => OperationNoticeHost(
+    child: Builder(
+      builder: (context) => LegalRouteContent(
+        child: Scaffold(
+          appBar: AppBar(
+            title: Text(AppLocalizations.of(context).privacyNoticeLicenseName),
+          ),
+          body: SafeArea(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 840),
+                child: FutureBuilder<String>(
+                  future: _license,
+                  builder: (context, snapshot) {
+                    if (snapshot.hasData) {
+                      return SingleChildScrollView(
+                        padding: const EdgeInsets.all(24),
+                        child: SelectableText(snapshot.requireData),
+                      );
+                    }
+                    if (snapshot.connectionState == ConnectionState.done &&
+                        snapshot.hasError) {
+                      _scheduleFailure(context, _license, snapshot.error!);
+                      return const SizedBox.shrink();
+                    }
+                    return const Center(child: CircularProgressIndicator());
+                  },
+                ),
+              ),
             ),
           ),
         ),

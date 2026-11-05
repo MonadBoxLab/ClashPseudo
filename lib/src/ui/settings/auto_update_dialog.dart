@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:clash_pseudo/src/model/app_snapshot.dart';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 
 import '../app/app_controller.dart';
+import '../navigation/route_observer.dart';
 import '../navigation/task_activity.dart';
+import '../locale/message_text.dart';
 import '../components/input/choice_menu_button.dart';
 import '../components/feedback/operation_notice.dart';
 import '../../l10n/app_localizations.dart';
@@ -26,6 +30,32 @@ Future<void> showAutoUpdateDialog(
   final id = config?.id ?? override?.id;
   final policy = config?.update ?? override?.update;
   if (source == null || id == null || policy == null) return;
+  final history = config?.errorMessage ?? override?.errorMessage;
+  bool sameHistory(UpdatePolicy? current, AppMessage? error) =>
+      current != null &&
+      current.lastAttempt == policy.lastAttempt &&
+      current.lastResult == policy.lastResult &&
+      error == history;
+  bool historyCurrent() {
+    if (epoch != app.storageEpoch || epoch != app.state.storageEpoch) {
+      return false;
+    }
+    if (config != null) {
+      if (!app.configsLoaded) return true;
+      final current = app.collection.find(id);
+      return current != null &&
+          current.remote &&
+          current.source == source &&
+          current.revision == config.revision &&
+          sameHistory(current.update, current.errorMessage);
+    }
+    if (!app.overridesLoaded) return true;
+    final current = app.overrides.where((entry) => entry.id == id).firstOrNull;
+    return current != null &&
+        override!.sameDownloadInput(current) &&
+        sameHistory(current.update, current.errorMessage);
+  }
+
   final originRoute = ModalRoute.of(context);
   ModalRoute<dynamic>? ownedPopup;
   bool ownerCurrent({Route<dynamic>? popup}) =>
@@ -50,6 +80,8 @@ Future<void> showAutoUpdateDialog(
       child: _AutoUpdateDialog(
         app: app,
         policy: policy,
+        historyError: history,
+        historyCurrent: historyCurrent,
         ownerCurrent: ownerCurrent,
         targetCurrent: () => isCurrent?.call() ?? true,
         staleMessage: () =>
@@ -87,6 +119,8 @@ class _AutoUpdateDialog extends StatefulWidget {
   const _AutoUpdateDialog({
     required this.app,
     required this.policy,
+    required this.historyError,
+    required this.historyCurrent,
     required this.submit,
     required this.ownerCurrent,
     required this.targetCurrent,
@@ -95,6 +129,8 @@ class _AutoUpdateDialog extends StatefulWidget {
 
   final AppController app;
   final UpdatePolicy policy;
+  final AppMessage? historyError;
+  final bool Function() historyCurrent;
   final bool Function({Route<dynamic>? popup}) ownerCurrent;
   final bool Function() targetCurrent;
   final AppMessage Function() staleMessage;
@@ -113,8 +149,11 @@ class _AutoUpdateDialogState extends State<_AutoUpdateDialog> {
   late bool _enabled;
   late int _hours;
   bool _saving = false;
+  bool _historyScheduled = false;
+  bool _historyQueued = false;
   AppMessage? _error;
   ModalRoute<dynamic>? _route;
+  Listenable? _routeChanges;
   bool _current({ModalRoute<dynamic>? popup}) =>
       mounted &&
       widget.ownerCurrent(popup: popup) &&
@@ -143,6 +182,71 @@ class _AutoUpdateDialogState extends State<_AutoUpdateDialog> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _route = ModalRoute.of(context);
+    final changes = AppTaskNavigatorObserver.changesFor(_route);
+    if (!identical(_routeChanges, changes)) {
+      _routeChanges?.removeListener(_scheduleHistory);
+      _routeChanges = changes;
+      _routeChanges?.addListener(_scheduleHistory);
+    }
+    _scheduleHistory();
+  }
+
+  void _scheduleHistory() {
+    if (!mounted ||
+        _historyScheduled ||
+        _historyQueued ||
+        !const ['failed', 'applyFailed'].contains(widget.policy.lastResult)) {
+      return;
+    }
+    _historyQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _historyQueued = false;
+      if (!mounted ||
+          _historyScheduled ||
+          !_current() ||
+          _saving ||
+          !widget.targetCurrent() ||
+          !widget.historyCurrent()) {
+        return;
+      }
+      _historyScheduled = true;
+      unawaited(_showHistory());
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  Future<void> _showHistory() async {
+    final history = widget.historyError;
+    bool current({ModalRoute<dynamic>? popup}) =>
+        _current(popup: popup) && !_saving && widget.historyCurrent();
+    String summary(AppLocalizations strings) =>
+        widget.policy.lastResult == 'applyFailed'
+        ? strings.autoUpdateApplyFailed
+        : history?.summary(strings) ?? strings.autoUpdateFailed;
+    String? detail(AppLocalizations strings) {
+      if (history == null) return null;
+      final values = [
+        if (widget.policy.lastResult == 'applyFailed') history.summary(strings),
+        ?history.technicalDetail(strings),
+      ];
+      return values.isEmpty ? null : values.join('\n\n');
+    }
+
+    final shown = await showLocalizedOperationNotice(
+      context,
+      summary,
+      technicalDetail: detail,
+      title: (strings) => strings.autoUpdate,
+      eligibilityChanges: widget.app,
+      isCurrent: current,
+      isCurrentWithPopup: (popup) => current(popup: popup),
+      identity: (
+        'auto-update-history',
+        widget.policy.lastAttempt,
+        widget.policy.lastResult,
+      ),
+    );
+    if (!shown && mounted) _historyScheduled = false;
   }
 
   @override
@@ -150,6 +254,7 @@ class _AutoUpdateDialogState extends State<_AutoUpdateDialog> {
     super.initState();
     _enabled = widget.policy.enabled;
     _hours = widget.policy.hours;
+    widget.app.addListener(_scheduleHistory);
   }
 
   Future<void> _save() async {
@@ -189,6 +294,8 @@ class _AutoUpdateDialogState extends State<_AutoUpdateDialog> {
 
   @override
   void dispose() {
+    widget.app.removeListener(_scheduleHistory);
+    _routeChanges?.removeListener(_scheduleHistory);
     _feedbackOwner.value = false;
     _feedbackOwner.dispose();
     super.dispose();
@@ -262,15 +369,17 @@ class _AutoUpdateDialogState extends State<_AutoUpdateDialog> {
                   '${MaterialLocalizations.of(context).formatFullDate(widget.policy.lastAttempt!.toLocal())}',
                   style: theme.textTheme.bodySmall,
                 ),
-                Text(switch (widget.policy.lastResult) {
-                  'applied' => strings.autoUpdateApplied,
-                  'updated' || 'saved' => strings.autoUpdateSaved,
-                  'unchanged' => strings.autoUpdateUnchanged,
-                  'applyFailed' => strings.autoUpdateApplyFailed,
-                  'failed' => strings.autoUpdateFailed,
-                  null => strings.autoUpdateNever,
-                  _ => strings.resultUnconfirmed,
-                }, style: theme.textTheme.bodySmall),
+                if (!const [
+                  'failed',
+                  'applyFailed',
+                ].contains(widget.policy.lastResult))
+                  Text(switch (widget.policy.lastResult) {
+                    'applied' => strings.autoUpdateApplied,
+                    'updated' || 'saved' => strings.autoUpdateSaved,
+                    'unchanged' => strings.autoUpdateUnchanged,
+                    null => strings.autoUpdateNever,
+                    _ => strings.resultUnconfirmed,
+                  }, style: theme.textTheme.bodySmall),
               ],
             ],
           ),

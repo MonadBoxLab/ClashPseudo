@@ -124,13 +124,11 @@ class CoreDiagnosticFixture {
     'sourceIdentity': groupIdentity,
     'currentIdentity': currentIdentity,
     'members': members,
-    'raw': {
-      'type': groupType,
-      'hidden': false,
-      'now': current,
-      'fixed': '',
-      'icon': '',
-    },
+    'type': groupType,
+    'hidden': false,
+    'now': current,
+    'fixed': '',
+    'icon': '',
   };
 
   void script(

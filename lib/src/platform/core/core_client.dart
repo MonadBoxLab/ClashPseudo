@@ -37,10 +37,40 @@ class CoreFrame {
   final int kind;
   final Uint8List payload;
 
-  Object? get json => jsonDecode(utf8.decode(payload));
+  Object? get json => _decodeJson(payload);
   Map<String, dynamic> get object => Map<String, dynamic>.from(json as Map);
   bool get terminal => kind == ApplicationContract.coreIpcFrameTerminal;
 }
+
+Object? _decodeJson(List<int> bytes) {
+  try {
+    return jsonDecode(utf8.decode(bytes));
+  } on FormatException catch (error) {
+    throw FormatException(error.message, null, error.offset);
+  }
+}
+
+Map<String, dynamic> _diagnosticFields(Map<String, dynamic> value) => {
+  for (final key in [
+    'processId',
+    'requestId',
+    'phase',
+    'reason',
+    'complete',
+    'exited',
+    'stale',
+    'recordCount',
+    'error',
+    'cancelError',
+    'nativeReceipt',
+  ])
+    if (value[key] != null &&
+        (const ['error', 'cancelError', 'nativeReceipt'].contains(key) ||
+            value[key] is String ||
+            value[key] is num ||
+            value[key] is bool))
+      key: value[key],
+};
 
 class CoreResult {
   const CoreResult(this.value, this.terminal);
@@ -106,7 +136,15 @@ class CoreClient {
           code: admission['error'] is String
               ? admission['error'] as String
               : ApplicationContract.coreErrorCallFailed,
-          details: admission,
+          details: {
+            if (admission['accepted'] is bool)
+              'accepted': admission['accepted'],
+            if (id is int) 'requestId': id,
+            if (process is String) 'processId': process,
+            if (admission['error'] != null) 'error': admission['error'],
+            if (admission['nativeReceipt'] != null)
+              'nativeReceipt': admission['nativeReceipt'],
+          },
         );
       }
       final key = (identity.processId, id);
@@ -164,7 +202,27 @@ class CoreClient {
         result['durable'] is! bool ||
         result['path'] is! String ||
         result['inputId'] != inputId) {
-      throw PlatformFailure(code: 'storage', details: result);
+      throw PlatformFailure(
+        code: 'storage',
+        details: {
+          'expectedInputId': inputId,
+          if (result['inputId'] is String) 'inputId': result['inputId'],
+          if (result['inputId'] != null && result['inputId'] is! String)
+            'inputIdType': result['inputId'].runtimeType.toString(),
+          if (result['saved'] is bool) 'saved': result['saved'],
+          if (result['saved'] != null && result['saved'] is! bool)
+            'savedType': result['saved'].runtimeType.toString(),
+          if (result['durable'] is bool) 'durable': result['durable'],
+          if (result['durable'] != null && result['durable'] is! bool)
+            'durableType': result['durable'].runtimeType.toString(),
+          if (result['path'] is String) 'path': result['path'],
+          if (result['path'] != null && result['path'] is! String)
+            'pathType': result['path'].runtimeType.toString(),
+          if (result['error'] != null) 'error': result['error'],
+          if (result['cancelError'] != null)
+            'cancelError': result['cancelError'],
+        },
+      );
     }
     return result;
   }
@@ -288,7 +346,7 @@ class CoreCall {
       if (_death != null) {
         throw PlatformFailure(
           code: ApplicationContract.coreErrorProcessExited,
-          details: _death,
+          details: _diagnosticFields(_death!),
         );
       }
       final result = await client._map(ApplicationContract.coreChannelRead, {
@@ -315,7 +373,12 @@ class CoreCall {
           payload.length > ApplicationContract.coreIpcFrameBytes) {
         throw PlatformFailure(
           code: ApplicationContract.coreErrorTransportInterrupted,
-          details: result,
+          details: {
+            if (kind is int) 'kind': kind,
+            if (payload is Uint8List) 'payloadBytes': payload.length,
+            if (nativeReceipt is Map) 'nativeReceipt': nativeReceipt,
+            if (result['error'] != null) 'error': result['error'],
+          },
         );
       }
       final frame = CoreFrame(kind, payload);
@@ -329,11 +392,7 @@ class CoreCall {
 
   Object? _errorValue(Object? error) => switch (error) {
     PlatformFailure() => error.toMap(),
-    FormatException() => {
-      'message': error.message,
-      'source': error.source,
-      'offset': error.offset,
-    },
+    FormatException() => {'message': error.message, 'offset': error.offset},
     _ => error?.toString(),
   };
 
@@ -343,8 +402,8 @@ class CoreCall {
       throw PlatformFailure(
         code: ApplicationContract.coreErrorProcessExited,
         details: {
-          'event': _death,
-          'terminal': terminal,
+          'event': _diagnosticFields(_death!),
+          'terminal': _diagnosticFields(terminal),
           'nativeReceipt': _receipt,
         },
       );
@@ -432,7 +491,7 @@ class CoreCall {
       }
       final completed = await finish(terminal);
       return CoreResult(
-        bytes.isEmpty ? null : jsonDecode(utf8.decode(bytes.takeBytes())),
+        bytes.isEmpty ? null : _decodeJson(bytes.takeBytes()),
         completed,
       );
     } catch (error, stack) {

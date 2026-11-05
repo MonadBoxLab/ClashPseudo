@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -8,7 +7,6 @@ import '../../app/app_controller.dart';
 import '../../theme/app_theme.dart';
 import '../../components/input/choice_menu_button.dart';
 import '../../components/feedback/operation_notice.dart';
-import '../../components/reading/original_text_view.dart';
 import '../../../l10n/app_localizations.dart';
 import 'dns_controller.dart';
 import '../../../model/dns_snapshot.dart';
@@ -62,14 +60,16 @@ String _cacheDetails(AppLocalizations strings, DnsCacheResult cache) {
   };
   return [
     _cacheStatus(strings, cache),
-    if (cache.raw['cache'] case final Map data)
-      for (final field in ['resolverActive', 'systemResolverActive'])
-        if (data[field] case final bool active)
-          '$field · ${!active
-              ? strings.dnsPoolInactive
-              : cache.status == DnsCacheStatus.completed
-              ? strings.dnsPoolCleared
-              : strings.dnsPoolUnconfirmed}',
+    for (final field in [
+      ('resolverActive', cache.resolverActive),
+      ('systemResolverActive', cache.systemResolverActive),
+    ])
+      if (field.$2 case final active?)
+        '${field.$1} · ${!active
+            ? strings.dnsPoolInactive
+            : cache.status == DnsCacheStatus.completed
+            ? strings.dnsPoolCleared
+            : strings.dnsPoolUnconfirmed}',
     if (cache.ipv4 case final pool?) 'IPv4 · ${outcome(pool)}',
     if (cache.ipv6 case final pool?) 'IPv6 · ${outcome(pool)}',
     if (cache.persistent case final enabled?)
@@ -177,7 +177,6 @@ class _DnsToolState extends State<DnsTool> with SingleTickerProviderStateMixin {
   final _contentKey = GlobalKey();
   final _localOverlays = <ModalRoute<dynamic>>{};
   DnsCacheResult? _cacheResult;
-  bool _cacheFakeIp = false;
   Object? _cacheError;
   bool _results = false;
   bool _confirming = false;
@@ -348,7 +347,6 @@ class _DnsToolState extends State<DnsTool> with SingleTickerProviderStateMixin {
     String message, {
     String? detail,
     String? title,
-    String? rawTitle,
     WidgetBuilder? identity,
   }) async {
     if (!await _canPresent(_controller.contextVersion)) return;
@@ -371,18 +369,9 @@ class _DnsToolState extends State<DnsTool> with SingleTickerProviderStateMixin {
             ),
             if (detail != null && detail.isNotEmpty) ...[
               const SizedBox(height: 12),
-              TextButton.icon(
-                key: const ValueKey('dns-technical-details'),
-                icon: const Icon(Icons.subject),
-                label: Text(rawTitle ?? strings.technicalDetails),
-                onPressed: () {
-                  if (!_localDialogCurrent(dialogContext)) return;
-                  _rawText(
-                    detail,
-                    title: rawTitle ?? strings.technicalDetails,
-                    identity: identity,
-                  );
-                },
+              SelectableText(
+                detail,
+                scrollPhysics: const NeverScrollableScrollPhysics(),
               ),
             ],
           ],
@@ -396,45 +385,6 @@ class _DnsToolState extends State<DnsTool> with SingleTickerProviderStateMixin {
       );
     });
   }
-
-  Future<void> _rawText(
-    String text, {
-    required String title,
-    WidgetBuilder? identity,
-  }) async {
-    if (!await _canPresent(_controller.contextVersion)) return;
-    await _showLocalDialog<void>(
-      (dialogContext) => ListenableBuilder(
-        listenable: _controller,
-        builder: (context, _) => AlertDialog(
-          title: Text(title),
-          content: SizedBox(
-            width: 640,
-            height: MediaQuery.sizeOf(context).height * .5,
-            child: OriginalTextView(
-              text: text,
-              identity: text,
-              isCurrent: () => _localDialogCurrent(dialogContext),
-              header: identity?.call(context),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => _popLocalDialog<void>(dialogContext),
-              child: Text(AppLocalizations.of(context).close),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _rawData(DnsResponse response) => _rawText(
-    const JsonEncoder.withIndent('  ').convert(response.raw),
-    title: AppLocalizations.of(context).dnsQueryRawData,
-    identity: (context) =>
-        _responseIdentity(AppLocalizations.of(context), response),
-  );
 
   void _viewResults(DnsResponse response) {
     if (!_canAct || _results || !identical(response, _controller.response)) {
@@ -454,8 +404,11 @@ class _DnsToolState extends State<DnsTool> with SingleTickerProviderStateMixin {
     return _details(
       _cacheDetails(strings, result),
       title: strings.dnsCacheOperationDetails,
-      detail: const JsonEncoder.withIndent('  ').convert(result.raw),
-      rawTitle: strings.dnsCacheRawData,
+      detail: [
+        ?result.detail,
+        if (result.cancellationError != null)
+          result.cancellationError.toString(),
+      ].join('\n'),
       identity: (context) {
         final strings = AppLocalizations.of(context);
         return Column(
@@ -516,7 +469,6 @@ class _DnsToolState extends State<DnsTool> with SingleTickerProviderStateMixin {
     setState(() {
       _cacheResult = null;
       _cacheError = null;
-      _cacheFakeIp = fakeIp;
     });
     try {
       final result = await _controller.clearCache(fakeIp: fakeIp);
@@ -526,7 +478,9 @@ class _DnsToolState extends State<DnsTool> with SingleTickerProviderStateMixin {
         await showLocalizedOperationNotice(
           context,
           (strings) => _cacheStatus(strings, result),
-          error: result.status == DnsCacheStatus.partialOrFailed,
+          error:
+              result.status == DnsCacheStatus.partialOrFailed ||
+              result.cancellationError != null,
           identity: result,
           eligibilityChanges: _controller,
           isCurrent: () =>
@@ -552,7 +506,13 @@ class _DnsToolState extends State<DnsTool> with SingleTickerProviderStateMixin {
             _canAct &&
             version == _controller.contextVersion &&
             identical(_cacheError, error),
-        onDetails: _cacheDetailsForCurrent,
+        onDetails: () => _details(
+          error is DnsFailure
+              ? _failure(AppLocalizations.of(context), error.code)
+              : AppLocalizations.of(context).dnsCacheFailed,
+          title: AppLocalizations.of(context).dnsCacheOperationDetails,
+          detail: error.toString(),
+        ),
       );
     }
   }
@@ -584,8 +544,21 @@ class _DnsToolState extends State<DnsTool> with SingleTickerProviderStateMixin {
           _name.value = draft;
         }
       });
-    } else if (code != null &&
-        !const ['invalidRequest', 'obsolete', 'cancelled'].contains(code)) {
+      if (_controller.cancellationError case final detail?) {
+        await showLocalizedOperationNotice(
+          context,
+          (strings) => strings.dnsQueryFailed,
+          technicalDetail: (_) => detail,
+          identity: (requestVersion, detail),
+          eligibilityChanges: _controller,
+          isCurrent: () =>
+              _canAct &&
+              requestVersion == _controller.contextVersion &&
+              _controller.cancellationError == detail,
+          onDetails: _queryDetails,
+        );
+      }
+    } else if (code != null) {
       final detail = [
         _controller.errorDetail ?? code,
         ?_controller.cancellationError,
@@ -603,16 +576,6 @@ class _DnsToolState extends State<DnsTool> with SingleTickerProviderStateMixin {
         onDetails: _queryDetails,
       );
     }
-  }
-
-  Future<void> _refresh(int version) async {
-    if (!_canAct ||
-        version != _controller.contextVersion ||
-        _results ||
-        _confirming) {
-      return;
-    }
-    await _controller.refresh();
   }
 
   void _beginExit() {
@@ -646,28 +609,10 @@ class _DnsToolState extends State<DnsTool> with SingleTickerProviderStateMixin {
     ].join('\n'),
   );
 
-  Future<void> _cacheDetailsForCurrent() async {
-    if (_cacheResult case final result?) {
-      await _cacheDetailsDialog(result, _cacheFakeIp);
-    } else if (_cacheError case final error?) {
-      final strings = AppLocalizations.of(context);
-      await _details(
-        error is DnsFailure
-            ? _failure(strings, error.code)
-            : strings.dnsCacheFailed,
-        title: strings.dnsCacheOperationDetails,
-        detail: error.toString(),
-        rawTitle: strings.dnsCacheRawData,
-      );
-    }
-  }
-
   Widget _actions(AppLocalizations strings, BoxConstraints bounds) {
     final colors = Theme.of(context).colorScheme;
     final version = _controller.contextVersion;
     final response = _controller.response;
-    final hasError =
-        _controller.errorCode != null || _controller.cancellationError != null;
     final canClear = _controller.canQuery && (!_results || !_controller.stale);
     return ChoiceMenuButton<String>(
       key: const ValueKey('dns-actions'),
@@ -676,11 +621,7 @@ class _DnsToolState extends State<DnsTool> with SingleTickerProviderStateMixin {
       enabled:
           !_exiting &&
           !_confirming &&
-          (canClear ||
-              response != null && !_results ||
-              hasError ||
-              _cacheResult != null ||
-              _cacheError != null),
+          (canClear || response != null && !_results),
       disabledOptions: {
         if (!canClear) ...['clear', 'fakeIp'],
       },
@@ -692,9 +633,6 @@ class _DnsToolState extends State<DnsTool> with SingleTickerProviderStateMixin {
           'results': _responseExpired(response)
               ? strings.dnsViewPreviousQuery
               : strings.dnsViewQueryResults,
-        if (hasError) 'error': strings.errorDetails,
-        if (_cacheResult != null || _cacheError != null)
-          'cache': strings.dnsCacheOperationDetails,
       },
       leadingIcon: (action) => Icon(switch (action) {
         'fakeIp' => Icons.link_off,
@@ -717,10 +655,6 @@ class _DnsToolState extends State<DnsTool> with SingleTickerProviderStateMixin {
             _clear(true, version: version);
           case 'results':
             if (response != null) _viewResults(response);
-          case 'error':
-            _queryDetails();
-          case 'cache':
-            _cacheDetailsForCurrent();
         }
       },
       onOpened: () => _menuOpen = true,
@@ -734,30 +668,6 @@ class _DnsToolState extends State<DnsTool> with SingleTickerProviderStateMixin {
           child: _controller.clearing
               ? const CircularProgressIndicator(strokeWidth: 2)
               : const Icon(Icons.more_vert, size: 18),
-        ),
-      ),
-    );
-  }
-
-  Widget _affordance({required bool visible, required Widget child}) {
-    final reduced = MediaQuery.disableAnimationsOf(context);
-    final target = visible ? 1.0 : 0.0;
-    return ExcludeFocus(
-      excluding: !visible,
-      child: IgnorePointer(
-        ignoring: !visible,
-        child: ExcludeSemantics(
-          excluding: !visible,
-          child: TweenAnimationBuilder<double>(
-            tween: Tween(begin: target, end: target),
-            duration: reduced
-                ? Duration.zero
-                : const Duration(milliseconds: 180),
-            curve: Curves.easeInOutCubic,
-            builder: (_, value, child) =>
-                Opacity(opacity: reduced ? target : value, child: child),
-            child: child,
-          ),
         ),
       ),
     );
@@ -802,132 +712,63 @@ class _DnsToolState extends State<DnsTool> with SingleTickerProviderStateMixin {
     return size;
   }
 
-  Widget _queryControls(AppLocalizations strings, BoxConstraints bounds) =>
-      LayoutBuilder(
-        builder: (context, constraints) {
-          final version = _controller.contextVersion;
-          final style = Theme.of(context).textTheme.labelLarge!;
-          final queryWidth = _labelSize(strings.dnsQuery, style).width + 64;
-          final refreshWidth =
-              _labelSize(strings.dnsRefreshCoreStatus, style).width + 64;
-          final groupWidth = math.min(
-            constraints.maxWidth,
-            queryWidth + 8 + refreshWidth,
-          );
-          final inline = groupWidth >= queryWidth + 8 + refreshWidth;
-          final labelWidth = math.max(1.0, groupWidth - 64);
-          final height = math.max(
-            48.0,
-            math.max(
-                  _labelSize(
-                    strings.dnsQuery,
-                    style,
-                    maxWidth: inline ? queryWidth - 64 : labelWidth,
-                  ).height,
-                  _labelSize(
-                    strings.dnsRefreshCoreStatus,
-                    style,
-                    maxWidth: inline ? refreshWidth - 64 : labelWidth,
-                  ).height,
-                ) +
-                24,
-          );
-          final enabled = _controller.canQuery && !_confirming;
-          final buttonStyle = FilledButton.styleFrom(
-            minimumSize: Size(48, height),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          );
-          final query = SizedBox(
-            width: inline ? queryWidth : groupWidth,
-            height: height,
-            child: FilledButton.icon(
-              key: const ValueKey('dns-query'),
-              style: buttonStyle,
-              onPressed: enabled ? () => _query(version: version) : null,
-              icon: SizedBox.square(dimension: 18, child: _queryIcon()),
-              label: Text(strings.dnsQuery, textAlign: TextAlign.center),
-            ),
-          );
-          final refresh = SizedBox(
-            width: inline ? refreshWidth : groupWidth,
-            height: height,
-            child: Tooltip(
-              message: strings.dnsRefreshCoreStatus,
-              child: FilledButton.tonalIcon(
-                key: const ValueKey('dns-refresh'),
-                style: buttonStyle,
-                onPressed: _controller.canRefresh && !_confirming
-                    ? () => _refresh(version)
-                    : null,
-                icon: const Icon(Icons.refresh, size: 18),
-                label: Text(
-                  strings.dnsRefreshCoreStatus,
-                  textAlign: TextAlign.center,
+  Widget _queryControls(AppLocalizations strings, BoxConstraints bounds) {
+    final version = _controller.contextVersion;
+    return Wrap(
+      key: const ValueKey('dns-query-controls'),
+      spacing: 8,
+      runSpacing: 12,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        ConstrainedBox(
+          constraints: BoxConstraints(minHeight: 48, maxWidth: bounds.maxWidth),
+          child: IntrinsicWidth(
+            child: ChoiceMenuButton<String>(
+              key: const ValueKey('dns-type'),
+              identity: version,
+              maxHeight: bounds.maxHeight * .5,
+              tooltip: strings.dnsRecordType,
+              value: _controller.type,
+              enabled: !_controller.busy && !_confirming,
+              onSelected: _controller.setType,
+              options: {for (final type in dnsRecordTypes) type: type},
+              child: InputDecorator(
+                decoration: InputDecoration(
+                  labelText: strings.dnsRecordType,
+                  constraints: const BoxConstraints(minHeight: 48),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 12,
+                  ),
                 ),
-              ),
-            ),
-          );
-          return Wrap(
-            key: const ValueKey('dns-query-controls'),
-            spacing: 8,
-            runSpacing: 12,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              ConstrainedBox(
-                constraints: BoxConstraints(
-                  minHeight: 48,
-                  maxWidth: constraints.maxWidth,
-                ),
-                child: IntrinsicWidth(
-                  child: ChoiceMenuButton<String>(
-                    key: const ValueKey('dns-type'),
-                    identity: version,
-                    maxHeight: bounds.maxHeight * .5,
-                    tooltip: strings.dnsRecordType,
-                    value: _controller.type,
-                    enabled: !_controller.busy && !_confirming,
-                    onSelected: _controller.setType,
-                    options: {for (final type in dnsRecordTypes) type: type},
-                    child: InputDecorator(
-                      decoration: InputDecoration(
-                        labelText: strings.dnsRecordType,
-                        constraints: const BoxConstraints(minHeight: 48),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 12,
-                        ),
-                      ),
-                      child: SizedBox(
-                        width: MediaQuery.textScalerOf(context).scale(16) * 5.5,
-                        child: Row(
-                          children: [
-                            Expanded(child: Text(_controller.type)),
-                            const Icon(Icons.arrow_drop_down),
-                          ],
-                        ),
-                      ),
-                    ),
+                child: SizedBox(
+                  width: MediaQuery.textScalerOf(context).scale(16) * 5.5,
+                  child: Row(
+                    children: [
+                      Expanded(child: Text(_controller.type)),
+                      const Icon(Icons.arrow_drop_down),
+                    ],
                   ),
                 ),
               ),
-              SizedBox(
-                key: const ValueKey('dns-query-actions'),
-                width: groupWidth,
-                child: Flex(
-                  direction: inline ? Axis.horizontal : Axis.vertical,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    query,
-                    SizedBox(width: inline ? 8 : 0, height: inline ? 0 : 8),
-                    refresh,
-                  ],
-                ),
-              ),
-            ],
-          );
-        },
-      );
+            ),
+          ),
+        ),
+        FilledButton.icon(
+          key: const ValueKey('dns-query'),
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(48, 48),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          ),
+          onPressed: _controller.canQuery && !_confirming
+              ? () => _query(version: version)
+              : null,
+          icon: SizedBox.square(dimension: 18, child: _queryIcon()),
+          label: Text(strings.dnsQuery, textAlign: TextAlign.center),
+        ),
+      ],
+    );
+  }
 
   Widget _headerTitle(AppLocalizations strings) => LayoutBuilder(
     builder: (context, bounds) {
@@ -963,11 +804,6 @@ class _DnsToolState extends State<DnsTool> with SingleTickerProviderStateMixin {
   Widget _form(AppLocalizations strings, BoxConstraints bounds) {
     final version = _controller.contextVersion;
     final enabled = _controller.canQuery && !_confirming;
-    final code = _controller.errorCode;
-    final queryDetail = [
-      ?(_controller.errorDetail ?? code),
-      ?_controller.cancellationError,
-    ].join('\n');
     return Padding(
       // 表单顶部为浮动标签预留绘制空间，SizeTransition 在退出动画中裁剪隐藏内容。
       padding: EdgeInsets.fromLTRB(
@@ -986,27 +822,7 @@ class _DnsToolState extends State<DnsTool> with SingleTickerProviderStateMixin {
             autocorrect: false,
             enableSuggestions: false,
             keyboardType: TextInputType.url,
-            decoration: InputDecoration(
-              labelText: strings.dnsName,
-              suffixIcon: _affordance(
-                visible: code == 'invalidRequest',
-                child: IconButton(
-                  tooltip: strings.dnsInvalidRequest,
-                  onPressed: () {
-                    if (!_canAct ||
-                        version != _controller.contextVersion ||
-                        _controller.errorCode != 'invalidRequest') {
-                      return;
-                    }
-                    _details(strings.dnsInvalidRequest, detail: queryDetail);
-                  },
-                  icon: Icon(
-                    Icons.error_outline,
-                    color: Theme.of(context).colorScheme.error,
-                  ),
-                ),
-              ),
-            ),
+            decoration: InputDecoration(labelText: strings.dnsName),
             onSubmitted: (_) {
               if (enabled) _query(version: version);
             },
@@ -1023,73 +839,21 @@ class _DnsToolState extends State<DnsTool> with SingleTickerProviderStateMixin {
     );
   }
 
-  Widget _resultSummary(AppLocalizations strings, DnsResponse result) =>
-      LayoutBuilder(
-        builder: (context, bounds) {
-          final action = TextButton.icon(
-            key: const ValueKey('dns-raw-data'),
-            icon: const Icon(Icons.data_object),
-            label: Text(strings.rawData),
-            onPressed: () {
-              if (_canAct &&
-                  _results &&
-                  identical(result, _controller.response)) {
-                _rawData(result);
-              }
-            },
-          );
-          final summary = Column(
-            key: const ValueKey('dns-result-identity'),
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _responseIdentity(strings, result),
-              const SizedBox(height: 8),
-              SelectableText(
-                strings.dnsRcode(result.rcodeName, result.rcode),
-                scrollPhysics: const NeverScrollableScrollPhysics(),
-              ),
-              Text(strings.dnsElapsed(result.elapsedMs)),
-              if (result.truncated) Text(strings.dnsTruncated),
-              if (_controller.cancellationError case final detail?)
-                TextButton.icon(
-                  onPressed: () {
-                    if (!_canAct) return;
-                    _details(strings.dnsQueryFailed, detail: detail);
-                  },
-                  icon: const Icon(Icons.error_outline),
-                  label: Text(strings.errorDetails),
-                ),
-            ],
-          );
-          final actionWidth =
-              _labelSize(
-                strings.rawData,
-                Theme.of(context).textTheme.labelLarge!,
-              ).width +
-              64;
-          final inline =
-              bounds.maxWidth >=
-              actionWidth + 16 + MediaQuery.textScalerOf(context).scale(160);
-          return Wrap(
-            key: const ValueKey('dns-result-summary'),
-            spacing: 16,
-            crossAxisAlignment: WrapCrossAlignment.start,
-            children: [
-              SizedBox(
-                width: inline
-                    ? bounds.maxWidth - actionWidth - 16
-                    : bounds.maxWidth,
-                child: summary,
-              ),
-              SizedBox(
-                width: inline ? actionWidth : bounds.maxWidth,
-                child: Align(alignment: Alignment.topRight, child: action),
-              ),
-            ],
-          );
-        },
-      );
+  Widget _resultSummary(AppLocalizations strings, DnsResponse result) => Column(
+    key: const ValueKey('dns-result-summary'),
+    crossAxisAlignment: CrossAxisAlignment.start,
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _responseIdentity(strings, result),
+      const SizedBox(height: 8),
+      SelectableText(
+        strings.dnsRcode(result.rcodeName, result.rcode),
+        scrollPhysics: const NeverScrollableScrollPhysics(),
+      ),
+      Text(strings.dnsElapsed(result.elapsedMs)),
+      if (result.truncated) Text(strings.dnsTruncated),
+    ],
+  );
 
   List<Widget> _records(AppLocalizations strings, DnsResponse result) => [
     Padding(

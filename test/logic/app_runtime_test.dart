@@ -456,8 +456,9 @@ void main() {
           expect(result['composition'], 'one');
           expect(result['purpose'], 'RUNNING');
           final row = (result['connections'] as List).single as Map;
-          expect((row['raw'] as Map)['id'], 'a');
-          return row['observation'] as Map;
+          expect(row['id'], 'a');
+          expect(row.containsKey('raw'), isFalse);
+          return row;
         }
 
         final samples = <Completer<Map<String, dynamic>>>[];
@@ -789,12 +790,13 @@ void main() {
         expect(resourceUpdates.single['revision'], 2);
         expect(resourceUpdates.single['purpose'], 'RUNNING');
         resourceReply!.complete({
-          ...resourceCore,
-          'update': status == 'ok' ? {'status': 'ok'} : {'error': status},
+          if (status == 'ok') 'status': 'ok' else 'error': status,
+          'future': {'private': 'resource-response-only'},
         });
         final result = await pending;
         expect(result['success'], status == 'ok');
         expect(result['resourceStatus'], status);
+        expect(jsonEncode(result), isNot(contains('resource-response-only')));
         expect(starts, isEmpty);
         expect(stops, 0);
       },
@@ -817,18 +819,12 @@ void main() {
   }
 
   for (final response in [
-    <String, dynamic>{
-      ...resourceCore,
-      'update': {'status': 'invalid'},
-    },
-    <String, dynamic>{
-      ...resourceCore,
-      'update': {'status': 'ok', 'error': 'ok'},
-    },
-    <String, dynamic>{...resourceCore, 'update': <String, dynamic>{}},
+    <String, dynamic>{'status': 'invalid'},
+    <String, dynamic>{'status': 'ok', 'error': 'ok'},
+    <String, dynamic>{},
   ]) {
     test(
-      'resource malformed or stale completion is not confirmed ${response['update']}',
+      'resource malformed or stale completion is not confirmed $response',
       () async {
         snapshot = {
           'phase': 'RUNNING',
@@ -879,12 +875,11 @@ void main() {
         message: 'The owner ended after the native write entered',
       );
       snapshot = {'phase': 'STOPPED'};
-      resourceReply!.complete({
-        ...resourceCore,
-        'update': status == 'ok'
+      resourceReply!.complete(
+        status == 'ok'
             ? {'status': 'ok'}
             : {'error': status, 'detail': original},
-      });
+      );
       final result = await pending;
       expect(result['success'], status == 'ok');
       expect(result['resourceStatus'], status);

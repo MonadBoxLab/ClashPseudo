@@ -55,6 +55,8 @@ abstract final class ApplicationContract {
   static const coreChannelReadRunInputRecord = "readRunInputRecord";
   static const coreChannelLocalInterfaces = "localInterfaces";
   static const coreChannelRuntimeChanged = "runtimeChanged";
+  static const uiEventLocalInterfacesChanged = "localInterfacesChanged";
+  static const uiEventApplicationsChanged = "applicationsChanged";
   static const coreFieldProtocol = "protocol";
   static const coreFieldOperation = "operation";
   static const coreFieldProcessId = "processId";

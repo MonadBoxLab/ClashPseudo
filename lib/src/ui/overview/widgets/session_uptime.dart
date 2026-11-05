@@ -27,7 +27,6 @@ class SessionUptime extends StatefulWidget {
     required this.subtitle,
     required this.color,
     required this.refresh,
-    this.onIssue,
     this.clock,
   });
 
@@ -38,7 +37,6 @@ class SessionUptime extends StatefulWidget {
   final String subtitle;
   final Color color;
   final VoidCallback refresh;
-  final VoidCallback? onIssue;
   final Stopwatch? clock;
 
   @override
@@ -121,55 +119,46 @@ class _SessionUptimeState extends State<SessionUptime> {
       width: double.infinity,
       child: Semantics(
         key: const ValueKey('status-details'),
-        container: widget.onIssue != null,
         explicitChildNodes: true,
-        label: widget.onIssue == null ? null : subtitle,
-        button: widget.onIssue != null,
-        onTap: widget.onIssue,
-        child: InkWell(
-          onTap: widget.onIssue,
-          excludeFromSemantics: true,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 48),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                Semantics(
-                  container: true,
-                  child: StatusText(
-                    title,
-                    key: const ValueKey('uptime-title'),
-                    maxLines: 1,
-                    animate: !show,
-                    style: TextStyle(
-                      color: widget.color,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Semantics(
+                container: true,
+                child: StatusText(
+                  title,
+                  key: const ValueKey('uptime-title'),
+                  maxLines: 1,
+                  animate: !show,
+                  style: Theme.of(context).textTheme.bodyLarge!.copyWith(
+                    color: widget.color,
+                    fontWeight: FontWeight.w500,
+                    fontFeatures: show
+                        ? const [FontFeature.tabularFigures()]
+                        : null,
                   ),
                 ),
-                const SizedBox(height: 6),
-                ExcludeSemantics(
-                  excluding: widget.onIssue != null,
-                  child: Semantics(
-                    container: true,
-                    child: StatusText(
-                      subtitle,
-                      key: const ValueKey('uptime-subtitle'),
-                      emptyText: strings.statusReady,
-                      animate: !show,
-                      style: TextStyle(
-                        color: widget.color,
-                        fontSize: 12,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
-                    ),
+              ),
+              const SizedBox(height: 6),
+              Semantics(
+                container: true,
+                child: StatusText(
+                  subtitle,
+                  key: const ValueKey('uptime-subtitle'),
+                  emptyText: strings.statusReady,
+                  animate: !show,
+                  style: Theme.of(context).textTheme.bodySmall!.copyWith(
+                    color: widget.color,
+                    fontFeatures: show
+                        ? const [FontFeature.tabularFigures()]
+                        : null,
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),

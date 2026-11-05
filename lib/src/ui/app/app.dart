@@ -73,39 +73,9 @@ class _ClashPseudoAppState extends State<ClashPseudoApp>
         },
         builder: (context, child) => WorkspaceWindow(
           controller: controller,
-          child: Column(
-            children: [
-              if (controller.state.recoveryRequired)
-                Material(
-                  color: Theme.of(context).colorScheme.errorContainer,
-                  child: SafeArea(
-                    bottom: false,
-                    child: Padding(
-                      key: const ValueKey('core-interruption-banner'),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.error_outline),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              AppLocalizations.of(context)
-                                  .coreInterruptedMessage,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              Expanded(
-                key: const ValueKey('application-navigation'),
-                child: child!,
-              ),
-            ],
+          child: KeyedSubtree(
+            key: const ValueKey('application-navigation'),
+            child: child!,
           ),
         ),
         home: FirstRunNotice(

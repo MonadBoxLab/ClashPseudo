@@ -15,12 +15,14 @@ class DelayMemberResult {
     this.status = DelayMemberStatus.pending,
     this.delay,
     this.error,
-    this.raw = const {},
+    this.cancellationError,
+    this.time,
   });
   final String name;
   final String identity;
   final DelayMemberStatus status;
   final int? delay;
   final String? error;
-  final Map<String, dynamic> raw;
+  final String? cancellationError;
+  final DateTime? time;
 }

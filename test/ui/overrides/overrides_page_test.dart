@@ -342,27 +342,18 @@ void main() {
             await tester.pumpAndSettle();
             final cardRect = tester.getRect(card);
             final moreRect = tester.getRect(more);
-            await tester.tap(more);
-            await tester.pumpAndSettle();
-            final action = find.widgetWithText(
-              MenuItemButton,
-              strings.viewOverrideError,
+            final action = find.descendant(
+              of: find.byType(SnackBar),
+              matching: find.widgetWithText(TextButton, strings.errorDetails),
             );
             expect(action, findsOneWidget);
-            final cached = tester.widget<MenuItemButton>(action).onPressed!;
-            expect(
-              find.descendant(
-                of: action,
-                matching: find.byIcon(Icons.error_outline),
-              ),
-              findsOneWidget,
-            );
+            final cached = tester.widget<TextButton>(action).onPressed!;
             await tester.tap(action);
             await tester.pumpAndSettle();
             expect(tester.getRect(card), cardRect);
             expect(tester.getRect(more), moreRect);
-            expect(find.text(strings.overrideActionFailed), findsOneWidget);
-            expect(find.text(error.summary(strings)), findsOneWidget);
+            expect(find.text(strings.overrideActionFailed), findsWidgets);
+            expect(find.text(error.summary(strings)), findsNothing);
             expect(find.text(error.resolve(strings)), findsNothing);
             expect(find.byType(ConfigTextPage), findsNothing);
             expect(app.commands, isEmpty);
@@ -373,14 +364,14 @@ void main() {
             );
             await tester.tap(find.text(strings.technicalDetails));
             await tester.pumpAndSettle();
-            expect(
-              tester
-                  .widget<SelectableText>(
-                    find.byKey(const ValueKey('operation-technical-text')),
-                  )
-                  .data,
-              raw,
-            );
+            final detail = tester
+                .widget<SelectableText>(
+                  find.byKey(const ValueKey('operation-technical-text')),
+                )
+                .data!;
+            expect(detail, contains(entry.name));
+            expect(detail, contains(error.summary(strings)));
+            expect(detail, contains(raw));
             await tester.tap(find.text(strings.close));
             await tester.pumpAndSettle();
             if (editable) {
@@ -392,16 +383,18 @@ void main() {
               expect(find.byType(ConfigTextPage), findsNothing);
             }
             final commands = app.commands.length;
-            await tester.tap(find.byTooltip(strings.moreLabel));
-            await tester.pumpAndSettle();
-            expect(
-              find.widgetWithText(MenuItemButton, strings.viewOverrideError),
-              findsOneWidget,
-            );
+            if (editable) {
+              await tester.tap(find.byTooltip(strings.moreLabel));
+              await tester.pumpAndSettle();
+              expect(
+                find.widgetWithText(MenuItemButton, strings.viewOverrideError),
+                findsNothing,
+              );
+              await tester.binding.handlePopRoute();
+              await tester.pumpAndSettle();
+            }
             expect(find.byType(ConfigTextPage), findsNothing);
             expect(app.commands, hasLength(commands));
-            await tester.binding.handlePopRoute();
-            await tester.pumpAndSettle();
             app.setForeground(false);
             cached();
             app.setForeground(true);
@@ -902,9 +895,12 @@ void main() {
                       expect(tester.takeException(), isNull);
                     }
                     await tester.pumpAndSettle();
-                    if (readError != null) {
+                    if (readError != null || error != null) {
                       expect(find.byType(SnackBar), findsOneWidget);
                       await _dismissNotice(tester);
+                      if (find.byType(SnackBar).evaluate().isNotEmpty) {
+                        await _dismissNotice(tester);
+                      }
                     } else {
                       expect(find.byType(SnackBar), findsNothing);
                     }
@@ -1064,18 +1060,28 @@ void main() {
         findsOneWidget,
       );
       expect(find.byKey(const ValueKey('override-error-one')), findsNothing);
-      await tester.tap(find.byTooltip(strings.moreLabel));
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.widgetWithText(MenuItemButton, strings.viewOverrideError),
+      expect(
+        find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.text(strings.overrideActionFailed),
+        ),
+        findsOneWidget,
       );
-      await tester.pumpAndSettle();
-      expect(find.byType(AlertDialog), findsOneWidget);
-      expect(find.text(strings.downloadFailed), findsOneWidget);
       expect(identical(app.overrides.single.errorMessage, error), isTrue);
-      await tester.tap(find.text(strings.close).hitTestable());
-      await tester.pumpAndSettle();
     }
+    final strings = lookupAppLocalizations(const Locale('en'));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.text(strings.errorDetails),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(strings.technicalDetails));
+    await tester.pumpAndSettle();
+    expect(find.textContaining(strings.downloadFailed), findsOneWidget);
+    await tester.tap(find.text(strings.close).hitTestable());
+    await tester.pumpAndSettle();
     expect(app.commands, isEmpty);
   });
 
@@ -1560,7 +1566,7 @@ void main() {
           ),
           findsOneWidget,
         );
-        expect(find.text(strings.savedApplyFailed), findsOneWidget);
+        expect(find.text(strings.savedApplyFailed), findsNothing);
         expect(find.byType(ConfigTextPage), findsOneWidget);
         expect(app.commands.single['id'], existing ? id : null);
         expect(app.commands.single['revision'], existing ? 1 : null);
@@ -2279,7 +2285,7 @@ void main() {
         _noticeText(messages.overrideSavedReconnectIncomplete.summary(strings)),
         findsOneWidget,
       );
-      expect(find.text(strings.savedApplyFailed), findsOneWidget);
+      expect(find.text(strings.savedApplyFailed), findsNothing);
       expect(find.byType(AlertDialog), findsNothing);
       await _dismissNotice(tester);
       app.restoreSameIdentity('rules: ["DOMAIN,restored.test,REJECT"]');

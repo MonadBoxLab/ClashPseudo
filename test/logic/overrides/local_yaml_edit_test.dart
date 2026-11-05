@@ -1353,10 +1353,10 @@ proxy-groups:
       nested: 0
     empty: ""
 ''');
-      final definition = editor.definitionNamed(
-        LocalYamlSection.strategyGroups,
-        'A',
-      );
+      final definition = editor
+          .definitions(LocalYamlSection.strategyGroups)
+          .where((item) => item.value == 'A')
+          .firstOrNull;
       expect(definition, isNotNull);
       expect(editor.definitionValue(definition!), {
         'name': 'A',
@@ -1367,7 +1367,10 @@ proxy-groups:
         'empty': '',
       });
       expect(
-        editor.definitionNamed(LocalYamlSection.strategyGroups, 'missing'),
+        editor
+            .definitions(LocalYamlSection.strategyGroups)
+            .where((item) => item.value == 'missing')
+            .firstOrNull,
         isNull,
       );
     });
@@ -1388,10 +1391,10 @@ proxy-groups:
     proxies: [DIRECT]
 ''';
       final editor = LocalYamlEdit(body);
-      final target = editor.definitionNamed(
-        LocalYamlSection.strategyGroups,
-        'second',
-      )!;
+      final target = editor
+          .definitions(LocalYamlSection.strategyGroups)
+          .where((item) => item.value == 'second')
+          .firstOrNull!;
       final value = editor.definitionValue(target);
       final changed = editor.replaceNamed(target, {
         ...value,
@@ -1422,10 +1425,10 @@ proxy-groups:
 rules:
   - MATCH,DIRECT
 ''');
-      final target = editor.definitionNamed(
-        LocalYamlSection.strategyGroups,
-        'A',
-      )!;
+      final target = editor
+          .definitions(LocalYamlSection.strategyGroups)
+          .where((item) => item.value == 'A')
+          .firstOrNull!;
       final value = editor.definitionValue(target);
       expect(
         () => editor.replaceNamed(target, {...value, 'name': 'B'}),
@@ -1451,16 +1454,16 @@ proxies:
         final editor = LocalYamlEdit(
           'proxy-groups:\n  - {name: A, type: select}\n',
         );
-        final target = editor.definitionNamed(
-          LocalYamlSection.strategyGroups,
-          'A',
-        )!;
+        final target = editor
+            .definitions(LocalYamlSection.strategyGroups)
+            .where((item) => item.value == 'A')
+            .firstOrNull!;
         final value = editor.definitionValue(target);
         final other = LocalYamlEdit(body);
-        final stale = other.definitionNamed(
-          LocalYamlSection.strategyGroups,
-          'A',
-        )!;
+        final stale = other
+            .definitions(LocalYamlSection.strategyGroups)
+            .where((item) => item.value == 'A')
+            .firstOrNull!;
         expect(
           () => editor.replaceNamed(stale, value),
           fails(LocalYamlEditError.staleDefinition),
@@ -1478,10 +1481,10 @@ proxies:
     type: select
     <<: {proxies: [DIRECT]}
 ''');
-      final target = editor.definitionNamed(
-        LocalYamlSection.strategyGroups,
-        'A',
-      )!;
+      final target = editor
+          .definitions(LocalYamlSection.strategyGroups)
+          .where((item) => item.value == 'A')
+          .firstOrNull!;
       expect(
         () => editor.definitionValue(target),
         fails(LocalYamlEditError.inheritedTarget),

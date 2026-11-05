@@ -45,13 +45,28 @@ class AppLocalizationsZh extends AppLocalizations {
   String get lanProxyUnknownInterface => '无法确认此接口的网络类型。请确认接口属于受信任的局域网后再选择。';
 
   @override
-  String get lanProxyNoAddress => '没有可用的局域网接口地址。连接 Wi-Fi 或以太网后刷新。';
+  String get lanProxyNoAddress => '没有可用的局域网接口地址。请连接 Wi-Fi 或以太网。';
 
   @override
   String get lanProxyActual => '实际监听状态';
 
   @override
   String get lanProxyNotRunning => '未监听';
+
+  @override
+  String get lanProxySocketBound => 'Socket 已绑定';
+
+  @override
+  String get lanProxySocketFailed => '失败';
+
+  @override
+  String get lanProxySocketClosed => '已关闭';
+
+  @override
+  String get lanProxySocketCloseFailed => '关闭失败';
+
+  @override
+  String get lanProxyListenerFailed => '监听发生错误。';
 
   @override
   String get lanProxyUnavailable => '地址已失效';
@@ -66,8 +81,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get coreInterruptedTitle => '内核运行中断';
 
   @override
-  String get coreInterruptedMessage =>
-      '已暂停自动启动。当前页面和编辑内容继续保留。请在总览重新启动、更换配置或清理文件。';
+  String get coreInterruptedMessage => '已暂停自动启动。';
 
   @override
   String get coreRecoveryRestart => '重新启动';
@@ -248,7 +262,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get refresh => '刷新';
 
   @override
-  String get runtimeConfigSearch => '查找字段或值';
+  String get runtimeConfigSearch => '搜索 YAML';
 
   @override
   String get clearSearch => '清除搜索';
@@ -267,6 +281,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get nodeSearch => '名称、来源或类型';
+
+  @override
+  String get nodeDelayHistoryFailed => '部分测速记录没有有效延迟';
 
   @override
   String get coreReadLoading => '正在读取内核数据…';
@@ -294,9 +311,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get errorDetails => '错误详情';
-
-  @override
-  String get viewError => '查看错误';
 
   @override
   String get technicalDetails => '技术详情';
@@ -470,6 +484,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get delayFailed => '失败';
+
+  @override
+  String get delayBatchFailed => '部分测速失败或超时。';
 
   @override
   String get delayTimeout => '超时';
@@ -1213,6 +1230,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get modeTitle => '运行模式';
 
   @override
+  String get modeFallbackLabel => '备用';
+
+  @override
   String get modeReadFailed => '模式读取失败';
 
   @override
@@ -1257,9 +1277,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String connectionOmitted(int count) {
     return '因容量限制略过 $count 条完整记录';
   }
-
-  @override
-  String get rawData => '原始数据';
 
   @override
   String get copyOriginalText => '复制原文';
@@ -1443,9 +1460,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get sameNameMember => '同名成员';
-
-  @override
-  String get pinned => '已固定';
 
   @override
   String get closeStrategyPopup => '关闭策略浮窗';
@@ -1859,6 +1873,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get privacyNoticeUnderstood => '我已了解';
+
+  @override
+  String get privacyNoticeReadFailed => '无法读取隐私提示状态。';
 
   @override
   String get privacyNoticeNotSaved => '未能确认提示记录已保存。下次打开可能再次显示。';
@@ -2340,6 +2357,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get trafficUpdateFailed => '更新失败';
 
   @override
+  String get applicationSharedUidShort => '共享 UID · 联动选择';
+
+  @override
   String applicationSharedUidNotice(String packages) {
     return '这些应用共享同一个 Android UID。选择或排除其中一个应用，也会影响：$packages';
   }
@@ -2673,9 +2693,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get dnsViewPreviousQuery => '查看上次查询';
 
   @override
-  String get dnsQueryRawData => 'DNS 查询原始数据';
-
-  @override
   String dnsQueryIdentity(String name, String type) {
     return '查询：$name · $type';
   }
@@ -2687,9 +2704,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get dnsCacheOperationDetails => '缓存操作详情';
-
-  @override
-  String get dnsCacheRawData => '缓存操作原始数据';
 
   @override
   String get dnsResolverNotice => '使用当前内核的解析器查询，可能读取缓存，结果不等同于客户端实际收到的 DNS 响应。';
@@ -2837,6 +2851,15 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get coreCleanupFailed => '内核数据清理未完成。';
+
+  @override
+  String get cleanupFileCompleted => '已完成';
+
+  @override
+  String get cleanupFileFailed => '失败';
+
+  @override
+  String get cleanupFilePending => '待处理';
 
   @override
   String get coreCleanupCompleted => '所选内核文件已清理。再次使用内核时，可能会生成新文件。';
@@ -3008,9 +3031,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get backupSettingsRefreshFailed => '未能重新读取界面所显示的设置。';
-
-  @override
-  String get resourceRawData => '原始资源数据';
 
   @override
   String get localCustomDeleteConfirm =>

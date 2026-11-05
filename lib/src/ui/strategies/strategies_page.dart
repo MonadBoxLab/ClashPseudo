@@ -1,12 +1,9 @@
 import '../locale/model_text.dart';
-import '../navigation/page_route.dart';
 
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-
-import '../components/reading/original_text_view.dart';
 
 import '../components/input/task_shortcuts.dart';
 
@@ -24,7 +21,7 @@ import 'strategy_popup.dart';
 import '../../model/strategy_snapshot.dart';
 
 typedef _StrategyGridMetrics = ({
-  double scale,
+  double attributesHeight,
   double statusWidth,
   double minimum,
   int columns,
@@ -48,8 +45,6 @@ class StrategyDefinition {
   String get icon => runtime?.icon ?? _definition['icon'] as String? ?? '';
   bool get hidden => runtime?.hidden ?? _definition['hidden'] == true;
   bool get selectable => runtime?.selectable ?? false;
-  bool get automatic => runtime?.automatic ?? false;
-  String get fixed => runtime?.fixed ?? '';
   String get now => runtime?.now ?? '';
   List<StrategyMember> get members => runtime?.members ?? const [];
   String typeLabel(AppLocalizations strings) =>
@@ -62,7 +57,6 @@ class StrategiesPage extends StatefulWidget {
     required this.controller,
     required this.active,
     this.onAdd,
-    this.onRefresh,
     this.definitions,
     this.definitionActions,
     this.onOpenGroup,
@@ -70,7 +64,6 @@ class StrategiesPage extends StatefulWidget {
   final StrategyController controller;
   final bool active;
   final VoidCallback? onAdd;
-  final Future<void> Function()? onRefresh;
   final List<StrategyDefinition>? definitions;
   final Widget? Function(BuildContext, StrategyDefinition)? definitionActions;
 
@@ -248,13 +241,6 @@ class _StrategiesPageState extends State<StrategiesPage> {
                         : strings.strategyGroups,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: widget.controller.allGroups
-                        ? null
-                        : const TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: -.6,
-                          ),
                   ),
                 ),
                 IconButton(
@@ -275,39 +261,37 @@ class _StrategiesPageState extends State<StrategiesPage> {
   ) {
     final strings = AppLocalizations.of(context);
     final controller = widget.controller;
-    final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
-    final statusWidth = StrategyCardStatus.width(context);
-    final minimum = statusWidth + 56 * scale + 48;
-    final columns = ((extent + 12) / (minimum + 12)).floor().clamp(1, 4);
-    final width = (extent - (columns - 1) * 12) / columns;
-    final inlineStatus = width >= minimum;
-    final textStyle = Theme.of(context).textTheme.bodyMedium!;
+    final text = Theme.of(context).textTheme;
+    final nameStyle = text.bodyLarge!.copyWith(
+      height: 1.2,
+      fontWeight: FontWeight.w600,
+    );
+    final typeStyle = text.bodySmall!;
+    final currentStyle = text.bodySmall!.copyWith(height: 1.3);
+    final defaultStyle = DefaultTextStyle.of(context).style;
     final painter = TextPainter(
       textDirection: Directionality.of(context),
       textScaler: MediaQuery.textScalerOf(context),
       locale: Localizations.localeOf(context),
       maxLines: 1,
     );
-    double lineHeight(String text, TextStyle style) {
-      painter.text = TextSpan(text: text, style: textStyle.merge(style));
+    double lineHeight(String value, TextStyle style) {
+      painter.text = TextSpan(text: value, style: defaultStyle.merge(style));
       painter.layout();
       return painter.height;
     }
 
-    final nameHeight =
-        2 *
-        lineHeight(
-          strings.strategyGroups,
-          const TextStyle(
-            fontSize: 16,
-            height: 1.2,
-            fontWeight: FontWeight.w600,
-          ),
-        );
-    final typeHeight = lineHeight(
-      strings.strategyGroups,
-      const TextStyle(fontSize: 10),
-    );
+    painter.text = TextSpan(text: 'MMMM', style: defaultStyle.merge(nameStyle));
+    painter.layout();
+    final statusWidth = StrategyCardStatus.width(context);
+    final minimum =
+        statusWidth + painter.width.clamp(56.0, double.infinity) + 48;
+    final columns = ((extent + 12) / (minimum + 12)).floor().clamp(1, 4);
+    final width = (extent - (columns - 1) * 12) / columns;
+    final inlineStatus = width >= minimum;
+    final nameHeight = 2 * lineHeight(strings.strategyGroups, nameStyle);
+    final typeHeight = lineHeight(strings.strategyGroups, typeStyle);
+    final attributesHeight = typeHeight.clamp(20.0, double.infinity);
     final currentNames = {
       strings.unconfirmed,
       for (final group in groups)
@@ -316,7 +300,7 @@ class _StrategiesPageState extends State<StrategiesPage> {
     painter
       ..text = TextSpan(
         text: currentNames.join('\n'),
-        style: textStyle.merge(const TextStyle(fontSize: 12, height: 1.3)),
+        style: defaultStyle.merge(currentStyle),
       )
       ..maxLines = null
       ..layout();
@@ -335,12 +319,12 @@ class _StrategiesPageState extends State<StrategiesPage> {
         topHeight +
         10 +
         nameHeight +
-        (controller.allGroups ? 20 * scale : 0) +
+        (controller.allGroups ? attributesHeight : 0) +
         2 +
         footerHeight +
         (!controller.allGroups && !inlineStatus ? delayHeight : 0);
     return (
-      scale: scale,
+      attributesHeight: attributesHeight,
       statusWidth: statusWidth,
       minimum: minimum,
       columns: columns,
@@ -658,46 +642,6 @@ class _StrategiesPageState extends State<StrategiesPage> {
             appBar: AppBar(
               titleSpacing: controller.allGroups ? null : 0,
               actions: [
-                IconButton(
-                  key: const ValueKey('strategy-raw-data'),
-                  tooltip: strings.resourceRawData,
-                  icon: const Icon(Icons.data_object),
-                  onPressed: data == null || data.raw.isEmpty
-                      ? null
-                      : () {
-                          if (!_pageInteractive ||
-                              !identical(controller.data, data)) {
-                            return;
-                          }
-                          Navigator.of(context).push<void>(
-                            FocusedPageRoute(
-                              builder: (_) => Scaffold(
-                                appBar: AppBar(
-                                  title: Text(strings.resourceRawData),
-                                ),
-                                body: OriginalTextView(
-                                  text: const JsonEncoder.withIndent('  ')
-                                      .convert(data.raw),
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                ),
-                IconButton(
-                  tooltip: strings.refresh,
-                  onPressed:
-                      _visibilityReady && !app.busy && !controller.loading
-                      ? widget.onRefresh ?? controller.retry
-                      : null,
-                  color: HomePalette.of(context).syncAction,
-                  icon: controller.loading
-                      ? const SizedBox.square(
-                          dimension: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.refresh),
-                ),
                 if (controller.allGroups)
                   IconButton(
                     tooltip: strings.strategyGroupFormTitle,
@@ -742,7 +686,7 @@ class _StrategiesPageState extends State<StrategiesPage> {
                   _captureCardMotion(layout);
                   if (!controller.allGroups) _prepareGrid(layout, groups);
                   final (
-                    :scale,
+                    :attributesHeight,
                     :statusWidth,
                     :minimum,
                     :columns,
@@ -813,13 +757,16 @@ class _StrategiesPageState extends State<StrategiesPage> {
                                         Expanded(
                                           child: Text(
                                             group.typeLabel(strings),
-                                            textAlign: TextAlign.end,
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              color: colors.onSurfaceVariant,
-                                            ),
+                                            textAlign: TextAlign.end,
+                                            style: Theme.of(anchor)
+                                                .textTheme
+                                                .bodySmall!
+                                                .copyWith(
+                                                  color:
+                                                      colors.onSurfaceVariant,
+                                                ),
                                           ),
                                         ),
                                       ],
@@ -839,11 +786,13 @@ class _StrategiesPageState extends State<StrategiesPage> {
                                           ),
                                           maxLines: 2,
                                           overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            fontSize: 16,
-                                            height: 1.2,
-                                            fontWeight: FontWeight.w600,
-                                          ),
+                                          style: Theme.of(anchor)
+                                              .textTheme
+                                              .bodyLarge!
+                                              .copyWith(
+                                                height: 1.2,
+                                                fontWeight: FontWeight.w600,
+                                              ),
                                         ),
                                       ),
                                     ),
@@ -853,7 +802,7 @@ class _StrategiesPageState extends State<StrategiesPage> {
                                           'strategy-attributes-${group.id}',
                                         ),
                                         width: double.infinity,
-                                        height: 20 * scale,
+                                        height: attributesHeight,
                                         child: SingleChildScrollView(
                                           scrollDirection: Axis.horizontal,
                                           child: Align(
@@ -865,10 +814,13 @@ class _StrategiesPageState extends State<StrategiesPage> {
                                                 if (group.name == 'GLOBAL')
                                                   strings.globalGroupAttribute,
                                               ].join(' · '),
-                                              style: TextStyle(
-                                                fontSize: 10,
-                                                color: colors.onSurfaceVariant,
-                                              ),
+                                              style: Theme.of(anchor)
+                                                  .textTheme
+                                                  .bodySmall!
+                                                  .copyWith(
+                                                    color:
+                                                        colors.onSurfaceVariant,
+                                                  ),
                                             ),
                                           ),
                                         ),
@@ -888,11 +840,14 @@ class _StrategiesPageState extends State<StrategiesPage> {
                                             ),
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              height: 1.3,
-                                              color: colors.onSurfaceVariant,
-                                            ),
+                                            style: Theme.of(anchor)
+                                                .textTheme
+                                                .bodySmall!
+                                                .copyWith(
+                                                  height: 1.3,
+                                                  color:
+                                                      colors.onSurfaceVariant,
+                                                ),
                                           ),
                                         ),
                                         if (controller.allGroups) ...[
@@ -905,27 +860,6 @@ class _StrategiesPageState extends State<StrategiesPage> {
                                             const SizedBox(width: 4),
                                             cardStatus,
                                           ],
-                                          SizedBox(
-                                            key: ValueKey(
-                                              'strategy-pin-${group.id}',
-                                            ),
-                                            width: 16,
-                                            height: 12,
-                                            child:
-                                                group.automatic &&
-                                                    group.fixed.isNotEmpty
-                                                ? Tooltip(
-                                                    message: strings.fixedTo(
-                                                      group.fixed,
-                                                    ),
-                                                    child: Icon(
-                                                      Icons.push_pin_rounded,
-                                                      size: 12,
-                                                      color: colors.primary,
-                                                    ),
-                                                  )
-                                                : null,
-                                          ),
                                         ],
                                       ],
                                     ),
@@ -1011,10 +945,13 @@ class _StrategiesPageState extends State<StrategiesPage> {
                               config?.name ?? '',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: colors.onSurfaceVariant,
-                              ),
+                              style: Theme.of(context).textTheme.bodySmall!
+                                  .copyWith(color: colors.onSurfaceVariant),
+                            ),
+                          if (data == null && controller.loading)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 12),
+                              child: Text(strings.coreReadLoading),
                             ),
                           if (data != null && groups.isEmpty)
                             Padding(

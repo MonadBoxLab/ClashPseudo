@@ -1,7 +1,9 @@
 package io.github.monadboxlab.clashpseudo.bridge
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
@@ -64,6 +66,18 @@ object AppBridge {
     private var overviewRequested = false
     private var overviewSending = false
     private var ui: MethodChannel? = null
+    private var packageReceiverRegistered = false
+    private val packageReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (!uiVisible || !uiReady || intent.action !in setOf(
+                    Intent.ACTION_PACKAGE_ADDED,
+                    Intent.ACTION_PACKAGE_REMOVED,
+                    Intent.ACTION_PACKAGE_CHANGED,
+                )) return
+            val name = intent.data?.schemeSpecificPart?.takeIf { it.isNotEmpty() } ?: return
+            ui?.invokeMethod(Contract.UI_EVENT_APPLICATIONS_CHANGED, mapOf("package" to name))
+        }
+    }
     internal val operations = OperationState()
     private var storagePublishing = false
     private lateinit var backupCoordinator: BackupCoordinator
@@ -96,7 +110,12 @@ object AppBridge {
         context = appContext
         applications = ApplicationsCalls(context, PseudoVpnService.worker)
         native = CoreLifecycleCalls(context)
-        localInterfaces = LocalInterfaces(context) { notifyUi() }
+        localInterfaces = LocalInterfaces(context) { value ->
+            if (uiVisible && uiReady) ui?.invokeMethod(
+                Contract.UI_EVENT_LOCAL_INTERFACES_CHANGED,
+                mapOf("revision" to value["revision"], "error" to value["error"]),
+            )
+        }
         logic = LogicEngineHost(appContext.applicationContext as PseudoApplication)
         backups = BackupCalls.get(context) {
             refreshBusy()
@@ -119,8 +138,6 @@ object AppBridge {
         CoreClient.get(context).changed = { statusChanged -> nativeChanged(statusChanged) }
         CoreClient.get(context).onEvent = { event -> logic.coreEvent(event); notifyUi() }
     }
-
-    internal fun requireCoreDataReady() = CoreDataCleanup.get(context).requireReady()
 
     fun attachBackupActivity(owner: MainActivity, savedState: Bundle?) = backups.attach(owner, savedState)
 
@@ -193,7 +210,11 @@ object AppBridge {
     }
 
     fun attachUi(owner: MainActivity, engine: FlutterEngine) {
-        if (uiVisible) logic.retainPlatform(false)
+        if (uiVisible) {
+            logic.retainPlatform(false)
+            setPackageEvents(false)
+            localInterfaces.setActive(false)
+        }
         activity = WeakReference(owner)
         uiVisible = false
         uiReady = false
@@ -243,6 +264,27 @@ object AppBridge {
         }
     }
 
+    private fun setPackageEvents(visible: Boolean) {
+        if (visible == packageReceiverRegistered) return
+        if (visible) {
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_PACKAGE_ADDED)
+                addAction(Intent.ACTION_PACKAGE_REMOVED)
+                addAction(Intent.ACTION_PACKAGE_CHANGED)
+                addDataScheme("package")
+            }
+            if (Build.VERSION.SDK_INT >= 33) {
+                context.registerReceiver(packageReceiver, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                @Suppress("DEPRECATION")
+                context.registerReceiver(packageReceiver, filter)
+            }
+        } else {
+            context.unregisterReceiver(packageReceiver)
+        }
+        packageReceiverRegistered = visible
+    }
+
     internal fun syncUiVisibility() {
         logic.coreEvent(mapOf("event" to "uiVisibility", "visible" to (activity.get() != null && uiVisible)))
     }
@@ -252,6 +294,7 @@ object AppBridge {
         if (activity.get() !== owner) return
         if (uiVisible != visible) logic.retainPlatform(visible)
         uiVisible = visible
+        setPackageEvents(visible)
         logic.coreEvent(mapOf("event" to "uiVisibility", "visible" to visible))
         localInterfaces.setActive(visible)
         PseudoVpnService.core.setVisible(visible)
@@ -699,12 +742,6 @@ object AppBridge {
                 Contract.CORE_FIELD_GENERATION, Contract.CORE_FIELD_NETWORK_REVISION)
                 .associateWith { captured[it] })
     }
-    fun cancelRuntimeRefresh(): Boolean {
-        cancelPendingRuntimeRefresh()
-        if (command?.get("action") != "refreshRuntime") return false
-        val owner = operationId ?: return false
-        return interruptOperation(owner, AppStrings.message(R.string.error_operation_ended))
-    }
 
     fun cancelSystemRestore(): Boolean = systemRestore.cancelSystemRestore()
     fun restoreSystemStart(reply: (Map<String, Any?>?) -> Unit) = systemRestore.restoreSystemStart(reply)
@@ -722,12 +759,6 @@ object AppBridge {
         ui?.invokeMethod("changed", null)
         SystemControls.refresh(context)
     }
-
-    private fun strategyReply(result: MethodChannel.Result): (String?, AppMessage?) -> Unit =
-        { value, error ->
-            if (error != null) result.error("strategy", null, error.toMap())
-            else result.success(value)
-        }
 
     fun requestOverview() {
         overviewRequested = true

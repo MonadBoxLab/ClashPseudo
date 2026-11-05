@@ -120,7 +120,7 @@ Builder与Go使用同次解析的地址、MTU、路由、排除项及DNS规格�
 
 局域网代理与VPN独立启停，实际监听位于`:core`。CoreService仅在局域网服务需要长期后台运行时使用connectedDevice前台类型，声明FOREGROUND_SERVICE_CONNECTED_DEVICE及其前置普通权限CHANGE_NETWORK_STATE；AppWorkService的有限dataSync不承担长期监听。
 
-ConnectivityManager观察全部可见非VPN网络，不要求INTERNET或VALIDATED。NetworkInterface补充已有IP的本地接口；页面进入、刷新及活动期间的有界枚举补充无公开callback的接口变化。候选保留接口名称、当次索引、地址、前缀和类型，IPv6保留scope。
+ConnectivityManager观察全部可见非VPN网络，不要求INTERNET或VALIDATED。NetworkInterface补充已有IP的本地接口；页面进入、恢复前台及本地接口变化时自动读取，前台每5秒补充检查无公开callback的接口变化。平台通过专用事件传递revision和实际错误，候选保留接口名称、当次索引、地址、前缀和类型，IPv6保留scope。
 
 已识别蜂窝、VPN、stacked接口及回环地址不可选。未知类型不自动启用，用户确认用途后可选择，类型仍显示未知。应用只使用系统已接管的USB网卡，不申请原始USB、定位、附近Wi-Fi或热点创建权限，不调用隐藏热点接口或配置驱动。
 
@@ -138,7 +138,7 @@ Worker复用唯一业务Engine。交接顺序为下载并保存正文、准备�
 
 ## 应用访问
 
-[ApplicationsCalls](../../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/bridge/core/ApplicationsCalls.kt)读取包名、名称、UID、系统应用标记及有大小限制的PNG图标。关于页的 mihomo 版本取 BuildConfig.MIHOMO_VERSION，构建时使用与 native build 相同的 Go module 解析命令生成；读取版本不启动 core process，也不在默认进程引用 NativeCore。QUERY_ALL_PACKAGES用于应用访问设置，商店分发按渠道要求审核。共享UID、缺包、allow和图标来源见[产品规则](../product/runtime-and-strategies.md#应用访问)。
+[ApplicationsCalls](../../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/bridge/core/ApplicationsCalls.kt)读取包名、名称、UID、系统应用标记及有大小限制的PNG图标。应用前台期间动态监听包的增删和变更，以专用事件通知应用访问页自动读取，并只失效对应包的图标缓存；后台注销监听，恢复前台重新读取。关于页的 mihomo 版本取 BuildConfig.MIHOMO_VERSION，构建时使用与 native build 相同的 Go module 解析命令生成；读取版本不启动 core process，也不在默认进程引用 NativeCore。QUERY_ALL_PACKAGES用于应用访问设置，商店分发按渠道要求审核。共享UID、缺包、allow和图标来源见[产品规则](../product/runtime-and-strategies.md#应用访问)。
 
 ## Always-on
 

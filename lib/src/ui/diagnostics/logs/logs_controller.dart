@@ -29,8 +29,7 @@ class CoreLogsController extends ChangeNotifier {
   Object? _readErrorSource;
   Object? get readErrorSource => _readErrorSource;
   String? get error => readError?.text;
-  Map<String, dynamic>? data;
-  Map<String, Object?>? dataQuery;
+  int cleared = 0;
   List<Map<String, dynamic>> entries = const [];
   String level = 'info';
   String search = '';
@@ -46,6 +45,7 @@ class CoreLogsController extends ChangeNotifier {
   Object? _attempted;
   Timer? _timer;
   Timer? _grace;
+  int _failures = 0;
   Object? _window;
   Completer<void>? _queuedClear;
 
@@ -123,7 +123,13 @@ class CoreLogsController extends ChangeNotifier {
   void _schedule() {
     _timer?.cancel();
     if (active && _availableSource != null) {
-      _timer = Timer(poll, () => _read());
+      const seconds = [1, 2, 5, 10, 30];
+      final delay = _failures == 0
+          ? poll
+          : Duration(
+              seconds: seconds[(_failures - 1).clamp(0, seconds.length - 1)],
+            );
+      _timer = Timer(delay, () => _read());
     }
   }
 
@@ -134,9 +140,9 @@ class CoreLogsController extends ChangeNotifier {
     if (window != null && window != _window) {
       _retireClear();
       _window = window;
+      _failures = 0;
       entries = const [];
-      data = null;
-      dataQuery = null;
+      cleared = 0;
       dropped = localDropped = total = 0;
       readError = null;
       _readErrorSource = null;
@@ -231,17 +237,19 @@ class CoreLogsController extends ChangeNotifier {
         return;
       }
       if (!clear && _queuedClear != null) return;
-      final previous = data?['logs'] as Map?;
-      if (previous != null &&
-          (page['cleared'] as int? ?? 0) < (previous['cleared'] as int? ?? 0)) {
-        return;
-      }
+      final watermark = page['cleared'] as int? ?? 0;
+      if (watermark < cleared) return;
       final rows = (page['entries'] as List)
-          .map((row) => Map<String, dynamic>.unmodifiable(row as Map))
+          .map((value) {
+            final row = value as Map;
+            return Map<String, dynamic>.unmodifiable({
+              for (final key in ['seq', 'time', 'level', 'text'])
+                if (row.containsKey(key)) key: row[key],
+            });
+          })
           .toList(growable: false);
       entries = List.unmodifiable(rows);
-      data = Map.unmodifiable(value);
-      dataQuery = Map.unmodifiable({...query, 'window': expected.logWindow});
+      cleared = watermark;
       dropped = page['dropped'] as int? ?? 0;
       localDropped = page['windowDropped'] as int? ?? 0;
       total = page['total'] as int? ?? rows.length;
@@ -249,6 +257,11 @@ class CoreLogsController extends ChangeNotifier {
           ? null
           : const AppMessage('coreReadFailed').withDetail(value['error']);
       _readErrorSource = readError == null ? null : errorSource;
+      if (readError == null) {
+        _failures = 0;
+      } else {
+        _failures++;
+      }
       status = !active
           ? CoreLogsStatus.stale
           : !current.ready
@@ -258,6 +271,7 @@ class CoreLogsController extends ChangeNotifier {
           : CoreLogsStatus.preview;
     } catch (error) {
       if (_disposed) return;
+      _failures++;
       readError = error is PlatformFailure
           ? messageFromFailure(
               error,

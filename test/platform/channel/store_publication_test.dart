@@ -120,6 +120,15 @@ void main() {
     {'saved': true, 'epoch': 7},
     {'saved': true, 'durable': 'true', 'epoch': 7},
   ];
+  final expectedDetails = <String>[
+    '{expectedEpoch: 7, epochType: null, savedType: null, durableType: null}',
+    '{expectedEpoch: 7, epochType: Null, savedType: Null, durableType: Null}',
+    '{expectedEpoch: 7, epoch: 7, saved: false, durable: true}',
+    '{expectedEpoch: 7, epoch: 8, saved: true, durable: true}',
+    '{expectedEpoch: 7, epochType: double, saved: true, durable: true}',
+    '{expectedEpoch: 7, epoch: 7, saved: true, durableType: Null}',
+    '{expectedEpoch: 7, epoch: 7, saved: true, durableType: String}',
+  ];
   for (final (index, response) in invalid.indexed) {
     test('publication rejects unconfirmed response $index', () async {
       messenger.setMockMethodCallHandler(
@@ -139,8 +148,8 @@ void main() {
               )
               .having(
                 (error) => (error.details as Map)['detail'],
-                'original response',
-                response?.toString(),
+                'projected detail',
+                expectedDetails[index],
               ),
         ),
       );

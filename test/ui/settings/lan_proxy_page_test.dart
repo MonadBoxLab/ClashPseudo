@@ -34,6 +34,7 @@ class _Bridge extends AppBridge {
   final ReadOnlyOverrideStore overrides;
   final commands = <Map<String, Object?>>[];
   Object? interfaceFailure;
+  int interfaceCalls = 0;
   Completer<Map<String, dynamic>>? interfacePending;
   Map<String, dynamic> value = {
     'phase': 'STOPPED',
@@ -46,6 +47,7 @@ class _Bridge extends AppBridge {
 
   @override
   Future<Map<String, dynamic>> localInterfaces() async {
+    interfaceCalls++;
     if (interfacePending case final pending?) return pending.future;
     if (interfaceFailure case final failure?) throw failure;
     return {
@@ -180,6 +182,11 @@ void main() {
     return AppLocalizations.of(tester.element(find.byType(LanProxyPage)));
   }
 
+  Future<void> interfaceChanged() async {
+    app.localInterfacesRevision = (app.localInterfacesRevision ?? 0) + 1;
+    await app.refresh();
+  }
+
   Future<void> closeFeedback(
     WidgetTester tester,
     AppLocalizations strings,
@@ -196,6 +203,74 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(AlertDialog), findsNothing);
   }
+
+  testWidgets('LAN 错误详情打开时保留已完成的接口读取', (tester) async {
+    final strings = await show(tester, 'en');
+    final pending = bridge.interfacePending = Completer<Map<String, dynamic>>();
+    await interfaceChanged();
+    await tester.pump();
+    final port = find.widgetWithText(TextField, strings.lanProxyPort);
+    await tester.enterText(port, '0');
+    await tester.tap(find.text(strings.save));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.text(strings.errorDetails),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    bridge.interfacePending = null;
+    pending.complete({
+      'addresses': [
+        {
+          'address': '10.0.2.17',
+          'interfaceName': 'wlan0',
+          'interfaceIndex': 7,
+          'kind': 'wifi',
+          'available': true,
+          'selectable': true,
+        },
+      ],
+    });
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    await closeFeedback(tester, strings);
+    expect(find.text('10.0.2.17'), findsOneWidget);
+    expect(bridge.interfaceCalls, 2);
+  });
+
+  testWidgets('LAN 详情关闭后显示超时读取的实际失败', (tester) async {
+    final strings = await show(tester, 'en');
+    final pending = bridge.interfacePending = Completer<Map<String, dynamic>>();
+    await interfaceChanged();
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.text(strings.errorDetails),
+      ),
+    );
+    await tester.pumpAndSettle();
+    bridge.interfacePending = null;
+    pending.completeError(StateError('late actual interface error'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    await closeFeedback(tester, strings);
+    expect(find.byType(SnackBar), findsOneWidget);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.text(strings.errorDetails),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('operation-technical-details')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('late actual interface error'), findsOneWidget);
+  });
 
   testWidgets('LAN旧错误详情在状态epoch先变化时立即失效', (tester) async {
     final strings = await show(tester, 'en');
@@ -218,9 +293,9 @@ void main() {
   });
 
   testWidgets('LAN接口迟到错误不跨越先变化的状态epoch', (tester) async {
-    final strings = await show(tester, 'en');
+    await show(tester, 'en');
     final pending = bridge.interfacePending = Completer<Map<String, dynamic>>();
-    await tester.tap(find.byTooltip(strings.refresh));
+    await interfaceChanged();
     await tester.pump();
     expect(app.storageEpoch, 0);
     app.state = const AppSnapshot(phase: 'STOPPED', storageEpoch: 1);
@@ -233,12 +308,13 @@ void main() {
   });
 
   testWidgets('LAN旧epoch的接口迟到错误不进入当前反馈', (tester) async {
-    final strings = await show(tester, 'en');
+    await show(tester, 'en');
     final pending = bridge.interfacePending = Completer<Map<String, dynamic>>();
-    await tester.tap(find.byTooltip(strings.refresh));
+    await interfaceChanged();
     await tester.pump();
     bridge.value = {...bridge.value, 'storageEpoch': 1};
     await app.refresh();
+    bridge.interfacePending = null;
     pending.completeError(StateError('retired interface original'));
     await tester.pumpAndSettle();
     expect(find.byType(SnackBar), findsNothing);
@@ -246,6 +322,148 @@ void main() {
     expect(find.textContaining('retired interface original'), findsNothing);
     expect(bridge.commands, isEmpty);
     await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('LAN 超时重试等待旧读取退出并保留新错误', (tester) async {
+    final strings = await show(tester, 'en');
+    final pending = bridge.interfacePending = Completer<Map<String, dynamic>>();
+    await interfaceChanged();
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    expect(bridge.interfaceCalls, 2);
+    expect(find.byType(SnackBar), findsOneWidget);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.text(strings.retry),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(bridge.interfaceCalls, 2);
+    bridge.interfacePending = null;
+    bridge.interfaceFailure = StateError('new interface failure');
+    pending.completeError(StateError('old interface failure'));
+    await tester.pumpAndSettle();
+    expect(bridge.interfaceCalls, 3);
+    final notice = find.byType(SnackBar);
+    expect(notice, findsOneWidget);
+    await tester.tap(
+      find.descendant(of: notice, matching: find.text(strings.errorDetails)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('operation-technical-details')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('new interface failure'), findsOneWidget);
+    expect(find.textContaining('old interface failure'), findsNothing);
+    expect(bridge.commands, isEmpty);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('LAN 监听状态只展示业务字段并汇总实际错误', (tester) async {
+    bridge.value = {
+      ...bridge.value,
+      'generation': 4,
+      'lanListeners': [
+        {
+          'name': 'lan-tcp',
+          'network': 'tcp',
+          'address': '10.0.2.16:7890',
+          'state': 'bound',
+          'extra': 'unrelated raw payload',
+        },
+        {
+          'name': 'lan-udp',
+          'network': 'udp',
+          'address': '10.0.2.16:7890',
+          'state': 'failed',
+          'error': 'original bind error',
+        },
+        {
+          'name': 'old-tcp',
+          'network': 'tcp',
+          'address': '10.0.2.17:7890',
+          'state': 'closeFailed',
+          'error': 'original close error',
+        },
+        {
+          'name': 'closed-tcp',
+          'network': 'tcp',
+          'address': '10.0.2.18:7890',
+          'state': 'closed',
+        },
+      ],
+    };
+    final strings = await show(tester, 'en');
+    expect(find.text('lan-tcp'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'tcp · 10.0.2.16:7890 · ${strings.lanProxySocketBound}',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining(strings.lanProxySocketFailed), findsOneWidget);
+    expect(
+      find.textContaining(strings.lanProxySocketCloseFailed),
+      findsOneWidget,
+    );
+    expect(find.textContaining(strings.lanProxySocketClosed), findsOneWidget);
+    expect(find.textContaining('unrelated raw payload'), findsNothing);
+    expect(find.textContaining('original bind error'), findsNothing);
+    expect(find.text(strings.lanProxyListenerFailed), findsOneWidget);
+    final calls = bridge.interfaceCalls;
+    await tester.tap(
+      find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.text(strings.errorDetails),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('operation-technical-details')));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('lan-udp · udp · 10.0.2.16:7890'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('original bind error'), findsOneWidget);
+    expect(find.textContaining('original close error'), findsOneWidget);
+    expect(find.textContaining('unrelated raw payload'), findsNothing);
+    await closeFeedback(tester, strings);
+    await app.refresh();
+    await tester.pumpAndSettle();
+    expect(find.byType(SnackBar), findsNothing);
+    expect(bridge.interfaceCalls, calls);
+    expect(bridge.commands, isEmpty);
+  });
+
+  testWidgets('LAN 监听错误的旧详情在来源变化后失效', (tester) async {
+    bridge.value = {
+      ...bridge.value,
+      'lanListeners': [
+        {
+          'name': 'lan-tcp',
+          'network': 'tcp',
+          'address': '10.0.2.16:7890',
+          'state': 'failed',
+          'error': 'old listener error',
+        },
+      ],
+    };
+    final strings = await show(tester, 'en');
+    final action = tester
+        .widget<TextButton>(
+          find.descendant(
+            of: find.byType(SnackBar),
+            matching: find.widgetWithText(TextButton, strings.errorDetails),
+          ),
+        )
+        .onPressed!;
+    bridge.value = {...bridge.value, 'lanListeners': <Object>[]};
+    await app.refresh();
+    action();
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.textContaining('old listener error'), findsNothing);
+    expect(bridge.commands, isEmpty);
   });
 
   for (final keyboard in [false, true]) {
@@ -373,10 +591,11 @@ void main() {
       final before = tester.getRect(raw);
       final pending = bridge.interfacePending =
           Completer<Map<String, dynamic>>();
-      await tester.tap(find.byTooltip(strings.refresh));
+      await interfaceChanged();
       await tester.pump();
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
       expect(tester.getRect(raw), before);
+      bridge.interfacePending = null;
       pending.completeError(
         StateError('interface original\nCaused by: original'),
       );
@@ -510,7 +729,7 @@ void main() {
               of: dialog,
               matching: find.byIcon(Icons.error_outline),
             ),
-            findsOneWidget,
+            findsNothing,
           );
           await tester.tap(
             find.byKey(const ValueKey('operation-technical-details')),

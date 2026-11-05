@@ -102,6 +102,10 @@ class AppController extends ChangeNotifier {
   final ConfigStore? store;
 
   bool _interactive = true;
+  int? localInterfacesRevision;
+  String? localInterfacesError;
+  int applicationsRevision = 0;
+  String? changedApplication;
   final _interactionWaiters = <Completer<bool>>{};
   bool get foreground => _read.foreground;
   bool get interactive => foreground && _interactive;
@@ -201,6 +205,32 @@ class AppController extends ChangeNotifier {
         return true;
       }
       if (call.method == 'changed') await refresh();
+      if (call.method == ApplicationContract.uiEventLocalInterfacesChanged) {
+        final value = call.arguments;
+        if (value is Map &&
+            value['revision'] is int &&
+            value['revision'] >= 0 &&
+            (value['error'] == null || value['error'] is String)) {
+          final revision = value['revision'] as int;
+          final error = value['error'] as String?;
+          if ((localInterfacesRevision, localInterfacesError) !=
+              (revision, error)) {
+            localInterfacesRevision = revision;
+            localInterfacesError = error;
+            if (!_disposed) notifyListeners();
+          }
+        }
+      }
+      if (call.method == ApplicationContract.uiEventApplicationsChanged) {
+        final value = call.arguments;
+        if (value is Map &&
+            value['package'] is String &&
+            (value['package'] as String).isNotEmpty) {
+          changedApplication = value['package'] as String;
+          applicationsRevision++;
+          if (!_disposed) notifyListeners();
+        }
+      }
       return null;
     });
     _read.prepareUiReadiness();

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:clash_pseudo/src/model/config_entry.dart';
 import 'package:clash_pseudo/src/ui/diagnostics/dns/dns_controller.dart';
@@ -122,9 +121,7 @@ void main() {
       await tester.pump();
       await pending;
       final response = controller.response!;
-      expect(response.raw['dns'], nativeDnsResult);
-      expect(response.raw['processId'], source.processId);
-      expect(response.raw['purpose'], purpose);
+      expect(response.source.processId, source.processId);
       expect(response.source.purpose, purpose);
       expect(response.source.matchesIdentity(source), isTrue);
       expect(response.source.networkRevision, source.networkRevision);
@@ -208,14 +205,15 @@ void main() {
       await pending;
       expect(controller.status, DnsStatus.failed);
       expect(controller.errorCode, 'queryFailed');
-      final retained = jsonDecode(controller.errorDetail!) as Map;
-      expect(retained['dns'], raw);
-      expect(retained['cancelError'], cancellation);
-      expect(retained['operationError'], 'queryFailed');
+      expect(controller.cancellationError, cancellation.toString());
       if (errorOnly) {
+        expect(controller.errorDetail, contains('原生 detail'));
+        expect(controller.errorDetail, isNot(contains('future')));
         expect(controller.response, isNull);
       } else {
-        expect(retained['error'], original);
+        expect(controller.errorDetail, contains('原始 DNS 错误'));
+        expect(controller.errorDetail, contains('原始 cause'));
+        expect(controller.errorDetail, contains('原始 suppressed'));
         expect(controller.response!.answer, hasLength(2));
         expect(controller.response!.cancellationError, cancellation);
       }
@@ -279,8 +277,12 @@ void main() {
           await tester.pump();
           final result = (await pending)!;
           expect(result.status.name, status);
-          expect(result.raw['cache'], raw);
-          expect(result.raw['cancelError'], cancellation);
+          expect(result.detail, '原生清理结果');
+          expect(result.cancellationError, cancellation);
+          if (!fakeIp) {
+            expect(result.resolverActive, status != 'empty');
+            expect(result.systemResolverActive, isFalse);
+          }
           expect(result.source.matchesIdentity(source), isTrue);
           expect(result.networkEpoch, source.networkRevision);
           expect(result.stale, status == 'partialOrFailed');
@@ -323,9 +325,14 @@ void main() {
           isA<DnsFailure>()
               .having((error) => error.code, 'code', 'future-cache-error')
               .having(
-                (error) => (jsonDecode(error.detail!) as Map)['cache'],
-                '原始 cache 正文',
-                raw,
+                (error) => error.detail,
+                '原始 cache 错误',
+                contains('原始 cache 错误'),
+              )
+              .having(
+                (error) => error.detail,
+                '不包含完整响应',
+                isNot(contains('"future"')),
               ),
         ),
       );
@@ -693,6 +700,32 @@ void main() {
     );
   }
 
+  testWidgets('普通状态变化不取消进行中的 DNS 查询', (tester) async {
+    final bridge = DnsTestBridge();
+    final app = DnsTestApp(bridge);
+    final controller = DnsController(app)
+      ..setVisible(true)
+      ..setName('controlled.example');
+    final pending = controller.query();
+    final version = controller.contextVersion;
+    app.dispatching = true;
+    app.publish(phase: 'STARTING', dnsBusy: true);
+    expect(controller.contextVersion, version);
+    expect(bridge.cancellations, isEmpty);
+    app.dispatching = false;
+    app.publish(dnsBusy: true);
+    expect(controller.contextVersion, version);
+    expect(bridge.cancellations, isEmpty);
+    bridge.replies.single.complete(dnsReply());
+    await pending;
+    app.publish();
+    expect(controller.response!.answer.single.data, '192.0.2.1');
+    expect(controller.stale, isFalse);
+    expect(bridge.queries, hasLength(1));
+    controller.dispose();
+    app.dispose();
+  });
+
   testWidgets(
     'response envelope identity is checked before reading data or errors',
     (tester) async {
@@ -718,7 +751,7 @@ void main() {
         await pending;
         expect(controller.response, isNull);
         expect(controller.errorCode, 'invalidResponse', reason: field);
-        expect(controller.errorDetail, reply.toString());
+        expect(controller.errorDetail, 'DNS 响应来源与请求不一致');
         final different = dnsReply();
         final original = different[field];
         different[field] = original is int
@@ -729,7 +762,7 @@ void main() {
         await mismatched;
         expect(controller.response, isNull, reason: field);
         expect(controller.errorCode, 'invalidResponse', reason: field);
-        expect(controller.errorDetail, different.toString());
+        expect(controller.errorDetail, 'DNS 响应来源与请求不一致');
       }
       controller.dispose();
       app.dispose();

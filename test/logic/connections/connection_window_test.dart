@@ -11,14 +11,14 @@ void main() {
     'byte budget evicts complete inactive rows first and counts detail once',
     () {
       final text = '日' * ((ConnectionWindow.memoryLimit ~/ 6) - 1024);
-      final a = {...row('a'), 'unknown': text};
-      final b = {...row('b'), 'unknown': text};
-      final c = {...row('c'), 'unknown': text};
+      final a = {...row('a'), 'rulePayload': text};
+      final b = {...row('b'), 'rulePayload': text};
+      final c = {...row('c'), 'rulePayload': text};
       window.accept(sample([a, b], 0), core, window.parameters);
       window.pinDetail('b');
       final bytes = window.records.fold<int>(
         0,
-        (sum, record) => sum + record.rawBytes,
+        (sum, record) => sum + record.retainedBytes,
       );
       expect(window.retainedBytes, bytes);
       window.accept(
@@ -29,7 +29,7 @@ void main() {
       expect(window.records.map((record) => record.id), ['b', 'c']);
       expect(window.records.every((record) => record.active), isTrue);
       expect(
-        window.records.every((record) => record.raw['unknown'] == text),
+        window.records.every((record) => record.rulePayload == text),
         isTrue,
       );
       expect(
@@ -40,6 +40,15 @@ void main() {
     },
   );
 
+  test('未知连接字段不进入观察窗口及其字节预算', () {
+    final value = {...row('a'), 'unknown': 'x' * ConnectionWindow.memoryLimit};
+    window.accept(sample([value], 0), core, window.parameters);
+    expect(window.records.single.id, 'a');
+    expect(window.records.single.toMap().containsKey('unknown'), isFalse);
+    expect(window.retainedBytes, lessThan(4096));
+    expect(window.limited, isFalse);
+  });
+
   test(
     'one oversized row is omitted whole without evicting the old window',
     () {
@@ -47,7 +56,7 @@ void main() {
       window.accept(
         sample(
           [
-            {...row('huge'), 'unknown': 'x' * ConnectionWindow.memoryLimit},
+            {...row('huge'), 'rulePayload': 'x' * ConnectionWindow.memoryLimit},
           ],
           1000,
           presence: {'old': false},
@@ -146,8 +155,8 @@ void main() {
     expect(window.detail!.active, isFalse);
     expect(window.omitted, 499);
     final bytes = window.records.fold<int>(
-      window.detail!.rawBytes,
-      (sum, record) => sum + record.rawBytes,
+      window.detail!.retainedBytes,
+      (sum, record) => sum + record.retainedBytes,
     );
     expect(window.retainedBytes, bytes);
     window.prune(1000 + ConnectionWindow.retentionMs);

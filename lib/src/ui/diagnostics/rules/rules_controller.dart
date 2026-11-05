@@ -25,8 +25,6 @@ class RulesController extends ChangeNotifier {
   bool sourceExpired = false;
   List<Map<String, dynamic>> rows = const [];
   List<Map<String, dynamic>> scopes = const [];
-  Map<String, dynamic>? data;
-  Map<String, Object?>? dataQuery;
   AppMessage? readError;
   String kind = 'main';
   String name = '';
@@ -35,7 +33,6 @@ class RulesController extends ChangeNotifier {
   Object? _providerProvenance;
   DefinitionProvenance? get providerProvenance =>
       DefinitionProvenance.tryFromValue(_providerProvenance);
-  String? sourceError;
   int offset = 0;
   int total = 0;
   int nextOffset = -1;
@@ -51,14 +48,13 @@ class RulesController extends ChangeNotifier {
   Object? _attempted;
   CoreSnapshot? _source;
   (String, String, String)? _loadedQuery;
-  (String, String)? get loadedScope =>
-      _loadedQuery == null ? null : (_loadedQuery!.$1, _loadedQuery!.$2);
   Timer? _debounce;
   Timer? _retry;
   Timer? _deadline;
   bool _reading = false;
-  int? _queuedStart;
+  (int, bool)? _queued;
   int _retryMs = 250;
+  int _failures = 0;
 
   String _localIdentity = '';
   String? _loadedLocalIdentity;
@@ -131,15 +127,13 @@ class RulesController extends ChangeNotifier {
       app.configsCurrent,
       selected?.id,
       selected?.revision,
-      app.commandErrorMessage,
-      app.state.resultId,
     );
     if (_observed == key) return;
     _observed = key;
     _request++;
     _debounce?.cancel();
     _retry?.cancel();
-    _queuedStart = null;
+    _queued = null;
     _retryMs = 250;
     loading = _reading;
     current = false;
@@ -199,7 +193,7 @@ class RulesController extends ChangeNotifier {
     name = scopeName;
     current = false;
     _request++;
-    _queuedStart = null;
+    _queued = null;
     _retryMs = 250;
     _retry?.cancel();
     _debounce?.cancel();
@@ -213,7 +207,7 @@ class RulesController extends ChangeNotifier {
     current = false;
     loading = _reading;
     failed = false;
-    _queuedStart = null;
+    _queued = null;
     _retryMs = 250;
     _retry?.cancel();
     _debounce?.cancel();
@@ -225,7 +219,7 @@ class RulesController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _read(int start) async {
+  Future<void> _read(int start, {bool fresh = false}) async {
     if (!canRead || !app.state.core.ready || (localCurrent && start > 0)) {
       _localPage(start);
       notifyListeners();
@@ -234,12 +228,12 @@ class RulesController extends ChangeNotifier {
     localCurrent = false;
     if (_reading) {
       // Retain the latest intent while the native read slot is occupied.
-      _queuedStart = start;
+      _queued = (start, fresh);
       notifyListeners();
       return;
     }
     _reading = true;
-    _queuedStart = null;
+    _queued = null;
     _retry?.cancel();
     var waiting = false;
     final expected = app.state.core;
@@ -249,15 +243,20 @@ class RulesController extends ChangeNotifier {
       'offset': start,
       'limit': pageSize,
       'search': search,
-      'token': start == 0 ? '' : token,
+      'token': start == 0 || fresh ? '' : token,
       if (kind == 'main') ...{
         'localIdentity': _localIdentity,
         'definitions': _definitions,
       },
     };
     final request = ++_request;
+    final retainingCurrent =
+        fresh &&
+        _source?.matchesIdentity(expected) == true &&
+        _loadedQuery == (kind, name, search) &&
+        _loadedLocalIdentity == _localIdentity;
     loading = true;
-    current = false;
+    if (!retainingCurrent) current = false;
     failed = false;
     notifyListeners();
     const grace = Duration(
@@ -273,22 +272,23 @@ class RulesController extends ChangeNotifier {
     try {
       final value = await app.platform.rules(expected, query);
       if (_disposed) return;
-      data = Map.unmodifiable(value);
-      dataQuery = Map.unmodifiable(query);
       if (value['readPending'] == true) {
         if (!expected.matchesWireIdentity(value)) {
           throw const FormatException('Rule read slot identity changed');
         }
         if (request == _request && canRead && value['stale'] != true) {
           waiting = true;
-          _retry = Timer(Duration(milliseconds: _retryMs), () => _read(start));
+          _retry = Timer(
+            Duration(milliseconds: _retryMs),
+            () => _read(start, fresh: fresh),
+          );
           _retryMs = (_retryMs * 2).clamp(250, 1000);
         }
         return;
       }
       final page = value['page'] as Map;
-      sourceError = page['error']?.toString();
       if (page['error'] != null) {
+        current = false;
         failed = true;
         readError = messages.operationFailed.withDetail(page['error']);
         return;
@@ -303,8 +303,26 @@ class RulesController extends ChangeNotifier {
       final choices = (page['scopes'] as List)
           .map((item) => Map<String, dynamic>.unmodifiable(item as Map))
           .toList();
+      final queryToken = query['token'];
+      if (fresh && start > 0 && start >= count) {
+        if (request == _request &&
+            canRead &&
+            value['stale'] != true &&
+            expected.matchesIdentity(app.state.core) &&
+            expected.matchesWireIdentity(value) &&
+            (query['kind'], query['name'], query['search']) ==
+                (kind, name, search)) {
+          _queued ??= (
+            count == 0 ? 0 : ((count - 1) ~/ pageSize) * pageSize,
+            true,
+          );
+        }
+        return;
+      }
       if (count < start + items.length ||
-          (start > 0 && version != query['token']) ||
+          (queryToken is String &&
+              queryToken.isNotEmpty &&
+              version != queryToken) ||
           (next != -1 &&
               (next != start + items.length ||
                   next >= count ||
@@ -335,8 +353,10 @@ class RulesController extends ChangeNotifier {
           value['stale'] != true &&
           expected.matchesIdentity(app.state.core) &&
           expected.matchesWireIdentity(value);
+      if (current) _failures = 0;
     } catch (error) {
       if (_disposed) return;
+      current = false;
       readError = error is PlatformFailure
           ? messageFromFailure(error, fallback: messages.operationFailed)
           : messages.operationFailed.withDetail(error);
@@ -353,13 +373,26 @@ class RulesController extends ChangeNotifier {
       if (!_disposed) {
         loading = waiting;
         notifyListeners();
-        final queued = _queuedStart;
-        _queuedStart = null;
+        final queued = _queued;
+        _queued = null;
         if (queued != null && canRead && app.state.core.ready) {
-          unawaited(_read(queued));
+          unawaited(_read(queued.$1, fresh: queued.$2));
+        } else if (!waiting) {
+          _scheduleNext();
         }
       }
     }
+  }
+
+  void _scheduleNext() {
+    _retry?.cancel();
+    if (!canRead || !app.state.core.ready || localCurrent) return;
+    const seconds = [5, 10, 30, 60];
+    final delay = failed
+        ? Duration(seconds: seconds[_failures.clamp(0, seconds.length - 1)])
+        : const Duration(seconds: 30);
+    if (failed) _failures++;
+    _retry = Timer(delay, () => _read(offset, fresh: true));
   }
 
   Future<void> next() async {

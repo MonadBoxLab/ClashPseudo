@@ -37,7 +37,7 @@ class _StorageBridge extends ConnectionBridgeFake {
   Future<Map<String, dynamic>> storageUsage() async {
     usageReads++;
     if (usageFailure case final failure?) throw failure;
-    return pendingUsage == null ? usage : await pendingUsage!.future;
+    return pendingUsage == null ? Map.of(usage) : await pendingUsage!.future;
   }
 }
 
@@ -111,6 +111,12 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+  }
+
+  Future<void> reread(WidgetTester tester) async {
+    app.setForeground(false);
+    app.setForeground(true);
+    await tester.pump();
   }
 
   Future<void> reveal(
@@ -251,41 +257,23 @@ void main() {
         final row = find.byKey(const ValueKey('storage-usage-configurations'));
         final following = find.byKey(const ValueKey('storage-usage-overrides'));
         await reveal(tester, row);
-        final refreshButton = find.ancestor(
-          of: find.byTooltip(strings.refresh),
-          matching: find.byType(IconButton),
-        );
-        final before = (
-          tester.getRect(row),
-          tester.getRect(following),
-          tester.getRect(refreshButton),
-        );
+        expect(find.byTooltip(strings.refresh), findsNothing);
+        expect(find.byType(RefreshIndicator), findsNothing);
+        final before = (tester.getRect(row), tester.getRect(following));
         final page = tester.state(find.byType(StorageDataPage));
         final scroll = tester
             .state<ScrollableState>(find.byType(Scrollable).first)
             .position;
         final pixels = scroll.pixels;
         final pending = bridge.pendingUsage = Completer<Map<String, dynamic>>();
-        final refresh = tester
-            .widget<RefreshIndicator>(find.byType(RefreshIndicator))
-            .onRefresh();
-        await tester.pump();
-        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        await reread(tester);
+        expect(find.byType(CircularProgressIndicator), findsNothing);
         expect(find.byType(LinearProgressIndicator), findsNothing);
-        expect((
-          tester.getRect(row),
-          tester.getRect(following),
-          tester.getRect(refreshButton),
-        ), before);
-        pending.completeError(StateError('stat original cause'));
+        expect((tester.getRect(row), tester.getRect(following)), before);
         bridge.pendingUsage = null;
-        await refresh;
+        pending.completeError(StateError('stat original cause'));
         await tester.pumpAndSettle();
-        expect((
-          tester.getRect(row),
-          tester.getRect(following),
-          tester.getRect(refreshButton),
-        ), before);
+        expect((tester.getRect(row), tester.getRect(following)), before);
         expect(scroll.pixels, pixels);
         expect(tester.state(find.byType(StorageDataPage)), same(page));
         expect(find.byType(AlertDialog), findsNothing);
@@ -301,7 +289,7 @@ void main() {
               find.descendant(of: row, matching: find.byType(SelectableText)),
             )
             .data!;
-        expect(text, contains(strings.storageFileBytes('—', '128 MiB')));
+        expect(text, contains(strings.storageFileBytes('1.00 MiB', '128 MiB')));
         expect(text, isNot(contains('stat original cause')));
         await tester.tap(
           find.descendant(
@@ -355,9 +343,7 @@ void main() {
       'error': AppMessage('storageUsageFailed', detail: original).toMap(),
     };
     bridge.usage['configurations'] = native;
-    await tester
-        .widget<RefreshIndicator>(find.byType(RefreshIndicator))
-        .onRefresh();
+    await reread(tester);
     await tester.pump();
     expect(text(), contains('1.50 MiB / 128 MiB'));
     expect(
@@ -375,9 +361,7 @@ void main() {
     expect(tester.getSize(row).height, before);
     expect(tester.getTopLeft(following).dy, followingBefore);
     bridge.usage['configurations'] = {'bytes': 2097152};
-    await tester
-        .widget<RefreshIndicator>(find.byType(RefreshIndicator))
-        .onRefresh();
+    await reread(tester);
     await tester.pump();
     expect(text(), contains('2.00 MiB / 128 MiB'));
     expect(text(), isNot(contains(original)));
@@ -395,9 +379,7 @@ void main() {
     );
     expect(tester.state(editor), same(editorState));
     bridge.usage['configurations'] = native;
-    await tester
-        .widget<RefreshIndicator>(find.byType(RefreshIndicator))
-        .onRefresh();
+    await reread(tester);
     await tester.pump();
     expect(
       text(),
@@ -417,18 +399,18 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('存储清理反馈退休后在 fade 结束前移除操作和 semantics', (tester) async {
+  testWidgets('存储清理错误只由 SnackBar 展示，状态变化后旧详情失效', (tester) async {
     app.configErrorMessage = null;
     app.overrideErrorMessage = null;
-    final presentation = ValueNotifier((1.0, false));
-    addTearDown(presentation.dispose);
     app.state = const AppSnapshot(
       phase: 'STOPPED',
       storageEpoch: 41,
       coreCleanup: {
         'status': 'failed',
         'scope': 'files',
-        'paths': ['cache.db'],
+        'files': [
+          {'path': 'cache.db', 'completed': false},
+        ],
         'error': {
           'id': 'coreCleanupFailed',
           'args': <String, Object?>{},
@@ -436,64 +418,68 @@ void main() {
         },
       },
     );
-    final semantics = tester.ensureSemantics();
-    try {
-      await show(
-        tester,
-        size: const Size(700, 1200),
-        presentation: presentation,
-      );
-      final exit = find.byKey(
-        const ValueKey('storage-core-cleanup-state-details'),
-      );
-      await reveal(tester, exit);
-      final oldExit = tester.widget<TextButton>(exit).onPressed!;
-      final oldRect = tester.getRect(exit);
-      app.state = const AppSnapshot(
-        phase: 'STOPPED',
-        storageEpoch: 41,
-        coreCleanup: {
-          'status': 'completed',
-          'scope': 'files',
-          'paths': ['cache.db'],
-        },
-      );
-      await app.refresh();
-      await tester.pump();
-      expect(exit, findsOneWidget);
-      expect(tester.getRect(exit), oldRect);
-      expect(exit.hitTestable(), findsNothing);
-      final strings = lookupAppLocalizations(const Locale('en'));
-      expect(find.text(strings.coreCleanupCompleted), findsOneWidget);
-      expect(
-        tester.semantics.simulatedAccessibilityTraversal().map(
-          (node) => node.getSemanticsData().label,
-        ),
-        isNot(contains(strings.errorDetails)),
-      );
-      oldExit();
-      await tester.pump();
-      expect(bridge.exits, 0);
-      expect(find.byType(AlertDialog), findsNothing);
-      final fade = find
-          .ancestor(of: exit, matching: find.byType(FadeTransition))
-          .first;
-      final opacity = tester.widget<FadeTransition>(fade).opacity;
-      expect(opacity.value, 1);
-      await tester.pump(const Duration(milliseconds: 60));
-      expect(opacity.value, inExclusiveRange(0, 1));
-      expect(exit.hitTestable(), findsNothing);
-      presentation.value = (1.0, true);
-      await tester.pump();
-      expect(exit, findsNothing);
-      expect(find.text(strings.coreCleanupCompleted), findsOneWidget);
-      expect(bridge.exits, 0);
-      expect(app.commands, isEmpty);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    } finally {
-      semantics.dispose();
-    }
+    await show(tester, size: const Size(700, 1200));
+    final strings = lookupAppLocalizations(const Locale('en'));
+    final action = find.descendant(
+      of: find.byType(SnackBar),
+      matching: find.widgetWithText(TextButton, strings.errorDetails),
+    );
+    expect(action, findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('storage-core-cleanup-state')),
+      findsNothing,
+    );
+    expect(find.text('cache.db'), findsNothing);
+    final oldDetails = tester.widget<TextButton>(action).onPressed!;
+    app.state = const AppSnapshot(
+      phase: 'STOPPED',
+      storageEpoch: 41,
+      coreCleanup: {'status': 'completed', 'scope': 'files'},
+    );
+    oldDetails();
+    await app.refresh();
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.text(strings.coreCleanupCompleted), findsOneWidget);
+    expect(bridge.exits, 0);
+    expect(app.commands, isEmpty);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('部分清理结果在详情保留文件、状态和原因', (tester) async {
+    app.configErrorMessage = null;
+    app.overrideErrorMessage = null;
+    app.state = const AppSnapshot(
+      phase: 'STOPPED',
+      storageEpoch: 41,
+      coreCleanup: {
+        'status': 'partial',
+        'files': [
+          {'path': 'cache.db', 'completed': true},
+          {
+            'path': 'geo/failed.dat',
+            'completed': false,
+            'error': {
+              'id': 'coreCleanupFailed',
+              'args': <String, Object?>{},
+              'detail': 'permission denied original',
+            },
+          },
+        ],
+      },
+    );
+    await show(tester, size: const Size(700, 1200));
+    final detail = await readOriginal(
+      tester,
+      find.byType(StorageDataPage),
+      'permission denied original',
+    );
+    final strings = lookupAppLocalizations(const Locale('en'));
+    expect(detail, contains('cache.db · ${strings.cleanupFileCompleted}'));
+    expect(detail, contains('geo/failed.dat · ${strings.cleanupFileFailed}'));
+    expect(app.commands, isEmpty);
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('设置仅有一个存储入口，不重复显示 backup 操作', (tester) async {
@@ -891,14 +877,12 @@ void main() {
     expect(app.commands, isEmpty);
   });
 
-  testWidgets('重新测量失败后将旧用量替换为未知，并保留完整 cause', (tester) async {
+  testWidgets('重新测量失败后保留上次用量和完整 cause', (tester) async {
     await show(tester);
     const original = 'stat original\nCaused by: open\nSuppressed: close 原文🙂';
     final readsBefore = bridge.usageReads;
     bridge.usageFailure = StateError(original);
-    await tester
-        .widget<RefreshIndicator>(find.byType(RefreshIndicator))
-        .onRefresh();
+    await reread(tester);
     await tester.pumpAndSettle();
     final row = find.byKey(const ValueKey('storage-usage-configurations'));
     await reveal(tester, row);
@@ -907,8 +891,10 @@ void main() {
           find.descendant(of: row, matching: find.byType(SelectableText)),
         )
         .data!;
-    expect(text.split('\n').first, '— / 128 MiB');
-    expect(text, isNot(contains('128 MiB /')));
+    expect(
+      text.split('\n').first,
+      '128 MiB / 128 MiB · ${lookupAppLocalizations(const Locale('en')).storageLimitExceeded}',
+    );
     expect(bridge.usageReads, readsBefore + 1);
     await reveal(
       tester,
@@ -952,10 +938,7 @@ void main() {
     final first = Completer<Map<String, dynamic>>();
     final second = Completer<Map<String, dynamic>>();
     bridge.pendingUsage = first;
-    final refresh = tester
-        .widget<RefreshIndicator>(find.byType(RefreshIndicator))
-        .onRefresh();
-    await tester.pump();
+    await reread(tester);
     app.state = const AppSnapshot(phase: 'STOPPED', storageEpoch: 42);
     await app.refresh();
     bridge.pendingUsage = second;
@@ -976,15 +959,12 @@ void main() {
     second.complete({
       'configurations': {'bytes': 9},
     });
-    await refresh;
     await tester.pumpAndSettle();
     expect(text(), contains('9 B / 128 MiB'));
     expect(bridge.usageReads, 3);
   });
 
-  testWidgets('关闭存储 Route 立即撤销 cached cleanup 和 refresh callback', (
-    tester,
-  ) async {
+  testWidgets('关闭存储 Route 立即撤销 cached cleanup callback', (tester) async {
     await show(tester, settings: true);
     final entry = find.byKey(const ValueKey('settings-storage-data'));
     await reveal(tester, entry);
@@ -993,13 +973,10 @@ void main() {
     final clear = find.byKey(const ValueKey('storage-clear-connections'));
     await reveal(tester, clear);
     final callback = tester.widget<ListTile>(clear).onTap!;
-    final refresh = tester
-        .widget<RefreshIndicator>(find.byType(RefreshIndicator))
-        .onRefresh;
+    expect(find.byType(RefreshIndicator), findsNothing);
     final reads = bridge.usageReads;
     Navigator.of(tester.element(clear)).pop();
     callback();
-    await refresh();
     expect(bridge.clears, 0);
     expect(bridge.usageReads, reads);
     await tester.pump();
@@ -1010,14 +987,11 @@ void main() {
     expect(find.byType(StorageDataPage), findsNothing);
   });
 
-  testWidgets('存储读取期间的 refresh 请求合并为一次新读取', (tester) async {
+  testWidgets('存储读取期间的来源变化合并为一次新读取', (tester) async {
     await show(tester);
     final pending = Completer<Map<String, dynamic>>();
     bridge.pendingUsage = pending;
-    final refresh = tester
-        .widget<RefreshIndicator>(find.byType(RefreshIndicator))
-        .onRefresh();
-    await tester.pump();
+    await reread(tester);
     expect(bridge.usageReads, 2);
     for (final epoch in [42, 43]) {
       app.state = AppSnapshot(phase: 'STOPPED', storageEpoch: epoch);
@@ -1032,7 +1006,6 @@ void main() {
     pending.complete({
       'configurations': {'bytes': 1, 'path': '/fixture/previous.json'},
     });
-    await refresh;
     await tester.pumpAndSettle();
     expect(bridge.usageReads, 3);
     final config = find.byKey(const ValueKey('storage-usage-configurations'));

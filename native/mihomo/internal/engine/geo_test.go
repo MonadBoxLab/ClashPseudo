@@ -16,6 +16,7 @@ import (
 
 	"github.com/metacubex/mihomo/component/geodata"
 	C "github.com/metacubex/mihomo/constant"
+	"go.yaml.in/yaml/v3"
 
 	"clashpseudo/native/internal/coreview"
 )
@@ -113,13 +114,11 @@ func TestStopWaitsForManualGeoWriteInItsOriginalHome(t *testing.T) {
 		value, err := e.RuntimeConfig()
 		if err == nil {
 			var configuration struct {
-				General struct {
-					Mode string `json:"mode"`
-				} `json:"general"`
+				Mode string `yaml:"mode"`
 			}
-			err = json.Unmarshal([]byte(value), &configuration)
-			if err == nil && configuration.General.Mode != "rule" {
-				err = fmt.Errorf("GeoIP I/O 期间 runtimeConfig mode = %q，预期 rule", configuration.General.Mode)
+			err = yaml.Unmarshal([]byte(value), &configuration)
+			if err == nil && configuration.Mode != "rule" {
+				err = fmt.Errorf("GeoIP I/O 期间 runtimeConfig mode = %q，预期 rule", configuration.Mode)
 			}
 		}
 		diagnostic <- err

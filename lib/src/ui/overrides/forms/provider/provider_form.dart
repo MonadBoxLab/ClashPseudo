@@ -468,6 +468,7 @@ class _ProviderFormPageState extends State<ProviderFormPage> {
         title: (strings) => strings.errorDetails,
         isCurrent: current,
         isCurrentWithPopup: (_) => current(),
+        onRetry: _save,
       );
     }
     return showLocalizedOperationMessage(
@@ -477,6 +478,7 @@ class _ProviderFormPageState extends State<ProviderFormPage> {
       title: (strings) => strings.errorDetails,
       isCurrent: current,
       isCurrentWithPopup: (_) => current(),
+      onRetry: _save,
     );
   }
 

@@ -374,7 +374,7 @@ rules: ['MATCH,DIRECT']
 			embed, system := ca.DisableEmbedCa, ca.DisableSystemCa
 			defer func() { ca.DisableEmbedCa, ca.DisableSystemCa = embed, system }()
 			ca.DisableEmbedCa, ca.DisableSystemCa = selected, !selected
-			copy := resourceConfig(cfg)
+			copy := workingConfig(cfg, true)
 			if copy == cfg || copy.General == cfg.General || copy.DNS == cfg.DNS || copy.NTP == cfg.NTP {
 				t.Fatal("deferred resource settings were not copied")
 			}

@@ -2263,16 +2263,19 @@ void main() {
           expect(find.byType(AlertDialog), findsNothing);
           expect(tester.getRect(find.text('Reader anchor')), anchor);
           if (!success) {
-            expect(find.byType(SnackBar), findsNothing);
-            tester.view.physicalSize = const Size(320, 2600);
-            await tester.pumpAndSettle();
-            expect(find.byType(SnackBar), findsOneWidget);
-            expect(find.text(message.resolve(en)), findsOneWidget);
+            final notice = find.byType(SnackBar);
+            expect(notice, findsOneWidget);
+            final summary = tester.widget<Text>(
+              find.descendant(
+                of: notice,
+                matching: find.text(message.summary(en)),
+              ),
+            );
+            expect(summary.maxLines, 2);
+            expect(summary.overflow, TextOverflow.ellipsis);
             await tester.tap(find.text(en.errorDetails));
             await tester.pumpAndSettle();
             expect(find.byType(AlertDialog), findsOneWidget);
-            tester.view.physicalSize = const Size(320, 568);
-            await tester.pumpAndSettle();
           }
           expect(find.text(message.resolve(en)), findsOneWidget);
           expect(tester.getRect(find.text('Reader anchor')), anchor);

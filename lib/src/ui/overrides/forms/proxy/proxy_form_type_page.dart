@@ -107,15 +107,18 @@ class ProxyFormTypePage extends StatelessWidget {
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 20,
                       ),
-                      title: Text(type.label),
-                      selected: selectedType == type.raw,
-                      trailing: SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: selectedType == type.raw
-                            ? const Icon(Icons.check)
-                            : null,
+                      title: Text(
+                        type.label,
+                        style: TextStyle(
+                          fontWeight: selectedType == type.raw
+                              ? FontWeight.w700
+                              : FontWeight.w400,
+                        ),
                       ),
+                      selected: selectedType == type.raw,
+                      selectedColor: theme.colorScheme.onSurface,
+                      selectedTileColor:
+                          theme.colorScheme.surfaceContainerHighest,
                       onTap: () {
                         // A retained callback must not select for a covered or
                         // already exiting choice route.

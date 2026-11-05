@@ -7,14 +7,12 @@ class _ConnectionDetail extends StatefulWidget {
     required this.active,
     required this.isPresented,
     required this.onClose,
-    required this.onErrorViewed,
     required this.onMenuChanged,
   });
   final ConnectionController controller;
   final bool active;
   final bool Function() isPresented;
   final VoidCallback onClose;
-  final VoidCallback onErrorViewed;
   final void Function(GlobalKey, bool) onMenuChanged;
   @override
   State<_ConnectionDetail> createState() => _ConnectionDetailState();
@@ -25,6 +23,7 @@ enum _ConnectionInfoField { targetIp, sourceAddress, inbound }
 class _ConnectionDetailState extends State<_ConnectionDetail> {
   bool? _visible;
   AppMessage? _shownError;
+  String? _shownRuleError;
   final _infoFields = <_ConnectionInfoField>[];
   final _ruleActionsKey = GlobalKey();
   final _actionsMenu = GlobalKey();
@@ -32,8 +31,6 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
   bool _ruleFormOpen = false;
   ModalRoute<dynamic>? _ruleRoute;
   bool _ruleMenuOpen = false;
-  bool _rawExpanded = false;
-  bool _rawCreated = false;
   late final Object? _lease;
 
   bool get _live =>
@@ -58,35 +55,68 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
     super.initState();
     _lease = widget.controller.detailLease;
     widget.controller.addListener(_resultChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _resultChanged();
+    });
   }
 
   void _resultChanged() {
-    final message = widget.controller.closeMessageDescription;
-    if (message == _shownError) return;
-    _shownError = message;
-    if (message == null) return;
-    final source = widget.controller.detailSource;
-    final epoch = widget.controller.app.storageEpoch;
-    if (source == null) return;
+    final controller = widget.controller;
+    final message = controller.closeMessageDescription;
+    final ruleError = controller.detail?.ruleError;
+    if (message == null) _shownError = null;
+    if (ruleError == null) _shownRuleError = null;
+    if ((message == null || message == _shownError) &&
+        (ruleError == null || ruleError == _shownRuleError)) {
+      return;
+    }
+    final source = controller.detailSource;
+    final epoch = controller.app.storageEpoch;
+    final id = controller.detail?.id;
+    if (source == null || id == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_canPresent &&
-          widget.controller.app.storageEpoch == epoch &&
-          widget.controller.closeMessageDescription == message) {
+      bool sameSelection() =>
+          controller.app.storageEpoch == epoch &&
+          controller.detail?.id == id &&
+          source.matchesIdentity(controller.app.state.core);
+      if (!_canPresent || !sameSelection()) return;
+      if (message != null &&
+          message != _shownError &&
+          controller.closeMessageDescription == message) {
+        _shownError = message;
         showAppNotice(
           context,
           message,
           title: (strings) => strings.disconnectFailedTitle,
-          eligibilityChanges: widget.controller,
+          eligibilityChanges: controller,
           isCurrent: () =>
               _canPresent &&
-              widget.controller.app.storageEpoch == epoch &&
-              widget.controller.closeMessageDescription == message &&
-              source.matchesIdentity(widget.controller.app.state.core),
+              sameSelection() &&
+              controller.closeMessageDescription == message,
           isCurrentWithPopup: (popup) =>
               _liveWithPopup(popup) &&
-              widget.controller.app.storageEpoch == epoch &&
-              widget.controller.closeMessageDescription == message &&
-              source.matchesIdentity(widget.controller.app.state.core),
+              sameSelection() &&
+              controller.closeMessageDescription == message,
+        );
+      }
+      if (ruleError != null &&
+          ruleError != _shownRuleError &&
+          controller.detail?.ruleError == ruleError) {
+        _shownRuleError = ruleError;
+        showLocalizedOperationNotice(
+          context,
+          (strings) => strings.connectionRuleUnavailable,
+          technicalDetail: (_) => ruleError,
+          identity: (id, ruleError),
+          eligibilityChanges: controller,
+          isCurrent: () =>
+              _canPresent &&
+              sameSelection() &&
+              controller.detail?.ruleError == ruleError,
+          isCurrentWithPopup: (popup) =>
+              _liveWithPopup(popup) &&
+              sameSelection() &&
+              controller.detail?.ruleError == ruleError,
         );
       }
     });
@@ -103,6 +133,7 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
     super.didChangeDependencies();
     CollectionWorkspace.paneActiveOf(context);
     _syncVisibility();
+    _resultChanged();
   }
 
   @override
@@ -380,50 +411,6 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
     );
   }
 
-  Future<void> _showError() async {
-    if (!_canPresent) return;
-    final controller = widget.controller;
-    final session = controller.app.state.generation;
-    final source = controller.app.state.core;
-    final epoch = controller.app.storageEpoch;
-    final closeMessage = controller.closeMessageDescription;
-    final readMessage = controller.errorMessage;
-    final ruleError = controller.detail?.ruleError;
-    if (closeMessage == null && readMessage == null && ruleError == null) {
-      return;
-    }
-    widget.onErrorViewed();
-    await showLocalizedOperationMessage(
-      context,
-      (strings) => [
-        if (closeMessage != null) closeMessage.summary(strings),
-        if (readMessage != null) readMessage.summary(strings),
-        if (ruleError != null) strings.connectionRuleUnavailable,
-      ].where((text) => text.isNotEmpty).join('\n\n'),
-      technicalDetail: (strings) {
-        final details = [
-          closeMessage?.technicalDetail(strings),
-          readMessage?.technicalDetail(strings),
-          ruleError,
-        ].nonNulls.toList();
-        return details.isEmpty ? null : details.join('\n\n');
-      },
-      title: (strings) => strings.errorDetails,
-      error: true,
-      eligibilityChanges: controller,
-      isCurrent: () =>
-          _canPresent &&
-          controller.app.state.generation == session &&
-          controller.app.storageEpoch == epoch &&
-          source.matchesIdentity(controller.app.state.core),
-      isCurrentWithPopup: (popup) =>
-          _liveWithPopup(popup) &&
-          controller.app.state.generation == session &&
-          controller.app.storageEpoch == epoch &&
-          source.matchesIdentity(controller.app.state.core),
-    );
-  }
-
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: widget.controller,
@@ -433,6 +420,26 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
       if (record == null) return const SizedBox.shrink();
       final strings = AppLocalizations.of(context);
       final colors = Theme.of(context).colorScheme;
+      final text = Theme.of(context).textTheme;
+      final routeStyle = text.bodyLarge!.copyWith(
+        height: 1.4,
+        leadingDistribution: TextLeadingDistribution.even,
+      );
+      final routeLine = TextPainter(
+        text: TextSpan(
+          text: record.path.isEmpty ? '—' : record.path,
+          style: DefaultTextStyle.of(context).style.merge(routeStyle),
+        ),
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+        locale: Localizations.maybeLocaleOf(context),
+        maxLines: 1,
+      )..layout();
+      final routeIconHeight = (routeLine.height + 4).clamp(
+        36.0,
+        double.infinity,
+      );
+      routeLine.dispose();
       final palette = ConnectionPalette(
         Theme.of(context).brightness == Brightness.dark,
       );
@@ -475,33 +482,21 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
                 'connection-disconnect': controller.closing
                     ? strings.disconnecting
                     : strings.disconnect,
-                if (controller.closeMessageDescription != null ||
-                    controller.errorMessage != null ||
-                    record.ruleError != null)
-                  'connection-detail-error': strings.errorDetails,
               },
               disabledOptions: {
                 if (!controller.canClose) 'connection-disconnect',
               },
-              leadingIcon: (action) => Icon(
-                action == 'connection-disconnect'
-                    ? Icons.link_off_rounded
-                    : Icons.error_outline_rounded,
-                color: action == 'connection-disconnect' && controller.canClose
-                    ? colors.error
-                    : null,
+              leadingIcon: (_) => Icon(
+                Icons.link_off_rounded,
+                color: controller.canClose ? colors.error : null,
                 size: 20,
               ),
               onOpened: () => widget.onMenuChanged(_actionsMenu, true),
               onClosed: () => widget.onMenuChanged(_actionsMenu, false),
-              onSelected: (action) {
+              onSelected: (_) {
                 if (!_canPresent) return;
                 widget.onMenuChanged(_actionsMenu, false);
-                if (action == 'connection-detail-error') {
-                  _showError();
-                } else if (controller.canClose) {
-                  controller.disconnect();
-                }
+                if (controller.canClose) controller.disconnect();
               },
               buttonBuilder: (context, onPressed, focus) => IconButton(
                 key: const ValueKey('connection-detail-actions'),
@@ -535,8 +530,7 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
                   children: [
                     _DetailValue(
                       record.target,
-                      style: const TextStyle(
-                        fontSize: 24,
+                      style: text.titleLarge!.copyWith(
                         height: 1.25,
                         fontWeight: FontWeight.w600,
                       ),
@@ -544,27 +538,64 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
                     const SizedBox(height: 12),
                     LayoutBuilder(
                       builder: (context, constraints) {
-                        final fontSize = MediaQuery.textScalerOf(context)
-                            .scale(13);
-                        final stacked = constraints.maxWidth < fontSize * 25;
-                        final status = ConstrainedBox(
-                          constraints: const BoxConstraints(
-                            minWidth: 48,
-                            minHeight: 48,
+                        final statusSize = _StatusLabel.measure(context);
+                        final painter = TextPainter(
+                          textDirection: Directionality.of(context),
+                          textScaler: MediaQuery.textScalerOf(context),
+                          locale: Localizations.maybeLocaleOf(context),
+                          maxLines: 1,
+                        );
+                        double width(String value, TextStyle style) {
+                          painter.text = TextSpan(
+                            text: value,
+                            style: DefaultTextStyle.of(context).style
+                                .merge(style),
+                          );
+                          painter.layout();
+                          return painter.width;
+                        }
+
+                        final metadataWidth =
+                            (record.network.isEmpty
+                                ? 0.0
+                                : width(
+                                        record.network.toUpperCase(),
+                                        text.labelMedium!.copyWith(
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ) +
+                                      12) +
+                            (record.host.isEmpty ||
+                                    record.destinationPort.isEmpty
+                                ? 0.0
+                                : width(
+                                        strings.portLabel(
+                                          record.destinationPort,
+                                        ),
+                                        text.bodySmall!,
+                                      ) +
+                                      8);
+                        painter.dispose();
+                        final stacked =
+                            constraints.maxWidth <
+                            metadataWidth + statusSize.width + 12;
+                        final status = SizedBox(
+                          width: statusSize.width.clamp(
+                            0.0,
+                            constraints.maxWidth,
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _StatusLabel(
-                                key: const ValueKey('connection-detail-status'),
-                                active:
-                                    record.active &&
-                                    controller.closeResult != 'closed' &&
-                                    controller.closeResult != 'absent',
-                                closed: controller.closeResult == 'closed',
-                                trailing: true,
-                              ),
-                            ],
+                          height: statusSize.height.clamp(
+                            48.0,
+                            double.infinity,
+                          ),
+                          child: _StatusLabel(
+                            key: const ValueKey('connection-detail-status'),
+                            active:
+                                record.active &&
+                                controller.closeResult != 'closed' &&
+                                controller.closeResult != 'absent',
+                            closed: controller.closeResult == 'closed',
+                            trailing: true,
                           ),
                         );
                         final metadata = SingleChildScrollView(
@@ -580,8 +611,7 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
                                   child: Text(
                                     strings.portLabel(record.destinationPort),
                                     softWrap: false,
-                                    style: TextStyle(
-                                      fontSize: 13,
+                                    style: text.bodySmall!.copyWith(
                                       color: colors.onSurfaceVariant,
                                     ),
                                   ),
@@ -589,7 +619,7 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
                             ],
                           ),
                         );
-                        final lineHeight = (fontSize * 2 + 4)
+                        final lineHeight = (statusSize.height + 4)
                             .clamp(48.0, double.infinity)
                             .toDouble();
                         if (stacked) {
@@ -637,11 +667,7 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         SizedBox(
-                          height:
-                              (MediaQuery.textScalerOf(context).scale(16) * 1.4)
-                                  .ceilToDouble()
-                                  .clamp(32, double.infinity) +
-                              4,
+                          height: routeIconHeight,
                           child: Center(
                             child: Container(
                               padding: const EdgeInsets.all(8),
@@ -662,11 +688,7 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
                           child: _DetailValue(
                             record.path.isEmpty ? '—' : record.path,
                             minHeight: 36,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              height: 1.4,
-                              leadingDistribution: TextLeadingDistribution.even,
-                            ),
+                            style: routeStyle,
                           ),
                         ),
                       ],
@@ -708,7 +730,9 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
                           ),
                         ];
                         if (constraints.maxWidth < 240 ||
-                            MediaQuery.textScalerOf(context).scale(14) > 20) {
+                            MediaQuery.textScalerOf(context)
+                                    .scale(text.headlineMedium!.fontSize!) >
+                                40) {
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
@@ -740,6 +764,7 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
                     duration != null && !duration.isNegative
                         ? _duration(strings, duration)
                         : '—',
+                    numeric: true,
                     color: controller.detailActive
                         ? palette.active
                         : colors.onSurfaceVariant,
@@ -763,56 +788,6 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
                   ],
                 ),
               ],
-              _Group(
-                children: [
-                  Material(
-                    type: MaterialType.transparency,
-                    child: ExpansionTile(
-                      expansionAnimationStyle:
-                          MediaQuery.disableAnimationsOf(context)
-                          ? AnimationStyle.noAnimation
-                          : null,
-                      title: Text(strings.rawData),
-                      maintainState: true,
-                      initiallyExpanded: _rawExpanded,
-                      onExpansionChanged: (value) {
-                        if (!_live) return;
-                        setState(() {
-                          _rawExpanded = value;
-                          _rawCreated |= value;
-                        });
-                      },
-                      children: [
-                        if (_rawCreated)
-                          IgnorePointer(
-                            ignoring: !_rawExpanded || !_live,
-                            child: ExcludeFocus(
-                              excluding: !_rawExpanded || !_live,
-                              child: ExcludeSemantics(
-                                excluding: !_rawExpanded || !_live,
-                                child: SizedBox(
-                                  key: const ValueKey('connection-raw-body'),
-                                  height: 360,
-                                  child: OriginalTextView(
-                                    key: const ValueKey(
-                                      'connection-raw-reader',
-                                    ),
-                                    text: jsonEncode(record.raw),
-                                    identity: _lease,
-                                    isCurrent: () =>
-                                        _rawExpanded && _canPresent,
-                                    isCurrentWithPopup: (popup) =>
-                                        _rawExpanded && _liveWithPopup(popup),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
             ],
           ),
         ),
@@ -824,11 +799,8 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
     padding: const EdgeInsets.fromLTRB(4, 24, 4, 10),
     child: Text(
       title,
-      style: TextStyle(
-        fontSize: 13,
-        fontWeight: FontWeight.w600,
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
-      ),
+      style: Theme.of(context).textTheme.titleMedium!
+          .copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
     ),
   );
 
@@ -836,6 +808,7 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
     String name,
     String value, {
     bool stacked = false,
+    bool numeric = false,
     Color? color,
     ({double width, Widget child})? actions,
   }) => Padding(
@@ -844,8 +817,7 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
       builder: (context, constraints) {
         final label = Text(
           name,
-          style: TextStyle(
-            fontSize: 13,
+          style: Theme.of(context).textTheme.bodySmall!.copyWith(
             height: 1.4,
             leadingDistribution: TextLeadingDistribution.even,
             color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -853,20 +825,23 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
         );
         final data = _DetailValue(
           value,
-          style: TextStyle(
-            fontSize: 14,
+          style: Theme.of(context).textTheme.bodyMedium!.copyWith(
             height: 1.4,
             leadingDistribution: TextLeadingDistribution.even,
             color: color,
-            fontFeatures: const [FontFeature.tabularFigures()],
+            fontFeatures: numeric ? const [FontFeature.tabularFigures()] : null,
           ),
         );
         if (actions case final group?) {
           const gap = 16.0;
           final measure = TextPainter(
-            text: TextSpan(text: name, style: label.style),
+            text: TextSpan(
+              text: name,
+              style: DefaultTextStyle.of(context).style.merge(label.style),
+            ),
             textDirection: Directionality.of(context),
             textScaler: MediaQuery.textScalerOf(context),
+            locale: Localizations.maybeLocaleOf(context),
           )..layout();
           final inline =
               measure.width + gap + group.width <= constraints.maxWidth;
@@ -903,7 +878,9 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
         }
         if (stacked ||
             constraints.maxWidth < 260 ||
-            MediaQuery.textScalerOf(context).scale(14) > 20) {
+            MediaQuery.textScalerOf(context)
+                    .scale(Theme.of(context).textTheme.bodyMedium!.fontSize!) >
+                20) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [label, const SizedBox(height: 5), data],
@@ -937,7 +914,8 @@ class _DetailValue extends StatefulWidget {
 
 class _DetailValueState extends State<_DetailValue> {
   final _scroll = ScrollController();
-  (double, double)? _geometry;
+  (double, TextScaler, Locale?, TextDirection)? _geometry;
+  TextStyle? _geometryStyle;
   double? _height;
   bool _singleLine = true;
 
@@ -946,21 +924,27 @@ class _DetailValueState extends State<_DetailValue> {
     builder: (context, constraints) {
       final scaler = MediaQuery.textScalerOf(context);
       final style = DefaultTextStyle.of(context).style.merge(widget.style);
-      final geometry = (
-        constraints.maxWidth,
-        scaler.scale(style.fontSize ?? 14),
-      );
+      final direction = Directionality.of(context);
+      final locale = Localizations.maybeLocaleOf(context);
+      final geometry = (constraints.maxWidth, scaler, locale, direction);
       final painter = TextPainter(
         text: TextSpan(text: widget.text, style: style),
-        textDirection: Directionality.of(context),
+        textDirection: direction,
         textScaler: scaler,
+        locale: locale,
       )..layout(maxWidth: constraints.maxWidth);
-      if (_geometry != geometry) {
+      if (_geometry != geometry ||
+          _geometryStyle == null ||
+          _geometryStyle!.compareTo(style) == RenderComparison.layout) {
         _geometry = geometry;
-        _height = (painter.height.clamp(geometry.$2, geometry.$2 * 6) + 4)
-            .clamp(widget.minHeight, double.infinity);
+        final lineHeight = painter.preferredLineHeight;
+        _height = (painter.height.clamp(lineHeight, lineHeight * 6) + 4).clamp(
+          widget.minHeight,
+          double.infinity,
+        );
         _singleLine = painter.computeLineMetrics().length <= 1;
       }
+      _geometryStyle = style;
       final overflow = painter.height + 4 > _height!;
       painter.dispose();
       return SizedBox(
@@ -1036,6 +1020,34 @@ class _StatusLabel extends StatelessWidget {
   final bool closed;
   final bool trailing;
 
+  static Size measure(BuildContext context) {
+    final strings = AppLocalizations.of(context);
+    final style = DefaultTextStyle.of(context).style.merge(
+      Theme.of(context).textTheme.bodySmall!
+          .copyWith(fontWeight: FontWeight.w500),
+    );
+    final painter = TextPainter(
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      locale: Localizations.maybeLocaleOf(context),
+      maxLines: 1,
+    );
+    var width = 0.0;
+    var height = 0.0;
+    for (final label in [
+      strings.connectionClosed,
+      strings.connectionActive,
+      strings.connectionInactive,
+    ]) {
+      painter.text = TextSpan(text: label, style: style);
+      painter.layout();
+      if (painter.width > width) width = painter.width;
+      if (painter.height > height) height = painter.height;
+    }
+    painter.dispose();
+    return Size(width.ceilToDouble(), height.ceilToDouble());
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
@@ -1048,35 +1060,18 @@ class _StatusLabel extends StatelessWidget {
         : active
         ? strings.connectionActive
         : strings.connectionInactive;
-    final icon = closed
-        ? Icons.link_off_rounded
-        : active
-        ? Icons.circle
-        : Icons.circle_outlined;
     final color = active ? palette.active : colors.onSurfaceVariant;
     return SizedBox(
-      width: 20 + MediaQuery.textScalerOf(context).scale(13) * 5,
+      width: measure(context).width,
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         reverse: trailing,
-        child: Row(
-          children: [
-            SizedBox.square(
-              dimension: 15,
-              child: Icon(icon, size: active ? 8 : 15, color: color),
-            ),
-            const SizedBox(width: 5),
-            Text(
-              label,
-              key: const ValueKey('connection-detail-status-text'),
-              softWrap: false,
-              style: TextStyle(
-                fontSize: 13,
-                color: color,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
+        child: Text(
+          label,
+          key: const ValueKey('connection-detail-status-text'),
+          softWrap: false,
+          style: Theme.of(context).textTheme.bodySmall!
+              .copyWith(color: color, fontWeight: FontWeight.w500),
         ),
       ),
     );
@@ -1098,8 +1093,7 @@ class _ProtocolLabel extends StatelessWidget {
       ),
       child: Text(
         network.toUpperCase(),
-        style: TextStyle(
-          fontSize: 11,
+        style: Theme.of(context).textTheme.labelMedium!.copyWith(
           fontWeight: FontWeight.w600,
           color: colors.onSurfaceVariant,
         ),
@@ -1137,11 +1131,8 @@ class _TrafficValue extends StatelessWidget {
             Icon(icon, color: color, size: 16),
             Text(
               label,
-              style: TextStyle(
-                fontSize: 13,
-                color: color,
-                fontWeight: FontWeight.w500,
-              ),
+              style: Theme.of(context).textTheme.bodySmall!
+                  .copyWith(color: color, fontWeight: FontWeight.w500),
             ),
           ],
         ),
@@ -1153,17 +1144,13 @@ class _TrafficValue extends StatelessWidget {
               children: [
                 TextSpan(
                   text: parts.first,
-                  style: TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w600,
-                    color: color,
-                  ),
+                  style: Theme.of(context).textTheme.headlineMedium!
+                      .copyWith(fontWeight: FontWeight.w600, color: color),
                 ),
                 if (parts.length > 1)
                   TextSpan(
                     text: ' ${parts.last}',
-                    style: TextStyle(
-                      fontSize: 13,
+                    style: Theme.of(context).textTheme.bodySmall!.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
@@ -1181,8 +1168,7 @@ class _TrafficValue extends StatelessWidget {
           child: Text(
             AppLocalizations.of(context).cumulative(_bytes(value)),
             softWrap: false,
-            style: TextStyle(
-              fontSize: 13,
+            style: Theme.of(context).textTheme.bodySmall!.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
               fontFeatures: const [FontFeature.tabularFigures()],
             ),

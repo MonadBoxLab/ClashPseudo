@@ -252,22 +252,12 @@ void main() {
           );
           final cardRect = tester.getRect(card);
           final menuRect = tester.getRect(menu);
-          await tester.ensureVisible(menu);
-          await tester.tap(menu);
-          await tester.pumpAndSettle();
-          final action = find.widgetWithText(
-            MenuItemButton,
-            strings.viewConfigError,
+          final action = find.descendant(
+            of: find.byType(SnackBar),
+            matching: find.widgetWithText(TextButton, strings.errorDetails),
           );
           expect(action, findsOneWidget);
-          final cached = tester.widget<MenuItemButton>(action).onPressed!;
-          expect(
-            find.descendant(
-              of: action,
-              matching: find.byIcon(Icons.error_outline),
-            ),
-            findsOneWidget,
-          );
+          final cached = tester.widget<TextButton>(action).onPressed!;
           await tester.tap(action);
           await tester.pumpAndSettle();
           expect(tester.getRect(card), cardRect);
@@ -275,8 +265,8 @@ void main() {
           expect(find.byType(ConfigTextPage), findsNothing);
           expect(controller.collection.selectedId, first.id);
           expect(bridge.commands, isEmpty);
-          expect(find.text(strings.configActionFailed), findsOneWidget);
-          expect(find.text(error.summary(strings)), findsOneWidget);
+          expect(find.text(strings.configActionFailed), findsWidgets);
+          expect(find.text(error.summary(strings)), findsNothing);
           expect(find.text(error.resolve(strings)), findsNothing);
           expect(
             find.byKey(const ValueKey('operation-technical-text')),
@@ -284,20 +274,20 @@ void main() {
           );
           await tester.tap(find.text(strings.technicalDetails));
           await tester.pumpAndSettle();
-          expect(
-            tester
-                .widget<SelectableText>(
-                  find.byKey(const ValueKey('operation-technical-text')),
-                )
-                .data,
-            raw,
-          );
+          final detail = tester
+              .widget<SelectableText>(
+                find.byKey(const ValueKey('operation-technical-text')),
+              )
+              .data!;
+          expect(detail, contains(entry.name));
+          expect(detail, contains(error.summary(strings)));
+          expect(detail, contains(raw));
           final copy = find.byKey(const ValueKey('operation-technical-copy'));
           await tester.ensureVisible(copy);
           await tester.pumpAndSettle();
           await tester.tap(copy);
           await tester.pumpAndSettle();
-          expect(copied, raw);
+          expect(copied, detail);
           final lateCopy = tester.widget<TextButton>(copy).onPressed!;
           copied = null;
           controller.setForeground(false);
@@ -351,16 +341,12 @@ void main() {
         expect(selectedSemantics(running), isFalse);
         expect(
           find.descendant(of: selected, matching: find.byIcon(Icons.check)),
-          findsOneWidget,
-        );
-        expect(
-          find.descendant(of: running, matching: find.byIcon(Icons.history)),
-          findsOneWidget,
+          findsNothing,
         );
         expect(
           find.descendant(
             of: running,
-            matching: find.byTooltip(strings.runningOldBody),
+            matching: find.textContaining(strings.runningOldBody),
           ),
           findsOneWidget,
         );
@@ -386,16 +372,12 @@ void main() {
         expect(selectedSemantics(running), isTrue);
         expect(
           find.descendant(of: running, matching: find.byIcon(Icons.check)),
-          findsOneWidget,
-        );
-        expect(
-          find.descendant(of: running, matching: find.byIcon(Icons.play_arrow)),
-          findsOneWidget,
+          findsNothing,
         );
         expect(
           find.descendant(
             of: running,
-            matching: find.byTooltip(strings.runningConfig),
+            matching: find.textContaining(strings.runningConfig),
           ),
           findsOneWidget,
         );
@@ -405,7 +387,7 @@ void main() {
       });
     }
 
-    testWidgets('real Tab and Enter activate only the configuration error', (
+    testWidgets('real Tab and Enter open the configuration error notice', (
       tester,
     ) async {
       final entry = second.withContent(
@@ -415,12 +397,10 @@ void main() {
       await showPage(tester, candidate: entry, language: 'en');
       await tester.pumpAndSettle();
       final strings = lookupAppLocalizations(const Locale('en'));
-      final menu = find.descendant(
-        of: find.byKey(const ValueKey('config-second')),
-        matching: find.byTooltip(strings.moreActions),
+      final action = find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.widgetWithText(TextButton, strings.errorDetails),
       );
-      await tester.ensureVisible(menu);
-      await tester.pumpAndSettle();
       bool focused(Finder target) {
         final owner = tester.element(target);
         final context = FocusManager.instance.primaryFocus?.context;
@@ -433,19 +413,8 @@ void main() {
         return belongs;
       }
 
-      for (var step = 0; step < 24 && !focused(menu); step++) {
+      for (var step = 0; step < 24 && !focused(action); step++) {
         await tester.sendKeyEvent(LogicalKeyboardKey.tab);
-        await tester.pumpAndSettle();
-      }
-      expect(focused(menu), isTrue);
-      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-      await tester.pumpAndSettle();
-      final action = find.widgetWithText(
-        MenuItemButton,
-        strings.viewConfigError,
-      );
-      for (var step = 0; step < 8 && !focused(action); step++) {
-        await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
         await tester.pumpAndSettle();
       }
       expect(focused(action), isTrue);
@@ -911,47 +880,24 @@ void main() {
                   FontWeight.w600,
                 );
                 void checkSelectionColumns(Finder selectedCard) {
-                  final check = inside(selectedCard, find.byIcon(Icons.check));
+                  expect(
+                    inside(selectedCard, find.byIcon(Icons.check)),
+                    findsNothing,
+                  );
                   final more = inside(
                     selectedCard,
                     find.byTooltip(strings.moreActions),
                   );
-                  expect(
-                    tester.getCenter(check).dx,
-                    closeTo(tester.getRect(selectedCard).right - 16 - 24, .01),
-                    reason: '选择标记与 48dp 操作按钮使用同一列。',
-                  );
                   final actionSize = tester.getSize(more);
                   expect(actionSize.width, greaterThanOrEqualTo(48));
                   expect(actionSize.height, greaterThanOrEqualTo(48));
-                  final saved = inside(
-                    selectedCard,
-                    find.byType(SingleChildScrollView),
-                  );
-                  if ((tester.getCenter(saved).dy - tester.getCenter(more).dy)
-                          .abs() <
-                      1) {
-                    expect(
-                      tester.getCenter(check).dx,
-                      tester.getCenter(more).dx,
-                    );
-                  }
-                  final leading = inside(
-                    selectedCard,
-                    find.byWidgetPredicate(
-                      (widget) =>
-                          widget is Icon &&
-                          const [
-                            Icons.cloud_outlined,
-                            Icons.description_outlined,
-                            Icons.play_arrow,
-                            Icons.history,
-                          ].contains(widget.icon),
-                    ),
-                  );
+                  final name = selectedCard == remote ? first.name : local.name;
                   expect(
-                    tester.getCenter(check).dy,
-                    tester.getCenter(leading).dy,
+                    tester
+                        .widget<Text>(inside(selectedCard, find.text(name)))
+                        .style!
+                        .fontWeight,
+                    FontWeight.w700,
                   );
                 }
 
@@ -1146,19 +1092,14 @@ void main() {
               expect(tester.takeException(), isNull);
               expect(tester.getRect(card), before);
               expect(tester.getTopLeft(find.text(entry.name)), namePosition);
-              if (selected == entry.id) {
-                expect(
-                  tester
-                      .getCenter(
-                        find.descendant(
-                          of: card,
-                          matching: find.byIcon(Icons.check),
-                        ),
-                      )
-                      .dy,
-                  closeTo(firstLineCenter, .5),
-                );
-              }
+              expect(
+                find.descendant(of: card, matching: find.byIcon(Icons.check)),
+                findsNothing,
+              );
+              expect(
+                tester.widget<Text>(find.text(entry.name)).style!.fontWeight,
+                selected == entry.id ? FontWeight.w700 : FontWeight.w400,
+              );
               final shape =
                   tester.widget<Card>(card).shape! as RoundedRectangleBorder;
               expect(shape.borderRadius, initialShape.borderRadius);
@@ -1187,18 +1128,15 @@ void main() {
           error: messages.downloadFailed,
         ),
       );
-      final card = find.ancestor(
-        of: find.text('Second'),
-        matching: find.byType(Card),
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(of: find.byType(SnackBar), matching: find.text('错误详情')),
       );
-      final menu = find.descendant(of: card, matching: find.byTooltip('更多操作'));
-      await tester.ensureVisible(menu);
-      await tester.tap(menu);
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(MenuItemButton, '查看配置错误'));
+      expect(find.text('配置操作未完成'), findsWidgets);
+      await tester.tap(find.text('技术详情'));
       await tester.pumpAndSettle();
-      expect(find.text(messages.downloadFailed.text), findsOneWidget);
-      expect(find.text('配置操作未完成'), findsOneWidget);
+      expect(find.textContaining(messages.downloadFailed.text), findsOneWidget);
       expect(bridge.commands, isEmpty);
     },
   );

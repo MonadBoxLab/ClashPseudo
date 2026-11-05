@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:clash_pseudo/src/ui/theme/app_theme.dart';
 import 'package:clash_pseudo/src/ui/configs/editor/config_editor_limits.dart';
 import 'package:clash_pseudo/src/model/config_entry.dart';
+import 'package:clash_pseudo/src/ui/configs/editor/config_find_controller.dart';
 import 'package:clash_pseudo/src/ui/configs/editor/config_text_page.dart';
 import 'package:clash_pseudo/src/l10n/app_localizations.dart';
 import 'package:clash_pseudo/src/model/messages.dart';
@@ -17,6 +18,65 @@ import 'package:re_editor/re_editor.dart';
 import 'editor_fakes.dart';
 
 void main() {
+  testWidgets('查找错误在页面恢复后显示，关闭详情后不重复提示', (tester) async {
+    final app = EditorApp();
+    addTearDown(app.dispose);
+    final navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigator,
+        navigatorObservers: [AppTaskNavigatorObserver()],
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: ConfigTextPage(app: app, initialText: '原始正文'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final editor = tester.widget<CodeEditor>(find.byType(CodeEditor));
+    final search = editor.findController! as ConfigFindController;
+    navigator.currentState!.push<void>(
+      MaterialPageRoute(builder: (_) => const Scaffold(body: Text('其他页面'))),
+    );
+    await tester.pumpAndSettle();
+    final failure = StateError('实际查找错误');
+    search.error = failure;
+    search.value = const CodeFindValue(
+      option: CodeFindOption(pattern: '正文', caseSensitive: false, regex: false),
+      replaceMode: false,
+    );
+    await tester.pump();
+    expect(find.byType(SnackBar), findsNothing);
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(SnackBar), findsOneWidget);
+    final strings = lookupAppLocalizations(const Locale('en'));
+    await tester.tap(find.text(strings.errorDetails));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(strings.technicalDetails));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<SelectableText>(
+            find.byKey(const ValueKey('operation-technical-text')),
+          )
+          .data,
+      contains('实际查找错误'),
+    );
+    expect(editor.controller!.text, '原始正文');
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(SnackBar), findsNothing);
+    navigator.currentState!.push<void>(
+      MaterialPageRoute(builder: (_) => const Scaffold(body: Text('其他页面'))),
+    );
+    await tester.pumpAndSettle();
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(SnackBar), findsNothing);
+    expect(search.error, same(failure));
+    expect(tester.takeException(), isNull);
+  });
+
   for (final language in ['en', 'zh']) {
     for (final brightness in Brightness.values) {
       for (final brand in BrandColor.values) {

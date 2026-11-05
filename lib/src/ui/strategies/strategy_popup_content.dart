@@ -51,6 +51,13 @@ class _StrategyPopupState extends State<StrategyPopup> {
   // Backgrounding invalidates the batch; retain source identity and allow a fresh
   // explicit test after revalidation.
   bool _delayResultsExpired = false;
+  int _delayRun = 0;
+  List<String>? _delayMembers;
+  Object? _delayNotice;
+  List<(String, DelayMemberStatus, DateTime?, String?, String?)>
+  _noticedDelayFailures = const [];
+  Object? _strategyNotice;
+  Object? _unrestoredNotice;
 
   final _scroll = ScrollController();
   final _viewport = GlobalKey();
@@ -190,6 +197,9 @@ class _StrategyPopupState extends State<StrategyPopup> {
     }
     controller.finishCardDelay(name, expired: true);
     final test = _delayFor(group);
+    _delayRun++;
+    _delayMembers = members == null ? null : List.of(members);
+    _delayNotice = null;
     unawaited(test.start(members: members));
   }
 
@@ -198,16 +208,262 @@ class _StrategyPopupState extends State<StrategyPopup> {
     if (test != null && !_expired && !_delayResultsExpired) {
       controller.rememberDelay(name, test.source, test.results);
     }
-    if (mounted) setState(() {});
+    if (mounted) {
+      _scheduleDelayNotice();
+      setState(() {});
+    }
+  }
+
+  Future<void> _showErrorDetails(
+    String Function(AppLocalizations) summary,
+    String? Function(AppLocalizations) technicalDetail,
+    bool Function() current,
+    Listenable changes, {
+    Future<void> Function()? onRetry,
+  }) async {
+    ModalRoute<dynamic>? owned;
+    try {
+      await showLocalizedOperationMessage(
+        context,
+        summary,
+        technicalDetail: technicalDetail,
+        title: (strings) => strings.errorDetails,
+        eligibilityChanges: changes,
+        isCurrent: () => current() && _interactive,
+        isCurrentWithPopup: (popup) =>
+            current() && identical(_feedback, popup) && _ownsLifecycle,
+        onRoute: (route) {
+          if (route != null) {
+            owned = route;
+            _feedback = route;
+          } else if (identical(_feedback, owned)) {
+            _feedback = null;
+          }
+        },
+        onRetry: onRetry,
+      );
+    } finally {
+      if (identical(_feedback, owned)) _feedback = null;
+    }
+  }
+
+  List<(String, DelayMemberStatus, DateTime?, String?, String?)> _delayFailures(
+    DelayTestController test,
+  ) => [
+    if (test.finished)
+      for (final result in test.results.values)
+        if (result.status == DelayMemberStatus.failed ||
+            result.status == DelayMemberStatus.timeout)
+          (
+            result.name,
+            result.status,
+            result.time,
+            result.error,
+            result.cancellationError,
+          ),
+  ];
+
+  void _scheduleDelayNotice() {
+    final test = _delay;
+    if (test == null || _expired || _delayResultsExpired) return;
+    final failures = _delayFailures(test);
+    final error = test.error;
+    if (failures.isEmpty && error == null) {
+      _delayNotice = null;
+      _noticedDelayFailures = const [];
+      return;
+    }
+    if (!_interactive || !controller.active) return;
+    final epoch = controller.app.storageEpoch;
+    final run = _delayRun;
+    final notice = (test, run, error, test.accepted, test.finished, test.busy);
+    if (_delayNotice == notice && listEquals(_noticedDelayFailures, failures)) {
+      return;
+    }
+    _delayNotice = notice;
+    _noticedDelayFailures = failures;
+    bool current() =>
+        mounted &&
+        identical(_delay, test) &&
+        _delayNotice == notice &&
+        _delayRun == run &&
+        !_expired &&
+        !_delayResultsExpired &&
+        epoch == controller.app.storageEpoch &&
+        test.source.matchesIdentity(controller.app.state.core) &&
+        test.error == error &&
+        listEquals(failures, _delayFailures(test));
+    String summary(AppLocalizations strings) => failures.isNotEmpty
+        ? strings.delayBatchFailed
+        : test.accepted
+        ? strings.delayReadFailed
+        : strings.delayStartFailed;
+    String? detail(AppLocalizations strings) {
+      final material = MaterialLocalizations.of(context);
+      return [
+        if (test.target case final target?) strings.delayTarget(target),
+        ?error,
+        for (final failure in failures)
+          [
+            [
+              failure.$1,
+              failure.$2 == DelayMemberStatus.timeout
+                  ? strings.delayTimeout
+                  : strings.delayFailed,
+              if (failure.$3 case final timestamp?)
+                '${material.formatCompactDate(timestamp.toLocal())} '
+                    '${material.formatTimeOfDay(TimeOfDay.fromDateTime(timestamp.toLocal()))}',
+            ].join(' · '),
+            ?failure.$4,
+            ?failure.$5,
+          ].join('\n'),
+      ].join('\n\n');
+    }
+
+    final changes = Listenable.merge([controller, controller.app, test]);
+    Future<void> retry() async {
+      if (!current() || !_interactive) return;
+      final group = controller.groups
+          .where((item) => item.name == name)
+          .firstOrNull;
+      if (group != null) _startDelay(group, members: _delayMembers);
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!current() || !_interactive) {
+        if (current()) _delayNotice = null;
+        return;
+      }
+      final retryAction = test.busy ? null : retry;
+      final presented = await showLocalizedOperationNotice(
+        context,
+        summary,
+        technicalDetail: detail,
+        eligibilityChanges: changes,
+        isCurrent: () => current() && _interactive,
+        isCurrentWithPopup: (popup) =>
+            current() && (widget.isCurrent?.call(popup) ?? true),
+        onDetails: () => _showErrorDetails(
+          summary,
+          detail,
+          current,
+          changes,
+          onRetry: retryAction,
+        ),
+        onRetry: retryAction,
+        identity: ('strategy-delay', notice, Object.hashAll(failures)),
+      );
+      if (!presented && current()) _delayNotice = null;
+    });
+  }
+
+  void _scheduleStrategyNotice(AppMessage? error) {
+    if (error == null) {
+      _strategyNotice = null;
+      return;
+    }
+    if (!_interactive || !controller.active) return;
+    final app = controller.app;
+    final core = app.state.core;
+    final epoch = app.storageEpoch;
+    final operation = controller.operationErrorMessage == error;
+    final notice = (
+      controller,
+      epoch,
+      core.identity,
+      error,
+      operation ? app.state.resultId : null,
+      operation ? app.lastCommand : null,
+    );
+    if (_strategyNotice == notice) return;
+    _strategyNotice = notice;
+    bool current() =>
+        mounted &&
+        _strategyNotice == notice &&
+        epoch == app.storageEpoch &&
+        core.matchesIdentity(app.state.core) &&
+        (operation
+                ? controller.operationErrorMessage
+                : controller.readErrorMessage) ==
+            error;
+    final changes = Listenable.merge([controller, app]);
+    final retry = operation ? null : controller.retry;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!current() || !_interactive) {
+        if (current()) _strategyNotice = null;
+        return;
+      }
+      final presented = await showAppNotice(
+        context,
+        error,
+        eligibilityChanges: changes,
+        isCurrent: () => current() && _interactive,
+        isCurrentWithPopup: (popup) =>
+            current() && (widget.isCurrent?.call(popup) ?? true),
+        onDetails: () => _showErrorDetails(
+          error.summary,
+          error.technicalDetail,
+          current,
+          changes,
+          onRetry: retry,
+        ),
+        onRetry: retry,
+        identity: ('strategy-error', notice),
+      );
+      if (!presented && current()) _strategyNotice = null;
+    });
+  }
+
+  void _scheduleUnrestoredNotice(StrategySnapshot? data) {
+    final reason = data?.unrestored[name];
+    if (reason == null) {
+      _unrestoredNotice = null;
+      return;
+    }
+    if (!_interactive || !controller.active || _expired) return;
+    final app = controller.app;
+    final core = app.state.core;
+    final epoch = app.storageEpoch;
+    if (data?.matches(core) != true) return;
+    final notice = (controller, epoch, core.identity, name, reason);
+    if (_unrestoredNotice == notice) return;
+    _unrestoredNotice = notice;
+    bool current() =>
+        mounted &&
+        _unrestoredNotice == notice &&
+        epoch == app.storageEpoch &&
+        core.matchesIdentity(app.state.core) &&
+        controller.data?.matches(core) == true &&
+        controller.data?.unrestored[name] == reason;
+    String summary(AppLocalizations strings) => strings.selectionsNotRestored;
+    String detail(AppLocalizations strings) =>
+        strings.unrestoredLine(name, strategyUnrestoredReason(reason, strings));
+    final changes = Listenable.merge([controller, app]);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!current() || !_interactive) {
+        if (current()) _unrestoredNotice = null;
+        return;
+      }
+      final presented = await showLocalizedOperationNotice(
+        context,
+        summary,
+        technicalDetail: detail,
+        eligibilityChanges: changes,
+        isCurrent: () => current() && _interactive,
+        isCurrentWithPopup: (popup) =>
+            current() && (widget.isCurrent?.call(popup) ?? true),
+        onDetails: () => _showErrorDetails(summary, detail, current, changes),
+        identity: ('strategy-unrestored', notice),
+      );
+      if (!presented && current()) _unrestoredNotice = null;
+    });
   }
 
   String _delaySummary(AppLocalizations strings) {
     if (_delayResultsExpired || _expired) return strings.delayExpired;
     final test = _delay;
     if (test == null) return '';
-    if (test.error != null) {
-      return test.finished ? strings.delayReadFailed : strings.delayStartFailed;
-    }
+    if (test.error != null) return '';
     if (test.terminalState == 'expired') return strings.delayExpired;
     if (test.terminalState == 'cancelled') return strings.delayCancelled;
     return switch (test) {
@@ -253,36 +509,56 @@ class _StrategyPopupState extends State<StrategyPopup> {
   ) => LayoutBuilder(
     builder: (context, constraints) {
       final scaler = MediaQuery.textScalerOf(context);
-      final colors = Theme.of(context).colorScheme;
-      final style = DefaultTextStyle.of(context).style.merge(
-        TextStyle(
-          fontSize: 18,
-          height: 1.2,
-          fontWeight: FontWeight.w600,
-          color: colors.onSurface,
-        ),
+      final theme = Theme.of(context);
+      final colors = theme.colorScheme;
+      final base = DefaultTextStyle.of(context).style;
+      final initialStyle = theme.textTheme.bodyLarge!.copyWith(
+        height: 1.2,
+        fontWeight: FontWeight.w600,
+        color: colors.onSurface,
       );
-      // The title shares one toolbar with the group probe and close actions.
-      // Reserve both targets even while opening or disabled.
+      final style = theme.textTheme.titleLarge!.copyWith(
+        height: 1.2,
+        fontWeight: FontWeight.w600,
+        color: colors.onSurface,
+      );
+      final captionStyle = theme.textTheme.bodySmall!.copyWith(
+        height: 1.4,
+        color: colors.onSurfaceVariant,
+      );
+      final locale = Localizations.maybeLocaleOf(context);
+      final direction = Directionality.of(context);
       final width = math.max(1.0, constraints.maxWidth - 126);
       final painter = TextPainter(
-        text: TextSpan(text: name, style: style),
-        textDirection: Directionality.of(context),
+        text: TextSpan(text: name, style: base.merge(style)),
+        textDirection: direction,
         textScaler: scaler,
+        locale: locale,
       )..layout(maxWidth: width);
       final titleHeight = painter.height;
       painter.dispose();
       final initial = TextPainter(
-        text: TextSpan(text: name, style: style.copyWith(fontSize: 16)),
+        text: TextSpan(text: name, style: base.merge(initialStyle)),
         maxLines: 2,
-        textDirection: Directionality.of(context),
+        textDirection: direction,
         textScaler: scaler,
+        locale: locale,
       )..layout(maxWidth: math.max(1.0, sourceWidth - 28));
       final initialTop =
-          40 + math.max(0.0, (24 * scaler.scale(14) / 14 - initial.height) / 2);
+          40 +
+          math.max(0.0, (2 * initial.preferredLineHeight - initial.height) / 2);
       initial.dispose();
+      final caption = TextPainter(
+        text: TextSpan(text: label, style: base.merge(captionStyle)),
+        textDirection: direction,
+        textScaler: scaler,
+        locale: locale,
+        maxLines: 1,
+      )..layout();
+      final captionHeight = caption.height;
+      caption.dispose();
       return SizedBox(
-        height: math.max(30, titleHeight + 4 + scaler.scale(12) * 1.4),
+        height: math.max(30, titleHeight + 4 + captionHeight),
         child: Stack(
           clipBehavior: Clip.none,
           children: [
@@ -298,7 +574,7 @@ class _StrategyPopupState extends State<StrategyPopup> {
               child: Text(
                 name,
                 key: const ValueKey('strategy-popup-title'),
-                style: style.copyWith(fontSize: 16 + 2 * progress),
+                style: TextStyle.lerp(initialStyle, style, progress),
               ),
             ),
             Positioned(
@@ -319,11 +595,7 @@ class _StrategyPopupState extends State<StrategyPopup> {
                       label,
                       key: const ValueKey('strategy-popup-status'),
                       softWrap: false,
-                      style: TextStyle(
-                        fontSize: 12,
-                        height: 1.4,
-                        color: colors.onSurfaceVariant,
-                      ),
+                      style: captionStyle,
                     ),
                   ),
                 ),
@@ -369,19 +641,22 @@ class _StrategyPopupState extends State<StrategyPopup> {
       final waiting = controller.changingGroup == name;
       final errorMessage =
           controller.operationErrorMessage ?? controller.readErrorMessage;
-      final error = errorMessage?.summary(strings);
+      _scheduleStrategyNotice(errorMessage);
+      _scheduleUnrestoredNotice(data);
       final showSelection =
           sameContext &&
           data?.matches(controller.app.state.core) == true &&
           controller.readError == null;
       final details = ((progress - .35) / .65).clamp(0.0, 1.0);
-      final muted = TextStyle(
-        fontSize: 12,
-        height: 1.4,
+      final muted = Theme.of(context).textTheme.bodySmall!
+          .copyWith(height: 1.4, color: colors.onSurfaceVariant);
+      final delayStyle = muted.copyWith(
         fontFeatures: const [FontFeature.tabularFigures()],
-        color: colors.onSurfaceVariant,
       );
-      final delayWidth = StrategyCardStatus.width(context, textStyle: muted);
+      final delayWidth = StrategyCardStatus.width(
+        context,
+        textStyle: delayStyle,
+      );
       final seen = <String, int>{};
       final ids = <Object>[
         'heading',
@@ -402,8 +677,7 @@ class _StrategyPopupState extends State<StrategyPopup> {
         if (result == null) return '';
         return switch (result.status) {
           DelayMemberStatus.success => '${result.delay} ms',
-          DelayMemberStatus.failed => strings.delayFailed,
-          DelayMemberStatus.timeout => strings.delayTimeout,
+          DelayMemberStatus.failed || DelayMemberStatus.timeout => '',
           DelayMemberStatus.expired => strings.delayExpired,
           DelayMemberStatus.cancelled => strings.delayCancelled,
           DelayMemberStatus.running => strings.delayRunning,
@@ -411,25 +685,8 @@ class _StrategyPopupState extends State<StrategyPopup> {
         };
       }
 
-      Color? delayColor(ColorScheme colors, StrategyMember member) {
-        final status = _delay?.results[member.name]?.status;
-        return switch (status) {
-          DelayMemberStatus.success => colors.onSurfaceVariant,
-          DelayMemberStatus.failed || DelayMemberStatus.timeout => colors.error,
-          _ => colors.onSurfaceVariant,
-        };
-      }
-
       final hasDetails =
-          _expired ||
-          errorMessage != null ||
-          savedDiffers ||
-          data?.unrestored[name] != null ||
-          _delay?.target != null ||
-          _delay?.error != null ||
-          _delay?.results.values.any((result) => result.error != null) ==
-              true ||
-          group?.provenance != null;
+          savedDiffers || _delay?.target != null || group?.provenance != null;
       final header = Padding(
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
         child: Column(
@@ -439,64 +696,21 @@ class _StrategyPopupState extends State<StrategyPopup> {
               onTap: hasDetails
                   ? () async {
                       ModalRoute<dynamic>? ownedFeedback;
-                      final delayError = _delay?.error;
-                      final delayRead = _delay?.finished == true;
                       final delayTarget = _delay?.target;
-                      final delayErrors = [
-                        for (final result
-                            in _delay?.results.values ??
-                                const <DelayMemberResult>[])
-                          if (result.error != null) result,
-                      ];
                       try {
                         await showLocalizedOperationMessage(
                           context,
                           (strings) => [
-                            if (_expired) strings.popupExpired,
-                            if (errorMessage != null)
-                              errorMessage.summary(strings),
                             if (savedDiffers)
                               saved.member == null
                                   ? strings.popupSavedDiffersAuto
                                   : strings.popupSavedDiffers(saved.member!),
-                            if (data?.unrestored[name] != null)
-                              strings.popupNotRestored(
-                                strategyUnrestoredReason(
-                                  data!.unrestored[name]!,
-                                  strings,
-                                ),
-                              ),
                             if (delayTarget != null)
                               strings.delayTarget(delayTarget),
-                            if (delayError != null)
-                              delayRead
-                                  ? strings.delayReadFailed
-                                  : strings.delayStartFailed,
-                            for (final result in delayErrors)
-                              '${result.name}\n${switch (result.status) {
-                                DelayMemberStatus.timeout => strings.delayTimeout,
-                                DelayMemberStatus.expired => strings.delayExpired,
-                                DelayMemberStatus.cancelled => strings.delayCancelled,
-                                _ => strings.delayFailed,
-                              }}',
                             ?provenanceDescription(strings, group?.provenance),
                           ].join('\n\n'),
-                          technicalDetail: (strings) {
-                            final original = [
-                              ?errorMessage?.technicalDetail(strings),
-                              ?delayError,
-                              for (final result in delayErrors)
-                                '${result.name}\n${result.error}',
-                            ];
-                            return original.isEmpty
-                                ? null
-                                : original.join('\n\n');
-                          },
                           title: (_) => name,
-                          error:
-                              error != null ||
-                              delayError != null ||
-                              delayErrors.isNotEmpty,
+                          error: false,
                           isCurrent: () =>
                               _interactive &&
                               controller.active &&
@@ -532,12 +746,8 @@ class _StrategyPopupState extends State<StrategyPopup> {
                     ? strings.popupExpiredShort
                     : waiting
                     ? strings.popupSwitching
-                    : error != null
-                    ? strings.popupUpdateFailed
                     : savedDiffers
                     ? strings.popupSavedDiffersShort
-                    : data?.unrestored.containsKey(name) == true
-                    ? strings.popupNotRestoredShort
                     : !controller.current
                     ? strings.popupStale
                     : group == null
@@ -551,34 +761,62 @@ class _StrategyPopupState extends State<StrategyPopup> {
                 details,
               ),
             ),
-            if (group?.automatic == true)
+            if (group?.automatic == true && group!.fixed.isNotEmpty)
               Opacity(
                 opacity: details,
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Text(
-                          group!.fixed.isEmpty
-                              ? strings.autoLabel
-                              : strings.fixedTo(group.fixed),
-                          softWrap: false,
-                          style: muted,
-                        ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final label = strings.fixedTo(group.fixed);
+                    final direction = Directionality.of(context);
+                    final scaler = MediaQuery.textScalerOf(context);
+                    final locale = Localizations.maybeLocaleOf(context);
+                    final text = TextPainter(
+                      text: TextSpan(text: strings.fixedTo('…'), style: muted),
+                      textDirection: direction,
+                      textScaler: scaler,
+                      locale: locale,
+                      maxLines: 1,
+                    )..layout();
+                    final action = TextPainter(
+                      text: TextSpan(
+                        text: strings.restoreAuto,
+                        style: Theme.of(context).textTheme.labelLarge,
                       ),
-                    ),
-                    Flexible(
-                      child: TextButton(
-                        key: const ValueKey('strategy-automatic'),
-                        onPressed: canChoose ? () => _choose(null) : null,
-                        child: Text(
-                          strings.restoreAuto,
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ),
-                    ),
-                  ],
+                      textDirection: direction,
+                      textScaler: scaler,
+                      locale: locale,
+                      maxLines: 1,
+                    )..layout();
+                    final inline =
+                        text.width + action.width + 48 <= constraints.maxWidth;
+                    text.dispose();
+                    action.dispose();
+                    final fixed = SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Text(label, style: muted, softWrap: false),
+                    );
+                    final button = TextButton(
+                      onPressed: canChoose ? () => _choose(null) : null,
+                      child: Text(strings.restoreAuto),
+                    );
+                    return inline
+                        ? Row(
+                            children: [
+                              Expanded(child: fixed),
+                              button,
+                            ],
+                          )
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              fixed,
+                              Align(
+                                alignment: AlignmentDirectional.centerEnd,
+                                child: button,
+                              ),
+                            ],
+                          );
+                  },
                 ),
               ),
           ],
@@ -594,11 +832,7 @@ class _StrategyPopupState extends State<StrategyPopup> {
             first &&
             group.selectable &&
             group.now == member.name;
-        final fixed =
-            showSelection &&
-            first &&
-            group.automatic &&
-            group.fixed == member.name;
+
         final isGroup = const [
           'select',
           'url-test',
@@ -660,11 +894,15 @@ class _StrategyPopupState extends State<StrategyPopup> {
                                             key: ValueKey(
                                               'strategy-member-name-$index',
                                             ),
-                                            style: const TextStyle(
-                                              fontSize: 15,
-                                              height: 1.3,
-                                              fontWeight: FontWeight.w500,
-                                            ),
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodyLarge!
+                                                .copyWith(
+                                                  height: 1.3,
+                                                  fontWeight: selected
+                                                      ? FontWeight.w700
+                                                      : FontWeight.w400,
+                                                ),
                                           ),
                                         ),
                                         const SizedBox(height: 3),
@@ -680,33 +918,6 @@ class _StrategyPopupState extends State<StrategyPopup> {
                                     ),
                                   ),
                                   const SizedBox(width: 8),
-                                  SizedBox(
-                                    key: ValueKey(
-                                      'strategy-member-marks-$index',
-                                    ),
-                                    width: 36,
-                                    height: 21,
-                                    child: Row(
-                                      mainAxisAlignment: MainAxisAlignment.end,
-                                      children: [
-                                        if (fixed)
-                                          Tooltip(
-                                            message: strings.pinned,
-                                            child: Icon(
-                                              Icons.push_pin_rounded,
-                                              size: 14,
-                                              color: colors.primary,
-                                            ),
-                                          ),
-                                        if (selected)
-                                          Icon(
-                                            Icons.check_rounded,
-                                            size: 21,
-                                            color: colors.primary,
-                                          ),
-                                      ],
-                                    ),
-                                  ),
                                   SizedBox(
                                     key: ValueKey(
                                       'strategy-delay-result-$index',
@@ -727,9 +938,7 @@ class _StrategyPopupState extends State<StrategyPopup> {
                                           resultText,
                                           softWrap: false,
                                           textAlign: TextAlign.end,
-                                          style: muted.copyWith(
-                                            color: delayColor(colors, member),
-                                          ),
+                                          style: delayStyle,
                                         ),
                                       ),
                                     ),
@@ -742,8 +951,8 @@ class _StrategyPopupState extends State<StrategyPopup> {
                       ),
                     ),
                     SizedBox(
-                      width: 44,
-                      height: 44,
+                      width: 48,
+                      height: 48,
                       child: IconButton(
                         key: ValueKey('strategy-delay-$index'),
                         tooltip: strings.delayTestMember,

@@ -1,7 +1,5 @@
 import 'package:clash_pseudo/src/model/platform_failure.dart';
 
-import 'dart:convert';
-
 import 'package:clash_pseudo/src/model/app_snapshot.dart';
 import 'package:clash_pseudo/src/model/config_entry.dart';
 import 'package:clash_pseudo/src/ui/diagnostics/configuration/runtime_config_controller.dart';
@@ -48,7 +46,7 @@ void main() {
       bridge.replies.single.complete(response(core(1)));
       await Future<void>.delayed(Duration.zero);
       expect(controller.status, RuntimeConfigStatus.live);
-      expect(controller.hasCurrentSource, isTrue);
+      expect(controller.source!.generation, app.state.core.generation);
       expect(app.commands, isEmpty);
     },
   );
@@ -69,29 +67,27 @@ void main() {
       expect(controller.loading, isTrue);
       bridge.replies[0].complete(response(core(1)));
       await Future<void>.delayed(Duration.zero);
-      expect(controller.lines, isNotEmpty);
-      expect(controller.data!['generation'], 1);
+      expect(controller.text, isNotEmpty);
+      expect(controller.source!.generation, 1);
       expect(controller.status, RuntimeConfigStatus.stale);
-      expect(controller.hasCurrentSource, isFalse);
       expect(controller.loading, isTrue);
       expect(bridge.requests, hasLength(2));
       bridge.replies[1].complete(response(core(2)));
       await Future<void>.delayed(Duration.zero);
       expect(controller.status, RuntimeConfigStatus.live);
-      expect(controller.hasCurrentSource, isTrue);
+      expect(controller.source!.generation, app.state.core.generation);
       await controller.refresh();
       app.setForeground(false);
       final late = {
         ...response(core(2)),
-        'configuration': {'late-original': 'fixture-secret'},
+        'configuration': 'mode: direct\nauthentication: [fixture-user]\n',
       };
       bridge.replies[2].complete(late);
       await Future<void>.delayed(Duration.zero);
       expect(controller.status, RuntimeConfigStatus.stale);
       expect(controller.loading, isFalse);
-      expect(controller.data, late);
-      expect(controller.lines.join('\n'), contains('fixture-secret'));
-      expect(controller.hasCurrentSource, isFalse);
+      expect(controller.source!.generation, 2);
+      expect(controller.text, 'mode: direct\nauthentication: [fixture-user]\n');
       expect(bridge.requests, hasLength(3));
     },
   );
@@ -152,17 +148,15 @@ void main() {
       final mismatched = {
         ...response(core(1)),
         'composition': 'wrong',
-        'configuration': {
-          'future-field': [false, 0, null],
-        },
+        'configuration': 'future-field: [false, 0, null]\n',
       };
       bridge.replies.last.complete(mismatched);
       await Future<void>.delayed(Duration.zero);
       expect(controller.status, RuntimeConfigStatus.stale);
-      expect(controller.hasCurrentSource, isFalse);
-      expect(controller.data, mismatched);
+      expect(controller.source!.generation, 1);
+      expect(controller.text, 'future-field: [false, 0, null]\n');
       expect(controller.readError, isNull);
-      final previous = controller.lines;
+      final previous = controller.text;
       await controller.refresh();
       bridge.replies.last.completeError(
         PlatformFailure(
@@ -175,14 +169,13 @@ void main() {
       );
       await Future<void>.delayed(Duration.zero);
       expect(controller.status, RuntimeConfigStatus.failed);
-      expect(controller.lines, previous);
-      expect(controller.data, mismatched);
+      expect(controller.text, previous);
+      expect(controller.source!.generation, 1);
       expect(
         controller.readError!.detail,
         contains('original native error: fixture-token'),
       );
       expect(controller.readError!.detail, contains('original bridge error'));
-      expect(controller.hasCurrentSource, isFalse);
     },
   );
 
@@ -206,35 +199,15 @@ void main() {
     await tester.pump();
     expect(controller.loading, isFalse);
     expect(controller.status, RuntimeConfigStatus.live);
-    expect(controller.hasCurrentSource, isTrue);
+    expect(controller.source!.generation, app.state.core.generation);
     expect(controller.readError, isNull);
+    controller.setVisible(false);
   });
 
-  testWidgets('runtime original-data view copies the complete envelope', (
-    tester,
-  ) async {
+  testWidgets('运行配置显示完整 YAML，搜索时仍复制全文', (tester) async {
     final bridge = TestBridge();
     final app = TestApp(bridge);
     addTearDown(app.dispose);
-    await tester.pumpWidget(
-      MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: OperationNoticeHost(child: RuntimeConfigPage(app: app)),
-      ),
-    );
-    final value = {
-      ...response(core(1)),
-      'configuration': {
-        'authentication': ['fixture-user:fixture-password'],
-        'future-empty': <Object?>[],
-      },
-      'unknown-envelope': {'original': '${'x' * 20000}tail'},
-    };
-    bridge.replies.single.complete(value);
-    await tester.pump();
-    await tester.tap(find.byIcon(Icons.data_object));
-    await tester.pumpAndSettle();
     String? copied;
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
       SystemChannels.platform,
@@ -251,17 +224,86 @@ void main() {
         null,
       ),
     );
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: OperationNoticeHost(child: RuntimeConfigPage(app: app)),
+      ),
+    );
+    const text =
+        'mode: rule\nmixed-port: 0\nauthentication:\n  - fixture-user\ntun:\n  enable: false\n';
+    bridge.replies.single.complete({
+      ...response(core(1)),
+      'configuration': text,
+      'unknown-envelope': {'original': 'fixture-envelope'},
+    });
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.data_object), findsNothing);
+    expect(find.byIcon(Icons.refresh), findsNothing);
+    expect(find.text(text), findsOneWidget);
+    expect(find.textContaining('fixture-envelope'), findsNothing);
+    await tester.enterText(find.byType(TextField), 'fixture-user');
+    await tester.pump();
+    expect(find.text('  - fixture-user'), findsOneWidget);
+    expect(find.text(text), findsNothing);
     await tester.tap(find.byKey(const ValueKey('original-text-copy')));
     await tester.pump();
-    expect(copied, const JsonEncoder.withIndent('  ').convert(value));
-    expect(copied, contains('fixture-user:fixture-password'));
-    expect(copied, contains('tail'));
+    expect(copied, text);
+    await tester.enterText(find.byType(TextField), 'not-found');
+    await tester.pump();
+    expect(find.text('No matching lines'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), '');
+    await tester.pump();
+    expect(find.text(text), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('长 YAML 自动读取保留滚动位置，搜索后恢复完整文本', (tester) async {
+    final bridge = TestBridge();
+    final app = TestApp(bridge);
+    addTearDown(app.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: OperationNoticeHost(child: RuntimeConfigPage(app: app)),
+      ),
+    );
+    final text = List.generate(
+      1500,
+      (index) => 'key-$index: 值🙂-$index',
+    ).join('\n');
+    bridge.replies.single.complete({
+      ...response(core(1)),
+      'configuration': text,
+    });
+    await tester.pumpAndSettle();
+    final list = find.byKey(const ValueKey('original-text-blocks'));
+    final scroll = tester.widget<ListView>(list).controller!;
+    await tester.drag(list, const Offset(0, -400));
+    await tester.pumpAndSettle();
+    final offset = scroll.offset;
+    expect(offset, greaterThan(0));
+    await tester.pump(const Duration(seconds: 30));
+    bridge.replies.last.complete({...response(core(1)), 'configuration': text});
+    await tester.pump();
+    expect(scroll.offset, closeTo(offset, .1));
+    await tester.enterText(find.byType(TextField), '值🙂-1499');
+    await tester.pump();
+    expect(find.text('key-1499: 值🙂-1499'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), '');
+    await tester.pump();
+    expect(tester.widget<ListView>(list).controller, same(scroll));
+    expect(find.textContaining('key-0: 值🙂-0'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
 
   for (final recovered in [false, true]) {
-    testWidgets('菜单详情仅在错误仍有效时打开，错误已恢复：$recovered', (tester) async {
+    testWidgets('SnackBar 详情只对有效错误开放，错误已恢复：$recovered', (tester) async {
       final bridge = TestBridge();
       final app = TestApp(bridge)
         ..commandErrorMessage = messages.requestNotAccepted;
@@ -280,25 +322,19 @@ void main() {
       final strings = AppLocalizations.of(
         tester.element(find.byType(RuntimeConfigPage)),
       );
-      await tester.tap(
-        find.descendant(
-          of: find.byType(SnackBar),
-          matching: find.widgetWithIcon(IconButton, Icons.close),
-        ),
+      expect(find.byType(PopupMenuButton<String>), findsNothing);
+      final details = find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.widgetWithText(TextButton, strings.errorDetails),
       );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip(strings.moreActions));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
-      expect(find.text(strings.errorDetails), findsOneWidget);
+      final open = tester.widget<TextButton>(details).onPressed!;
       if (recovered) {
         app.commandErrorMessage = null;
         app.publish(app.state);
         await tester.pump();
       }
-      await tester.tap(find.text(strings.errorDetails));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
+      open();
+      await tester.pumpAndSettle();
       expect(
         find.byType(AlertDialog),
         recovered ? findsNothing : findsOneWidget,
@@ -339,13 +375,14 @@ void main() {
     );
     final anchor = tester.getRect(find.byType(TextField));
     final selection = search.controller!.selection;
-    final line = find.text('  "mode": "rule",');
+    final line = find.byWidgetPredicate(
+      (widget) => widget is SelectableText && widget.data == 'mode: rule',
+    );
     final lineRect = tester.getRect(line);
-    Future<void> refresh() async {
-      await tester.tap(find.byIcon(Icons.refresh));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text(strings.refresh));
-      await tester.pump();
+    Future<void> readAfter(Duration delay) async {
+      final count = bridge.requests.length;
+      await tester.pump(delay);
+      expect(bridge.requests, hasLength(count + 1));
     }
 
     Finder noticeButton(String label) => find.descendant(
@@ -356,7 +393,7 @@ void main() {
       of: find.byType(SnackBar),
       matching: find.widgetWithIcon(IconButton, Icons.close),
     );
-    await refresh();
+    await readAfter(const Duration(seconds: 30));
     bridge.replies.last.completeError(StateError('first-original'));
     await tester.pumpAndSettle();
     expect(find.byType(SnackBar), findsOneWidget);
@@ -373,15 +410,15 @@ void main() {
     final oldClose = tester.widget<IconButton>(closeNotice()).onPressed!;
     await tester.tap(closeNotice());
     await tester.pumpAndSettle();
-    await refresh();
+    await readAfter(const Duration(seconds: 5));
     bridge.replies.last.completeError(StateError('same-cycle-original'));
     await tester.pumpAndSettle();
     expect(find.byType(SnackBar), findsNothing);
     expect(tester.getRect(line), lineRect);
-    await refresh();
+    await readAfter(const Duration(seconds: 10));
     bridge.replies.last.complete(response(core(1)));
     await tester.pumpAndSettle();
-    await refresh();
+    await readAfter(const Duration(seconds: 30));
     bridge.replies.last.completeError(StateError('next-cycle-original'));
     await tester.pumpAndSettle();
     expect(find.byType(SnackBar), findsOneWidget);
@@ -469,26 +506,24 @@ void main() {
             home: OperationNoticeHost(child: RuntimeConfigPage(app: app)),
           ),
         );
-        final strings = AppLocalizations.of(
-          tester.element(find.byType(RuntimeConfigPage)),
-        );
-        expect(
-          find.byKey(const ValueKey('runtime-refresh-pending')),
-          findsOneWidget,
-        );
+        expect(find.byIcon(Icons.refresh), findsNothing);
+        expect(find.byIcon(Icons.data_object), findsNothing);
         expect(find.byIcon(Icons.info_outline), findsNothing);
         final searchRect = tester.getRect(find.byType(TextField));
         bridge.replies.single.complete(response(core(1)));
         await tester.pump();
         expect(tester.getRect(find.byType(TextField)), searchRect);
-        await tester.enterText(find.byType(TextField), 'authentication');
+        await tester.enterText(find.byType(TextField), 'mode');
         await tester.pump();
-        expect(find.textContaining('authentication'), findsWidgets);
-        expect(find.textContaining('mixed-port'), findsNothing);
-        await tester.tap(find.byIcon(Icons.refresh));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text(strings.refresh));
-        await tester.pump();
+        expect(
+          find.byWidgetPredicate(
+            (widget) => widget is SelectableText && widget.data == 'mode: rule',
+          ),
+          findsOneWidget,
+        );
+        expect(find.textContaining('authentication'), findsNothing);
+        await tester.pump(const Duration(seconds: 30));
+        expect(bridge.requests, hasLength(2));
         expect(tester.getRect(find.byType(TextField)), searchRect);
         bridge.replies.last.completeError(StateError('fixture failure'));
         await tester.pump();

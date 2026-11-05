@@ -1,5 +1,6 @@
 import 'package:clash_pseudo/src/l10n/app_localizations.dart';
 import 'package:clash_pseudo/src/model/app_preferences.dart';
+import 'package:clash_pseudo/src/model/app_snapshot.dart';
 import 'package:clash_pseudo/src/model/core_snapshot.dart';
 import 'package:clash_pseudo/src/platform/channel/app_bridge.dart';
 import 'package:clash_pseudo/src/ui/diagnostics/configuration/runtime_config_page.dart';
@@ -76,35 +77,41 @@ void main() {
       final palette = theme.extension<HomePalette>()!;
       for (final page in pages.entries) {
         testWidgets(
-          'refresh keeps its action color ${page.key} $brightness $brand',
+          'automatic reads expose failures without a refresh button ${page.key} $brightness $brand',
           (tester) async {
             final app = TestApp(_FailedReads())
               ..overridesLoaded = true
               ..preferencesLoaded = true;
+            if (page.key == 'logs') {
+              const source = CoreSnapshot(
+                processId: 'process',
+                inputId: 'input',
+                generation: 1,
+                phase: 'READY',
+                purpose: 'RUNNING',
+                configId: 'main',
+                revision: 1,
+                composition: 'composition',
+                logWindow: 'window',
+              );
+              app.state = const AppSnapshot(
+                phase: 'RUNNING',
+                core: source,
+                logSource: source,
+              );
+            }
             try {
               await tester.pumpWidget(host(page.value(app), theme));
-              await tester.pump();
+              for (var frame = 0; frame < 8; frame++) {
+                await tester.pump(const Duration(milliseconds: 16));
+              }
               await tester.pump(const Duration(milliseconds: 240));
-              final refresh = find.byIcon(Icons.refresh);
-              expect(refresh, findsOneWidget);
-              final button = find.ancestor(
-                of: refresh,
-                matching: find.byType(IconButton),
-              );
-              expect(tester.widget<IconButton>(button).onPressed, isNotNull);
-              expect(renderedIcon(tester, refresh), palette.syncAction);
-              final rect = tester.getRect(button);
+              expect(find.byIcon(Icons.refresh), findsNothing);
+              expect(find.byType(SnackBar), findsOneWidget);
               app.setForeground(false);
               for (final milliseconds in [0, 16, 80, 180]) {
                 await tester.pump(Duration(milliseconds: milliseconds));
-                expect(tester.getRect(button), rect);
-                if (milliseconds == 180 &&
-                    tester.widget<IconButton>(button).onPressed == null) {
-                  expect(
-                    renderedIcon(tester, refresh),
-                    theme.colorScheme.onSurface.withAlpha(97),
-                  );
-                }
+                expect(find.byIcon(Icons.refresh), findsNothing);
                 expect(tester.takeException(), isNull);
               }
             } finally {

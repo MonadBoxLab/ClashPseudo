@@ -47,45 +47,36 @@ void expectSystemStates(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets(
-    'cached settings and refresh callbacks lose task authority before a frame',
-    (tester) async {
-      final bridge = AccessBridge();
-      final app = AccessApp(bridge);
-      addTearDown(app.dispose);
-      var active = true;
-      await show(
-        tester,
-        AppTaskActivity(
-          active: true,
-          isActiveNow: () => active,
-          child: AlwaysOnPage(app: app),
-        ),
-      );
-      await tester.pumpAndSettle();
-      final open = tester
-          .widget<FilledButton>(
-            find.byKey(const ValueKey('always-on-settings')),
-          )
-          .onPressed!;
-      final refreshButton = find.ancestor(
-        of: find.byIcon(Icons.refresh),
-        matching: find.byType(IconButton),
-      );
-      expect(refreshButton, findsOneWidget);
-      final refresh = tester.widget<IconButton>(refreshButton).onPressed!;
-      final reads = bridge.statusCalls;
-      active = false;
-      open();
-      refresh();
-      app.publish(const AppSnapshot(phase: 'STOPPED', generation: 2));
-      await tester.pumpAndSettle();
-      expect(bridge.opened, isEmpty);
-      expect(bridge.statusCalls, reads);
-      expect(find.byType(AlertDialog), findsNothing);
-      await tester.pumpWidget(const SizedBox());
-    },
-  );
+  testWidgets('cached settings callback loses task authority before a frame', (
+    tester,
+  ) async {
+    final bridge = AccessBridge();
+    final app = AccessApp(bridge);
+    addTearDown(app.dispose);
+    var active = true;
+    await show(
+      tester,
+      AppTaskActivity(
+        active: true,
+        isActiveNow: () => active,
+        child: AlwaysOnPage(app: app),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final open = tester
+        .widget<FilledButton>(find.byKey(const ValueKey('always-on-settings')))
+        .onPressed!;
+    expect(find.byIcon(Icons.refresh), findsNothing);
+    final reads = bridge.statusCalls;
+    active = false;
+    open();
+    app.publish(const AppSnapshot(phase: 'STOPPED', generation: 2));
+    await tester.pumpAndSettle();
+    expect(bridge.opened, isEmpty);
+    expect(bridge.statusCalls, reads);
+    expect(find.byType(AlertDialog), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   for (final staleBy in ['task', 'foreground', 'session', 'dispose']) {
     testWidgets('late settings error cannot create feedback after $staleBy', (
@@ -237,7 +228,7 @@ void main() {
   });
 
   testWidgets(
-    'always-on status refreshes on foreground and failure clears known values',
+    'always-on status refreshes on foreground and retains known values on failure',
     (tester) async {
       final bridge = AccessBridge();
       final app = AccessApp(bridge);
@@ -262,8 +253,8 @@ void main() {
       expect(bridge.statusCalls, 2);
       expectSystemStates(
         tester,
-        alwaysOn: strings.alwaysOnUnknown,
-        lockdown: strings.alwaysOnUnknown,
+        alwaysOn: strings.alwaysOnEnabled,
+        lockdown: strings.lockdownDisabled,
       );
       expect(find.text(strings.vpnStatusReadFailed), findsOneWidget);
       expect(find.byType(AlertDialog), findsNothing);
@@ -273,7 +264,12 @@ void main() {
       );
       bridge.statusFails = false;
       bridge.status = const {'alwaysOn': false, 'lockdown': true};
-      await tester.tap(find.byTooltip('刷新'));
+      await tester.tap(
+        find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.text(strings.retry),
+        ),
+      );
       await tester.pumpAndSettle();
       expectSystemStates(
         tester,
@@ -301,9 +297,11 @@ void main() {
     bridge.statusReply = null;
     bridge.status = const {'alwaysOn': false, 'lockdown': false};
     app.setForeground(true);
-    await tester.pumpAndSettle();
+    await tester.pump();
+    expect(bridge.statusCalls, 1);
     old.complete({'alwaysOn': true, 'lockdown': true});
     await tester.pumpAndSettle();
+    expect(bridge.statusCalls, 2);
     final strings = AppLocalizations.of(
       tester.element(find.byType(AlwaysOnPage)),
     );
@@ -365,7 +363,8 @@ void main() {
           final strings = AppLocalizations.of(
             tester.element(find.byType(AlwaysOnPage)),
           );
-          expect(find.byTooltip(strings.vpnStatusLoading), findsOneWidget);
+          expect(find.byTooltip(strings.vpnStatusLoading), findsNothing);
+          expect(find.byIcon(Icons.refresh), findsNothing);
           expectSystemStates(
             tester,
             alwaysOn: strings.alwaysOnUnknown,
@@ -378,7 +377,8 @@ void main() {
           expect(tester.getRect(button), anchor);
           final failed = Completer<Map<String, dynamic>>();
           bridge.statusReply = failed;
-          await tester.tap(find.byTooltip(strings.refresh));
+          app.setForeground(false);
+          app.setForeground(true);
           await tester.pump();
           expect(tester.getRect(button), anchor);
           failed.completeError(StateError('status unavailable'));
@@ -388,7 +388,8 @@ void main() {
           expect(tester.getRect(button), anchor);
           bridge.statusReply = null;
           bridge.status = const {'alwaysOn': false, 'lockdown': true};
-          await tester.tap(find.byTooltip(strings.refresh));
+          app.setForeground(false);
+          app.setForeground(true);
           await tester.pump();
           expect(tester.getRect(button), anchor);
           await tester.pumpAndSettle();
@@ -398,6 +399,71 @@ void main() {
         },
       );
     }
+  }
+
+  for (final succeeds in [true, false]) {
+    testWidgets('VPN 状态详情打开期间保留在途读取：成功=$succeeds', (tester) async {
+      final pending = Completer<Map<String, dynamic>>();
+      final bridge = AccessBridge()..statusReply = pending;
+      final app = AccessApp(bridge);
+      addTearDown(app.dispose);
+      await show(tester, AlwaysOnPage(app: app));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      final strings = AppLocalizations.of(
+        tester.element(find.byType(AlwaysOnPage)),
+      );
+      await tester.tap(
+        find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.text(strings.errorDetails),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+      app.publish(app.state);
+      if (succeeds) {
+        pending.complete({'alwaysOn': true, 'lockdown': false});
+      } else {
+        pending.completeError(StateError('实际 VPN 状态读取失败'));
+      }
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(bridge.statusCalls, 1);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text(strings.close),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(bridge.statusCalls, 1);
+      if (succeeds) {
+        expectSystemStates(
+          tester,
+          alwaysOn: strings.alwaysOnEnabled,
+          lockdown: strings.lockdownDisabled,
+        );
+        expect(find.byType(SnackBar), findsNothing);
+      } else {
+        expect(find.byType(SnackBar), findsOneWidget);
+        await tester.tap(
+          find.descendant(
+            of: find.byType(SnackBar),
+            matching: find.text(strings.errorDetails),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('operation-technical-details')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.textContaining('实际 VPN 状态读取失败'), findsOneWidget);
+      }
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
   }
 
   testWidgets('VPN 状态读取失败只显示 SnackBar，详情保留原错误且可重试', (tester) async {
@@ -427,7 +493,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('operation-technical-details')));
     await tester.pumpAndSettle();
     expect(find.text('Bad state: status failed'), findsOneWidget);
-    await tester.tap(find.widgetWithText(TextButton, strings.close));
+    bridge.statusFails = false;
+    await tester.tap(find.widgetWithText(TextButton, strings.retry));
     await tester.pumpAndSettle();
     expect(find.byType(AlertDialog), findsNothing);
     expect(find.byType(SnackBar), findsNothing);
@@ -435,9 +502,6 @@ void main() {
       tester.getRect(find.byKey(const ValueKey('always-on-settings'))),
       anchor,
     );
-    bridge.statusFails = false;
-    await tester.tap(find.byTooltip(strings.refresh));
-    await tester.pumpAndSettle();
     expectSystemStates(
       tester,
       alwaysOn: strings.alwaysOnEnabled,

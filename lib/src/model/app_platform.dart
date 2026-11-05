@@ -234,7 +234,21 @@ class AppPlatform {
         value?['durable'] is! bool) {
       throw PlatformFailure(
         code: 'storage',
-        details: messages.storageUnavailable.withDetail(value).toMap(),
+        details: messages.storageUnavailable.withDetail({
+          'expectedEpoch': epoch,
+          if (value?['epoch'] is int) 'epoch': value!['epoch'],
+          if (value?['epoch'] is! int)
+            'epochType': value?['epoch'].runtimeType.toString(),
+          if (value?['saved'] is bool) 'saved': value!['saved'],
+          if (value?['saved'] is! bool)
+            'savedType': value?['saved'].runtimeType.toString(),
+          if (value?['durable'] is bool) 'durable': value!['durable'],
+          if (value?['durable'] is! bool)
+            'durableType': value?['durable'].runtimeType.toString(),
+          if (value?['errorCode'] != null) 'errorCode': value!['errorCode'],
+          if (value?['errorDetail'] != null)
+            'errorDetail': value!['errorDetail'],
+        }).toMap(),
       );
     }
     return Map<String, dynamic>.from(value!);
@@ -405,23 +419,31 @@ class AppPlatform {
       throw PlatformFailure(
         code: 'strategies',
         details: messages.strategyStatusStale
-            .withDetail(error)
-            .withDetail(value)
+            .withDetail(
+              error is FormatException
+                  ? FormatException(error.message, null, error.offset)
+                  : error,
+            )
             .toMap(),
       );
     }
   }
 
-  Map<String, dynamic> _decodeCoreRead(String method, String? value) {
+  Map<String, dynamic> _decodeResponse(String? value) {
     try {
       return jsonDecode(value!) as Map<String, dynamic>;
+    } on FormatException catch (error) {
+      throw FormatException(error.message, null, error.offset);
+    }
+  }
+
+  Map<String, dynamic> _decodeCoreRead(String method, String? value) {
+    try {
+      return _decodeResponse(value);
     } catch (error) {
       throw PlatformFailure(
         code: method,
-        details: const AppMessage('coreReadFailed')
-            .withDetail(error)
-            .withDetail(value)
-            .toMap(),
+        details: const AppMessage('coreReadFailed').withDetail(error).toMap(),
       );
     }
   }
@@ -480,7 +502,7 @@ class AppPlatform {
       ..._dnsIdentity(core),
       'query': query,
     });
-    return jsonDecode(value!) as Map<String, dynamic>;
+    return _decodeCoreRead('delayStart', value);
   }
 
   Future<Map<String, dynamic>> delayTest(
@@ -491,7 +513,7 @@ class AppPlatform {
       ..._dnsIdentity(core),
       'batch': batch,
     });
-    return jsonDecode(value!) as Map<String, dynamic>;
+    return _decodeCoreRead('delayRead', value);
   }
 
   Future<void> cancelDelayTest(String batch) =>
@@ -526,7 +548,7 @@ class AppPlatform {
       'purpose': core.purpose,
       'query': {'kind': kind, 'name': name},
     });
-    return jsonDecode(value!) as Map<String, dynamic>;
+    return _decodeResponse(value);
   }
 
   Future<TrafficSnapshot> traffic() async {
@@ -536,14 +558,14 @@ class AppPlatform {
 
   Future<Map<String, dynamic>> appMemory() async {
     final value = await _coreCall<String>('appMemory');
-    return jsonDecode(value!) as Map<String, dynamic>;
+    return _decodeResponse(value);
   }
 
   Future<Map<String, dynamic>> coreMemory(CoreSnapshot source) async {
     final value = await _coreCall<String>('coreMemory', {
       'processId': source.processId,
     });
-    return jsonDecode(value!) as Map<String, dynamic>;
+    return _decodeResponse(value);
   }
 
   Map<String, Object?> _dnsIdentity(CoreSnapshot core) => {
@@ -568,17 +590,17 @@ class AppPlatform {
       'queryOwner': queryOwner,
       'query': {'name': name, 'type': type},
     });
-    return jsonDecode(value!) as Map<String, dynamic>;
+    return _decodeResponse(value);
   }
 
   Future<Map<String, dynamic>> clearDnsCache(CoreSnapshot core) async {
     final value = await _coreCall<String>('clearDnsCache', _dnsIdentity(core));
-    return jsonDecode(value!) as Map<String, dynamic>;
+    return _decodeResponse(value);
   }
 
   Future<Map<String, dynamic>> flushFakeIp(CoreSnapshot core) async {
     final value = await _coreCall<String>('flushFakeIp', _dnsIdentity(core));
-    return jsonDecode(value!) as Map<String, dynamic>;
+    return _decodeResponse(value);
   }
 
   Future<void> cancelDnsQuery(
@@ -641,7 +663,7 @@ class AppPlatform {
       ..._dnsIdentity(core),
       'query': query,
     });
-    return jsonDecode(value!) as Map<String, dynamic>;
+    return _decodeResponse(value);
   }
 
   Future<ConnectionSnapshot> recentConnections({

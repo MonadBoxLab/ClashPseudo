@@ -11,7 +11,7 @@
 | main与JNI | 固定操作码分派、FD交接、进程信任、系统callback及完整native回执 |
 | [engine](../../native/mihomo/internal/engine) | 唯一装载context、公开调用及本次实际资源收尾 |
 | [configinput](../../native/mihomo/internal/configinput) | Compose、字段来源、字段存在性及必要缺省 |
-| [coreview](../../native/mihomo/internal/coreview) | 读取公开内核对象，保留原始字段，逐条导出 |
+| [coreview](../../native/mihomo/internal/coreview) | 读取公开内核对象，投影业务字段并逐条导出 |
 | [androidnet](../../native/mihomo/internal/androidnet) | 平台规格、捕获的底层网络与系统DNS |
 | [ingress](../../native/mihomo/internal/ingress) | 公开监听与TUN构造的必要参数、protect及实际资源登记 |
 | [logstream](../../native/mihomo/internal/logstream) | 公开日志订阅及有界传输queue |
@@ -54,7 +54,7 @@ AppRuntime在发布输入、结束旧进程及Handshake前检查saved choices和
 8. 请求VPN时，根据同次已解析TUN生成Builder规格，取得实际PFD独立副本，再调用一次公开sing_tun.New；分别记录实际TUN、VPN接管及各监听结果。
 9. 上游profile完成恢复后，AppRuntime执行一次应用策略恢复并读回结果。装载、选择恢复、保存及整体结果分别反馈。
 
-hub.ApplyConfig没有整体错误返回。provider.Initial、Controller、NTP及外部UI仅经日志报告的错误继续保留，不把Apply返回当作全部服务成功。请求配置、GetGeneral原始JSON和平台实际持有的TUN／监听分别返回；独立公开构造器持有的对象不一定登记在上游全局getter中，不用请求端口替换getter原值。
+hub.ApplyConfig没有整体错误返回。provider.Initial、Controller、NTP及外部UI仅经日志报告的错误继续保留，不把Apply返回当作全部服务成功。运行配置读取 `GetGeneral`，按与 Clash REST API 相同的 JSON 字段和值转换为 YAML；平台实际持有的 TUN 和监听状态通过准备结果及运行快照反馈。独立公开构造器持有的对象不一定登记在上游全局 getter 中，不用请求端口替换 getter 原值。
 
 ## Input and transport limits
 
@@ -67,6 +67,7 @@ hub.ApplyConfig没有整体错误返回。provider.Initial、Controller、NTP及
 | preparation options | 最终UTF-8 JSON16MiB，保留完整输入组合 |
 | Binder小型控制 | 64KiB，不承载正文或完整大集合 |
 | single frame／单记录 | 8MiB，不是集合总量上限 |
+| 运行配置 YAML 的 JSON 编码结果 | 64MiB，超过时返回 resultTooLarge |
 | 排队字节 | 16MiB，满后backpressure |
 
 Dart在发布运行输入或停止旧进程前检查静态预算；Android加入本次平台字段后复核最终长度和编码，JNI在转移资源前检查参数，Go以实际接收字节再次核对。正文、片段和options分段传输，不将整份正文base64扩展后塞入控制JSON。恰好上限允许通过，上限加1拒绝，编码及解析错误保留原因。
@@ -75,7 +76,7 @@ JNI统一使用NativeCore.invoke(operation, requestId, input, output, tun, callb
 
 结果包含消息、原始错误、cancelError、stale和exited。管道关闭不证明原调用退出；只有实际返回或对应process death才能结束等待。旧身份回执不能改变新进程状态。
 
-coreipc.Failure保留typed error、RawCause及errors.Join中的每个cause；平台callback的cause、suppressed、stack和未知字段按原结构传递。结果FD的TERMINAL与JNI实际返回的native receipt分别保存，写入TERMINAL或关闭FD失败也进入receipt。Android通过独立receipt／details PFD传输完整JSON，Dart的CoreCall将nativeReceipt放在结果顶层；结果读取失败后仍等待真实退出，并同时保留读取错误、取消结果及cancelError。未知响应字段保留，未知或不属于该操作的request part拒绝。单frame预算不用于截断完整错误或所有DATA的合计，完整响应另沿具体操作的预算检查。
+coreipc.Failure保留typed error、RawCause及errors.Join中的每个cause；平台callback的cause、suppressed、stack和未知错误字段按原结构传递。结果FD的TERMINAL与JNI实际返回的native receipt分别保存，写入TERMINAL或关闭FD失败也进入receipt。Android通过独立receipt／details PFD传输错误及回执，Dart的CoreCall将nativeReceipt放在结果顶层；结果读取失败后仍等待真实退出，并同时保留读取错误、取消结果及cancelError。业务诊断只投影所需字段；未知或不属于该操作的request part拒绝。单frame预算不用于截断完整错误或所有DATA的合计，响应另沿具体操作的预算检查。
 
 ## Listeners and TUN
 
@@ -102,13 +103,13 @@ Builder路由范围复用公开tun.Options.BuildAutoRouteRanges(false)。计算�
 | 开始VPN／局域网、完整重连或预览转运行 | 结束旧进程，用本次确定输入装载新进程 |
 | 模式／策略热操作 | 使用当前context，读回实际结果 |
 
-PREVIEW页面不可见且没有已受理工作持续30秒后结束该进程，检查原身份、可见性及工作持有；页面只是失焦时保留。日志页先显示已有窗口，无窗口时按需准备PREVIEW；停止后的窗口继续阅读，刷新旧窗口不启动内核。
+PREVIEW页面不可见且没有已受理工作持续30秒后结束该进程，检查原身份、可见性及工作持有；页面只是失焦时保留。日志页先显示已有窗口，无窗口时按需准备PREVIEW；停止后的窗口继续阅读，查看或清空旧窗口不启动内核。
 
 资源创建后立即登记收尾。停止受理后不发起新任务，已经开始的DNS、URLTest、资源更新及应用文件I/O等待自身实际返回或所属process death。公开 Fetcher.Close 只有取消、没有全部后台任务的 join 回执；dns.Resolver.ExchangeContext 可先返回 ctx.Err，内部 singleflight、刷新和重试也没有公开 join 回执。exited 只证明本次所请求的公开调用及 JNI 实际返回，不表示全部 provider 或 DNS 后台任务结束。Android rawQuery 的取消与 callback 实际退出另行登记。进程替换和清理以对应 DeathRecipient 及本地 I/O 结束为界，细节见[Android准备与停止](android.md#准备与停止)。
 
 ## Strategy API
 
-[coreview/strategies.go](../../native/mihomo/internal/coreview/strategies.go)导出实际组、provider成员、hidden、now／fixed及GLOBAL引用，保留公开原始字段。普通读取为只读；select沿Set，url-test／fallback固定或恢复自动沿ForceSet，load-balance保持只读。
+[coreview/nodes.go](../../native/mihomo/internal/coreview/nodes.go)逐组导出名称、类型、hidden、icon、now／fixed、成员、来源及identity；[coreview/strategies.go](../../native/mihomo/internal/coreview/strategies.go)读取公开组状态与GLOBAL引用。策略记录不附带完整raw JSON，Dart策略快照只保留交互所用字段。普通读取为只读；select沿Set，url-test／fallback固定或恢复自动沿ForceSet，load-balance保持只读。
 
 策略保存及恢复由AppRuntime的StrategyActions协调。profile.store-selected保留上游恢复语义，应用choices随后按组类型执行一次并读回；Go不重写运行输入正文或维护第二份恢复状态。恢复请求携restore:true，执行同一公开selector操作但不写selected cache；显式用户选择成功且profile.store-selected启用时，才调用公开cache的SetSelected。组缺失、类型不符或成员消失由AppRuntime保留对应恢复结果；显式选择成功后清除该组的未恢复记录。请求始终捕获完整进程／输入身份，来源变化设置stale，原始结果与读取错误均保留。
 
@@ -122,7 +123,7 @@ AppRuntime组织测速批次、既有并发、期限、进度和结果。Go每�
 
 观察及详情保留各自owner：retainObservation登记持有者，recentConnections及clearInactiveConnections用detailOwner保留额外详情，releaseConnectionDetail只释放对应owner。LogicEngineHost等待业务回执和实际工作结束后判断业务Engine是否空闲。
 
-[coreview/connections.go](../../native/mihomo/internal/coreview/connections.go)从公开tracker读取metadata，保留Inner、未知字段、正文及代理链。请求最多1000活跃ID加1详情，请求64KiB、完整响应8MiB包含封装；按完整记录选择并报告遗漏。AppRuntime窗口保留1000活跃、500已结束、额外1详情，失活最长15分钟，原始JSON UTF-8合计8MiB。容量遗漏或读取失败不推断连接已断。
+[coreview/connections.go](../../native/mihomo/internal/coreview/connections.go)从公开 tracker 读取连接，投影标识、时间、流量、代理链、规则、地址及辅助规则所需字段，排除 Inner 记录。请求最多1000活跃 ID 加1详情，请求64KiB、响应8MiB包含封装；按实际保留和传输的内容计量并报告遗漏。AppRuntime 窗口保留1000活跃、500已结束、额外1详情，失活最长15分钟，投影内容 UTF-8 合计8MiB。容量遗漏或读取失败不推断连接已断。
 
 读取与关闭分别限制并发，旧请求归原processId及输入。Get未找到返回absent，Close成功返回closed，关闭错误返回failed。业务先显示未确认时仍等原调用退出，期间同类请求合并为最近一次，不启动重复工作。详情保留最后snapshot、文字选择与阅读位置，来源失效只禁用对旧对象的修改。
 
@@ -136,7 +137,7 @@ Total与activeCount来自同次采样，TrafficWindow保留30秒、31个点。Ap
 
 DNS操作、超时和取消归AppRuntime，经统一请求调用当前DefaultResolver.ExchangeContext。queryOwner／requestId仅取消其对应请求；结果、查询错误、cancelError、stale及实际exited分别返回。消息和错误可以同时存在，不因错误丢弃响应。
 
-名称先检查字节数，普通Unicode标签使用IDNA；文本转义和DNS名称语法交DNS库，十进制转义检查单字节范围。PTR的IP输入转反向名称，普通ASCII保留大小写。结果包含完整消息及未知字段。名称最多1024 UTF-8字节，请求4KiB，含身份的完整结果256KiB；Answer／Authority／Additional合计最多512条RR。内核期限5秒、平台期限6秒，结果超限整条拒绝并保留对应错误详情。
+名称先检查字节数，普通Unicode标签使用IDNA；文本转义和DNS名称语法交DNS库，十进制转义检查单字节范围。PTR的IP输入转反向名称，普通ASCII保留大小写。结果保留实际 Question、RCODE、耗时及 Answer／Authority／Additional 的记录字段。名称最多1024 UTF-8字节，请求4KiB，含身份的结果256KiB；三个记录区合计最多512条RR。内核期限5秒、平台期限6秒，结果超限整条拒绝并保留对应错误详情。
 
 清理DNS缓存捕获当次默认及系统resolver对象，等ClearCache返回后记录结果，不声称清除Android系统缓存。fake-IP调用公开FlushFakeIP并保留聚合错误，没有完成回执的地址族仍未确认。来源变化不改写已完成结果，而是另注stale。展示与确认见[DNS规范](../product/diagnostics.md#dns查询)。
 
@@ -156,7 +157,7 @@ DNS操作、超时和取消归AppRuntime，经统一请求调用当前DefaultRes
 
 主规则及sub-rules来自公开cfg.Rules／cfg.SubRules。provider及sub-rules的声明顺序使用同次合成提取的metadata，不按名称重新排序，也不在Go保存第二份运行YAML。domain／ipcidr规则集使用Strategy().DumpMrs，inline provider公开JSON提供payload；远程／文件classical公开JSON只有元数据，不提供完整运行枚举。应用不重读Vehicle.Path后重新解析text／YAML来补运行规则，原文来源与实际运行内容分别显示。
 
-集合使用FD逐条原始记录及complete terminal frame导出。AppRuntime逐条关联provenance与捕获的本地直接定义，在完整stream后补入未关联原文，再统一搜索、计数和分页，只保存当前页及必要关联集合；offset／limit、查询和本地snapshot不进入Go。分页身份包含native token及本地snapshot，来源与精确写入规则见[来源与本地编辑](data-and-operations.md#来源与本地编辑)。native原始响应保持原貌，provider下载成员不授予本地编辑权，main／sub-rules／provider内容各守原scope。
+集合通过FD逐条导出业务记录并以complete terminal frame结束。AppRuntime逐条关联provenance与捕获的本地直接定义，在完整stream后补入未关联原文，再统一搜索、计数和分页，只保存当前页及必要关联集合；offset／limit、查询和本地snapshot不进入Go。分页身份包含native token及本地snapshot，来源与精确写入规则见[来源与本地编辑](data-and-operations.md#来源与本地编辑)。provider下载成员不授予本地编辑权，main／sub-rules／provider内容各守原scope。
 
 开始与结束核对进程、组合及provider公开Version／Strategy身份，terminal state保留来源、实际记录数、complete及stale。来源中途变化或缺terminal state时保留已读内容但不能发布完整页，单条超限返回错误而非静默截断。DumpMrs callback允许取消，公开实现内部收集及排序仍由上游执行。
 
@@ -168,7 +169,7 @@ provider加载、下载、缓存和刷新沿公开接口。四类Geo手动更新
 
 资源返回公开对象的实际数量、mtime、内核时间及来源地址，不在应用接入层推断另一套下载／修复状态。磁盘文件存在、更新返回成功和实际reader所见内容分别检查。缺失或损坏的MMDB／ASN可能触发上游Fatal，测试以串行subprocess保留输入、实际退出码及错误，记录实际Go版本、mihomo module版本和复现条件。
 
-普通诊断保留原始Map、未知字段及来源。显示转换失败仍保留响应；JSON解码失败同时保存解码错误和完整正文，供查看及复制。页面5秒后显示未确认时仍等原调用，后续同类查询合并为最近一次；进入后台不丢弃已受理更新结果。
+普通诊断保留业务字段、来源和实际错误，JSON解码失败保留解析错误及位置，不将完整响应作为错误详情。页面5秒后显示未确认时仍等原调用，后续同类查询合并为最近一次；进入后台不丢弃已受理更新结果。
 
 ## Logs and trust roots
 
@@ -178,7 +179,7 @@ Go在解析前公开Subscribe日志，退出订阅时UnSubscribe并排空可读�
 - 正文保持内核原文，接收时间、窗口身份及传输／本地遗漏另列。
 - 清空使用窗口身份和同一来源的单调watermark。LOGS的只读watermark查询在同一queue lock内取得source、最新已分配Seq及累计dropped，不消费queue，也不占默认日志stream的唯一consumer；AppRuntime排除Seq小于等于清空边界的记录，覆盖Go queue、FD在途和迟到事件。
 - 并发清空的边界及传输遗漏baseline不倒退；旧来源回执不能清除新窗口。传输累计遗漏与本地窗口淘汰分别统计，watermark失败保留原错误。
-- 过滤、跟随、滚动和复制属于UI；停止后保留窗口，刷新或清空旧窗口不启动内核。
+- 过滤、跟随、滚动和复制属于UI；停止后保留窗口，查看或清空旧窗口不启动内核。
 
 客户端过滤和内核全局日志等级分别管理。日志流与其他集合使用同一受限FD协议，不无限转发到Flutter消息queue。
 

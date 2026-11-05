@@ -276,9 +276,24 @@ void main() {
               messages.temporarySettingsUnreadable,
             ][part],
           );
-          final issue = find.byKey(const ValueKey('uptime-subtitle'));
-          expect(tester.widget<StatusText>(issue).text, en.statusIssue);
-          await tester.tap(issue);
+          final status = find.byKey(const ValueKey('uptime-subtitle'));
+          expect(
+            tester.widget<StatusText>(status).text,
+            part == 0 ? en.statusConfigFailed : en.statusImportPrompt,
+          );
+          await frame(tester);
+          final notice = find.byType(SnackBar);
+          expect(notice, findsOneWidget);
+          expect(
+            find.descendant(
+              of: notice,
+              matching: find.text(controller.errorMessage!.summary(en)),
+            ),
+            findsOneWidget,
+          );
+          await tester.tap(
+            find.descendant(of: notice, matching: find.text(en.errorDetails)),
+          );
           await frame(tester);
           expect(find.byType(AlertDialog), findsOneWidget);
           expect(

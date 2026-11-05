@@ -170,11 +170,6 @@ class LocalYamlEdit {
     return List.unmodifiable(result);
   }
 
-  /// The direct definition with this exact name, or null. Names are unique
-  /// inside a named list, so this identity is unambiguous for that body.
-  LocalYamlDefinition? definitionNamed(LocalYamlSection section, String name) =>
-      definitions(section).where((item) => item.value == name).firstOrNull;
-
   /// Remove exactly one direct definition; duplicate rules retain index-specific
   /// identities and references remain unchanged.
   String remove(LocalYamlDefinition definition) {

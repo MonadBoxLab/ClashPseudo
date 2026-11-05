@@ -20,7 +20,7 @@ sniffer: {enable: true, sniff: {HTTP: {ports: [80], override-destination: false}
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, presence, err := RunningDefaults(composed, "direct", "")
+	raw, presence, err := Decode(composed, "direct", "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ sniffer: {enable: true, sniff: {HTTP: {ports: [80], override-destination: false}
 	if !presence.Has("tun.mtu") || !presence.Has("mode") {
 		t.Fatal("合成字段的存在信息丢失")
 	}
-	raw, p, err := RunningDefaults([]byte("{}"), "", "")
+	raw, p, err := Decode([]byte("{}"), "", "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ sniffer: {enable: true, sniff: {HTTP: {ports: [80], override-destination: false}
 
 func TestExplicitNullsKeepPublicRawConfigSemantics(t *testing.T) {
 	for _, body := range []string{"tun: null\ndns: null\nprofile: null\n", "tun: {enable: null, mtu: null}\ndns: {enable: null}\nprofile: {store-selected: null}\n"} {
-		raw, _, err := RunningDefaults([]byte(body), "global", "")
+		raw, _, err := Decode([]byte(body), "global", "", true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -71,7 +71,7 @@ func TestExplicitNullsKeepPublicRawConfigSemantics(t *testing.T) {
 func TestDefaultMappingDoesNotMutateSavedSource(t *testing.T) {
 	body := []byte("# preserved saved body\r\nmode: rule\r\n")
 	before := bytes.Clone(body)
-	if _, _, err := RunningDefaults(body, "direct", "global"); err != nil {
+	if _, _, err := Decode(body, "direct", "global", true); err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(body, before) {
@@ -82,7 +82,7 @@ func TestRunningDefaultsOnlyUsesAnExplicitModeIntent(t *testing.T) {
 	for _, tc := range []struct{ body, saved, operation, want string }{
 		{"{}", "", "", "rule"}, {"{}", "direct", "", "direct"}, {"mode: global", "direct", "", "global"}, {"mode: global", "direct", "rule", "rule"}, {"{}", "", "direct", "direct"},
 	} {
-		raw, p, err := RunningDefaults([]byte(tc.body), tc.saved, tc.operation)
+		raw, p, err := Decode([]byte(tc.body), tc.saved, tc.operation, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -111,7 +111,7 @@ func TestRunningDefaultsPreservesUnrelatedNodeValuesDuringInjection(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, p, err := RunningDefaults(body, "", "")
+	raw, p, err := Decode(body, "", "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestRunningDefaultsLeaveUnknownReferenceValuesForTheCore(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			raw, _, err := RunningDefaults(input, "", "")
+			raw, _, err := Decode(input, "", "", true)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -152,7 +152,7 @@ func TestRunningDefaultsUseInheritedPresenceWithoutChangingOtherAliases(t *testi
 	for _, tun := range []string{"tun: *base\n", "tun: {<<: *base}\n", "<<: {tun: *base}\n"} {
 		body := []byte("template: &base {enable: false, auto-route: false, dns-hijack: []}\n" + tun + "copy: *base\ndns: {enable: false}\n")
 		before := bytes.Clone(body)
-		raw, p, err := RunningDefaults(body, "", "")
+		raw, p, err := Decode(body, "", "", true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -179,7 +179,7 @@ func TestRunningDefaultsReportThePublicDecodeErrorWithoutPrevalidation(t *testin
 		if original == nil {
 			t.Fatal("测试正文未触发公开解码错误")
 		}
-		if _, _, err := RunningDefaults([]byte(body), "", ""); err == nil || err.Error() != original.Error() {
+		if _, _, err := Decode([]byte(body), "", "", true); err == nil || err.Error() != original.Error() {
 			t.Fatalf("原始错误丢失：%v，期望%v", err, original)
 		}
 	}
@@ -191,7 +191,7 @@ func TestRunningDefaultsKeepsOriginalBytesWhenNoInjectionIsNeeded(t *testing.T) 
 	} {
 		input := []byte(body)
 		before := bytes.Clone(input)
-		raw, _, err := RunningDefaults(input, "", "")
+		raw, _, err := Decode(input, "", "", true)
 		if err != nil {
 			t.Fatal(err)
 		}

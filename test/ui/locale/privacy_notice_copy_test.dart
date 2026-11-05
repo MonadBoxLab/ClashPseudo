@@ -139,25 +139,12 @@ void main() {
         '查看上次查询',
       ),
       (
-        en.dnsQueryRawData,
-        zh.dnsQueryRawData,
-        'DNS query raw data',
-        'DNS 查询原始数据',
-      ),
-      (
         en.dnsCacheOperationDetails,
         zh.dnsCacheOperationDetails,
         'Cache operation details',
         '缓存操作详情',
       ),
-      (
-        en.dnsCacheRawData,
-        zh.dnsCacheRawData,
-        'Cache operation raw data',
-        '缓存操作原始数据',
-      ),
       (en.errorDetails, zh.errorDetails, 'Error details', '错误详情'),
-      (en.viewError, zh.viewError, 'View error', '查看错误'),
       (en.technicalDetails, zh.technicalDetails, 'Technical details', '技术详情'),
       (
         en.copyTechnicalDetails,

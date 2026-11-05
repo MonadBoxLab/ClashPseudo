@@ -383,7 +383,11 @@ func (d *coreDispatcher) execute(ctx context.Context, operation int, id int64, r
 		}
 		return object(map[string]bool{"applied": true})
 	case A.CoreOperationRuntimeConfig:
-		return data(d.engine.RuntimeConfig())
+		value, err := d.engine.RuntimeConfig()
+		if err != nil {
+			return "", err
+		}
+		return object(value)
 	case A.CoreOperationNodes:
 		var arg struct {
 			Source *string `json:"source"`

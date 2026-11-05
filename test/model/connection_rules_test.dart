@@ -199,7 +199,7 @@ void main() {
     expect(mismatched.id, _id);
     expect(mismatched.ruleMetadata, isNull);
     expect(mismatched.ruleError, contains('Connection rule identity changed'));
-    expect(mismatched.raw['ruleSuggestions'], _suggestions(id: _otherId));
+    expect(mismatched.toMap().containsKey('ruleSuggestions'), isFalse);
     final inactive = ConnectionSnapshot.fromMap(
       _sample(suggestions: _suggestions(), active: false),
     ).records.single;

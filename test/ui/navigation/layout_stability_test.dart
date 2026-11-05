@@ -206,10 +206,8 @@ void _layoutTests(ThemeData theme) {
         await tester.pumpAndSettle();
         final close = find.widgetWithText(TextButton, '关闭');
         expect(tester.getRect(close).bottom, lessThanOrEqualTo(568));
-        expect(
-          tester.getTopLeft(find.text('操作未完成')).dx,
-          greaterThan(tester.getTopLeft(find.byIcon(Icons.error_outline)).dx),
-        );
+        expect(find.byIcon(Icons.error_outline), findsNothing);
+        expect(find.text('操作未完成'), findsOneWidget);
         expect(find.byType(SelectableText), findsOneWidget);
         expect(tester.takeException(), isNull);
         await tester.tap(close);
@@ -507,16 +505,14 @@ void _layoutTests(ThemeData theme) {
             null,
           ),
         );
-        await tester.tap(actions);
-        await tester.pumpAndSettle();
-        expect(errorAction.hitTestable(), findsOneWidget);
-        expect(tester.getSize(errorAction).height, greaterThanOrEqualTo(48));
-        expect(
-          find.descendant(of: errorAction, matching: find.text('错误详情')),
-          findsOneWidget,
-        );
+        expect(errorAction, findsNothing);
         expect(targets.map(tester.getRect).toList(), before);
-        await tester.tap(errorAction);
+        await tester.tap(
+          find.descendant(
+            of: find.byType(SnackBar),
+            matching: find.widgetWithText(TextButton, '错误详情'),
+          ),
+        );
         await tester.pumpAndSettle();
         expect(find.byType(AlertDialog), findsOneWidget);
         expect(find.byType(MenuItemButton), findsNothing);
@@ -666,7 +662,7 @@ void _layoutTests(ThemeData theme) {
           findsNothing,
         );
         final statusSlot = find
-            .ancestor(of: detailStatus, matching: find.byType(ConstrainedBox))
+            .ancestor(of: detailStatus, matching: find.byType(SizedBox))
             .first;
         final actions = find.byKey(const ValueKey('connection-detail-actions'));
         final actionBefore = tester.getRect(actions);
@@ -740,13 +736,8 @@ void _layoutTests(ThemeData theme) {
         await tester.pumpAndSettle();
         await tester.tap(actions);
         await tester.pumpAndSettle();
-        expect(errorAction.hitTestable(), findsOneWidget);
-        expect(tester.widget<MenuItemButton>(errorAction).onPressed, isNotNull);
-        expect(tester.getSize(errorAction).height, greaterThanOrEqualTo(48));
-        await tester.tap(errorAction);
-        await tester.pumpAndSettle();
-        expect(find.byType(AlertDialog), findsOneWidget);
-        await tester.tap(find.text('关闭'));
+        expect(errorAction, findsNothing);
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
         await tester.pumpAndSettle();
         expect(
           labels.map((s) => tester.getRect(find.text(s))).toList(),

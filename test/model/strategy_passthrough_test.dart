@@ -52,19 +52,16 @@ Map<String, dynamic> _wire({
 };
 
 void main() {
-  group('complete protocol projection', () {
-    test(
-      'strategy projection retains the complete response and unknown fields',
-      () {
-        final wire = _wire(stale: true);
-        final data = StrategySnapshot.fromMap(wire);
-        expect(data.raw, wire);
-        expect(data.stale, isTrue);
-        expect(data.groups.single.now, _original);
-        expect(data.groups.single.members.single.name, _original);
-        expect(data.generation, previewCore.generation);
-        expect(data.composition, previewCore.composition);
-      },
-    );
+  group('策略字段读取', () {
+    test('策略字段保留名称、来源身份与过期状态', () {
+      final wire = _wire(stale: true);
+      final data = StrategySnapshot.fromMap(wire);
+      expect(data.groups.single.currentIdentity, 'member-identity');
+      expect(data.stale, isTrue);
+      expect(data.groups.single.now, _original);
+      expect(data.groups.single.members.single.name, _original);
+      expect(data.generation, previewCore.generation);
+      expect(data.composition, previewCore.composition);
+    });
   });
 }

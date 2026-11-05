@@ -342,9 +342,35 @@ func projectConnection(proxies map[string]C.Proxy, id string, info *statistic.Tr
 			descriptor = &connectionStrategy{Type: "Reject"}
 		}
 	}
+	type connectionMetadata struct {
+		Network         C.NetWork  `json:"network"`
+		Type            C.Type     `json:"type"`
+		SourceIP        netip.Addr `json:"sourceIP"`
+		DestinationIP   netip.Addr `json:"destinationIP"`
+		SourcePort      uint16     `json:"sourcePort,string"`
+		DestinationPort uint16     `json:"destinationPort,string"`
+		Host            string     `json:"host"`
+	}
+	var metadata *connectionMetadata
+	if value := info.Metadata; value != nil {
+		metadata = &connectionMetadata{
+			Network: value.NetWork, Type: value.Type,
+			SourceIP: value.SrcIP, DestinationIP: value.DstIP,
+			SourcePort: value.SrcPort, DestinationPort: value.DstPort,
+			Host: value.Host,
+		}
+	}
 	return json.Marshal(struct {
-		*statistic.TrackerInfo
+		ID              string                     `json:"id"`
+		Metadata        *connectionMetadata        `json:"metadata"`
+		Upload          int64                      `json:"upload"`
+		Download        int64                      `json:"download"`
+		Start           time.Time                  `json:"start"`
+		Chains          C.Chain                    `json:"chains"`
+		Rule            string                     `json:"rule"`
+		RulePayload     string                     `json:"rulePayload"`
 		Strategy        *connectionStrategy        `json:"strategy,omitempty"`
 		RuleSuggestions *connectionRuleSuggestions `json:"ruleSuggestions,omitempty"`
-	}{info, descriptor, connectionSuggestions(id, info.Metadata)})
+	}{id, metadata, info.UploadTotal.Load(), info.DownloadTotal.Load(), info.Start,
+		info.Chain, info.Rule, info.RulePayload, descriptor, connectionSuggestions(id, info.Metadata)})
 }

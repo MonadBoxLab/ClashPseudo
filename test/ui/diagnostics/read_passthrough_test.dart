@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:clash_pseudo/src/model/application_contract.dart';
 import 'package:clash_pseudo/src/ui/diagnostics/configuration/runtime_config_controller.dart';
 import 'package:clash_pseudo/src/ui/diagnostics/nodes/nodes_controller.dart';
@@ -33,20 +31,11 @@ void main() {
             runtime.dispose();
             app.dispose();
           });
-          const raw = {
-            'general': {'mode': 'rule', 'mixed-port': 0},
-            'requested': {
-              'tun': {'enable': false},
-            },
-            'actual': {
-              'tun': null,
-              'listeners': [
-                {'name': 'lan-wlan0', 'address': '10.0.2.16', 'port': 7890},
-              ],
-            },
-            'future': [false, null],
-            'processId': 'native-configuration-value',
-          };
+          const raw =
+              'mode: rule\nmixed-port: 0\n'
+              'tun:\n  enable: false\n'
+              'authentication:\n  - fixture-user\n'
+              'future: [false, null]\nprocessId: native-configuration-value\n';
           const cancellation = {
             'cause': {'message': '原始取消错误'},
             'suppressed': [
@@ -65,7 +54,7 @@ void main() {
           );
           await tester.pump();
           expect(runtime.loading, isTrue);
-          expect(runtime.lines, isEmpty);
+          expect(runtime.text, isEmpty);
           expect(request.actualExited, isFalse);
           final pending = await native.read('runtimeConfig');
           expect(pending['readPending'], isTrue);
@@ -75,14 +64,10 @@ void main() {
           request.signalExit();
           await tester.pump();
           expect(runtime.loading, isFalse);
-          expect(runtime.data!['configuration'], raw);
-          expect(jsonDecode(runtime.lines.join('\n')), raw);
-          expect(runtime.lines, isNot(['null']));
-          expect(runtime.data!['processId'], source.processId);
-          expect(runtime.data!['purpose'], purpose);
-          expect(source.matchesWireIdentity(runtime.data!), isTrue);
-          expect(runtime.data!['cancelError'], cancellation);
-          expect(runtime.data!['stale'], stale);
+          expect(runtime.text, raw);
+          expect(runtime.source!.matchesIdentity(source), isTrue);
+          expect(runtime.source!.purpose, purpose);
+          expect(runtime.cancelError, cancellation);
           expect(runtime.readError, isNull);
           expect(
             runtime.status,
@@ -92,8 +77,8 @@ void main() {
                 ? RuntimeConfigStatus.live
                 : RuntimeConfigStatus.preview,
           );
-          expect(runtime.hasCurrentSource, !stale);
           expect(app.commands, isEmpty);
+          runtime.setVisible(false);
         },
       );
     }
@@ -123,12 +108,7 @@ void main() {
     final request = native
         .calls(ApplicationContract.coreOperationRuntimeConfig)
         .single;
-    request.complete(
-      {
-        'general': {'mode': 'rule'},
-      },
-      terminal: {'error': original},
-    );
+    request.complete('mode: rule\n', terminal: {'error': original});
     await tester.pump();
     expect(runtime.loading, isTrue);
     expect(runtime.readError, isNull);
@@ -136,10 +116,14 @@ void main() {
     await tester.pump();
     expect(runtime.status, RuntimeConfigStatus.failed);
     expect(runtime.loading, isFalse);
-    expect(runtime.data, isNull);
-    expect(runtime.lines, isEmpty);
+    expect(runtime.source, isNull);
+    expect(runtime.text, isEmpty);
     expect(runtime.readError!.detail, contains(original.toString()));
-    expect(runtime.hasCurrentSource, isFalse);
+    expect(
+      runtime.status,
+      isNot(anyOf(RuntimeConfigStatus.live, RuntimeConfigStatus.preview)),
+    );
+    runtime.setVisible(false);
   });
 
   group('cross-object read ownership', () {
@@ -173,25 +157,29 @@ void main() {
         ruleBridge.replies.last.complete(rulePage());
         resourceBridge.replies.last.complete(resourcePage(core(1)));
         await tester.pump();
-        expect(runtime.hasCurrentSource, isTrue);
+        expect(runtime.source!.generation, runtimeApp.state.core.generation);
         expect(nodes.current, isTrue);
         expect(rules.current, isTrue);
         expect(resources.current, isTrue);
-        final retained = [runtime.data, nodes.data, rules.data, resources.data];
+        final retained = [
+          runtime.text,
+          nodes.nodes,
+          rules.rows,
+          resources.resources,
+        ];
         for (final app in apps) {
           app.publish(app.state.asStale());
         }
         await tester.pump();
-        expect(runtime.hasCurrentSource, isFalse);
         expect(runtime.status, RuntimeConfigStatus.failed);
         expect(nodes.current, isFalse);
         expect(rules.current, isFalse);
         expect(resources.current, isFalse);
         expect([
-          runtime.data,
-          nodes.data,
-          rules.data,
-          resources.data,
+          runtime.text,
+          nodes.nodes,
+          rules.rows,
+          resources.resources,
         ], retained);
         await nodes.next();
         await rules.next();
@@ -215,8 +203,12 @@ void main() {
         ruleBridge.replies.last.complete(rulePage());
         resourceBridge.replies.last.complete(resourcePage(core(1)));
         await tester.pump();
-        expect(runtime.data, late);
-        expect(runtime.hasCurrentSource, isFalse);
+        expect(runtime.text, retained.first);
+        expect(runtime.text.toString(), isNot(contains('actual-late-result')));
+        expect(
+          runtime.status,
+          isNot(anyOf(RuntimeConfigStatus.live, RuntimeConfigStatus.preview)),
+        );
         expect(nodes.current, isFalse);
         expect(rules.current, isFalse);
         expect(resources.current, isFalse);
@@ -239,10 +231,14 @@ void main() {
         ruleBridge.replies.last.complete(rulePage());
         resourceBridge.replies.last.complete(resourcePage(core(1)));
         await tester.pump();
-        expect(runtime.hasCurrentSource, isTrue);
+        expect(runtime.source!.generation, runtimeApp.state.core.generation);
         expect(nodes.current, isTrue);
         expect(rules.current, isTrue);
         expect(resources.current, isTrue);
+        runtime.setVisible(false);
+        nodes.setVisible(false);
+        rules.setVisible(false);
+        resources.setVisible(false);
       },
     );
   });

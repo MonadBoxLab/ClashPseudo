@@ -68,8 +68,15 @@ internal object CoreErrors {
                     if (value is CoreNativeResultException) {
                         put("nativeError", value.error)
                         put("nativeReceipt", JSONObject(CoreFrames.utf8(value.result.receipt)))
-                        put("nativeTerminal", value.result.terminal)
-                        put("nativeValue", value.result.value)
+                        put("nativeTerminal", JSONObject().apply {
+                            listOf("complete", "exited", "stale", "recordCount", "source", "error", "cancelError", "cancellation")
+                                .forEach { key -> if (value.result.terminal.has(key)) put(key, value.result.terminal.get(key)) }
+                        })
+                        put("nativeValue", JSONObject().apply {
+                            listOf("prepared", "attached", "vpnIntent", "lanIntent", "vpnRunning", "lanRunning", "processId",
+                                "inputId", "generation", "networkRevision", "phase", "purpose", "configId", "revision", "composition", "error")
+                                .forEach { key -> if (value.result.value.has(key)) put(key, value.result.value.get(key)) }
+                        })
                     }
                     if (value is CoreNativeCallException) {
                         try { put("nativeReceipt", JSONObject(CoreFrames.utf8(value.receipt))) }

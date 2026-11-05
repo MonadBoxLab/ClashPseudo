@@ -85,6 +85,7 @@ Future<bool> showLocalizedOperationNotice(
   if (!context.mounted || !current()) return false;
   final notice = _Notice(
     context: context,
+    route: route,
     summary: summary,
     technicalDetail: technicalDetail,
     title: title,
@@ -153,17 +154,23 @@ Future<bool> showLocalizedOperationNotice(
       }
       notice.changes.removeListener(changed);
       notice.finish();
-      notice.onClosed?.call(reason);
+      if (!notice.viewingDetails) notice.notifyClosed(reason);
     }),
   );
   return notice.presented.future;
 }
 
 class OperationNoticeHost extends StatefulWidget {
-  const OperationNoticeHost({super.key, required this.child, this.onDismiss});
+  const OperationNoticeHost({
+    super.key,
+    required this.child,
+    this.onDismiss,
+    this.shrinkWrap = false,
+  }) : assert(!shrinkWrap || onDismiss == null);
 
   final Widget child;
   final VoidCallback? onDismiss;
+  final bool shrinkWrap;
 
   @override
   State<OperationNoticeHost> createState() => _OperationNoticeHostState();
@@ -171,20 +178,22 @@ class OperationNoticeHost extends StatefulWidget {
 
 class _OperationNoticeHostState extends State<OperationNoticeHost> {
   final _messenger = GlobalKey<ScaffoldMessengerState>();
+  final _pending = <_Notice>[];
   _Notice? _notice;
   ScaffoldFeatureController<SnackBar, SnackBarClosedReason>? _handle;
   Size _available = Size.zero;
   bool _scheduled = false;
 
   Future<bool> show(_Notice notice) {
-    final previous = _notice;
-    if (notice.identity != null &&
-        previous?.identity == notice.identity &&
-        previous!.current()) {
-      return previous.presented.future;
+    if (notice.identity != null) {
+      for (final previous in [?_notice, ..._pending]) {
+        if (previous.identity == notice.identity &&
+            (previous.viewingDetails || previous.current())) {
+          return previous.presented.future;
+        }
+      }
     }
-    _retire();
-    _notice = notice;
+    _pending.add(notice);
     notice.changes.addListener(_schedule);
     _schedule();
     return notice.presented.future;
@@ -192,30 +201,42 @@ class _OperationNoticeHostState extends State<OperationNoticeHost> {
 
   void _retire() {
     final notice = _notice;
+    final handle = _handle;
     _notice = null;
     _handle = null;
     if (notice != null) {
       notice.changes.removeListener(_schedule);
       notice.finish();
-      _messenger.currentState?.removeCurrentSnackBar();
+      if (handle != null) _messenger.currentState?.removeCurrentSnackBar();
     }
   }
 
   void _schedule() {
-    _notice?.current();
+    for (final notice in List<_Notice>.of(_pending)) {
+      if (!notice.current()) {
+        _pending.remove(notice);
+        notice.changes.removeListener(_schedule);
+        notice.finish();
+      }
+    }
+    if (_notice?.viewingDetails != true) _notice?.current();
     if (_scheduled || !mounted) return;
     _scheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scheduled = false;
       if (!mounted) return;
+      if (_notice == null && _pending.isNotEmpty) {
+        _notice = _pending.removeAt(0);
+      }
       final notice = _notice;
-      if (notice == null) return;
+      if (notice == null || notice.viewingDetails) return;
       if (!notice.current()) {
         _retire();
+        _schedule();
         return;
       }
       final fits = notice.fits(context, _available.width, _available.height);
-      if (!fits) {
+      if (!fits || !notice.eligible()) {
         if (_handle != null) {
           _handle = null;
           _messenger.currentState?.removeCurrentSnackBar();
@@ -225,17 +246,19 @@ class _OperationNoticeHostState extends State<OperationNoticeHost> {
       if (_handle != null) return;
       final messenger = _messenger.currentState;
       if (messenger == null) return;
-      final handle = messenger.showSnackBar(notice.snackBar(_schedule));
+      final handle = messenger.showSnackBar(
+        notice.snackBar(_schedule, key: widget.shrinkWrap ? notice._key : null),
+      );
       _handle = handle;
       unawaited(
         handle.closed.then((reason) {
-          notice.onClosed?.call(reason);
           if (!mounted || !identical(_handle, handle)) return;
           _handle = null;
+          if (notice.viewingDetails) return;
+          notice.notifyClosed(reason);
           if (identical(_notice, notice)) {
-            _notice = null;
-            notice.changes.removeListener(_schedule);
-            notice.finish();
+            _retire();
+            _schedule();
           }
         }),
       );
@@ -244,76 +267,99 @@ class _OperationNoticeHostState extends State<OperationNoticeHost> {
   }
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      final media = MediaQuery.of(context);
-      final width = math.max(
-        0.0,
-        math.min(560.0, constraints.maxWidth - media.padding.horizontal - 32),
-      );
-      _available = Size(
-        width,
-        math.max(
-          0.0,
-          constraints.maxHeight -
-              media.viewInsets.bottom -
-              media.padding.vertical,
-        ),
-      );
-      final fits = _notice?.fits(context, width, _available.height) ?? true;
-      if (_notice != null) _schedule();
-      final horizontal = math.max(
-        0.0,
-        (constraints.maxWidth - width - media.padding.horizontal) / 2,
-      );
-      return MediaQuery(
-        data: media.copyWith(size: constraints.biggest),
-        child: Theme(
-          data: Theme.of(context).copyWith(
-            snackBarTheme: Theme.of(context).snackBarTheme.copyWith(
-              behavior: SnackBarBehavior.floating,
-              insetPadding: fits
-                  ? EdgeInsets.fromLTRB(horizontal, 0, horizontal, 12)
-                  : EdgeInsets.zero,
-            ),
-          ),
-          child: ScaffoldMessenger(
-            key: _messenger,
-            child: Scaffold(
-              backgroundColor: Colors.transparent,
-              body: Theme(
-                data: Theme.of(context),
-                child: widget.onDismiss == null
-                    ? widget.child
-                    : Actions(
-                        actions: {
-                          DismissIntent: CallbackAction<DismissIntent>(
-                            onInvoke: (_) {
-                              widget.onDismiss?.call();
-                              return null;
-                            },
-                          ),
-                        },
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            ModalBarrier(onDismiss: widget.onDismiss),
-                            widget.child,
-                          ],
-                        ),
-                      ),
+  Widget build(BuildContext context) {
+    if (widget.shrinkWrap) {
+      return Stack(
+        children: [
+          widget.child,
+          Positioned.fill(
+            child: _NoticeHitRegion(
+              snackBarKey: () => _notice?._key,
+              child: LayoutBuilder(
+                builder: (context, constraints) =>
+                    _surface(context, constraints, overlay: true),
               ),
             ),
           ),
-        ),
+        ],
       );
-    },
-  );
+    }
+    return LayoutBuilder(builder: _surface);
+  }
+
+  Widget _surface(
+    BuildContext context,
+    BoxConstraints constraints, {
+    bool overlay = false,
+  }) {
+    final media = MediaQuery.of(context);
+    final width = math.max(
+      0.0,
+      math.min(560.0, constraints.maxWidth - media.padding.horizontal - 32),
+    );
+    _available = Size(
+      width,
+      math.max(
+        0.0,
+        constraints.maxHeight -
+            media.viewInsets.bottom -
+            media.padding.vertical,
+      ),
+    );
+    final fits = _notice?.fits(context, width, _available.height) ?? true;
+    if (_notice != null) _schedule();
+    final horizontal = math.max(
+      0.0,
+      (constraints.maxWidth - width - media.padding.horizontal) / 2,
+    );
+    return MediaQuery(
+      data: media.copyWith(size: constraints.biggest),
+      child: Theme(
+        data: Theme.of(context).copyWith(
+          snackBarTheme: Theme.of(context).snackBarTheme.copyWith(
+            behavior: SnackBarBehavior.floating,
+            insetPadding: fits
+                ? EdgeInsets.fromLTRB(horizontal, 0, horizontal, 12)
+                : EdgeInsets.zero,
+          ),
+        ),
+        child: ScaffoldMessenger(
+          key: _messenger,
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            body: overlay
+                ? const SizedBox.shrink()
+                : Theme(
+                    data: Theme.of(context),
+                    child: widget.onDismiss == null
+                        ? widget.child
+                        : Actions(
+                            actions: {
+                              DismissIntent: CallbackAction<DismissIntent>(
+                                onInvoke: (_) {
+                                  widget.onDismiss?.call();
+                                  return null;
+                                },
+                              ),
+                            },
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                ModalBarrier(onDismiss: widget.onDismiss),
+                                widget.child,
+                              ],
+                            ),
+                          ),
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   void dispose() {
-    final notice = _notice;
-    if (notice != null) {
+    for (final notice in [?_notice, ..._pending]) {
       notice.changes.removeListener(_schedule);
       notice.finish();
     }
@@ -321,9 +367,41 @@ class _OperationNoticeHostState extends State<OperationNoticeHost> {
   }
 }
 
+class _NoticeHitRegion extends SingleChildRenderObjectWidget {
+  const _NoticeHitRegion({required this.snackBarKey, required super.child});
+
+  final GlobalKey? Function() snackBarKey;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderNoticeHitRegion(snackBarKey);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderNoticeHitRegion renderObject,
+  ) => renderObject.snackBarKey = snackBarKey;
+}
+
+class _RenderNoticeHitRegion extends RenderProxyBox {
+  _RenderNoticeHitRegion(this.snackBarKey);
+
+  GlobalKey? Function() snackBarKey;
+
+  @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) {
+    final box = snackBarKey()?.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.attached || !box.hasSize) return false;
+    final local = box.globalToLocal(localToGlobal(position));
+    if (!(Offset.zero & box.size).contains(local)) return false;
+    return super.hitTest(result, position: position);
+  }
+}
+
 class _Notice {
   _Notice({
     required this.context,
+    required this.route,
     required this.summary,
     required this.technicalDetail,
     required this.title,
@@ -341,6 +419,7 @@ class _Notice {
   });
 
   final BuildContext context;
+  final ModalRoute<dynamic>? route;
   final String Function(AppLocalizations) summary;
   final String? Function(AppLocalizations)? technicalDetail;
   final String Function(AppLocalizations)? title;
@@ -349,9 +428,17 @@ class _Notice {
   final bool persist;
   final bool Function() eligible;
   bool _retired = false;
+  bool viewingDetails = false;
 
   bool current() {
-    if (!_retired && !eligible()) _retired = true;
+    if (!_retired && !eligible()) {
+      final popup = route == null
+          ? null
+          : AppTaskNavigatorObserver.coveringPopup(route!);
+      if (popup == null || isCurrentWithPopup?.call(popup) != true) {
+        _retired = true;
+      }
+    }
     return !_retired;
   }
 
@@ -362,7 +449,15 @@ class _Notice {
   final Object? identity;
   final VoidCallback? onPresented;
   final ValueChanged<SnackBarClosedReason>? onClosed;
+  final _key = GlobalKey();
   final presented = Completer<bool>();
+  bool _closed = false;
+
+  void notifyClosed(SnackBarClosedReason reason) {
+    if (_closed) return;
+    _closed = true;
+    onClosed?.call(reason);
+  }
 
   String text(AppLocalizations strings) =>
       subject == null ? summary(strings) : '$subject\n${summary(strings)}';
@@ -380,6 +475,9 @@ class _Notice {
       text: TextSpan(text: text(strings), style: style),
       textDirection: Directionality.of(context),
       textScaler: MediaQuery.textScalerOf(context),
+      locale: Localizations.maybeLocaleOf(context),
+      maxLines: 2,
+      ellipsis: '…',
     )..layout(maxWidth: math.max(1, width - 32));
     final textHeight = painter.height;
     painter.dispose();
@@ -440,7 +538,8 @@ class _Notice {
     });
   }
 
-  SnackBar snackBar(VoidCallback changed) => SnackBar(
+  SnackBar snackBar(VoidCallback changed, {Key? key}) => SnackBar(
+    key: key,
     persist: persist,
     behavior: SnackBarBehavior.floating,
     padding: EdgeInsets.zero,
@@ -473,21 +572,31 @@ class _Notice {
 
           Future<void> details() async {
             if (!current()) return;
+            viewingDetails = true;
             close();
-            if (onDetails case final show?) {
-              await show();
-            } else {
-              await showLocalizedOperationMessage(
-                context,
-                summary,
-                technicalDetail: technicalDetail,
-                title: title ?? (strings) => strings.errorDetails,
-                subject: subject,
-                error: error,
-                isCurrent: eligible,
-                isCurrentWithPopup: isCurrentWithPopup,
-                eligibilityChanges: changes,
-              );
+            changed();
+            try {
+              if (onDetails case final show?) {
+                await show();
+              } else {
+                await showLocalizedOperationMessage(
+                  context,
+                  summary,
+                  technicalDetail: technicalDetail,
+                  title: title ?? (strings) => strings.errorDetails,
+                  subject: subject,
+                  error: error,
+                  isCurrent: eligible,
+                  isCurrentWithPopup: isCurrentWithPopup,
+                  eligibilityChanges: changes,
+                  onRetry: onRetry,
+                );
+              }
+            } finally {
+              viewingDetails = false;
+              finish();
+              notifyClosed(SnackBarClosedReason.action);
+              changed();
             }
           }
 
@@ -499,6 +608,8 @@ class _Notice {
               children: [
                 Text(
                   text(strings),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(noticeContext).textTheme.bodyMedium!
                       .copyWith(color: colors.onInverseSurface),
                 ),

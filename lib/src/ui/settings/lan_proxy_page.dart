@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +10,7 @@ import '../../l10n/app_localizations.dart';
 import '../../logic/overrides/lan_proxy_settings.dart';
 import '../../model/lan_proxy.dart';
 import '../../model/override_entry.dart';
+import '../components/feedback/operation_feedback.dart';
 import '../components/feedback/operation_notice.dart';
 import '../app/app_controller.dart';
 import '../components/feedback/confirm_action.dart';
@@ -32,9 +34,19 @@ class _LanProxyPageState extends State<LanProxyPage> {
   final _selected = <String, String>{};
   OverrideEntry? _saved;
   List<LanInterfaceAddress> _interfaces = const [];
+  bool _interfacesLoaded = false;
+  Object? _interfaceSource;
+  bool _interfaceActive = false;
+  bool _readAgain = false;
+  bool _readAgainReport = false;
+  int _interfaceRequest = 0;
+  int _interfaceFailures = 0;
+  Timer? _interfaceRetry;
+  Timer? _interfaceDeadline;
   Object? _formError;
   bool _portInvalid = false;
   bool _interfaceFailed = false;
+  (Object, Object?)? _pendingInterfaceError;
   int? _epoch;
   bool _loaded = false;
   bool _reading = false;
@@ -43,6 +55,10 @@ class _LanProxyPageState extends State<LanProxyPage> {
   bool _rawMode = false;
   bool _dirty = false;
   ModalRoute<dynamic>? _popup;
+  ModalRoute<dynamic>? _detailsRoute;
+  bool _readingDetails = false;
+  Object? _listenerNoticeSource;
+  List<(String, String, String, String, String)> _noticedListeners = const [];
 
   AppController get app => widget.app;
   bool get _live =>
@@ -52,13 +68,26 @@ class _LanProxyPageState extends State<LanProxyPage> {
       AppTaskActivity.routeIsActive(ModalRoute.of(context), ownedPopup: _popup);
   bool get _canSave =>
       _live && !_saving && app.canEditOverrides && _epoch == app.storageEpoch;
+  bool get _detailsActive =>
+      _readingDetails &&
+      app.interactive &&
+      AppTaskActivity.isActive(context, ownedPopup: _detailsRoute) &&
+      AppTaskActivity.routeIsActive(
+        ModalRoute.of(context),
+        ownedPopup: _detailsRoute,
+      );
 
   @override
   void initState() {
     super.initState();
     app.addListener(_changed);
     _readSaved();
-    unawaited(_readInterfaces());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncInterfaceRead();
   }
 
   void _readSaved() {
@@ -89,7 +118,10 @@ class _LanProxyPageState extends State<LanProxyPage> {
     Object error, {
     bool form = false,
     bool port = false,
+    String Function(AppLocalizations)? summary,
+    Object? identity,
     bool Function()? sourceCurrent,
+    Future<void> Function()? onRetry,
   }) {
     final owner = app;
     final epoch = (owner.state.storageEpoch, owner.storageEpoch);
@@ -98,43 +130,187 @@ class _LanProxyPageState extends State<LanProxyPage> {
         identical(owner, app) &&
         epoch == (owner.state.storageEpoch, owner.storageEpoch) &&
         (sourceCurrent?.call() ?? true);
+    bool withPopup(ModalRoute<dynamic> popup) =>
+        sameSource() &&
+        app.interactive &&
+        AppTaskActivity.isActive(context, ownedPopup: popup) &&
+        AppTaskActivity.routeIsActive(
+          ModalRoute.of(context),
+          ownedPopup: popup,
+        );
+    String message(AppLocalizations strings) =>
+        summary?.call(strings) ??
+        (port
+            ? strings.lanProxyInvalidPort
+            : form
+            ? strings.lanProxyFormUnavailable
+            : strings.operationFailed);
+    String detail(AppLocalizations _) => error.toString();
+    Future<void> showDetails() async {
+      _readingDetails = true;
+      try {
+        await showLocalizedOperationMessage(
+          context,
+          message,
+          technicalDetail: detail,
+          title: (strings) => strings.errorDetails,
+          isCurrent: () => sameSource() && _live,
+          isCurrentWithPopup: withPopup,
+          eligibilityChanges: Listenable.merge([owner, _noticeChanges]),
+          onRoute: (route) => _detailsRoute = route,
+          onRetry: onRetry,
+        );
+      } finally {
+        _readingDetails = false;
+        _detailsRoute = null;
+        if (mounted) _syncInterfaceRead();
+      }
+    }
+
     return showLocalizedOperationNotice(
       context,
-      (strings) => port
-          ? strings.lanProxyInvalidPort
-          : form
-          ? strings.lanProxyFormUnavailable
-          : strings.operationFailed,
-      technicalDetail: (_) => error.toString(),
+      message,
+      technicalDetail: detail,
+      onRetry: onRetry,
+      onDetails: showDetails,
+      identity: identity,
       eligibilityChanges: Listenable.merge([owner, _noticeChanges]),
       isCurrent: () => sameSource() && _live,
-      isCurrentWithPopup: (popup) =>
-          sameSource() &&
-          app.interactive &&
-          AppTaskActivity.isActive(context, ownedPopup: popup) &&
-          AppTaskActivity.routeIsActive(
-            ModalRoute.of(context),
-            ownedPopup: popup,
-          ),
+      isCurrentWithPopup: withPopup,
     );
   }
 
   void _changed() {
     _readSaved();
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    _syncInterfaceRead();
+    setState(() {});
+  }
+
+  void _syncInterfaceRead() {
+    final source = (
+      app.localInterfacesRevision,
+      app.localInterfacesError,
+      app.state.storageEpoch,
+      app.storageEpoch,
+    );
+    if (_detailsActive) {
+      if (_interfaceSource != source) {
+        _interfaceSource = source;
+        _interfaceRequest++;
+        _interfaceRetry?.cancel();
+        _interfaceFailures = 0;
+        _interfaceFailed = false;
+        _pendingInterfaceError = null;
+        _readAgain = true;
+        _noticeChanges.value++;
+      }
+      return;
+    }
+    final active = _live;
+    final changed = _interfaceSource != source;
+    final entered = active && !_interfaceActive;
+    _interfaceSource = source;
+    if (!active) {
+      if (_interfaceActive) {
+        _interfaceRequest++;
+        _interfaceRetry?.cancel();
+      }
+      _interfaceActive = false;
+      return;
+    }
+    _interfaceActive = true;
+    if (changed || entered) {
+      if (_reading) _interfaceRequest++;
+      _interfaceFailures = 0;
+      _interfaceFailed = false;
+      _pendingInterfaceError = null;
+      unawaited(_readInterfaces());
+    } else if (_readAgain && !_reading) {
+      unawaited(_readInterfaces(reportFailure: _readAgainReport));
+    } else {
+      final pending = _pendingInterfaceError;
+      _pendingInterfaceError = null;
+      if (pending != null && _interfaceFailed && pending.$2 == source) {
+        _reportInterfaceError(pending.$1, source);
+      }
+      _scheduleInterfaceRetry();
+    }
+  }
+
+  void _reportInterfaceError(Object error, Object? source) {
+    unawaited(
+      _notice(
+        error,
+        sourceCurrent: () =>
+            (_interfaceFailed || _detailsActive) && _interfaceSource == source,
+        onRetry: () => _readInterfaces(reportFailure: true),
+      ),
+    );
+  }
+
+  void _scheduleInterfaceRetry() {
+    if (!_interfaceFailed ||
+        !_live ||
+        _reading ||
+        _interfaceRetry?.isActive == true) {
+      return;
+    }
+    const backoff = [5, 10, 30, 60];
+    final seconds = backoff[(_interfaceFailures - 1).clamp(0, 3)];
+    _interfaceRetry = Timer(Duration(seconds: seconds), _readInterfaces);
   }
 
   Future<void> _readInterfaces({bool reportFailure = false}) async {
-    if (_reading) return;
+    if (!_live) return;
+    if (_reading) {
+      if (reportFailure) _interfaceRequest++;
+      _readAgain = true;
+      _readAgainReport |= reportFailure;
+      return;
+    }
+    _interfaceRetry?.cancel();
+    _readAgain = _readAgainReport = false;
     final owner = app;
+    final source = _interfaceSource;
     final epoch = (owner.state.storageEpoch, owner.storageEpoch);
+    final request = ++_interfaceRequest;
     bool current() =>
         mounted &&
+        _interfaceActive &&
+        (_live || _detailsActive) &&
         identical(owner, app) &&
+        request == _interfaceRequest &&
         epoch == (owner.state.storageEpoch, owner.storageEpoch);
+    var failed = false;
+    void failure(Object error) {
+      if (!current()) return;
+      final notify = !_interfaceFailed || reportFailure || failed;
+      if (!failed) _interfaceFailures++;
+      failed = true;
+      _interfaceFailed = true;
+      if (notify) {
+        if (_detailsActive) {
+          _pendingInterfaceError = (error, source);
+        } else {
+          _reportInterfaceError(error, source);
+        }
+      }
+    }
+
     setState(() => _reading = true);
+    _interfaceDeadline = Timer(const Duration(seconds: 5), () {
+      failure(
+        TimeoutException('Reading local interfaces is still in progress'),
+      );
+    });
     try {
       final value = await owner.platform.localInterfaces();
+      if (!current()) return;
+      if (value['error'] case final error?) {
+        failure(error);
+        return;
+      }
       final addresses = (value['addresses'] as List).map((raw) {
         final row = raw as Map;
         return LanInterfaceAddress(
@@ -147,21 +323,28 @@ class _LanProxyPageState extends State<LanProxyPage> {
           prefixLength: row['prefixLength'] as int?,
         );
       }).toList();
-      if (!current()) return;
-      setState(() => _interfaces = List.unmodifiable(addresses));
-      if (value['error'] case final error?) {
-        if (!_interfaceFailed || reportFailure) unawaited(_notice(error));
-        _interfaceFailed = true;
-      } else {
+      setState(() {
+        _interfaces = List.unmodifiable(addresses);
+        _interfacesLoaded = true;
         _interfaceFailed = false;
-      }
+        _interfaceFailures = 0;
+      });
+      _noticeChanges.value++;
     } catch (error) {
-      if (current()) {
-        if (!_interfaceFailed || reportFailure) unawaited(_notice(error));
-        _interfaceFailed = true;
-      }
+      failure(error);
     } finally {
-      if (mounted) setState(() => _reading = false);
+      _interfaceDeadline?.cancel();
+      _interfaceDeadline = null;
+      _reading = false;
+      if (mounted) {
+        setState(() {});
+        if (_readAgain && _live) {
+          final report = _readAgainReport;
+          unawaited(_readInterfaces(reportFailure: report));
+        } else {
+          _scheduleInterfaceRetry();
+        }
+      }
     }
   }
 
@@ -335,30 +518,90 @@ class _LanProxyPageState extends State<LanProxyPage> {
     await _submit({'action': 'setLanProxyEnabled', 'enabled': enabled});
   }
 
+  List<(String, String, String, String, String)> get _listenerErrors => [
+    for (final listener in app.state.lanListeners)
+      if (listener['error'] case final String error when error.isNotEmpty)
+        (
+          listener['name'] as String? ?? '',
+          listener['network'] as String? ?? '',
+          listener['address'] as String? ?? '',
+          listener['state'] as String? ?? '',
+          error,
+        ),
+  ];
+
+  void _scheduleListenerNotice() {
+    if (!_live) {
+      if (!_detailsActive) _listenerNoticeSource = null;
+      return;
+    }
+    final errors = _listenerErrors;
+    if (errors.isEmpty) {
+      _listenerNoticeSource = null;
+      _noticedListeners = const [];
+      return;
+    }
+    final source = (
+      app,
+      app.state.storageEpoch,
+      app.storageEpoch,
+      app.state.generation,
+      app.state.core.identity,
+    );
+    if (_listenerNoticeSource == source &&
+        listEquals(_noticedListeners, errors)) {
+      return;
+    }
+    _listenerNoticeSource = source;
+    _noticedListeners = errors;
+    bool sameSource() =>
+        mounted &&
+        _listenerNoticeSource == source &&
+        source ==
+            (
+              app,
+              app.state.storageEpoch,
+              app.storageEpoch,
+              app.state.generation,
+              app.state.core.identity,
+            ) &&
+        listEquals(errors, _listenerErrors);
+    final detail = errors
+        .map(
+          (error) => [
+            [
+              error.$1,
+              error.$2,
+              error.$3,
+              error.$4,
+            ].where((value) => value.isNotEmpty).join(' · '),
+            error.$5,
+          ].join('\n'),
+        )
+        .join('\n\n');
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!sameSource() || !_live) {
+        if (sameSource()) _listenerNoticeSource = null;
+        return;
+      }
+      final presented = await _notice(
+        detail,
+        summary: (strings) => strings.lanProxyListenerFailed,
+        sourceCurrent: sameSource,
+        identity: ('lan-listeners', source, Object.hashAll(errors)),
+      );
+      if (!presented && sameSource()) _listenerNoticeSource = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    _scheduleListenerNotice();
     final strings = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(
         title: Text(strings.lanProxyTitle),
         actions: [
-          IconButton(
-            onPressed: _reading
-                ? null
-                : () => _readInterfaces(reportFailure: true),
-            tooltip: strings.refresh,
-            icon: SizedBox.square(
-              dimension: 24,
-              child: _reading
-                  ? const Center(
-                      child: SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    )
-                  : const Icon(Icons.refresh),
-            ),
-          ),
           TextButton(
             onPressed: _canSave ? _save : null,
             child: Text(strings.save),
@@ -452,7 +695,8 @@ class _LanProxyPageState extends State<LanProxyPage> {
                 strings.lanProxyAddresses,
                 style: Theme.of(context).textTheme.titleSmall,
               ),
-              if (_interfaces.where((address) => address.selectable).isEmpty)
+              if (_interfacesLoaded &&
+                  _interfaces.where((address) => address.selectable).isEmpty)
                 Text(strings.lanProxyNoAddress),
               for (final address in _interfaces)
                 CheckboxListTile(
@@ -469,15 +713,18 @@ class _LanProxyPageState extends State<LanProxyPage> {
                       : null,
                 ),
               for (final selected in _selected.entries)
-                if (!_interfaces.any(
-                  (item) =>
-                      item.address == selected.key &&
-                      item.interfaceName == selected.value &&
-                      item.selectable,
-                ))
+                if (!_interfacesLoaded ||
+                    !_interfaces.any(
+                      (item) =>
+                          item.address == selected.key &&
+                          item.interfaceName == selected.value &&
+                          item.selectable,
+                    ))
                   CheckboxListTile(
                     title: Text(selected.key),
-                    subtitle: Text(strings.lanProxyUnavailable),
+                    subtitle: _interfacesLoaded
+                        ? Text(strings.lanProxyUnavailable)
+                        : null,
                     value: true,
                     onChanged: _canSave
                         ? (_) => setState(() {
@@ -546,10 +793,22 @@ class _LanProxyPageState extends State<LanProxyPage> {
             if (app.state.lanListeners.isEmpty)
               Text(strings.lanProxyNotRunning),
             for (final listener in app.state.lanListeners)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: SelectableText(
-                  const JsonEncoder.withIndent('  ').convert(listener),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(listener['name'] as String? ?? ''),
+                subtitle: SelectableText(
+                  [
+                    listener['network'] as String? ?? '',
+                    listener['address'] as String? ?? '',
+                    switch (listener['state']) {
+                      'bound' => strings.lanProxySocketBound,
+                      'failed' => strings.lanProxySocketFailed,
+                      'closed' => strings.lanProxySocketClosed,
+                      'closeFailed' => strings.lanProxySocketCloseFailed,
+                      final String state => state,
+                      _ => '',
+                    },
+                  ].where((value) => value.isNotEmpty).join(' · '),
                 ),
               ),
           ],
@@ -561,6 +820,9 @@ class _LanProxyPageState extends State<LanProxyPage> {
   @override
   void dispose() {
     app.removeListener(_changed);
+    _interfaceRequest++;
+    _interfaceRetry?.cancel();
+    _interfaceDeadline?.cancel();
     _port.dispose();
     _raw.dispose();
     _feedbackOwner.dispose();

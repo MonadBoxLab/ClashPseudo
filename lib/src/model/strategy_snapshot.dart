@@ -88,10 +88,8 @@ class StrategySnapshot {
     required List<StrategyGroup> groups,
     required Map<String, String> unrestored,
     this.stale = false,
-    Map<String, dynamic> raw = const {},
   }) : groups = List.unmodifiable(groups),
-       unrestored = Map.unmodifiable(unrestored),
-       raw = Map.unmodifiable(raw);
+       unrestored = Map.unmodifiable(unrestored);
 
   final int generation;
   final String? processId;
@@ -105,7 +103,6 @@ class StrategySnapshot {
   final List<StrategyGroup> groups;
   final Map<String, String> unrestored;
   final bool stale;
-  final Map<String, dynamic> raw;
 
   bool matches(CoreSnapshot core) =>
       core.ready &&
@@ -126,7 +123,6 @@ class StrategySnapshot {
 
   factory StrategySnapshot.fromMap(Map<String, dynamic> value) =>
       StrategySnapshot(
-        raw: value,
         stale: value['stale'] == true,
         generation: value['generation'] as int,
         processId: value['processId'] as String?,

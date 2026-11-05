@@ -78,6 +78,7 @@ class _ConfigsPageState extends State<ConfigsPage>
 
   void _syncOwner() {
     _scheduleReadNotice();
+    _scheduleEntryNotice();
     if (_wasForeground && !controller.foreground) {
       _presentation++;
     }
@@ -217,6 +218,8 @@ class _ConfigsPageState extends State<ConfigsPage>
     String? Function(AppLocalizations)? technicalDetail,
     String Function(AppLocalizations)? title,
     String? subject,
+    Future<void> Function()? onRetry,
+    bool Function()? sourceCurrent,
   }) async {
     final presentation = _presentation;
     final owner = controller;
@@ -230,10 +233,13 @@ class _ConfigsPageState extends State<ConfigsPage>
         technicalDetail: technicalDetail,
         title: title,
         subject: subject,
+        onRetry: onRetry,
         eligibilityChanges: owner,
-        isCurrent: () => _canResume(presentation),
+        isCurrent: () =>
+            _canResume(presentation) && (sourceCurrent?.call() ?? true),
         isCurrentWithPopup: (popup) =>
             mounted &&
+            (sourceCurrent?.call() ?? true) &&
             identical(owner, controller) &&
             presentation == _presentation &&
             widget.active &&
@@ -348,7 +354,7 @@ class _ConfigsPageState extends State<ConfigsPage>
                 visualAnchorRect: (id) => visualRects[id],
                 header: _ConfigSizeTransition(
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       if (entries.isEmpty && controller.configsCurrent)
                         _empty(context),
@@ -471,7 +477,83 @@ class _ConfigsPageState extends State<ConfigsPage>
             error.summary,
             technicalDetail: error.technicalDetail,
             title: (strings) => strings.configReadFailed,
+            onRetry: () async {
+              if (source ==
+                      (controller, controller.storageEpoch, _presentation) &&
+                  identical(controller.configErrorMessage, error) &&
+                  _canResume(_presentation)) {
+                await controller.refresh();
+              }
+            },
           ),
+        ),
+      );
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  Object? _entryNoticeSource;
+  final _entryFaults = <String, (String, AppMessage, DateTime?)>{};
+  bool _entryNoticeScheduled = false;
+
+  Map<String, (String, AppMessage, DateTime?)> get _entryErrors => {
+    for (final entry in controller.collection.entries)
+      if (entry.errorMessage case final error?)
+        entry.id: (entry.name, error, entry.update.lastAttempt),
+  };
+
+  void _scheduleEntryNotice() {
+    if (_entryNoticeScheduled || !mounted) return;
+    _entryNoticeScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _entryNoticeScheduled = false;
+      if (!mounted) return;
+      final source = (controller, controller.storageEpoch, _presentation);
+      if (_entryNoticeSource != source) {
+        _entryNoticeSource = source;
+        _entryFaults.clear();
+      }
+      final errors = _entryErrors;
+      _entryFaults.removeWhere((id, _) => !errors.containsKey(id));
+      if (!_canResume(_presentation)) return;
+      final fresh = Map.of(errors)
+        ..removeWhere((id, value) => _entryFaults[id] == value);
+      if (fresh.isEmpty) return;
+      _entryFaults.addAll(fresh);
+      bool sameSource() =>
+          mounted &&
+          source == (controller, controller.storageEpoch, _presentation) &&
+          fresh.entries.every(
+            (entry) => _entryErrors[entry.key] == entry.value,
+          );
+      String summary(AppLocalizations strings) => strings.configActionFailed;
+      String detail(AppLocalizations strings) => fresh.values
+          .map((value) {
+            final error = value.$2;
+            return [
+              value.$1,
+              if (value.$3 case final time?)
+                '${strings.autoUpdateAttempt}: ${time.toLocal()}',
+              error.summary(strings),
+              ?error.technicalDetail(strings),
+            ].join('\n');
+          })
+          .join('\n\n');
+      unawaited(
+        showLocalizedOperationNotice(
+          context,
+          summary,
+          technicalDetail: detail,
+          eligibilityChanges: controller,
+          isCurrent: () => sameSource() && _canResume(_presentation),
+          isCurrentWithPopup: (_) => sameSource() && _live(_presentation),
+          onDetails: () => _showDetails(
+            summary,
+            technicalDetail: detail,
+            title: (strings) => strings.configActionFailed,
+            sourceCurrent: sameSource,
+          ),
+          identity: ('config-errors', source, Object.hashAll(fresh.values)),
         ),
       );
     });
@@ -490,9 +572,9 @@ class _ConfigsPageState extends State<ConfigsPage>
             color: Theme.of(context).colorScheme.primary,
           ),
           const SizedBox(height: 16),
-          Text(strings.noSavedConfigs),
+          Text(strings.noSavedConfigs, textAlign: TextAlign.center),
           const SizedBox(height: 8),
-          Text(strings.importOrCreateHint),
+          Text(strings.importOrCreateHint, textAlign: TextAlign.center),
           const SizedBox(height: 24),
           _addMenu(labeled: true),
         ],
@@ -587,39 +669,18 @@ class _ConfigsPageState extends State<ConfigsPage>
         'url': strings.importFromUrl,
         'file': strings.importFromFile,
         'new': strings.newLocalConfig,
-        'retry': strings.refresh,
-        if (controller.configErrorMessage != null)
-          'error': strings.errorDetails,
       },
       disabledOptions: {
         if (!controller.canEdit) ...['url', 'file', 'new'],
       },
       leadingIcon: (kind) => Icon(switch (kind) {
-        'error' => Icons.error_outline,
-        'retry' => Icons.refresh,
         'url' => Icons.link,
         'file' => Icons.file_open_outlined,
         _ => Icons.note_add_outlined,
       }, color: kind == 'url' ? palette.remoteSource : palette.localSource),
       onSelected: (kind) {
         if (!_live(presentation)) return;
-        switch (kind) {
-          case 'retry':
-            unawaited(controller.refresh());
-          case 'error':
-            final error = controller.configErrorMessage;
-            if (error != null) {
-              unawaited(
-                _showDetails(
-                  error.summary,
-                  technicalDetail: error.technicalDetail,
-                  title: (strings) => strings.configReadFailed,
-                ),
-              );
-            }
-          default:
-            _add(kind, epoch);
-        }
+        _add(kind, epoch);
       },
       buttonBuilder: labeled
           ? (context, onPressed, focus) => FilledButton.icon(
@@ -916,16 +977,6 @@ class _ConfigsPageState extends State<ConfigsPage>
     return accepted != null;
   }
 
-  Future<void> _showEntryError(ConfigEntry entry) {
-    final message = entry.errorMessage ?? messages.operationNotCompletedRetry;
-    return _showDetails(
-      message.summary,
-      technicalDetail: message.technicalDetail,
-      title: (strings) => strings.configActionFailed,
-      subject: entry.name,
-    );
-  }
-
   Widget _tile(BuildContext context, ConfigEntry entry) {
     final entryEpoch = controller.storageEpoch;
     final presentation = _presentation;
@@ -941,7 +992,7 @@ class _ConfigsPageState extends State<ConfigsPage>
     final colors = theme.colorScheme;
     final palette = HomePalette.of(context);
     final titleStyle = theme.textTheme.titleMedium!.copyWith(
-      fontWeight: FontWeight.w600,
+      fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
       leadingDistribution: TextLeadingDistribution.even,
     );
     final titleLineHeight =
@@ -955,7 +1006,6 @@ class _ConfigsPageState extends State<ConfigsPage>
               : strings.runningConfig
         : null;
     final menuOptions = <String, String>{
-      if (entry.errorMessage != null) 'error': strings.viewConfigError,
       'rename': strings.rename,
       if (entry.remote) ...{
         'source': strings.changeSourceUpdate,
@@ -967,7 +1017,6 @@ class _ConfigsPageState extends State<ConfigsPage>
       'delete': strings.delete,
     };
     final menuIcons = {
-      'error': (Icons.error_outline, palette.error),
       'rename': (Icons.drive_file_rename_outline, palette.editAction),
       'source': (Icons.link, palette.syncAction),
       'auto': (Icons.update, palette.syncAction),
@@ -976,9 +1025,7 @@ class _ConfigsPageState extends State<ConfigsPage>
     };
     final disabledOptions = {
       for (final action in menuOptions.keys)
-        if (!eligible ||
-            (action != 'error' && !controller.canEdit) ||
-            (action == 'delete' && running))
+        if (!eligible || !controller.canEdit || (action == 'delete' && running))
           action,
     };
     final actions = Row(
@@ -1034,16 +1081,13 @@ class _ConfigsPageState extends State<ConfigsPage>
             onPressed: onPressed,
             icon: const Icon(Icons.more_vert),
           ),
-          enabled:
-              eligible && (controller.canEdit || entry.errorMessage != null),
+          enabled: eligible && controller.canEdit,
           onSelected: (action) {
             if (!_canResume(presentation)) {
               return;
             }
             final epoch = entryEpoch;
             switch (action) {
-              case 'error':
-                _showEntryError(entry);
               case 'rename':
                 _changeText(entry, epoch);
               case 'source':
@@ -1070,7 +1114,7 @@ class _ConfigsPageState extends State<ConfigsPage>
     final savedTime = SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Text(
-        _savedTime(context, entry),
+        [?status, _savedTime(context, entry)].join(' · '),
         softWrap: false,
         style: theme.textTheme.bodySmall?.copyWith(
           color: colors.onSurfaceVariant,
@@ -1114,17 +1158,12 @@ class _ConfigsPageState extends State<ConfigsPage>
                     width: 24,
                     height: titleLineHeight,
                     child: Tooltip(
-                      message: status ?? entry.displaySource,
+                      message: entry.displaySource,
                       child: Icon(
-                        running
-                            ? (oldBody ? Icons.history : Icons.play_arrow)
-                            : entry.remote
+                        entry.remote
                             ? Icons.cloud_outlined
                             : Icons.description_outlined,
-                        semanticLabel: status,
-                        color: running
-                            ? (oldBody ? palette.warning : palette.success)
-                            : entry.remote
+                        color: entry.remote
                             ? palette.remoteSource
                             : palette.localSource,
                       ),
@@ -1143,21 +1182,7 @@ class _ConfigsPageState extends State<ConfigsPage>
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: Text(entry.name, style: titleStyle),
-                                ),
-                                SizedBox(
-                                  width: 48,
-                                  height: titleLineHeight,
-                                  child: selected
-                                      ? Icon(Icons.check, color: colors.primary)
-                                      : null,
-                                ),
-                              ],
-                            ),
+                            Text(entry.name, style: titleStyle),
                             const SizedBox(height: 4),
                             Tooltip(
                               message: entry.displaySource,

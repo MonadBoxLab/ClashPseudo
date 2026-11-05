@@ -266,6 +266,7 @@ class _StrategyGroupFormPageState extends State<StrategyGroupFormPage> {
         title: (strings) => strings.errorDetails,
         isCurrent: current,
         isCurrentWithPopup: (_) => current(),
+        onRetry: _save,
       );
     }
     return showLocalizedOperationMessage(
@@ -275,6 +276,7 @@ class _StrategyGroupFormPageState extends State<StrategyGroupFormPage> {
       title: (strings) => strings.errorDetails,
       isCurrent: current,
       isCurrentWithPopup: (_) => current(),
+      onRetry: _save,
     );
   }
 

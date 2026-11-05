@@ -170,7 +170,6 @@ class _StrategyGroupsPageState extends State<StrategyGroupsPage> {
           return StrategiesPage(
             controller: _controller,
             active: _eligible,
-            onRefresh: definitions.retry,
             definitions: [
               for (final row in rows)
                 StrategyDefinition(

@@ -6,8 +6,8 @@ import 'package:flutter/material.dart';
 import '../../../app/app_controller.dart';
 import '../../../navigation/task_activity.dart';
 import '../../../navigation/workspace_layout.dart';
+import '../../../components/feedback/confirm_action.dart';
 import '../../../components/input/task_shortcuts.dart';
-import '../../../../l10n/app_localizations.dart';
 import 'form_interaction.dart';
 import 'save_bar.dart';
 
@@ -67,7 +67,7 @@ class _DefinitionEditorState extends State<DefinitionEditor> {
     final scopeElement = context
         .getElementForInheritedWidgetOfExactType<AppTaskScope>();
     final taskActive = AppTaskActivity.capture(context);
-    bool current() =>
+    bool current({Route<dynamic>? ownedPopup}) =>
         mounted &&
         identical(_app, app) &&
         identical(_route, route) &&
@@ -81,8 +81,8 @@ class _DefinitionEditorState extends State<DefinitionEditor> {
                   owner,
                 ))) &&
         app?.interactive != false &&
-        AppTaskActivity.routeIsActive(route) &&
-        taskActive();
+        AppTaskActivity.routeIsActive(route, ownedPopup: ownedPopup) &&
+        taskActive(ownedPopup: ownedPopup);
     Future<bool> leave({bool oneLayer = false}) =>
         _leave(route, navigator, current, oneLayer: oneLayer);
     _overviewLeave = () => leave();
@@ -93,7 +93,7 @@ class _DefinitionEditorState extends State<DefinitionEditor> {
   Future<bool> _leave(
     ModalRoute<dynamic> route,
     NavigatorState navigator,
-    bool Function() current, {
+    bool Function({Route<dynamic>? ownedPopup}) current, {
     bool oneLayer = false,
   }) {
     if (!current()) return Future.value(false);
@@ -114,7 +114,7 @@ class _DefinitionEditorState extends State<DefinitionEditor> {
   Future<bool> _popOneLocalHistory(
     ModalRoute<dynamic> route,
     NavigatorState navigator,
-    bool Function() current,
+    bool Function({Route<dynamic>? ownedPopup}) current,
   ) async {
     await navigator.maybePop<void>();
     if (!current()) return false;
@@ -125,10 +125,11 @@ class _DefinitionEditorState extends State<DefinitionEditor> {
   Future<bool> _performLeave(
     ModalRoute<dynamic> route,
     NavigatorState navigator,
-    bool Function() current,
+    bool Function({Route<dynamic>? ownedPopup}) current,
   ) async {
+    ModalRoute<dynamic>? confirmation;
     bool canLeave() =>
-        current() &&
+        current(ownedPopup: confirmation) &&
         (!widget.saving || widget.completedResult != null) &&
         (widget.completedResult == null ||
             widget.isCompletedSourceCurrent?.call() != false);
@@ -141,29 +142,17 @@ class _DefinitionEditorState extends State<DefinitionEditor> {
     }
     if (!mounted || !canLeave()) return false;
     if (widget.dirty && widget.completedResult == null) {
-      FocusManager.instance.primaryFocus?.unfocus();
-      final discard = await showDialog<bool>(
-        context: context,
-        builder: (context) {
-          final strings = AppLocalizations.of(context);
-          return AlertDialog(
-            scrollable: true,
-            title: Text(strings.discardEditsTitle),
-            content: Text(strings.discardEditsMessage),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: Text(strings.continueEditing),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: Text(strings.discard),
-              ),
-            ],
-          );
-        },
+      final discard = await confirmAction(
+        context,
+        title: (strings) => strings.discardEditsTitle,
+        message: (strings) => strings.discardEditsMessage,
+        cancelLabel: (strings) => strings.continueEditing,
+        confirmLabel: (strings) => strings.discard,
+        eligibilityChanges: _app,
+        onRoute: (route) => confirmation = route,
+        isCurrent: canLeave,
       );
-      if (discard != true || !canLeave()) return false;
+      if (!discard || !canLeave()) return false;
     }
     if (!canLeave() || !navigator.canPop()) return false;
     navigator.pop(widget.completedResult);

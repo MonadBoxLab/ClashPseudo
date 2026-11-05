@@ -56,6 +56,8 @@ object ApplicationContract {
     const val CORE_CHANNEL_READ_RUN_INPUT_RECORD = "readRunInputRecord"
     const val CORE_CHANNEL_LOCAL_INTERFACES = "localInterfaces"
     const val CORE_CHANNEL_RUNTIME_CHANGED = "runtimeChanged"
+    const val UI_EVENT_LOCAL_INTERFACES_CHANGED = "localInterfacesChanged"
+    const val UI_EVENT_APPLICATIONS_CHANGED = "applicationsChanged"
     const val CORE_FIELD_PROTOCOL = "protocol"
     const val CORE_FIELD_OPERATION = "operation"
     const val CORE_FIELD_PROCESS_ID = "processId"

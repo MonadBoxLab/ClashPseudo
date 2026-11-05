@@ -3,8 +3,9 @@ package engine
 import (
 	"clashpseudo/native/internal/ingress"
 	"encoding/json"
+
 	"github.com/metacubex/mihomo/hub/executor"
-	LC "github.com/metacubex/mihomo/listener/config"
+	"go.yaml.in/yaml/v3"
 )
 
 func (e *Engine) RuntimeConfig() (string, error) {
@@ -13,11 +14,23 @@ func (e *Engine) RuntimeConfig() (string, error) {
 	if !e.available() {
 		return "", ErrStopped
 	}
-	var tun any
-	if held, ok := e.tun.(interface{ Config() LC.Tun }); ok {
-		tun = held.Config()
+	body, err := json.Marshal(executor.GetGeneral())
+	if err != nil {
+		return "", err
 	}
-	body, err := json.Marshal(map[string]any{"general": executor.GetGeneral(), "requested": e.cfg.General, "actual": map[string]any{"tun": tun, "listeners": e.listenerStates.Snapshot()}})
+	var document yaml.Node
+	if err := yaml.Unmarshal(body, &document); err != nil {
+		return "", err
+	}
+	var block func(*yaml.Node)
+	block = func(node *yaml.Node) {
+		node.Style = 0
+		for _, child := range node.Content {
+			block(child)
+		}
+	}
+	block(&document)
+	body, err = yaml.Marshal(&document)
 	return string(body), err
 }
 func (e *Engine) PreparationResult(attached bool) (string, error) {

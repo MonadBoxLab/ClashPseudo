@@ -231,7 +231,9 @@ class TrafficController extends ChangeNotifier {
           now - sampledAt > 5000 ||
           _clock.elapsedMilliseconds - began > 5000 ||
           core && value['processId'] != source.processId) {
-        throw FormatException('内存采样无效或已过期', value);
+        throw FormatException(
+          '内存采样无效或已过期: ${{if (value['valid'] is bool) 'valid': value['valid'], if (value['valid'] is! bool) 'validType': value['valid'].runtimeType.toString(), if (bytes is int) 'processRssBytes': bytes, if (bytes is! int) 'processRssBytesType': bytes.runtimeType.toString(), if (sampledAt is int) 'sampledAt': sampledAt, if (sampledAt is! int) 'sampledAtType': sampledAt.runtimeType.toString(), if (core) 'expectedProcessId': source.processId, if (core && value['processId'] is String) 'processId': value['processId']}}',
+        );
       }
       sample.bytes = bytes;
       sample.receivedAt = _clock.elapsedMilliseconds - (now - sampledAt);

@@ -19,6 +19,97 @@ import '../../support/strategy_fakes.dart';
 import '../../support/text_scalers.dart';
 
 void main() {
+  for (final language in ['en', 'zh']) {
+    for (final dark in [false, true]) {
+      testWidgets('导航按逻辑宽高分别计算形式和容量 $language/$dark', (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: dark ? AppTheme.dark : AppTheme.light,
+            locale: Locale(language),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: const Scaffold(body: SizedBox()),
+          ),
+        );
+        final context = tester.element(find.byType(Scaffold));
+        WorkspaceLayout resolve(
+          Size size, {
+          EdgeInsets padding = EdgeInsets.zero,
+          EdgeInsets insets = EdgeInsets.zero,
+        }) => WorkspaceLayout.resolve(
+          size: size,
+          padding: padding,
+          viewInsets: insets,
+          textScaler: TextScaler.noScaling,
+          textDirection: TextDirection.ltr,
+          labelStyle: WorkspaceLayout.navigationLabelStyle(
+            context,
+            rail: false,
+            selected: false,
+          ),
+          railLabelStyles: [
+            for (final selected in [false, true])
+              WorkspaceLayout.navigationLabelStyle(
+                context,
+                rail: true,
+                selected: selected,
+              ),
+          ],
+          barLabelStyles: [
+            for (final selected in [false, true])
+              WorkspaceLayout.navigationLabelStyle(
+                context,
+                rail: false,
+                selected: selected,
+              ),
+          ],
+          labels: WorkspaceLayout.navigationLabels(context),
+        );
+        for (final (size, count, rail) in [
+          (const Size(411, 914), 3, false),
+          (const Size(914, 411), 5, false),
+          (const Size(479, 900), 3, false),
+          (const Size(480, 900), language == 'en' ? 3 : 4, false),
+          (const Size(481, 900), language == 'en' ? 3 : 4, false),
+          (const Size(599, 900), language == 'en' ? 3 : 4, false),
+          (const Size(600, 900), 5, true),
+          (const Size(601, 900), 5, true),
+          (const Size(840, 479), 5, false),
+          (const Size(840, 480), 5, true),
+          (const Size(840, 481), 5, true),
+        ]) {
+          final layout = resolve(size);
+          expect(layout.compact, isFalse, reason: '$size');
+          expect(layout.rail, rail, reason: '$size');
+          expect(
+            layout.tasks,
+            WorkspaceLayout.destinations(count),
+            reason: '$size',
+          );
+        }
+        expect(
+          resolve(
+            const Size(500, 900),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+          ).tasks.length,
+          3,
+        );
+        expect(
+          resolve(
+            const Size(620, 900),
+            insets: const EdgeInsets.only(right: 30),
+          ).tasks.length,
+          language == 'en' ? 3 : 4,
+        );
+        final keyboard = resolve(
+          const Size(840, 900),
+          insets: const EdgeInsets.only(bottom: 500),
+        );
+        expect(keyboard.rail, isFalse);
+        expect(keyboard.tasks.length, 5);
+      });
+    }
+  }
   group('adaptive_navigation', () {
     for (final language in ['zh', 'en']) {
       for (final scale in [1.0, 1.3, 2.0]) {
@@ -577,10 +668,7 @@ void main() {
             expect(resolve(const Size(279, 900)).compact, isTrue);
             expect(resolve(const Size(1704, 279)).compact, isTrue);
             expect(resolve(const Size(280, 900)).compact, isFalse);
-            expect(
-              resolve(const Size(280, 900)).tasks.length,
-              language == 'en' ? 3 : 4,
-            );
+            expect(resolve(const Size(280, 900)).tasks.length, 3);
             expect(resolve(const Size(1704, 901)).tasks, const [
               AppTask.overview,
               AppTask.strategies,

@@ -152,7 +152,8 @@ void main() {
     expect(result.errorCode, 'queryFailed');
     expect(result.errorDetail, contains('原始查询错误'));
     expect(result.cancellationError, '取消未确认');
-    expect(result.raw, value);
+    expect(result.source.matchesIdentity(dnsCore()), isTrue);
+    expect(result.stale, isFalse);
   });
 
   test('stable native errors are not converted into an empty answer', () {

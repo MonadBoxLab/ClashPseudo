@@ -76,10 +76,10 @@ void main() {
         hasLength(1),
       );
       fixture.script(ApplicationContract.coreOperationRuntimeConfig, (read) {
-        read.complete({'mode': 'rule'});
+        read.complete('mode: rule\n');
       });
       final diagnostic = await platform.runtimeConfiguration(source);
-      expect((diagnostic['configuration'] as Map)['mode'], 'rule');
+      expect(diagnostic['configuration'], 'mode: rule\n');
       expect(pending.settled, isFalse);
 
       cleanup = FutureProbe(fixture.runtime.read('releasePreview', const {}));
@@ -98,7 +98,7 @@ void main() {
       request.signalExit();
       await pending.done;
       expect(pending.error, isNull);
-      expect(pending.value!['status'], 'ok');
+      expect((pending.value!['update'] as Map)['status'], 'ok');
       expect(pending.value!['stale'], isTrue);
       for (final field in fixture.identity(source).entries) {
         expect(pending.value![field.key], field.value, reason: field.key);

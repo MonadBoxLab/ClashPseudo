@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../../model/application_contract.dart';
+import '../../model/platform_failure.dart';
 import '../../model/definition_provenance.dart';
 import '../../platform/core/core_client.dart';
 
@@ -50,16 +51,33 @@ class DefinitionRows {
   static bool matches(Map<String, dynamic> row, String search) {
     final query = search.trim().toLowerCase();
     if (query.isEmpty) return true;
-    // 编辑身份和内部来源不参与用户搜索。
-    final visible = Map<String, dynamic>.of(row)
-      ..remove('localDefinition')
-      ..remove('readingDefinition')
-      ..remove('entryId')
-      ..remove('revision')
-      ..remove('definitionPath')
-      ..remove('provenance')
-      ..remove('providerProvenance');
-    return jsonEncode(visible).toLowerCase().contains(query);
+    const keys = [
+      'name',
+      'type',
+      'source',
+      'sourceName',
+      'index',
+      'payload',
+      'target',
+      'kind',
+      'vehicleType',
+      'behavior',
+      'format',
+      'providers',
+      'resources',
+    ];
+    for (final key in keys) {
+      final value = row[key];
+      if (value is String && value.toLowerCase().contains(query)) return true;
+      if (value is num && value.toString().contains(query)) return true;
+      if (value is List &&
+          value.whereType<String>().any(
+            (item) => item.toLowerCase().contains(query),
+          )) {
+        return true;
+      }
+    }
+    return false;
   }
 
   static String pageToken(String native, String local) =>
@@ -130,17 +148,50 @@ class CoreCollectionPage {
       }
       if (terminal != null) terminal = await call.finish(terminal);
       final source = terminal?['source'];
+      if (terminal?['error'] != null) {
+        throw PlatformFailure(
+          code: ApplicationContract.coreErrorCallFailed,
+          details: {
+            'error': terminal!['error'],
+            if (terminal['cancelError'] != null)
+              'cancelError': terminal['cancelError'],
+            if (terminal['nativeReceipt'] != null)
+              'nativeReceipt': terminal['nativeReceipt'],
+          },
+        );
+      }
       if (terminal == null ||
           terminal['complete'] != true ||
           terminal['recordCount'] != seen ||
           source is! String ||
           source.isEmpty ||
           terminal['stale'] == true ||
-          terminal['error'] != null ||
           metadata['source'] != null && metadata['source'] != source ||
           token.isNotEmpty &&
               token != DefinitionRows.pageToken(source, localIdentity)) {
-        throw FormatException('集合来源变化或未完整返回', terminal);
+        final reason =
+            '集合来源变化或未完整返回：'
+            'complete=${terminal?["complete"] is bool ? terminal!["complete"] : "invalid"}，'
+            'recordCount=${terminal?["recordCount"] is int ? terminal!["recordCount"] : "invalid"}，'
+            '已读取=$seen，stale=${terminal?["stale"] == true}，'
+            'metadataSource=${metadata["source"] is String ? metadata["source"] : "invalid"}，'
+            'source=${source is String ? source : "invalid"}，'
+            'tokenMismatch=${token.isNotEmpty && source is String && token != DefinitionRows.pageToken(source, localIdentity)}';
+        final receipt = terminal?['nativeReceipt'];
+        if (terminal?['cancelError'] != null ||
+            receipt is Map && receipt.isNotEmpty) {
+          throw PlatformFailure(
+            code: ApplicationContract.coreErrorCallFailed,
+            details: {
+              'error': reason,
+              if (terminal?['cancelError'] != null)
+                'cancelError': terminal!['cancelError'],
+              if (terminal?['nativeReceipt'] != null)
+                'nativeReceipt': terminal!['nativeReceipt'],
+            },
+          );
+        }
+        throw FormatException(reason);
       }
       projection.remaining.forEach(accept);
       if (metadata['scopes'] case final List scopes

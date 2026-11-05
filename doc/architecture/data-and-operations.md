@@ -133,7 +133,7 @@ Go在合成时计算字段来源，provenance保留源ID／revision、加载名�
 
 `LocalDefinitions`提供按正文版本解析的直接定义及捕获的编辑目标，分类共用同一renderer。运行记录与本地定义仅在entry ID、revision和section/path匹配时合成一项；仅同名、旧revision或缺失provenance不能绑定。provider还核对kind，下载成员不取得定义的编辑权。未关联的停用、被覆盖或尚未加载定义仍作为同类普通条目保留，不伪造运行属性。
 
-节点、规则通过`CoreCollectionPage.read`对完整公开stream逐条关联，再补入未关联本地定义，统一搜索、计数及分页，只保留当前页、必要计数和本地关联集合。分页身份包含native token及本地snapshot，原文变化使旧页失效；native原始响应不改写。运行规则保留实际顺序和原始index，未装载本地规则保留原文顺序，顶层rules只进入main scope。
+节点、规则通过`CoreCollectionPage.read`对公开stream逐条关联，再补入未关联本地定义，统一搜索、计数及分页，只保留当前页、必要计数和本地关联集合。分页身份包含native token及本地snapshot，原文变化使旧页失效；记录保留业务字段和来源身份。运行规则保留实际顺序和原始index，未装载本地规则保留原文顺序，顶层rules只进入main scope。
 
 编辑本地定义时捕获“本地自定义”插件的ID／revision／storageEpoch、完整正文及确切路径，提交前重新核对，运行属性不写回正文。同一正文版本复用解析结果并检查容量，大正文通过SDK compute解析；异步完成后检查记录版本，等待期间保留原显示内容并禁用旧表单保存。查看或保存不自动启用原停用内容。
 

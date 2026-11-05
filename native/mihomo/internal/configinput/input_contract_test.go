@@ -27,7 +27,7 @@ func TestModePrecedenceAtPublicInputBoundary(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			input := []byte(tc.body)
 			before := bytes.Clone(input)
-			body, presence, err := configinput.RunningDefaults(input, tc.fallback, tc.operation)
+			body, presence, err := configinput.Decode(input, tc.fallback, tc.operation, true)
 			if !bytes.Equal(input, before) {
 				t.Fatal("preparation changed saved source")
 			}
@@ -92,7 +92,7 @@ func TestEncryptedMainUsesOnlyPublicDecodeBoundary(t *testing.T) {
 	if original == nil {
 		t.Fatal("测试正文未要求解密密钥")
 	}
-	if _, _, err := configinput.RunningDefaults(text, "", ""); err == nil || err.Error() != original.Error() {
+	if _, _, err := configinput.Decode(text, "", "", true); err == nil || err.Error() != original.Error() {
 		t.Fatalf("公开解码错误改变：%v，期望%v", err, original)
 	}
 	age.SetGlobalSecretKeys(secret)
@@ -100,14 +100,14 @@ func TestEncryptedMainUsesOnlyPublicDecodeBoundary(t *testing.T) {
 	if err != nil || !bytes.Equal(text, before) || provenance != nil {
 		t.Fatal("应用在Compose阶段解密了正文")
 	}
-	raw, presence, err := configinput.RunningDefaults(text, "direct", "")
+	raw, presence, err := configinput.Decode(text, "direct", "", true)
 	if err != nil || !presence.Has("$opaque") {
 		t.Fatalf("公开解密未完成：%v", err)
 	}
 	if raw.Mode != tunnel.Global || raw.Tun.Enable || raw.Tun.MTU != 0 || raw.DNS.Enable || len(raw.Rule) != 1 || raw.Rule[0] != "MATCH,DIRECT" {
 		t.Fatal("应用覆盖了无法读取字段来源的上游值")
 	}
-	raw, _, err = configinput.RunningDefaults(text, "", "rule")
+	raw, _, err = configinput.Decode(text, "", "rule", true)
 	if err != nil || raw.Mode != tunnel.Rule {
 		t.Fatal("显式operation未应用到同一RawConfig")
 	}
@@ -135,7 +135,7 @@ func TestDefaultsDoNotBecomeUserContributions(t *testing.T) {
 	if definition == nil || len(definition.Contributors) != 2 {
 		t.Fatalf("missing loaded field contributions: %+v", definition)
 	}
-	prepared, presence, err := configinput.RunningDefaults(body, "global", "")
+	prepared, presence, err := configinput.Decode(body, "global", "", true)
 	if err != nil {
 		t.Fatal(err)
 	}

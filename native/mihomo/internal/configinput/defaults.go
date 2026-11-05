@@ -26,11 +26,6 @@ func Decode(body []byte, fallback, operation string, vpn bool) (*config.RawConfi
 	return raw, present, nil
 }
 
-// RunningDefaults保留VPN准备的调用入口，返回实际交给ParseRawConfig的对象。
-func RunningDefaults(body []byte, fallback, operation string) (*config.RawConfig, Presence, error) {
-	return Decode(body, fallback, operation, true)
-}
-
 func fieldPresence(body []byte) Presence {
 	present := Presence{}
 	var document yaml.Node

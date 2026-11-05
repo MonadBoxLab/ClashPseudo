@@ -161,7 +161,7 @@ abstract class AppLocalizations {
   /// No description provided for @lanProxyNoAddress.
   ///
   /// In en, this message translates to:
-  /// **'No local network address is available. Connect to Wi-Fi or Ethernet, then refresh.'**
+  /// **'No local network address is available. Connect to Wi-Fi or Ethernet.'**
   String get lanProxyNoAddress;
 
   /// No description provided for @lanProxyActual.
@@ -175,6 +175,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Not listening'**
   String get lanProxyNotRunning;
+
+  /// No description provided for @lanProxySocketBound.
+  ///
+  /// In en, this message translates to:
+  /// **'Socket bound'**
+  String get lanProxySocketBound;
+
+  /// No description provided for @lanProxySocketFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed'**
+  String get lanProxySocketFailed;
+
+  /// No description provided for @lanProxySocketClosed.
+  ///
+  /// In en, this message translates to:
+  /// **'Closed'**
+  String get lanProxySocketClosed;
+
+  /// No description provided for @lanProxySocketCloseFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Close failed'**
+  String get lanProxySocketCloseFailed;
+
+  /// No description provided for @lanProxyListenerFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'A listener failed.'**
+  String get lanProxyListenerFailed;
 
   /// No description provided for @lanProxyUnavailable.
   ///
@@ -203,7 +233,7 @@ abstract class AppLocalizations {
   /// No description provided for @coreInterruptedMessage.
   ///
   /// In en, this message translates to:
-  /// **'Automatic start is paused. The current page and edits are retained. Open Overview to restart, choose a configuration, or clean up files.'**
+  /// **'Automatic start is paused.'**
   String get coreInterruptedMessage;
 
   /// No description provided for @coreRecoveryRestart.
@@ -557,7 +587,7 @@ abstract class AppLocalizations {
   /// No description provided for @runtimeConfigSearch.
   ///
   /// In en, this message translates to:
-  /// **'Find fields or values'**
+  /// **'Search YAML'**
   String get runtimeConfigSearch;
 
   /// No description provided for @clearSearch.
@@ -595,6 +625,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Name, provider or type'**
   String get nodeSearch;
+
+  /// No description provided for @nodeDelayHistoryFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Some delay samples have no valid latency'**
+  String get nodeDelayHistoryFailed;
 
   /// No description provided for @coreReadLoading.
   ///
@@ -649,12 +685,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Error details'**
   String get errorDetails;
-
-  /// 查看相关操作或对象的错误。
-  ///
-  /// In en, this message translates to:
-  /// **'View error'**
-  String get viewError;
 
   /// 用于查看完整原始错误或诊断原文的入口文字和标题。
   ///
@@ -961,6 +991,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Failed'**
   String get delayFailed;
+
+  /// No description provided for @delayBatchFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Some latency tests failed or timed out.'**
+  String get delayBatchFailed;
 
   /// No description provided for @delayTimeout.
   ///
@@ -2372,6 +2408,12 @@ abstract class AppLocalizations {
   /// **'Tunnel mode'**
   String get modeTitle;
 
+  /// No description provided for @modeFallbackLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Fallback'**
+  String get modeFallbackLabel;
+
   /// No description provided for @modeReadFailed.
   ///
   /// In en, this message translates to:
@@ -2449,12 +2491,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{count} whole records omitted by capacity limits'**
   String connectionOmitted(int count);
-
-  /// No description provided for @rawData.
-  ///
-  /// In en, this message translates to:
-  /// **'Original data'**
-  String get rawData;
 
   /// No description provided for @copyOriginalText.
   ///
@@ -2785,12 +2821,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Same-name member'**
   String get sameNameMember;
-
-  /// No description provided for @pinned.
-  ///
-  /// In en, this message translates to:
-  /// **'Pinned'**
-  String get pinned;
 
   /// No description provided for @closeStrategyPopup.
   ///
@@ -3565,6 +3595,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Understood'**
   String get privacyNoticeUnderstood;
+
+  /// No description provided for @privacyNoticeReadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not read the privacy notice status.'**
+  String get privacyNoticeReadFailed;
 
   /// No description provided for @privacyNoticeNotSaved.
   ///
@@ -4490,6 +4526,12 @@ abstract class AppLocalizations {
   /// **'Update failed'**
   String get trafficUpdateFailed;
 
+  /// No description provided for @applicationSharedUidShort.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared UID · linked selection'**
+  String get applicationSharedUidShort;
+
   /// No description provided for @applicationSharedUidNotice.
   ///
   /// In en, this message translates to:
@@ -5126,12 +5168,6 @@ abstract class AppLocalizations {
   /// **'View previous query'**
   String get dnsViewPreviousQuery;
 
-  /// 查看完整 DNS 查询原始响应时使用的标题；入口文字使用 rawData。
-  ///
-  /// In en, this message translates to:
-  /// **'DNS query raw data'**
-  String get dnsQueryRawData;
-
   /// 显示这次响应对应的查询名称和记录类型；name 和 type 使用发起查询时保存的值。
   ///
   /// In en, this message translates to:
@@ -5149,12 +5185,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Cache operation details'**
   String get dnsCacheOperationDetails;
-
-  /// 查看 DNS 缓存操作完整原始响应时使用的标题。
-  ///
-  /// In en, this message translates to:
-  /// **'Cache operation raw data'**
-  String get dnsCacheRawData;
 
   /// No description provided for @dnsResolverNotice.
   ///
@@ -5431,6 +5461,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Core data cleanup did not complete.'**
   String get coreCleanupFailed;
+
+  /// No description provided for @cleanupFileCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get cleanupFileCompleted;
+
+  /// No description provided for @cleanupFileFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed'**
+  String get cleanupFileFailed;
+
+  /// No description provided for @cleanupFilePending.
+  ///
+  /// In en, this message translates to:
+  /// **'Pending'**
+  String get cleanupFilePending;
 
   /// No description provided for @coreCleanupCompleted.
   ///
@@ -5743,12 +5791,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The displayed settings could not be read again.'**
   String get backupSettingsRefreshFailed;
-
-  /// No description provided for @resourceRawData.
-  ///
-  /// In en, this message translates to:
-  /// **'Original resource data'**
-  String get resourceRawData;
 
   /// No description provided for @localCustomDeleteConfirm.
   ///

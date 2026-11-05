@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:clash_pseudo/src/ui/theme/app_theme.dart';
 import 'package:clash_pseudo/src/ui/navigation/task_activity.dart';
 import 'package:clash_pseudo/src/ui/components/collections/collection_workspace.dart';
-import 'package:clash_pseudo/src/ui/components/reading/original_text_view.dart';
 import 'package:clash_pseudo/src/ui/components/input/choice_menu_button.dart';
 import 'package:clash_pseudo/src/ui/components/input/task_shortcuts.dart';
 import 'package:clash_pseudo/src/ui/connections/connection_controller.dart';
@@ -260,102 +259,41 @@ void main() {
   }
 
   for (final reduced in [false, true]) {
-    testWidgets(
-      'raw SDK expansion preserves reader, animates height and revokes collapse actions reduced=$reduced',
-      (tester) async {
-        tester.view.devicePixelRatio = 1;
-        tester.view.physicalSize = const Size(700, 1000);
-        addTearDown(tester.view.reset);
-        var copies = 0;
-        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          SystemChannels.platform,
-          (call) async {
-            if (call.method == 'Clipboard.setData') copies++;
-            return null;
-          },
-        );
-        addTearDown(
-          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-            SystemChannels.platform,
-            null,
-          ),
-        );
-        await show(tester, reduceMotion: reduced);
-        await tester.tap(find.text('one.fixture.test'));
-        await tester.pumpAndSettle();
-        final tile = find.byType(ExpansionTile);
-        await tester.ensureVisible(find.text('原始数据'));
-        final collapsed = tester.getSize(tile).height;
-        await tester.tap(find.text('原始数据'));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 80));
-        final opening = tester.getSize(tile).height;
-        if (!reduced) {
-          expect(opening, greaterThan(collapsed));
-          expect(opening, lessThan(collapsed + 360));
-        }
-        await tester.pump(const Duration(milliseconds: 300));
-        final expanded = tester.getSize(tile).height;
-        expect(expanded, greaterThanOrEqualTo(collapsed + 360));
-        final reader = find.byKey(
-          const ValueKey('connection-raw-reader'),
-          skipOffstage: false,
-        );
-        final readerState = tester.state(reader);
-        final copy = tester
-            .widget<IconButton>(
-              find.byKey(const ValueKey('original-text-copy')),
-            )
-            .onPressed!;
-        await tester.tap(find.text('原始数据'));
-        await tester.pump();
-        copy();
-        await tester.pump();
-        expect(copies, 0);
-        final view = tester.widget<OriginalTextView>(reader);
-        expect(view.isCurrent!(), isFalse);
-        expect(tester.state(reader), same(readerState));
-        await tester.pump(const Duration(milliseconds: 60));
-        final closing = tester.getSize(tile).height;
-        if (!reduced) {
-          expect(closing, greaterThan(collapsed));
-          expect(closing, lessThan(expanded));
-        } else {
-          expect(closing, closeTo(collapsed, .1));
-        }
-        await tester.tap(find.text('原始数据'));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 60));
-        if (!reduced) expect(tester.getSize(tile).height, greaterThan(closing));
-        expect(tester.state(reader), same(readerState));
-        expect(tester.widget<OriginalTextView>(reader).isCurrent!(), isTrue);
-        await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull);
-        await tester.pumpWidget(const SizedBox());
-      },
-    );
+    testWidgets('连接详情只展示结构化字段，窗口变化保留阅读状态 reduced=$reduced', (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(700, 1000);
+      addTearDown(tester.view.reset);
+      await show(tester, reduceMotion: reduced);
+      await tester.tap(find.text('one.fixture.test'));
+      await tester.pumpAndSettle();
+      final scroll = find.byKey(const ValueKey('connection-detail-scroll'));
+      final state = tester.state(find.byType(CollectionWorkspace));
+      final position = tester.state<ScrollableState>(
+        find.descendant(of: scroll, matching: find.byType(Scrollable)).first,
+      ).position;
+      expect(find.text('原始数据'), findsNothing);
+      expect(find.byKey(const ValueKey('connection-raw-reader')), findsNothing);
+      expect(find.text('one.fixture.test'), findsWidgets);
+      tester.view.physicalSize = const Size(600, 900);
+      await tester.pumpAndSettle();
+      expect(tester.state(find.byType(CollectionWorkspace)), same(state));
+      expect(
+        tester.state<ScrollableState>(
+          find.descendant(of: scroll, matching: find.byType(Scrollable)).first,
+        ).position,
+        same(position),
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
   }
 
   testWidgets(
-    'real detail first-frame retreat revokes raw and close, quick reversal retains reading identity',
+    'real detail first-frame retreat revokes close, quick reversal retains reading identity',
     (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(700, 1000);
       addTearDown(tester.view.reset);
-      var copies = 0;
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        SystemChannels.platform,
-        (call) async {
-          if (call.method == 'Clipboard.setData') copies++;
-          return null;
-        },
-      );
-      addTearDown(
-        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          SystemChannels.platform,
-          null,
-        ),
-      );
       await show(tester);
       await tester.tap(find.text('one.fixture.test'));
       await tester.pumpAndSettle();
@@ -367,17 +305,7 @@ void main() {
       final controller = detail.controller as ConnectionController;
       final detailState = tester.state(find.byWidget(detail as Widget));
       final close = captureDisconnect(tester);
-      await tester.ensureVisible(find.text('原始数据'));
-      await tester.tap(find.text('原始数据'));
-      await tester.pumpAndSettle();
-      final reader = find.byKey(
-        const ValueKey('connection-raw-reader'),
-        skipOffstage: false,
-      );
-      final rawState = tester.state(reader);
-      final copy = tester
-          .widget<IconButton>(find.byKey(const ValueKey('original-text-copy')))
-          .onPressed!;
+      expect(find.text('原始数据'), findsNothing);
       final scroll = find.byKey(
         const ValueKey('connection-detail-scroll'),
         skipOffstage: false,
@@ -412,7 +340,6 @@ void main() {
           tester.state(find.byWidget(nextDetail as Widget)),
           same(detailState),
         );
-        expect(tester.state(reader), same(rawState));
         expect(tester.state<ScrollableState>(scrollable), same(scrollState));
         expect(scrollState.position, same(scrollPosition));
         expect(scrollPosition.pixels, scrollOffset);
@@ -424,13 +351,10 @@ void main() {
       workspace.showMaster();
       await tester.pump();
       expect(workspace.detailVisible, isFalse);
-      expect(tester.widget<OriginalTextView>(reader).isCurrent!(), isFalse);
       expect(opacity(), 1);
       expectReadingIdentity();
-      copy();
       close();
       await tester.pump();
-      expect(copies, 0);
       expect(app.commands, isEmpty);
       await tester.pump(const Duration(milliseconds: 60));
       final retreat = opacity();
@@ -453,7 +377,6 @@ void main() {
       expect(opacity(), greaterThan(retreat));
       expect(opacity(), lessThan(1));
       expectReadingIdentity();
-      expect(tester.widget<OriginalTextView>(reader).isCurrent!(), isTrue);
       await tester.pumpAndSettle();
       expect(opacity(), 1);
       expectReadingIdentity();
@@ -461,11 +384,8 @@ void main() {
       workspace.showMaster();
       await tester.pump();
       expect(workspace.detailVisible, isFalse);
-      expect(tester.widget<OriginalTextView>(reader).isCurrent!(), isFalse);
-      copy();
       close();
       await tester.pump();
-      expect(copies, 0);
       expect(app.commands, isEmpty);
       await tester.pump(const Duration(milliseconds: 60));
       expect(opacity(), greaterThan(0));
@@ -473,7 +393,6 @@ void main() {
       await tester.pumpAndSettle();
       expect(opacity(), 0);
       expectReadingIdentity();
-      expect(tester.widget<OriginalTextView>(reader).isCurrent!(), isFalse);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },

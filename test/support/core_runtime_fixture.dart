@@ -589,8 +589,7 @@ class CoreRuntimeFixture {
             ?.where((group) => group['name'] == request.arguments['group'])
             .firstOrNull;
         if (group != null) {
-          final raw = group['raw'] as Map;
-          raw[choice['type'] == 'select' ? 'now' : 'fixed'] =
+          group[choice['type'] == 'select' ? 'now' : 'fixed'] =
               choice['member'] ?? '';
         }
         request.complete(<String, dynamic>{});
@@ -639,14 +638,11 @@ class CoreRuntimeFixture {
     'name': groupName,
     'sourceIdentity': 'group-source-1',
     'currentIdentity': 'member-identity-$actualMember',
-    'raw': {
-      'name': groupName,
-      'type': groupType,
-      'hidden': false,
-      'now': actualMember,
-      'fixed': fixedMember,
-      'icon': '',
-    },
+    'type': groupType,
+    'hidden': false,
+    'now': actualMember,
+    'fixed': fixedMember,
+    'icon': '',
     'members': [
       {'name': 'DIRECT', 'type': 'Direct', 'identity': 'direct-1'},
       {'name': memberName, 'type': 'Direct', 'identity': 'member-1'},

@@ -1,11 +1,8 @@
-import 'dart:convert';
-
 import 'package:clash_pseudo/src/ui/navigation/task_activity.dart';
 import 'package:clash_pseudo/src/ui/navigation/route_observer.dart';
 import 'package:clash_pseudo/src/ui/navigation/page_route.dart';
 import 'package:clash_pseudo/src/ui/components/collections/collection_workspace.dart';
 import 'package:clash_pseudo/src/ui/components/feedback/operation_notice.dart';
-import 'package:clash_pseudo/src/ui/components/reading/original_text_view.dart';
 import 'package:clash_pseudo/src/ui/diagnostics/nodes/nodes_page.dart';
 import 'package:clash_pseudo/src/ui/diagnostics/resources/resources_page.dart';
 import 'package:clash_pseudo/src/ui/diagnostics/rules/rules_page.dart';
@@ -52,17 +49,10 @@ Widget _host(
   home: OperationNoticeHost(child: page),
 );
 
-Future<void> _refresh(WidgetTester tester, {required bool runtime}) async {
+Future<void> _nextRead(WidgetTester tester, {bool afterFailure = false}) async {
   final strings = lookupAppLocalizations(const Locale('en'));
-  if (runtime) {
-    await tester.tap(find.byTooltip(strings.moreActions));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.widgetWithText(PopupMenuItem<String>, strings.refresh),
-    );
-  } else {
-    await tester.tap(find.byTooltip(strings.refresh));
-  }
+  expect(find.byTooltip(strings.refresh), findsNothing);
+  await tester.pump(Duration(seconds: afterFailure ? 5 : 30));
   await tester.pump();
 }
 
@@ -72,6 +62,13 @@ Future<void> _noticeDetails(WidgetTester tester) async {
     of: find.byType(SnackBar),
     matching: find.widgetWithText(TextButton, strings.errorDetails),
   );
+  for (
+    var frame = 0;
+    frame < 30 && details.hitTestable().evaluate().isEmpty;
+    frame++
+  ) {
+    await tester.pump(const Duration(milliseconds: 16));
+  }
   expect(details.hitTestable(), findsOneWidget);
   await tester.tap(details);
   await tester.pumpAndSettle();
@@ -177,20 +174,20 @@ void main() {
       expect(find.byType(AlertDialog), findsNothing);
       if (bridge is NodeBridge) {
         if (bridge.replies.last.isCompleted) {
-          await _refresh(tester, runtime: false);
+          await _nextRead(tester, afterFailure: true);
         }
         bridge.replies.last.complete(page());
       }
       if (bridge is RuleBridge) {
         if (bridge.replies.last.isCompleted) {
-          await _refresh(tester, runtime: false);
+          await _nextRead(tester, afterFailure: true);
         }
         bridge.replies.last.complete(
           rulePage(kind: 'provider', name: 'set', total: 2),
         );
       }
       await tester.pumpAndSettle();
-      await _refresh(tester, runtime: false);
+      await _nextRead(tester);
       if (bridge is NodeBridge) bridge.replies.last.completeError(failure);
       if (bridge is RuleBridge) bridge.replies.last.completeError(failure);
       await tester.pumpAndSettle();
@@ -489,13 +486,26 @@ void main() {
         workspaceFinder,
       );
       final selectedKey = selectedWidget.detail!.key;
-      final rawKey = ValueKey(switch (category) {
-        'nodes' => 'node-raw-data',
-        'rules' => 'rule-raw-data',
-        _ => 'resource-raw-data',
-      });
-      final raw = tester.widget<TextButton>(find.byKey(rawKey)).onPressed!;
-      final readingElement = tester.element(find.byKey(rawKey));
+      final detail = find.byKey(selectedKey!);
+      final close = tester
+          .widget<BackButton>(
+            find.descendant(of: detail, matching: find.byType(BackButton)),
+          )
+          .onPressed!;
+      final reading = find
+          .descendant(of: detail, matching: find.byType(SelectableText))
+          .first;
+      final readingElement = tester.element(reading);
+      expect(
+        find.byKey(
+          ValueKey(switch (category) {
+            'nodes' => 'node-raw-data',
+            'rules' => 'rule-raw-data',
+            _ => 'resource-raw-data',
+          }),
+        ),
+        findsNothing,
+      );
       final masterWidth = tester
           .getSize(find.byWidget(selectedWidget.master))
           .width;
@@ -513,7 +523,7 @@ void main() {
           .width;
       expect(during, greaterThan(masterWidth));
       expect(during, lessThan(560));
-      expect(tester.element(find.byKey(rawKey)), same(readingElement));
+      expect(tester.element(reading), same(readingElement));
       expect(
         tester.widget<CollectionWorkspace>(workspaceFinder).detail!.key,
         selectedKey,
@@ -537,9 +547,12 @@ void main() {
       state.showMaster();
       await tester.pump(const Duration(milliseconds: 1));
       expect(state.detailVisible, isFalse);
-      raw();
+      close();
       await tester.pump();
-      expect(find.byKey(const ValueKey('original-text-copy')), findsNothing);
+      expect(
+        tester.widget<CollectionWorkspace>(workspaceFinder).detail!.key,
+        selectedKey,
+      );
 
       tester.view.physicalSize = const Size(1100, 850);
       await tester.pumpAndSettle();
@@ -549,9 +562,8 @@ void main() {
         selectedKey,
       );
       tester.widget<CollectionWorkspace>(workspaceFinder).onClose();
-      raw();
+      close();
       await tester.pump();
-      expect(find.byKey(const ValueKey('original-text-copy')), findsNothing);
       expect(
         tester.widget<CollectionWorkspace>(workspaceFinder).detail,
         isNull,
@@ -559,19 +571,18 @@ void main() {
       updateHost(() => active = false);
       await tester.pump();
       select();
-      raw();
+      close();
       await tester.pump();
       expect(
         tester.widget<CollectionWorkspace>(workspaceFinder).detail,
         isNull,
       );
-      expect(find.byKey(const ValueKey('original-text-copy')), findsNothing);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     });
   }
 
-  testWidgets('节点原始能力字段和完整 map 在读取及复制后保持不变', (tester) async {
+  testWidgets('节点能力和测速记录保留业务字段及实际失败时间', (tester) async {
     final bridge = NodeBridge();
     final app = TestApp(bridge);
     addTearDown(app.dispose);
@@ -579,19 +590,24 @@ void main() {
     final value = page();
     final row =
         ((value['page'] as Map)['nodes'] as List).first as Map<String, dynamic>;
-    row['raw'] = {
-      'udp': false,
-      'history': [
-        {'time': 'original-time', 'delay': 0},
-      ],
-      'tests': [],
-      'future': [false, 0, null, <Object?>[], <String, Object?>{}],
-    };
+    row['udp'] = false;
+    row['history'] = [
+      {'time': 'original-time', 'delay': 0},
+      {'time': 'successful-time', 'delay': 42},
+    ];
     bridge.replies.last.complete(value);
     await tester.pumpAndSettle();
     await tester.tap(find.text('node-0'));
     await tester.pumpAndSettle();
     final strings = AppLocalizations.of(tester.element(find.byType(NodesPage)));
+    expect(find.text(strings.nodeDelayHistoryFailed), findsOneWidget);
+    expect(find.byKey(const ValueKey('node-raw-data')), findsNothing);
+    await _noticeDetails(tester);
+    await tester.tap(find.byKey(const ValueKey('operation-technical-details')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('node-0 · original-time'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, strings.close));
+    await tester.pumpAndSettle();
     final detailScroll = tester.state<ScrollableState>(
       find
           .descendant(
@@ -610,45 +626,14 @@ void main() {
     );
     expect(find.text(strings.proxyFalse), findsOneWidget);
     await tester.scrollUntilVisible(
-      find.text('original-time'),
+      find.text('successful-time'),
       200,
       scrollable: scrollable,
     );
-    expect(find.text('original-time'), findsOneWidget);
-    expect(find.text(strings.delayFailed), findsOneWidget);
-    await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('node-raw-data')),
-      -200,
-      scrollable: scrollable,
-    );
-    await tester.tap(find.byKey(const ValueKey('node-raw-data')));
-    await tester.pumpAndSettle();
-    String? copied;
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      SystemChannels.platform,
-      (call) async {
-        if (call.method == 'Clipboard.setData') {
-          copied = (call.arguments as Map)['text'] as String;
-        }
-        return null;
-      },
-    );
-    addTearDown(
-      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        SystemChannels.platform,
-        null,
-      ),
-    );
-    await tester.tap(find.byKey(const ValueKey('original-text-copy')));
-    await tester.pump();
-    expect(jsonDecode(copied!), row);
-    expect((jsonDecode(copied!) as Map)['raw']['future'], [
-      false,
-      0,
-      null,
-      [],
-      {},
-    ]);
+    expect(find.text('successful-time'), findsOneWidget);
+    expect(find.text('42 ms'), findsOneWidget);
+    expect(find.text('original-time'), findsNothing);
+    expect(find.text(strings.delayFailed), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -676,19 +661,23 @@ void main() {
         ).join('\n'),
         'updateSupported': false,
       };
-      void completeRead(String text) {
+      void completeSuccess() {
+        switch (bridge) {
+          case TestBridge():
+            final value = response(core(1));
+            value['configuration'] = 'interface-name: ${row['source']}\n';
+            bridge.replies.last.complete(value);
+          case ResourceBridge():
+            bridge.replies.last.complete(resourcePage(core(1), rows: [row]));
+        }
+      }
+
+      void failRead(String text) {
         switch (bridge) {
           case TestBridge():
             bridge.replies.last.completeError(StateError(text));
           case ResourceBridge():
-            bridge.replies.last.complete(
-              resourcePage(
-                core(1),
-                rows: [
-                  {...row, 'lastError': text},
-                ],
-              ),
-            );
+            bridge.replies.last.completeError(StateError(text));
         }
       }
 
@@ -701,29 +690,22 @@ void main() {
         ),
       );
       final strings = lookupAppLocalizations(const Locale('en'));
-      if (bridge is TestBridge) {
-        final value = response(core(1));
-        (value['configuration'] as Map)['retained'] = List.generate(
-          60,
-          (index) => 'retained configuration $index',
-        );
-        bridge.replies.last.complete(value);
-        await tester.pumpAndSettle();
-        await _refresh(tester, runtime: runtime);
-        await tester.pump();
-      }
-      final original = List.generate(
-        40,
-        (index) => 'motion original $index',
-      ).join('\n');
-      completeRead(original);
+      completeSuccess();
       await tester.pumpAndSettle();
       if (!runtime) {
         await tester.tap(find.text('MMDB').first);
         await tester.pumpAndSettle();
       }
+      final original = List.generate(
+        40,
+        (index) => 'motion original $index',
+      ).join('\n');
+      await _nextRead(tester);
+      failRead(original);
+      await tester.pumpAndSettle();
+      expect(find.byType(SnackBar), findsOneWidget);
       final motion = runtime
-          ? find.byType(CustomScrollView)
+          ? find.byKey(const ValueKey('original-text-blocks'))
           : find.byKey(const ValueKey('resource-detail-status-motion'));
       expect(
         find.byKey(const ValueKey('runtime-read-error-motion')),
@@ -768,11 +750,20 @@ void main() {
         expect(scroll.position.pixels, closeTo(offset, .5));
         expect(tester.takeException(), isNull);
       }
-      await _refresh(tester, runtime: runtime);
-      await tester.pump();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.byType(IconButton),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _nextRead(tester, afterFailure: true);
+      completeSuccess();
+      await tester.pumpAndSettle();
+      await _nextRead(tester);
       final expanded =
           '$original\n${List.generate(40, (index) => 'motion expanded $index').join('\n')}';
-      completeRead(expanded);
+      failRead(expanded);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 60));
       final middle = tester.getSize(motion).height;
@@ -808,41 +799,17 @@ void main() {
       }
       expect(tester.widget<SelectableText>(reading).data, retainedText);
       expect(find.textContaining('motion expanded 0'), findsNothing);
-      var inlineOffset = scroll.position.pixels;
-      final Finder technical;
-      final Finder dialog;
-      final String technicalText;
-      if (runtime) {
-        expect(find.byType(SnackBar), findsNothing);
-        await tester.tap(find.byTooltip(strings.moreActions));
-        await tester.pumpAndSettle();
-        await tester.tap(
-          find.widgetWithText(PopupMenuItem<String>, strings.errorDetails),
-        );
-        await tester.pumpAndSettle();
-        dialog = find.byType(AlertDialog);
-        await tester.tap(
-          find.byKey(const ValueKey('operation-technical-details')),
-        );
-        await tester.pumpAndSettle();
-        technical = find.byKey(const ValueKey('operation-technical-text'));
-        technicalText = StateError(expanded).toString();
-      } else {
-        expect(find.byType(AlertDialog), findsNothing);
-        expect(find.widgetWithText(SelectableText, summary), findsNothing);
-        final raw = find.byKey(const ValueKey('resource-raw-data'));
-        await tester.scrollUntilVisible(raw, 200, scrollable: scrollable);
-        await tester.pumpAndSettle();
-        inlineOffset = scroll.position.pixels;
-        await tester.tap(raw);
-        await tester.pumpAndSettle();
-        dialog = find.byType(OriginalTextView);
-        technical = find
-            .descendant(of: dialog, matching: find.byType(SelectableText))
-            .first;
-        technicalText = const JsonEncoder.withIndent('  ')
-            .convert({...row, 'lastError': expanded});
-      }
+      final inlineOffset = scroll.position.pixels;
+      expect(find.byKey(const ValueKey('resource-raw-data')), findsNothing);
+      expect(find.byType(SnackBar), findsOneWidget);
+      await _noticeDetails(tester);
+      final dialog = find.byType(AlertDialog);
+      await tester.tap(
+        find.byKey(const ValueKey('operation-technical-details')),
+      );
+      await tester.pumpAndSettle();
+      final technical = find.byKey(const ValueKey('operation-technical-text'));
+      final technicalText = StateError(expanded).toString();
       final route = ModalRoute.of(tester.element(dialog));
       final technicalState = tester.state(technical);
       expect(tester.widget<SelectableText>(technical).data, technicalText);
@@ -858,9 +825,7 @@ void main() {
       addTearDown(
         () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
       );
-      final copy = find.byKey(
-        ValueKey(runtime ? 'operation-technical-copy' : 'original-text-copy'),
-      );
+      final copy = find.byKey(const ValueKey('operation-technical-copy'));
       await tester.ensureVisible(copy);
       await tester.pumpAndSettle();
       await tester.tap(copy);
@@ -890,24 +855,16 @@ void main() {
         expect(ModalRoute.of(tester.element(dialog)), same(route));
         expect(tester.takeException(), isNull);
       }
-      final readsBeforeClose = bridge is TestBridge
-          ? bridge.replies.length
-          : null;
-      if (runtime) {
-        await tester.tap(find.widgetWithText(TextButton, strings.close));
-      } else {
-        await tester.pageBack();
-      }
+      await tester.tap(find.widgetWithText(TextButton, strings.close));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pump();
-      if (bridge is TestBridge) {
-        expect(bridge.replies.length, readsBeforeClose! + 1);
-        expect(bridge.replies.last.isCompleted, isFalse);
-        completeRead(expanded);
-      } else if (bridge is ResourceBridge && !bridge.replies.last.isCompleted) {
-        completeRead(expanded);
-      }
+      final pending = switch (bridge) {
+        TestBridge() => !bridge.replies.last.isCompleted,
+        ResourceBridge() => !bridge.replies.last.isCompleted,
+        _ => false,
+      };
+      if (pending) completeSuccess();
       await tester.pumpAndSettle();
       expect(dialog, findsNothing);
       expect(tester.state(reading), same(readingState));
@@ -930,19 +887,16 @@ void main() {
       await tester.pumpAndSettle();
       final input = tester.widget<TextField>(find.byType(TextField)).controller;
       final inputState = tester.state(find.byType(TextField));
-      final body = find.byType(CustomScrollView);
+      final body = find.byKey(const ValueKey('original-text-blocks'));
       final bodyElement = tester.element(body);
       final scrollFinder = find
           .descendant(of: body, matching: find.byType(Scrollable))
           .first;
       final scroll = tester.state<ScrollableState>(scrollFinder);
       final offset = scroll.position.pixels;
-      final targets = [
-        body,
-        find.byType(TextField),
-        find.byTooltip('More actions'),
-        find.byIcon(Icons.data_object),
-      ];
+      final targets = [body, find.byType(TextField), find.byType(AppBar)];
+      expect(find.byTooltip('More actions'), findsNothing);
+      expect(find.byIcon(Icons.data_object), findsNothing);
       final rectangles = targets.map(tester.getRect).toList();
       void unchanged() {
         expect(targets.map(tester.getRect).toList(), rectangles);
@@ -961,28 +915,13 @@ void main() {
         expect(tester.takeException(), isNull);
       }
 
-      await _refresh(tester, runtime: true);
-      await tester.pump();
+      await _nextRead(tester);
       await tester.pump(const Duration(milliseconds: 40));
-      final pendingIcon = find.byKey(const ValueKey('runtime-refresh-pending'));
-      expect(pendingIcon, findsOneWidget);
-      final fade = tester.widget<FadeTransition>(
-        find
-            .ancestor(of: pendingIcon, matching: find.byType(FadeTransition))
-            .first,
+      expect(
+        find.byKey(const ValueKey('runtime-refresh-pending')),
+        findsNothing,
       );
-      expect(fade.opacity.value, greaterThan(0));
-      if (!reduced) expect(fade.opacity.value, lessThan(1));
       unchanged();
-      for (
-        var frame = 0;
-        frame < 30 && find.byType(PopupMenuItem<String>).evaluate().isNotEmpty;
-        frame++
-      ) {
-        await tester.pump(const Duration(milliseconds: 16));
-        unchanged();
-      }
-      expect(find.byType(PopupMenuItem<String>), findsNothing);
       bridge.replies.last.completeError(
         StateError('actual original error\nsecond line\nthird line'),
       );
@@ -1022,7 +961,7 @@ void main() {
       }
       await tester.pumpAndSettle();
       expect(notice, findsNothing);
-      await _refresh(tester, runtime: true);
+      await _nextRead(tester, afterFailure: true);
       bridge.replies.last.complete(response(core(1)));
       await tester.pumpAndSettle();
       unchanged();
@@ -1030,7 +969,7 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
 
-    testWidgets('资源错误元数据不移动原文面板，reduced=$reduced', (tester) async {
+    testWidgets('资源读取错误不移动详情面板，reduced=$reduced', (tester) async {
       tester.view.physicalSize = const Size(1100, 900);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
@@ -1072,11 +1011,16 @@ void main() {
           .first;
       final scroll = tester.state<ScrollableState>(scrollFinder);
       final offset = scroll.position.pixels;
-      final targets = [
-        motion,
-        retained,
-        find.byKey(const ValueKey('resource-raw-data')),
-      ];
+      final targets = [motion, retained];
+      expect(find.byKey(const ValueKey('resource-raw-data')), findsNothing);
+      final cachedClose = tester
+          .widget<BackButton>(
+            find.descendant(
+              of: find.byKey(selectedKey!),
+              matching: find.byType(BackButton),
+            ),
+          )
+          .onPressed!;
       final rectangles = targets.map(tester.getRect).toList();
       void unchanged() {
         expect(targets.map(tester.getRect).toList(), rectangles);
@@ -1092,45 +1036,30 @@ void main() {
 
       const original =
           'actual original failure\nline two\nline three\nline four';
-      await _refresh(tester, runtime: false);
-      bridge.replies.last.complete(
-        resourcePage(
-          core(1),
-          rows: [
-            {...row, 'lastError': original},
-          ],
-        ),
-      );
+      await _nextRead(tester);
+      bridge.replies.last.completeError(StateError(original));
       for (final milliseconds in [0, 16, 60, 100, 200]) {
         await tester.pump(Duration(milliseconds: milliseconds));
         unchanged();
       }
       expect(find.textContaining(original), findsNothing);
-      final raw = find.byKey(const ValueKey('resource-raw-data'));
-      final cachedRaw = tester.widget<TextButton>(raw).onPressed!;
-      await tester.tap(raw);
-      await tester.pumpAndSettle();
-      final rawView = tester.widget<OriginalTextView>(
-        find.byType(OriginalTextView),
+      await _noticeDetails(tester);
+      await tester.tap(
+        find.byKey(const ValueKey('operation-technical-details')),
       );
-      expect(jsonDecode(rawView.text), {...row, 'lastError': original});
-      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.textContaining(original), findsOneWidget);
+      final strings = lookupAppLocalizations(const Locale('en'));
+      await tester.tap(find.widgetWithText(TextButton, strings.close));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pump();
       if (!bridge.replies.last.isCompleted) {
-        bridge.replies.last.complete(
-          resourcePage(
-            core(1),
-            rows: [
-              {...row, 'lastError': original},
-            ],
-          ),
-        );
+        bridge.replies.last.complete(resourcePage(core(1), rows: [row]));
       }
       await tester.pumpAndSettle();
       unchanged();
-      await _refresh(tester, runtime: false);
+      await _nextRead(tester);
       bridge.replies.last.complete(resourcePage(core(1), rows: [row]));
       for (final milliseconds in [0, 16, 60, 100, 200]) {
         await tester.pump(Duration(milliseconds: milliseconds));
@@ -1138,9 +1067,9 @@ void main() {
       }
       tester.widget<CollectionWorkspace>(workspace).onClose();
       await tester.pumpAndSettle();
-      cachedRaw();
+      cachedClose();
       await tester.pumpAndSettle();
-      expect(find.byType(OriginalTextView), findsNothing);
+      expect(tester.widget<CollectionWorkspace>(workspace).detail, isNull);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     });

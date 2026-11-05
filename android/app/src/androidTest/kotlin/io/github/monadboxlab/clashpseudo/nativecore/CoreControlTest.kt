@@ -44,22 +44,32 @@ class CoreControlTest {
         }
     }
 
-    @Test fun nativePreparationErrorsKeepOriginalFieldsReceiptTerminalAndValue() {
+    @Test fun nativePreparationErrorsKeepActualFailuresAndProjectResultFields() {
         val original = "https://user:pass@fixture.test/?token=原文🙂"
         val error = JSONObject().put("code", "futureCode").put("message", original)
             .put("future", JSONObject().put("raw", original))
-        val receipt = JSONObject().put("error", error).put("exited", true)
-            .put("cancelError", JSONObject().put("message", "取消 Close 错误"))
-        val terminal = JSONObject().put("complete", false).put("error", error)
-        val value = JSONObject().put("futureValue", original)
+        val cancelError = JSONObject().put("message", "取消 Close 错误")
+        val receipt = JSONObject().put("error", error).put("exited", true).put("cancelError", cancelError)
+        val terminal = JSONObject().put("complete", false).put("exited", true).put("error", error)
+            .put("cancelError", cancelError).put("futureTerminal", "完整响应不应显示")
+        val value = JSONObject().put("prepared", false).put("inputId", "input-原文")
+            .put("futureValue", "完整响应不应显示")
         val result = CoreNativeTransport.Result(value, terminal, receipt.toString().toByteArray())
         val encoded = CoreErrors.json(CoreNativeResultException(result, error))
         assertEquals("futureCode", encoded.getString("code"))
         assertEquals(original, encoded.getString("message"))
         assertEquals(error.toString(), encoded.getJSONObject("nativeError").toString())
         assertEquals(receipt.toString(), encoded.getJSONObject("nativeReceipt").toString())
-        assertEquals(terminal.toString(), encoded.getJSONObject("nativeTerminal").toString())
-        assertEquals(value.toString(), encoded.getJSONObject("nativeValue").toString())
+        val actualTerminal = encoded.getJSONObject("nativeTerminal")
+        assertFalse(actualTerminal.getBoolean("complete"))
+        assertTrue(actualTerminal.getBoolean("exited"))
+        assertEquals(error.toString(), actualTerminal.getJSONObject("error").toString())
+        assertEquals(cancelError.toString(), actualTerminal.getJSONObject("cancelError").toString())
+        assertFalse(actualTerminal.has("futureTerminal"))
+        val actualValue = encoded.getJSONObject("nativeValue")
+        assertFalse(actualValue.getBoolean("prepared"))
+        assertEquals("input-原文", actualValue.getString("inputId"))
+        assertFalse(actualValue.has("futureValue"))
     }
 
     @Test fun originalErrorsKeepTheirCauseSuppressedAndNativeReceipt() {

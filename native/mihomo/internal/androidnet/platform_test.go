@@ -18,7 +18,7 @@ func TestRuntimePlatformLimitsAreExplicitAndPreviewDoesNotEraseThem(t *testing.T
 		{"dns: {enable: false}\ntun: {dns-hijack: ['any:53']}", "tun.dns-hijack", "dnsHijackConflict"},
 	} {
 		t.Run(tc.field, func(t *testing.T) {
-			body, presence, err := configinput.RunningDefaults([]byte(tc.yaml), "", "")
+			body, presence, err := configinput.Decode([]byte(tc.yaml), "", "", true)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -34,7 +34,7 @@ func TestRuntimePlatformLimitsAreExplicitAndPreviewDoesNotEraseThem(t *testing.T
 			}
 		})
 	}
-	body, presence, err := configinput.RunningDefaults([]byte("tun: {file-descriptor: 0, device: '', auto-redirect: false}\nrouting-mark: 0\nntp: {enable: false, write-to-system: true}\nsecret: unused\n"), "", "")
+	body, presence, err := configinput.Decode([]byte("tun: {file-descriptor: 0, device: '', auto-redirect: false}\nrouting-mark: 0\nntp: {enable: false, write-to-system: true}\nsecret: unused\n"), "", "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestRuntimePlatformLimitsAreExplicitAndPreviewDoesNotEraseThem(t *testing.T
 
 func TestPublicNonTunServicesRemainAvailableToHub(t *testing.T) {
 	for _, body := range []string{"external-controller: 127.0.0.1:9090", "ntp: {enable: true, write-to-system: true}", "redir-port: 7893\ntproxy-port: 7894", "external-ui-url: https://example.test/ui.zip"} {
-		raw, p, err := configinput.RunningDefaults([]byte(body), "", "")
+		raw, p, err := configinput.Decode([]byte(body), "", "", true)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -22,8 +22,6 @@ class ResourcesController extends ChangeNotifier {
   bool sourceExpired = false;
   ResourcesStatus status = ResourcesStatus.loading;
   List<Map<String, dynamic>> resources = const [];
-  Map<String, dynamic>? data;
-  final Map<(String, String), AppMessage> _updateErrors = {};
   AppMessage? readError;
   AppMessage? resultMessage;
   CoreSnapshot? resultSource;
@@ -36,6 +34,9 @@ class ResourcesController extends ChangeNotifier {
   Object? _attempted;
   bool _again = false;
   Timer? _deadline;
+  Timer? _retry;
+  int _retryMs = 250;
+  int _failures = 0;
 
   bool get active => !_disposed && _visible && app.foreground;
   bool get canRefresh =>
@@ -46,7 +47,6 @@ class ResourcesController extends ChangeNotifier {
   bool get current =>
       active &&
       !sourceExpired &&
-      !loading &&
       !app.busy &&
       app.platformError == null &&
       app.state.confirmed &&
@@ -62,9 +62,6 @@ class ResourcesController extends ChangeNotifier {
 
   bool isUpdating(String kind, String name) =>
       _sameUpdateSource && _updating.contains((kind, name));
-
-  AppMessage? updateError(String kind, String name) =>
-      _sameUpdateSource ? _updateErrors[(kind, name)] : null;
 
   /// Latest settled manual-update result, bound to its accepted source.
   String? resultKey;
@@ -96,8 +93,6 @@ class ResourcesController extends ChangeNotifier {
       app.state.coreDataReady,
       app.state.phase,
       app.state.confirmed,
-      app.commandErrorMessage,
-      app.state.resultId,
       core.identity,
       core.phase,
       selected?.id,
@@ -106,6 +101,7 @@ class ResourcesController extends ChangeNotifier {
     );
     if (_observed == key) return;
     _observed = key;
+    _retry?.cancel();
     _request++;
     _again = false;
     final expected = expectedSource;
@@ -195,10 +191,18 @@ class ResourcesController extends ChangeNotifier {
       );
       notifyListeners();
     });
+    var pending = false;
+    var failed = false;
     try {
       final value = await app.platform.resources(expected);
       if (_disposed) return;
-      data = Map.unmodifiable(value);
+      if (value['readPending'] == true) {
+        if (!expected.matchesWireIdentity(value)) {
+          throw const FormatException('Resource read slot identity changed');
+        }
+        pending = true;
+        return;
+      }
       final rows = (value['resources'] as List)
           .map((item) => Map<String, dynamic>.unmodifiable(item as Map))
           .toList();
@@ -218,8 +222,13 @@ class ResourcesController extends ChangeNotifier {
           : expected.purpose == 'RUNNING'
           ? ResourcesStatus.live
           : ResourcesStatus.preview;
+      if (current) {
+        _failures = 0;
+        _retryMs = 250;
+      }
     } catch (error) {
       if (_disposed) return;
+      failed = true;
       readError = error is PlatformFailure
           ? messageFromFailure(
               error,
@@ -236,9 +245,30 @@ class ResourcesController extends ChangeNotifier {
         if (_again) {
           _again = false;
           unawaited(_read(app.state.core));
+        } else {
+          _scheduleNext(pending: pending, failed: failed);
         }
       }
     }
+  }
+
+  void _scheduleNext({required bool pending, required bool failed}) {
+    _retry?.cancel();
+    if (!active || sourceExpired || app.busy || !app.state.core.ready) return;
+    final Duration delay;
+    if (pending) {
+      delay = Duration(milliseconds: _retryMs);
+      _retryMs = (_retryMs * 2).clamp(250, 1000);
+    } else if (failed) {
+      const seconds = [5, 10, 30, 60];
+      delay = Duration(
+        seconds: seconds[_failures.clamp(0, seconds.length - 1)],
+      );
+      _failures++;
+    } else {
+      delay = const Duration(seconds: 30);
+    }
+    _retry = Timer(delay, () => unawaited(_read(app.state.core, keep: true)));
   }
 
   Map<String, dynamic>? _find(String kind, String name) {
@@ -255,12 +285,8 @@ class ResourcesController extends ChangeNotifier {
       return;
     }
     final expected = _source!;
-    if (resultSource?.matchesIdentity(expected) != true) {
-      _updateErrors.clear();
-    }
     resultSource = expected;
     _updating.add(identity);
-    _updateErrors.remove(identity);
     resultKey = keyOf(kind, name);
     resultCode = null;
     resultMessage = null;
@@ -283,16 +309,12 @@ class ResourcesController extends ChangeNotifier {
           (result?.resultSuccess == true && resultCode == 'ok'
               ? messages.resourceUpdateSuccess
               : messages.resourceUpdateFailed.withDetail(resultCode));
-      if (result?.resultSuccess != true || resultCode != 'ok') {
-        _updateErrors[identity] = resultMessage!;
-      }
     } catch (error) {
       if (!_disposed) {
         resultCode = 'unconfirmed';
         resultMessage = error is PlatformFailure
             ? messageFromFailure(error, fallback: messages.resourceUpdateFailed)
             : messages.resourceUpdateFailed.withDetail(error);
-        _updateErrors[identity] = resultMessage!;
       }
     } finally {
       if (!_disposed) {
@@ -304,7 +326,6 @@ class ResourcesController extends ChangeNotifier {
     // of the settled update result; read failure preserves prior rows.
     if (!_disposed &&
         active &&
-        !loading &&
         !app.busy &&
         _matches(expected, app.state.core)) {
       unawaited(_read(expected, keep: true));
@@ -340,6 +361,7 @@ class ResourcesController extends ChangeNotifier {
     _disposed = true;
     _request++;
     _deadline?.cancel();
+    _retry?.cancel();
     app.removeListener(_changed);
     super.dispose();
   }

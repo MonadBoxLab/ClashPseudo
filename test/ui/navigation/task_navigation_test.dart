@@ -410,6 +410,75 @@ void main() {
       }
     });
 
+    for (final size in [
+      const Size(411, 914),
+      const Size(700, 900),
+      const Size(1200, 900),
+    ]) {
+      testWidgets('设置二级页返回时分组直接使用当前列坐标 $size', (tester) async {
+        await mount(tester, size: size);
+        await open(tester, AppTask.settings);
+        await tester.pumpAndSettle();
+        final settings = page(SettingsPage);
+        final state = tester.state(settings);
+        final strings = AppLocalizations.of(tester.element(settings));
+        final list = find.descendant(
+          of: settings,
+          matching: find.byType(CustomScrollView, skipOffstage: false),
+          skipOffstage: false,
+        );
+        final scrollable = find
+            .descendant(
+              of: settings,
+              matching: find.byType(Scrollable, skipOffstage: false),
+              skipOffstage: false,
+            )
+            .first;
+        final position = tester.state<ScrollableState>(scrollable).position;
+        for (final (target, group) in [
+          (find.byKey(const ValueKey('settings-lan-proxy')), 1),
+          (find.text(strings.overridePlugins), 2),
+          (find.byKey(const ValueKey('settings-lan-proxy')), 1),
+        ]) {
+          await tester.scrollUntilVisible(target, 200, scrollable: scrollable);
+          await tester.pumpAndSettle();
+          final pixels = position.pixels;
+          await tester.tap(target);
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
+          expect(active(tester, SettingsPage), isFalse);
+          await tester.binding.handlePopRoute();
+          for (final ms in [0, 16, 40, 80, 180, 300]) {
+            await tester.pump(Duration(milliseconds: ms));
+            final section = find.byKey(
+              ValueKey('settings-section:$group'),
+              skipOffstage: false,
+            );
+            final viewport = tester.renderObject<RenderBox>(list);
+            final box = tester.renderObject<RenderBox>(section);
+            final width = viewport.size.width;
+            final columns = width >= 840 ? 2 : 1;
+            final columnWidth = (width - (columns - 1) * 24) / columns;
+            expect(box.size.width, closeTo(columnWidth, .01));
+            expect(
+              box.localToGlobal(Offset.zero, ancestor: viewport).dx,
+              closeTo((group % columns) * (columnWidth + 24), .01),
+            );
+            expect(tester.state(settings), same(state));
+            expect(
+              tester.state<ScrollableState>(scrollable).position,
+              same(position),
+            );
+            expect(position.pixels, pixels);
+            expect(tester.takeException(), isNull);
+          }
+          expect(active(tester, SettingsPage), isTrue);
+          expect(target.hitTestable(), findsOneWidget);
+        }
+        expect(app.commands, isEmpty);
+      });
+    }
+
     testWidgets(
       'retained task crossfade reverses without duplicate page states',
       (tester) async {

@@ -1,17 +1,14 @@
-import '../../components/feedback/operation_feedback.dart';
-import '../../components/feedback/operation_notice.dart';
-import '../../../model/app_message.dart';
-import '../../navigation/page_route.dart';
-
 import 'dart:convert';
+
+import '../../components/feedback/operation_notice.dart';
+import '../../../model/messages.dart';
 
 import 'package:flutter/material.dart';
 
-import '../../components/reading/original_text_view.dart';
 import '../../components/input/task_shortcuts.dart';
+import '../../components/input/toolbar_search_field.dart';
+import '../../components/reading/original_text_view.dart';
 import '../../components/reading/technical_reading_pane.dart';
-
-import '../../theme/app_theme.dart';
 
 import '../../app/app_controller.dart';
 import '../../navigation/task_activity.dart';
@@ -47,6 +44,9 @@ class _RuntimeConfigPageState extends State<RuntimeConfigPage> {
 
   AppMessage? get _error =>
       (_readAuthority == _authority ? _controller.readError : null) ??
+      (_readAuthority == _authority && _controller.cancelError != null
+          ? messages.operationFailed.withDetail(_controller.cancelError)
+          : null) ??
       widget.app.platformErrorMessage ??
       widget.app.state.core.errorMessage ??
       widget.app.commandErrorMessage;
@@ -73,7 +73,10 @@ class _RuntimeConfigPageState extends State<RuntimeConfigPage> {
     _readNoticed = true;
     final token = _noticeToken = Object();
     bool current() =>
-        mounted && _authority == authority && identical(_noticeToken, token);
+        mounted &&
+        _authority == authority &&
+        identical(_noticeToken, token) &&
+        _error == error;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!current() || !_pageLive) {
         if (current()) _readNoticed = false;
@@ -85,7 +88,12 @@ class _RuntimeConfigPageState extends State<RuntimeConfigPage> {
         isCurrent: () => _pageLive && current(),
         isCurrentWithPopup: (popup) => _pageWithPopup(popup) && current(),
         eligibilityChanges: _feedbackChanges,
-        onRetry: _controller.refresh,
+        onRetry: () async {
+          if (!current() || !_pageLive) return;
+          _noticeToken = null;
+          _readNoticed = false;
+          await _controller.refresh();
+        },
         identity: token,
       );
       if (!presented && current()) _readNoticed = false;
@@ -177,171 +185,52 @@ class _RuntimeConfigPageState extends State<RuntimeConfigPage> {
     listenable: _controller,
     builder: (context, _) {
       final strings = AppLocalizations.of(context);
-      final readError = _error;
-      final authority = _authority;
-      final lines = _controller.lines.indexed
-          .where((line) => line.$2.toLowerCase().contains(_query))
-          .toList();
+      final text = _controller.text;
+      final displayText = _query.isEmpty
+          ? text
+          : LineSplitter.split(text)
+                .where((line) => line.toLowerCase().contains(_query))
+                .join('\n');
+      final identity = (widget.app.storageEpoch, _controller.source?.identity);
+      bool sameSource() =>
+          identity == (widget.app.storageEpoch, _controller.source?.identity) &&
+          _controller.text == text;
       return Scaffold(
-        appBar: AppBar(
-          title: Text(strings.runtimeConfiguration),
-          actions: [
-            IconButton(
-              tooltip: strings.resourceRawData,
-              icon: const Icon(Icons.data_object),
-              onPressed: _controller.data == null
-                  ? null
-                  : () {
-                      if (!_pageLive) return;
-                      final text = const JsonEncoder.withIndent('  ')
-                          .convert(_controller.data);
-                      Navigator.of(context).push<void>(
-                        FocusedPageRoute(
-                          builder: (_) => Scaffold(
-                            appBar: AppBar(
-                              title: Text(strings.resourceRawData),
-                            ),
-                            body: OriginalTextView(text: text),
-                          ),
-                        ),
-                      );
-                    },
-            ),
-            PopupMenuButton<String>(
-              tooltip: strings.moreActions,
-              style: IconButton.styleFrom(
-                foregroundColor: HomePalette.of(context).syncAction,
-              ),
-              onSelected: (action) {
-                if (!_pageLive || _authority != authority) return;
-                if (action == 'refresh') {
-                  if (_controller.canRefresh) _controller.refresh();
-                } else if (action == 'details' && readError != null) {
-                  showAppMessage(
-                    context,
-                    readError,
-                    title: (strings) => strings.errorDetails,
-                    isCurrent: () => _pageLive && _authority == authority,
-                    isCurrentWithPopup: (popup) =>
-                        _pageWithPopup(popup) && _authority == authority,
-                    eligibilityChanges: _feedbackChanges,
-                  );
-                }
-              },
-              itemBuilder: (_) => [
-                PopupMenuItem(
-                  value: 'refresh',
-                  enabled: _controller.canRefresh,
-                  child: Text(strings.refresh),
-                ),
-                PopupMenuItem(
-                  value: 'details',
-                  enabled: readError != null,
-                  child: Text(strings.errorDetails),
-                ),
-              ],
-              icon: AnimatedSwitcher(
-                key: const ValueKey('runtime-refresh-state'),
-                duration: MediaQuery.disableAnimationsOf(context)
-                    ? Duration.zero
-                    : const Duration(milliseconds: 180),
-                child: _controller.loading
-                    ? const SizedBox.square(
-                        key: ValueKey('runtime-refresh-pending'),
-                        dimension: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(
-                        Icons.refresh,
-                        key: ValueKey('runtime-refresh-idle'),
-                      ),
-              ),
-            ),
-          ],
-        ),
+        appBar: AppBar(title: Text(strings.runtimeConfiguration)),
         body: TechnicalReadingPane(
-          child: CustomScrollView(
-            controller: _scroll,
-            slivers: [
-              SliverToBoxAdapter(
-                child: Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                      child: TextField(
-                        controller: _search,
-                        focusNode: _searchFocus,
-                        onChanged: (_) => _filter(),
-                        decoration: InputDecoration(
-                          labelText: strings.runtimeConfigSearch,
-                          prefixIconColor: WidgetStateColor.resolveWith(
-                            (states) => states.contains(WidgetState.disabled)
-                                ? Theme.of(context).disabledColor
-                                : HomePalette.of(context).moreAction,
-                          ),
-                          prefixIcon: const Icon(Icons.search),
-                          suffixIcon: IconButton(
-                            tooltip: strings.clearSearch,
-                            onPressed: () {
-                              _search.clear();
-                              _filter();
-                            },
-                            icon: const Icon(Icons.close),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const Divider(height: 1),
-                  ],
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                child: ToolbarSearchField(
+                  controller: _search,
+                  focusNode: _searchFocus,
+                  hintText: strings.runtimeConfigSearch,
+                  onChanged: (_) => _filter(),
                 ),
               ),
-              if (lines.isEmpty && _controller.lines.isNotEmpty)
-                SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text(strings.noSearchResults),
-                    ),
-                  ),
-                )
-              else if (lines.isNotEmpty)
-                SliverPadding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  sliver: SliverList.builder(
-                    itemCount: lines.length,
-                    itemBuilder: (context, index) {
-                      final (number, text) = lines[index];
-                      return Padding(
-                        key: ValueKey(number),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 2,
-                        ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SizedBox(
-                              width: 44,
-                              child: Text(
-                                '${number + 1}',
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
+              const Divider(height: 1),
+              Expanded(
+                child: text.isEmpty
+                    ? const SizedBox.expand()
+                    : Stack(
+                        children: [
+                          Positioned.fill(
+                            child: OriginalTextView(
+                              text: text,
+                              displayText: displayText,
+                              scrollController: _scroll,
+                              identity: identity,
+                              isCurrent: () => _pageLive && sameSource(),
+                              isCurrentWithPopup: (popup) =>
+                                  _pageWithPopup(popup) && sameSource(),
                             ),
-                            Expanded(
-                              child: SelectableText(
-                                text,
-                                style: TechnicalReadingPane.textStyleOf(
-                                  context,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ),
+                          ),
+                          if (_query.isNotEmpty && displayText.isEmpty)
+                            Center(child: Text(strings.noSearchResults)),
+                        ],
+                      ),
+              ),
             ],
           ),
         ),

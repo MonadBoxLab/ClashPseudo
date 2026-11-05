@@ -1,7 +1,6 @@
 import 'package:clash_pseudo/src/model/platform_failure.dart';
 import 'package:clash_pseudo/src/ui/locale/message_text.dart';
 import 'package:clash_pseudo/src/ui/navigation/route_observer.dart';
-import 'package:clash_pseudo/src/ui/components/reading/original_text_view.dart';
 import 'package:clash_pseudo/src/model/app_snapshot.dart';
 import 'package:clash_pseudo/src/model/core_snapshot.dart';
 import 'package:clash_pseudo/src/model/config_entry.dart';
@@ -179,25 +178,7 @@ rule-providers: {local-rule-provider: {type: inline, payload: []}}
         contains(label),
       );
       expect(find.text('$label · '), findsNothing);
-      final rawAction = find.byKey(const ValueKey('resource-raw-data'));
-      await tester.ensureVisible(rawAction);
-      await tester.tap(rawAction);
-      await tester.pumpAndSettle();
-      final raw = jsonDecode(
-        tester.widget<OriginalTextView>(find.byType(OriginalTextView)).text,
-      ) as Map<String, dynamic>;
-      expect(raw['name'], name);
-      expect(raw['kind'], kind);
-      expect(raw['type'], 'inline');
-      expect(raw['definition'], {'type': 'inline', 'payload': <Object>[]});
-      expect(raw.containsKey('vehicleType'), isFalse);
-      expect(raw['entryId'], entry.id);
-      expect(raw['revision'], entry.revision);
-      expect(
-        raw['definitionPath'],
-        '/${proxy ? 'proxy-providers' : 'rule-providers'}/$name',
-      );
-      expect(raw['localDefinition'], isNotEmpty);
+      expect(find.byIcon(Icons.data_object), findsNothing);
       expect(app.overrides.single, same(entry));
       expect(app.overrides.single.enabled, isFalse);
       expect(app.commands, isEmpty);
@@ -252,16 +233,7 @@ rule-providers: {local-rule-provider: {type: inline, payload: []}}
               .map((text) => text.data),
           contains(description),
         );
-        final rawAction = find.byKey(const ValueKey('resource-raw-data'));
-        await tester.ensureVisible(rawAction);
-        await tester.tap(rawAction);
-        await tester.pumpAndSettle();
-        expect(
-          jsonDecode(
-            tester.widget<OriginalTextView>(find.byType(OriginalTextView)).text,
-          ),
-          row,
-        );
+        expect(find.byIcon(Icons.data_object), findsNothing);
         expect(app.commands, isEmpty);
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());
@@ -371,16 +343,7 @@ rule-providers: {local-rule-provider: {type: inline, payload: []}}
         final strings = lookupAppLocalizations(Locale(language));
         expect(find.text(strings.resourceUpdateSuccess), findsNothing);
         expect(find.text(original), findsWidgets);
-        final raw = find.byKey(const ValueKey('resource-raw-data'));
-        await tester.ensureVisible(raw);
-        await tester.tap(raw);
-        await tester.pumpAndSettle();
-        expect(
-          jsonDecode(
-            tester.widget<OriginalTextView>(find.byType(OriginalTextView)).text,
-          ),
-          row,
-        );
+        expect(find.byIcon(Icons.data_object), findsNothing);
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox());
       },
@@ -554,7 +517,10 @@ rule-providers: {local-rule-provider: {type: inline, payload: []}}
       'update': {'error': 'stopped'},
     });
     await pending;
-    expect(controller.updateError('proxyProvider', 'remote'), isNull);
+    expect(
+      controller.resultSource!.matchesIdentity(controller.source!),
+      isFalse,
+    );
     expect(controller.resultCode, 'stopped');
     expect(controller.resultSource!.generation, 1);
     expect(controller.source!.generation, 2);
@@ -646,10 +612,6 @@ rule-providers: {local-rule-provider: {type: inline, payload: []}}
     await pending;
     await Future<void>.delayed(Duration.zero);
     expect(
-      controller.updateError('proxyProvider', 'remote'),
-      messages.resourceUpdateFailed.withDetail(original),
-    );
-    expect(
       controller.resultMessage,
       messages.resourceUpdateFailed.withDetail(original),
     );
@@ -697,7 +659,8 @@ rule-providers: {local-rule-provider: {type: inline, payload: []}}
       );
       await Future<void>.delayed(Duration.zero);
       expect(controller.resources.single['count'], 9);
-      expect(controller.updateError('proxyProvider', 'remote'), isNull);
+      expect(controller.resultCode, 'ok');
+      expect(controller.resultKey, 'proxyProvider/remote');
     },
   );
 
@@ -890,7 +853,7 @@ rule-providers: {local-rule-provider: {type: inline, payload: []}}
         final first = resourcePage(core(1));
         bridge.replies.first.complete(first);
         await tester.pump();
-        expect(controller.data, first);
+        expect(controller.resources, (first['resources'] as List));
         expect(controller.source!.generation, 1);
         expect(controller.current, isFalse);
         expect(controller.loading, isTrue);
@@ -900,6 +863,7 @@ rule-providers: {local-rule-provider: {type: inline, payload: []}}
         expect(controller.current, isTrue);
         expect(controller.loading, isFalse);
         expect(controller.readError, isNull);
+        controller.setVisible(false);
       },
     );
 
@@ -929,72 +893,55 @@ rule-providers: {local-rule-provider: {type: inline, payload: []}}
         expect(controller.resultMessage, messages.resourceUpdateSuccess);
         expect(controller.resultSource!.generation, 1);
         expect(controller.source!.generation, 2);
-        expect(controller.updateError('proxyProvider', 'remote'), isNull);
+        expect(
+          controller.resultSource!.matchesIdentity(controller.source!),
+          isFalse,
+        );
         expect(controller.updating, isFalse);
         expect(controller.current, isFalse);
       },
     );
 
-    testWidgets(
-      'resource raw copy retains the full envelope and optional unknown data',
-      (tester) async {
-        final bridge = ResourceBridge();
-        final app = ResourceApp(bridge);
-        addTearDown(app.dispose);
-        await tester.pumpWidget(
-          MaterialApp(
-            locale: const Locale('en'),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            home: ResourcesPage(app: app),
-          ),
-        );
-        final value = resourcePage(
-          core(1),
-          rows: [
-            {
-              'kind': 'future-resource',
-              'name': 'future-resource-name',
-              'source': null,
-              'vehicleType': false,
-              'updateSupported': null,
-              'provenance': {
-                'contributors': [
-                  {'kind': 'future-kind'},
-                ],
-              },
-              'future': [false, 0, null, <Object?>[]],
+    testWidgets('资源页不提供完整响应入口', (tester) async {
+      final bridge = ResourceBridge();
+      final app = ResourceApp(bridge);
+      addTearDown(app.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ResourcesPage(app: app),
+        ),
+      );
+      final value = resourcePage(
+        core(1),
+        rows: [
+          {
+            'kind': 'future-resource',
+            'name': 'future-resource-name',
+            'source': null,
+            'vehicleType': false,
+            'updateSupported': null,
+            'provenance': {
+              'contributors': [
+                {'kind': 'future-kind'},
+              ],
             },
-          ],
-        );
-        value['unknown-envelope'] = '${'x' * 20000}tail';
-        bridge.replies.first.complete(value);
-        await tester.pump();
-        expect(find.text('future-resource-name'), findsOneWidget);
-        expect(tester.takeException(), isNull);
-        await tester.tap(find.byIcon(Icons.data_object));
-        await tester.pumpAndSettle();
-        String? copied;
-        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          SystemChannels.platform,
-          (call) async {
-            if (call.method == 'Clipboard.setData') {
-              copied = (call.arguments as Map)['text'] as String;
-            }
-            return null;
+            'future': [false, 0, null, <Object?>[]],
           },
-        );
-        addTearDown(
-          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-            SystemChannels.platform,
-            null,
-          ),
-        );
-        await tester.tap(find.byKey(const ValueKey('original-text-copy')));
-        await tester.pump();
-        expect(copied, const JsonEncoder.withIndent('  ').convert(value));
-        await tester.pumpWidget(const SizedBox());
-      },
-    );
+        ],
+      );
+      value['unknown-envelope'] = '${'x' * 20000}tail';
+      bridge.replies.first.complete(value);
+      await tester.pump();
+      expect(find.text('future-resource-name'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      expect(find.byIcon(Icons.data_object), findsNothing);
+      expect(find.byIcon(Icons.refresh), findsNothing);
+      expect(find.textContaining('unknown-envelope'), findsNothing);
+      expect(find.textContaining('future-kind'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    });
   });
 }

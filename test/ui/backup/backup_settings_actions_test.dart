@@ -1,12 +1,12 @@
 import 'package:clash_pseudo/src/model/platform_failure.dart';
 
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:clash_pseudo/src/ui/app/app_controller.dart';
 import 'package:clash_pseudo/src/ui/navigation/task_activity.dart';
 import 'package:clash_pseudo/src/ui/theme/app_theme.dart';
 import 'package:clash_pseudo/src/ui/components/reading/original_text_view.dart';
+import 'package:clash_pseudo/src/ui/components/feedback/operation_notice.dart';
 import 'package:clash_pseudo/src/model/backup_data.dart';
 import 'package:clash_pseudo/src/ui/backup/backup_settings_actions.dart';
 import 'package:clash_pseudo/src/ui/settings/storage_data_page.dart';
@@ -300,12 +300,14 @@ Future<void> _show(
     home: focusedPage
         ? null
         : storagePage
-        ? StorageDataPage(app: app)
+        ? OperationNoticeHost(child: StorageDataPage(app: app))
         : page(),
     onGenerateRoute: !focusedPage
         ? null
         : (_) => FocusedPageRoute<void>(
-            builder: (_) => storagePage ? StorageDataPage(app: app) : page(),
+            builder: (_) => storagePage
+                ? OperationNoticeHost(child: StorageDataPage(app: app))
+                : page(),
           ),
   );
   await tester.pumpWidget(
@@ -354,23 +356,49 @@ Future<void> _export(WidgetTester tester, [AppLocalizations? strings]) async {
   );
 }
 
+Future<void> _openResult(WidgetTester tester, {bool technical = true}) async {
+  if (find.byType(AlertDialog).evaluate().isEmpty) {
+    expect(find.byType(SnackBar), findsOneWidget);
+    final notice = find.byType(SnackBar);
+    final strings = AppLocalizations.of(tester.element(notice));
+    final details = find.descendant(
+      of: notice,
+      matching: find.widgetWithText(TextButton, strings.errorDetails),
+    );
+    for (
+      var frame = 0;
+      frame < 40 && details.hitTestable().evaluate().isEmpty;
+      frame++
+    ) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(details.hitTestable(), findsOneWidget);
+    await tester.tap(details.hitTestable());
+    await tester.pumpAndSettle();
+  }
+  if (technical) {
+    final expansion = find.byKey(const ValueKey('operation-technical-details'));
+    if (expansion.evaluate().isNotEmpty &&
+        find
+            .byKey(const ValueKey('operation-technical-text'))
+            .evaluate()
+            .isEmpty) {
+      await tester.ensureVisible(expansion);
+      await tester.tap(expansion);
+      await tester.pumpAndSettle();
+    }
+  }
+}
+
 String _resultText(WidgetTester tester) {
   final dialog = find.byType(AlertDialog);
   if (dialog.evaluate().isNotEmpty) {
-    final summary = tester
-        .widget<SelectableText>(
-          find.byKey(const ValueKey('backup-result-summary')),
+    return tester
+        .widgetList<SelectableText>(
+          find.descendant(of: dialog, matching: find.byType(SelectableText)),
         )
-        .data!;
-    // The same complete causes now belong to the explicit technical reader.
-    // Retain every original result-content assertion independently of expansion.
-    final technical = find.byKey(
-      const ValueKey('backup-result-technical-content'),
-      skipOffstage: false,
-    );
-    return technical.evaluate().isEmpty
-        ? summary
-        : '$summary\n\n${tester.widget<OriginalTextView>(technical).text}';
+        .map((text) => text.data ?? '')
+        .join('\n\n');
   }
   return tester
       .widget<Text>(
@@ -381,10 +409,53 @@ String _resultText(WidgetTester tester) {
       .data!;
 }
 
-Future<void> _close(WidgetTester tester, [AppLocalizations? strings]) async {
-  await tester.tap(
-    find.widgetWithText(TextButton, (strings ?? _strings).close).hitTestable(),
+Future<void> _dismissStoreRead(WidgetTester tester, _BackupApp app) async {
+  final notice = find.byType(SnackBar);
+  expect(notice, findsOneWidget);
+  final strings = AppLocalizations.of(tester.element(notice));
+  expect(
+    _resultText(tester),
+    contains(app.configErrorMessage!.summary(strings)),
   );
+  expect(
+    _resultText(tester),
+    contains(app.overrideErrorMessage!.summary(strings)),
+  );
+  expect(
+    _resultText(tester),
+    contains(app.preferencesErrorMessage!.summary(strings)),
+  );
+  final close = find.descendant(
+    of: notice,
+    matching: find.widgetWithIcon(IconButton, Icons.close),
+  );
+  for (
+    var frame = 0;
+    frame < 40 && close.hitTestable().evaluate().isEmpty;
+    frame++
+  ) {
+    await tester.pump(const Duration(milliseconds: 16));
+  }
+  expect(close.hitTestable(), findsOneWidget);
+  await tester.tap(close.hitTestable());
+  await tester.pumpAndSettle();
+}
+
+Future<void> _close(WidgetTester tester, [AppLocalizations? strings]) async {
+  if (find.byType(AlertDialog).evaluate().isEmpty) {
+    await tester.tap(
+      find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.byType(IconButton),
+      ),
+    );
+  } else {
+    await tester.tap(
+      find
+          .widgetWithText(TextButton, (strings ?? _strings).close)
+          .hitTestable(),
+    );
+  }
   await tester.pumpAndSettle();
 }
 
@@ -402,6 +473,7 @@ void main() {
     (tester) async {
       app.refuseRestore = true;
       await _show(tester, app, storagePage: true, focusedPage: true);
+      await _dismissStoreRead(tester, app);
       final identity = tester.state(find.byType(BackupSettingsActions));
       await _choose(tester);
       expect(find.text(_strings.backupConfirmTitle), findsOneWidget);
@@ -411,6 +483,10 @@ void main() {
         'inspectBackup',
         'restoreBackup',
       ]);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(tester.widget<ListTile>(_key('import')).onTap, isNotNull);
+      await _openResult(tester);
       expect(find.byType(AlertDialog), findsOneWidget);
       expect(documents.cancellations, isEmpty);
       expect(documents.discarded, [_first]);
@@ -490,6 +566,7 @@ void main() {
         documents.pendingSave = Completer<Map<String, dynamic>>();
         documents.pendingDiscard = Completer<void>();
         await _show(tester, app, focusedPage: true, storagePage: true);
+        await _dismissStoreRead(tester, app);
         final identity = tester.state(find.byType(BackupSettingsActions));
         await _export(tester);
         final request = documents.saves.single['requestId'];
@@ -549,11 +626,14 @@ void main() {
           expect(_resultText(tester), _strings.backupExportSaved);
           expect(find.byType(SnackBar), findsOneWidget);
           expect(find.byType(AlertDialog), findsNothing);
+          await tester.pumpAndSettle();
           await tester.pump(const Duration(seconds: 5));
           await tester.pump(const Duration(milliseconds: 300));
         } else {
+          expect(find.byType(AlertDialog), findsNothing);
+          expect(find.byType(SnackBar), findsOneWidget);
+          await _openResult(tester);
           expect(find.byType(AlertDialog), findsOneWidget);
-          expect(find.byType(SnackBar), findsNothing);
           expect(
             _resultText(tester),
             contains('original inactive provider close failure'),
@@ -770,7 +850,9 @@ void main() {
       );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(SnackBar), findsOneWidget);
+      await _openResult(tester);
       final text = _resultText(tester);
       expect(text, contains(_strings.backupRestored));
       expect(text, contains(_strings.operationNotCompleted));
@@ -1056,9 +1138,11 @@ void main() {
     restore.complete(app.outcome(app.commands.last));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
-    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(SnackBar), findsOneWidget);
     expect(_resultText(tester), contains(_strings.backupRestored));
     await stable(false);
+    expect(tester.widget<ListTile>(_key('import')).onTap, isNotNull);
     expect(documents.discarded, [_first]);
     await _close(tester);
     expect(documents.discarded, [_first]);
@@ -1218,6 +1302,7 @@ void main() {
     expect(app.commands, isEmpty);
     expect(find.text(_strings.backupConfirmTitle), findsNothing);
     expect(_resultText(tester), startsWith(_strings.backupInvalid));
+    await _openResult(tester);
     expect(_resultText(tester), contains('Retired import request'));
     await _close(tester);
     expect(documents.discarded, [_first]);
@@ -1269,6 +1354,7 @@ void main() {
           await tester.pump();
           await tester.pump(const Duration(milliseconds: 300));
         }
+        await _openResult(tester);
         expect(
           _resultText(tester),
           contains(_strings.backupRestoreUnconfirmed),
@@ -1338,6 +1424,7 @@ void main() {
       );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
+      await _openResult(tester);
       final text = _resultText(tester);
       expect(text, contains(_strings.backupRestored));
       expect(text, contains(_strings.backupSettingsRefreshFailed));
@@ -1361,6 +1448,7 @@ void main() {
     await _show(tester, app);
     await _choose(tester);
     await _confirmRestore(tester);
+    await _openResult(tester);
     expect(
       _resultText(tester),
       contains(messages.importAndSelectFirst.resolve(_strings)),
@@ -1418,10 +1506,12 @@ void main() {
           _resultText(tester),
           isNot(contains(_strings.backupExportSaved)),
         );
+        await _openResult(tester);
         expect(
           _resultText(tester),
-          contains('content://private-credential-fixture'),
+          isNot(contains('content://private-credential-fixture')),
         );
+        expect(_resultText(tester), contains('externalMayBePartial'));
         await _close(tester);
         expect(documents.discarded, [_first]);
       },
@@ -1441,6 +1531,7 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       expect(_resultText(tester), contains(_strings.backupFailed));
+      await _openResult(tester);
       expect(_resultText(tester), contains('private-provider-error'));
       await _close(tester);
       expect(documents.discarded, [_first]);
@@ -1491,6 +1582,7 @@ void main() {
         );
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
+        await _openResult(tester);
         final text = _resultText(tester);
         expect(
           text,
@@ -1500,15 +1592,7 @@ void main() {
         );
         expect(text, contains('original cleanup cause: content://credential'));
         expect(text, isNot(contains(_strings.backupNotRestored)));
-        await tester.tap(find.byKey(const ValueKey('backup-result-raw')));
-        await tester.pumpAndSettle();
-        final raw = jsonDecode(
-          tester.widget<OriginalTextView>(find.byType(OriginalTextView)).text,
-        ) as Map;
-        expect(
-          importing ? raw['committed'] : raw['status'],
-          importing ? true : 'saved',
-        );
+        expect(find.byKey(const ValueKey('backup-result-raw')), findsNothing);
         await _close(tester);
         expect(tester.widget<ListTile>(_key('import')).onTap, isNotNull);
       },
@@ -1535,13 +1619,14 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       expect(_resultText(tester), contains(_strings.backupExportSaved));
+      await _openResult(tester);
       expect(_resultText(tester), contains('original cancellation failure'));
       await _close(tester);
     },
   );
 
   testWidgets(
-    'native error and unknown fields are completely viewable and copyable',
+    'native error details are viewable and copyable without raw response',
     (tester) async {
       final error = 'provider credential content://fixture/${'原🌐' * 5000}';
       app.restoreDetails = {
@@ -1570,28 +1655,27 @@ void main() {
       await _show(tester, app);
       await _choose(tester);
       await _confirmRestore(tester);
+      expect(find.byType(AlertDialog), findsNothing);
+      await _openResult(tester);
       expect(_resultText(tester), contains(error));
-      final expansion = find.byKey(const ValueKey('backup-result-raw'));
-      await tester.ensureVisible(expansion);
-      await tester.tap(expansion);
-      await tester.pumpAndSettle();
-      final view = tester.widget<OriginalTextView>(
-        find.byType(OriginalTextView),
-      );
-      final raw = jsonDecode(view.text) as Map;
-      expect(raw['errorDetail'], app.restoreDetails!['errorDetail']);
-      expect(raw['unknown'], app.restoreDetails!['unknown']);
-      expect(raw.containsKey('errorCode'), isTrue);
-      final copy = find.byKey(const ValueKey('original-text-copy'));
+      expect(find.byKey(const ValueKey('backup-result-raw')), findsNothing);
+      final text = tester
+          .widget<SelectableText>(
+            find.byKey(const ValueKey('operation-technical-text')),
+          )
+          .data!;
+      expect(text, contains(error));
+      expect(text, isNot(contains('"unknown"')));
+      final copy = find.byKey(const ValueKey('operation-technical-copy'));
       await tester.ensureVisible(copy);
       await tester.tap(copy);
       await tester.pump();
-      expect(copied, view.text);
+      expect(copied, text);
       expect(tester.takeException(), isNull);
     },
   );
 
-  testWidgets('successful save exposes its full raw provider feedback', (
+  testWidgets('successful save reports its result without raw feedback', (
     tester,
   ) async {
     documents.pendingSave = Completer<Map<String, dynamic>>();
@@ -1604,14 +1688,11 @@ void main() {
     };
     documents.pendingSave!.complete(response);
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(SnackBarAction, _strings.rawData));
-    await tester.pumpAndSettle();
-    final raw = jsonDecode(
-      tester.widget<OriginalTextView>(find.byType(OriginalTextView)).text,
-    ) as Map;
-    for (final key in response.keys) {
-      expect(raw[key], response[key]);
+    expect(_resultText(tester), _strings.backupExportSaved);
+    for (final label in ['Original data', '原始数据']) {
+      expect(find.widgetWithText(SnackBarAction, label), findsNothing);
     }
+    expect(find.byType(OriginalTextView), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -1628,7 +1709,9 @@ void main() {
     await _choose(tester);
     expect(app.commands, isEmpty);
     expect(find.text(_strings.backupConfirmTitle), findsNothing);
-    expect(_resultText(tester), contains('captured'));
+    await _openResult(tester);
+    expect(_resultText(tester), isNot(contains('captured')));
+    expect(_resultText(tester), contains('retired'));
     expect(documents.discarded, [_first]);
     await _close(tester);
   });
@@ -1903,56 +1986,58 @@ void main() {
         final owner = tester.state(find.byType(BackupSettingsActions));
         await _choose(tester);
         await _confirmRestore(tester);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(find.byType(SnackBar), findsOneWidget);
+        expect(tester.widget<ListTile>(_key('import')).onTap, isNotNull);
+        await _openResult(tester, technical: false);
         final summary = tester
             .widget<SelectableText>(
-              find.byKey(const ValueKey('backup-result-summary')),
+              find
+                  .descendant(
+                    of: find.byType(AlertDialog),
+                    matching: find.byType(SelectableText),
+                  )
+                  .first,
             )
             .data!;
         expect(summary, contains(_strings.backupRestored));
         expect(summary, contains(_strings.backupConnectionFailed));
         expect(summary, isNot(contains(original)));
         expect(find.text(original), findsNothing);
-        final technical = find.byKey(const ValueKey('backup-result-technical'));
+        final technical = find.byKey(
+          const ValueKey('operation-technical-details'),
+        );
         expect(tester.widget<ExpansionTile>(technical).title, isA<Text>());
         expect(
           (tester.widget<ExpansionTile>(technical).title as Text).data,
           _strings.technicalDetails,
         );
         await tester.ensureVisible(technical);
-        await tester.tap(find.text(_strings.technicalDetails));
+        await tester.tap(technical);
         await tester.pumpAndSettle();
-        final viewFinder = find.byKey(
-          const ValueKey('backup-result-technical-content'),
+        final textFinder = find.byKey(
+          const ValueKey('operation-technical-text'),
         );
-        final view = tester.widget<OriginalTextView>(viewFinder);
-        expect(view.text, contains(original));
-        final copy = find.descendant(
-          of: viewFinder,
-          matching: find.byKey(const ValueKey('original-text-copy')),
-        );
+        final text = tester.widget<SelectableText>(textFinder).data!;
+        expect(text, contains(original));
+        final copy = find.byKey(const ValueKey('operation-technical-copy'));
         await tester.ensureVisible(copy);
         await tester.pumpAndSettle();
-        expect(
-          tester.widget<IconButton>(copy).tooltip,
-          _strings.copyOriginalText,
-        );
         expect(
           tester.getRect(copy).size.shortestSide,
           greaterThanOrEqualTo(48),
         );
-        final copyAction = tester.widget<IconButton>(copy).onPressed!;
+        final copyAction = tester.widget<TextButton>(copy).onPressed!;
         await tester.tap(copy);
         await tester.pump();
-        expect(copied, view.text);
+        expect(copied, text);
         expect(writes, 1);
-        final readerState = tester.state(viewFinder);
         failCopy = true;
         await tester.tap(copy);
         await tester.pumpAndSettle();
         expect(find.byType(AlertDialog), findsOneWidget);
         expect(find.byType(SnackBar), findsOneWidget);
         expect(writes, 1);
-        expect(tester.state(viewFinder), same(readerState));
         app.changed();
         await tester.pumpAndSettle();
         expect(find.byType(AlertDialog), findsOneWidget);
@@ -1966,43 +2051,36 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(AlertDialog), findsNWidgets(2));
         expect(find.byType(SnackBar), findsNothing);
-        await tester.tap(
-          find.byKey(const ValueKey('operation-technical-details')),
-        );
+        final failureDetails = find
+            .byKey(const ValueKey('operation-technical-details'))
+            .last;
+        await tester.tap(failureDetails);
         await tester.pumpAndSettle();
         expect(
           tester
               .widget<SelectableText>(
-                find.byKey(const ValueKey('operation-technical-text')),
+                find.byKey(const ValueKey('operation-technical-text')).last,
               )
               .data,
           copyFailure.toString(),
         );
         await _close(tester);
         expect(find.byType(AlertDialog), findsOneWidget);
-        expect(tester.state(viewFinder), same(readerState));
+        expect(tester.widget<SelectableText>(textFinder).data, text);
         expect(tester.state(find.byType(BackupSettingsActions)), same(owner));
         expect(documents.cancellations, isEmpty);
         failCopy = false;
-        await tester.ensureVisible(find.text(_strings.technicalDetails));
-        await tester.tap(find.text(_strings.technicalDetails));
-        // Collapsing retires cached copy actions before its visual exit finishes.
-        copyAction();
-        await tester.pump();
-        expect(writes, 1);
-        await tester.pumpAndSettle();
-        final raw = find.byKey(const ValueKey('backup-result-raw'));
-        await tester.ensureVisible(raw);
-        await tester.tap(raw);
-        await tester.pumpAndSettle();
-        final document = jsonDecode(
-          tester.widget<OriginalTextView>(find.byType(OriginalTextView)).text,
-        ) as Map;
-        expect(document['unknown'], app.restoreDetails!['unknown']);
-        expect(
-          document['connectionMessage'],
-          app.restoreDetails!['connectionMessage'],
+        final header = find.descendant(
+          of: technical,
+          matching: find.text(_strings.technicalDetails),
         );
+        await tester.ensureVisible(header);
+        await tester.tap(header);
+        copyAction();
+        await tester.pumpAndSettle();
+        expect(writes, 1);
+        expect(find.byKey(const ValueKey('backup-result-raw')), findsNothing);
+        expect(_resultText(tester), contains(_strings.backupConnectionFailed));
         expect(tester.state(find.byType(BackupSettingsActions)), same(owner));
         expect(app.commands.map((command) => command['action']), [
           'inspectBackup',

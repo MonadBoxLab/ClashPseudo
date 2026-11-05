@@ -2,10 +2,12 @@ import 'package:clash_pseudo/src/model/platform_failure.dart';
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
 import '../app/app_controller.dart';
 import '../navigation/task_activity.dart';
+import '../navigation/route_observer.dart';
 import '../components/reading/format_bytes.dart';
 import '../components/feedback/operation_feedback.dart';
 import '../components/feedback/operation_notice.dart';
@@ -30,13 +32,20 @@ class _StorageDataPageState extends State<StorageDataPage> {
   AppController get app => widget.app;
   Map<String, dynamic> _usage = const {};
   AppMessage? _usageError;
-  bool _reading = false;
   bool _readAgain = false;
+  bool _readAgainReport = false;
   Future<void>? _usageRead;
+  int _usageRequest = 0;
+  int _usageFailures = 0;
+  Timer? _usageRetry;
+  Timer? _usageDeadline;
+  bool _active = false;
   bool _cleaning = false;
   int? _usageEpoch;
-  late (bool, int, String?) _observed;
+  late (int, int, String?) _observed;
   ModalRoute<dynamic>? _dialogRoute;
+  ModalRoute<dynamic>? _detailsRoute;
+  bool _readingDetails = false;
   final _noticeChanges = ValueNotifier(0);
   final _readFaults = <String>{};
   Object? _noticeSource;
@@ -70,31 +79,49 @@ class _StorageDataPageState extends State<StorageDataPage> {
     }
     final errors = _readErrors;
     _readFaults.removeWhere((key) => !errors.containsKey(key));
+    if (!_current) return;
     final fresh = errors.keys.any((key) => !_readFaults.contains(key));
     _readFaults.addAll(errors.keys);
-    if (!fresh || !_current) return;
+    if (!fresh) return;
     bool sameSource() =>
         mounted &&
         source == (app, app.state.storageEpoch, app.storageEpoch) &&
         errors.entries.every((entry) => _readErrors[entry.key] == entry.value);
+    String summary(AppLocalizations strings) =>
+        errors.values.map((error) => error.summary(strings)).toSet().join('\n');
+    String technicalDetail(AppLocalizations strings) => errors.values
+        .map((error) => error.technicalDetail(strings))
+        .whereType<String>()
+        .toSet()
+        .join('\n\n');
+    Future<void> retry() async {
+      if (!sameSource() || !_current) return;
+      _readFaults.clear();
+      await app.refresh();
+      if (_current &&
+          source == (app, app.state.storageEpoch, app.storageEpoch)) {
+        await _loadUsage(reportFailure: true);
+      }
+    }
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!sameSource() || !_current) return;
       unawaited(
         showLocalizedOperationNotice(
           context,
-          (strings) => errors.values
-              .map((error) => error.summary(strings))
-              .toSet()
-              .join('\n'),
-          technicalDetail: (strings) => errors.values
-              .map((error) => error.technicalDetail(strings))
-              .whereType<String>()
-              .toSet()
-              .join('\n\n'),
+          summary,
+          technicalDetail: technicalDetail,
           eligibilityChanges: Listenable.merge([app, _noticeChanges]),
           isCurrent: () => sameSource() && _current,
           isCurrentWithPopup: (popup) =>
               sameSource() && _feedbackCurrent(popup),
+          onDetails: () => _showDetails(
+            summary,
+            technicalDetail,
+            sameSource,
+            onRetry: retry,
+          ),
+          onRetry: retry,
           identity: ('storage-read', source, Object.hashAll(errors.values)),
         ),
       );
@@ -118,12 +145,43 @@ class _StorageDataPageState extends State<StorageDataPage> {
       app.interactive &&
       AppTaskActivity.isActive(context, ownedPopup: popup);
 
+  Future<void> _showDetails(
+    String Function(AppLocalizations) summary,
+    String? Function(AppLocalizations) technicalDetail,
+    bool Function() sameSource, {
+    Future<void> Function()? onRetry,
+  }) async {
+    _readingDetails = true;
+    try {
+      await showLocalizedOperationMessage(
+        context,
+        summary,
+        technicalDetail: technicalDetail,
+        title: (strings) => strings.errorDetails,
+        isCurrent: () => sameSource() && _current,
+        isCurrentWithPopup: (popup) => sameSource() && _feedbackCurrent(popup),
+        eligibilityChanges: Listenable.merge([app, _noticeChanges]),
+        onRoute: (route) => _detailsRoute = route,
+        onRetry: onRetry,
+      );
+    } finally {
+      _readingDetails = false;
+      _detailsRoute = null;
+      if (mounted && _syncVisibility()) unawaited(_loadUsage());
+    }
+  }
+
   @override
   void initState() {
     super.initState();
-    _observed = (app.foreground, app.state.storageEpoch, app.state.resultId);
+    _observed = (app.state.storageEpoch, app.storageEpoch, app.state.resultId);
     app.addListener(_changed);
-    unawaited(_loadUsage());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_syncVisibility()) unawaited(_loadUsage());
   }
 
   @override
@@ -132,81 +190,164 @@ class _StorageDataPageState extends State<StorageDataPage> {
     if (identical(oldWidget.app, app)) return;
     oldWidget.app.removeListener(_changed);
     app.addListener(_changed);
+    _usageRequest++;
     _usage = const {};
     _usageEpoch = null;
     _usageError = null;
-    _observed = (app.foreground, app.state.storageEpoch, app.state.resultId);
-    unawaited(_loadUsage());
+    _usageFailures = 0;
+    _observed = (app.state.storageEpoch, app.storageEpoch, app.state.resultId);
+    if (_current) unawaited(_loadUsage());
+  }
+
+  bool _syncVisibility() {
+    if (_readingDetails &&
+        app.interactive &&
+        _routeLive &&
+        AppTaskActivity.isActive(context, ownedPopup: _detailsRoute)) {
+      return false;
+    }
+    final active = _current;
+    if (_active == active) return false;
+    _active = active;
+    if (active) {
+      _usageFailures = 0;
+      return true;
+    }
+    final route = ModalRoute.of(context);
+    if (app.interactive &&
+        (route == null ||
+            AppTaskNavigatorObserver.coveringPopup(route) == null)) {
+      _readFaults.clear();
+    }
+    _usageRequest++;
+    _usageRetry?.cancel();
+    return false;
   }
 
   void _changed() {
     final observed = (
-      app.foreground,
       app.state.storageEpoch,
+      app.storageEpoch,
       app.state.resultId,
     );
-    if (observed != _observed) {
-      _observed = observed;
-      if (app.foreground) unawaited(_loadUsage());
+    final sourceChanged =
+        (observed.$1, observed.$2) != (_observed.$1, _observed.$2);
+    final resultChanged =
+        observed.$3 != _observed.$3 &&
+        const {
+          'import',
+          'updateConfig',
+          'renameConfig',
+          'saveLocal',
+          'delete',
+          'clearConfigurations',
+          'clearOverrides',
+          'scheduleCoreCleanup',
+          'prepareBackup',
+          'inspectBackup',
+          'setConfigUpdate',
+          'setPreference',
+          'setApplicationAccess',
+          'saveOverride',
+          'saveLanProxy',
+          'setLanProxyEnabled',
+          'importOverride',
+          'updateOverride',
+          'changeOverrideSource',
+          'changeOverride',
+          'reorderOverrides',
+          'deleteOverride',
+          'setOverrideUpdate',
+          'saveLocalDefinition',
+          'deleteLocalDefinition',
+        }.contains(app.lastCommand?['action']);
+    _observed = observed;
+    final entered = _syncVisibility();
+    if (sourceChanged) {
+      _usageRequest++;
+      _usageFailures = 0;
+    }
+    if ((sourceChanged || resultChanged || entered) && _current) {
+      unawaited(_loadUsage());
     }
     if (mounted) setState(() {});
   }
 
-  Future<void> _loadUsage() {
-    if (!mounted) return Future.value();
+  Future<void> _loadUsage({bool reportFailure = false}) {
+    if (!_current) return Future.value();
     if (_usageRead case final read?) {
+      if (reportFailure) _usageRequest++;
       _readAgain = true;
+      _readAgainReport |= reportFailure;
       return read;
     }
-    return _usageRead = _readUsage().whenComplete(() => _usageRead = null);
-  }
-
-  Future<void> _readUsage() async {
-    setState(() => _reading = true);
-    try {
-      do {
-        _readAgain = false;
-        final owner = app;
-        final epoch = owner.state.storageEpoch;
-        try {
-          final usage = await owner.platform.storageUsage();
-          if (!mounted) return;
-          if (!identical(owner, app) || epoch != app.state.storageEpoch) {
-            _readAgain = true;
-            continue;
-          }
-          setState(() {
-            _usage = usage;
-            _usageEpoch = epoch;
-            _usageError = null;
-          });
-        } catch (failure) {
-          if (!mounted) return;
-          if (!identical(owner, app) || epoch != app.state.storageEpoch) {
-            _readAgain = true;
-            continue;
-          }
-          setState(() {
-            // A previous measurement is not a successful current read.
-            _usage = const {};
-            _usageEpoch = null;
-            _usageError = _failure(failure, 'storageUsageFailed');
-          });
-        }
-      } while (mounted && _readAgain);
-    } finally {
-      if (mounted) {
-        setState(() => _reading = false);
-        _noticeChanges.value++;
+    _usageRetry?.cancel();
+    _readAgain = _readAgainReport = false;
+    final read = _readUsage(reportFailure: reportFailure);
+    _usageRead = read;
+    return read.whenComplete(() {
+      _usageRead = null;
+      if (!mounted || !_current) return;
+      if (_readAgain) {
+        final report = _readAgainReport;
+        unawaited(_loadUsage(reportFailure: report));
+      } else if (_usageFailures > 0) {
+        const backoff = [30, 60, 120, 300];
+        final seconds = backoff[(_usageFailures - 1).clamp(0, 3)];
+        _usageRetry = Timer(Duration(seconds: seconds), _loadUsage);
       }
-    }
+    });
   }
 
-  Future<void> _refresh() async {
-    if (!_current) return;
-    _readFaults.clear();
-    await app.refresh();
-    if (_current) await _loadUsage();
+  Future<void> _readUsage({required bool reportFailure}) async {
+    final owner = app;
+    final epoch = (owner.state.storageEpoch, owner.storageEpoch);
+    final request = ++_usageRequest;
+    bool current() =>
+        mounted &&
+        identical(owner, app) &&
+        _current &&
+        epoch == (owner.state.storageEpoch, owner.storageEpoch) &&
+        request == _usageRequest;
+    var failed = false;
+    void failure(Object error) {
+      if (!current()) return;
+      if (!failed) _usageFailures++;
+      if (reportFailure || failed) _readFaults.remove('usage');
+      failed = true;
+      setState(() => _usageError = _failure(error, 'storageUsageFailed'));
+      _noticeChanges.value++;
+    }
+
+    _usageDeadline = Timer(const Duration(seconds: 5), () {
+      failure(TimeoutException('Reading storage usage is still in progress'));
+    });
+    try {
+      final usage = await owner.platform.storageUsage();
+      if (!current()) return;
+      final hasErrors = usage.values.any(
+        (value) => value is Map && value['error'] != null,
+      );
+      if (hasErrors) {
+        if (!failed) _usageFailures++;
+        if (reportFailure) {
+          _readFaults.removeWhere((key) => key.startsWith('usage-'));
+        }
+      } else {
+        _usageFailures = 0;
+      }
+      setState(() {
+        _usage = usage;
+        _usageEpoch = epoch.$1;
+        _usageError = null;
+      });
+      _noticeChanges.value++;
+    } catch (failureValue) {
+      failure(failureValue);
+    } finally {
+      _usageDeadline?.cancel();
+      _usageDeadline = null;
+    }
   }
 
   Future<void> _clearCollection(
@@ -246,7 +387,7 @@ class _StorageDataPageState extends State<StorageDataPage> {
         'action': configurations ? 'clearConfigurations' : 'clearOverrides',
         'storageEpoch': epoch,
       });
-      await _loadUsage();
+      unawaited(_loadUsage());
     } finally {
       _dialogRoute = null;
       if (mounted) setState(() => _cleaning = false);
@@ -291,143 +432,89 @@ class _StorageDataPageState extends State<StorageDataPage> {
     }
   }
 
-  Widget _detailAction(
-    List<AppMessage> errors,
-    String identity,
-    bool Function() sourceCurrent,
-  ) {
-    final strings = AppLocalizations.of(context);
-    if (!errors.any((error) => error.technicalDetail(strings) != null)) {
-      return const SizedBox.shrink();
+  Object? _cleanupNotice;
+
+  void _scheduleCleanupNotice() {
+    final cleanup = app.state.coreCleanup;
+    final status = cleanup['status'];
+    if (status != 'failed' && status != 'partial') {
+      _cleanupNotice = null;
+      return;
     }
-    final owner = app;
-    final epoch = owner.storageEpoch;
+    final error = AppMessage.fromNullable(cleanup['error']);
+    final files = coreCleanupFiles(cleanup);
+    final source = (
+      app,
+      app.state.storageEpoch,
+      app.storageEpoch,
+      status,
+      error,
+      Object.hashAll(files),
+    );
+    final command = app.lastCommand;
+    bool representedByLocal() =>
+        identical(app.lastCommand, command) &&
+        command?['action'] == 'scheduleCoreCleanup' &&
+        app.state.resultId != null &&
+        (app.hasLocalFeedbackOwner ||
+            app.feedbackHandledLocally(
+              command!,
+              submissionFailed: false,
+              resultId: app.state.resultId,
+            ));
+    if (representedByLocal()) {
+      if (!app.hasLocalFeedbackOwner) _cleanupNotice = source;
+      return;
+    }
+    if (_cleanupNotice == source || !_current) return;
+    _cleanupNotice = source;
     bool sameSource() =>
         mounted &&
-        identical(owner, app) &&
-        owner.storageEpoch == epoch &&
-        sourceCurrent();
-    return Align(
-      alignment: AlignmentDirectional.centerStart,
-      child: TextButton.icon(
-        key: ValueKey('$identity-details'),
-        icon: const Icon(Icons.error_outline),
-        label: Text(strings.errorDetails),
-        onPressed: () => unawaited(
-          showLocalizedOperationMessage(
-            context,
-            (strings) =>
-                errors.map((error) => error.summary(strings)).join('\n\n'),
-            technicalDetail: (strings) => errors
-                .map((error) => error.technicalDetail(strings))
-                .whereType<String>()
-                .join('\n\n'),
-            title: (strings) => strings.errorDetails,
-            isCurrent: () => _current && sameSource(),
-            isCurrentWithPopup: (popup) =>
-                _feedbackCurrent(popup) && sameSource(),
-          ),
+        !representedByLocal() &&
+        _cleanupNotice == source &&
+        identical(app, source.$1) &&
+        app.state.storageEpoch == source.$2 &&
+        app.storageEpoch == source.$3 &&
+        app.state.coreCleanup['status'] == status &&
+        AppMessage.fromNullable(app.state.coreCleanup['error']) == error &&
+        listEquals(files, coreCleanupFiles(app.state.coreCleanup));
+    String summary(AppLocalizations strings) => status == 'partial'
+        ? strings.coreCleanupPartial
+        : strings.coreCleanupFailed;
+    String technicalDetail(AppLocalizations strings) =>
+        coreCleanupDetails(strings, cleanup);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!sameSource() || !_current) return;
+      unawaited(
+        showLocalizedOperationNotice(
+          context,
+          summary,
+          technicalDetail: technicalDetail,
+          eligibilityChanges: Listenable.merge([app, _noticeChanges]),
+          isCurrent: () => sameSource() && _current,
+          isCurrentWithPopup: (popup) =>
+              sameSource() && _feedbackCurrent(popup),
+          onDetails: () => _showDetails(summary, technicalDetail, sameSource),
+          identity: ('storage-cleanup', source),
         ),
-      ),
-    );
+      );
+    });
   }
-
-  Widget _inlineMessage(
-    AppMessage error,
-    String identity,
-    bool Function() sourceCurrent,
-  ) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      SelectableText(error.summary(AppLocalizations.of(context))),
-      _detailAction([error], identity, sourceCurrent),
-    ],
-  );
 
   Widget? _cleanupState() {
     final strings = AppLocalizations.of(context);
     final cleanup = app.state.coreCleanup;
-    final epoch = app.state.storageEpoch;
-    final status = cleanup['status'];
-    final title = switch (status) {
+    final title = switch (cleanup['status']) {
       'initializing' => strings.coreCleanupInitializing,
       'scheduled' => strings.coreCleanupScheduled,
-      'failed' => strings.coreCleanupFailed,
       'completed' => strings.coreCleanupCompleted,
-      'partial' => strings.coreCleanupPartial,
       'needsSelection' => strings.coreCleanupSelect,
       _ => null,
     };
     if (title == null) return null;
-    final error = AppMessage.fromNullable(cleanup['error']);
-    final subject = switch ((cleanup['scope'], cleanup['path'])) {
-      ('cache', _) => 'cache.db',
-      ('needsSelection', _) => strings.coreCleanupSelect,
-      ('resource', final String path) => path.split('/').last,
-      _ => null,
-    };
-    return Column(
-      key: ValueKey(('storage-cleanup', status)),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        ListTile(
-          key: const ValueKey('storage-core-cleanup-state'),
-          leading: Icon(switch (status) {
-            'failed' => Icons.error_outline,
-            'completed' => Icons.check_circle_outline,
-            _ => Icons.schedule,
-          }),
-          title: Text(title),
-          subtitle: subject == null && error == null
-              ? null
-              : Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SelectableText(
-                      [
-                        ?subject,
-                        if (error != null) error.summary(strings),
-                      ].join('\n'),
-                    ),
-                    if (error != null)
-                      _detailAction(
-                        [error],
-                        'storage-core-cleanup-state',
-                        () =>
-                            app.storageEpoch == epoch &&
-                            identical(app.state.coreCleanup, cleanup),
-                      ),
-                  ],
-                ),
-        ),
-        for (final item in cleanup['files'] as List? ?? const [])
-          Builder(
-            builder: (context) {
-              final row = item as Map;
-              final path = row['path'] as String? ?? '';
-              final itemError = AppMessage.fromNullable(row['error']);
-              return ListTile(
-                leading: Icon(
-                  row['completed'] == true
-                      ? Icons.check_circle_outline
-                      : Icons.error_outline,
-                ),
-                title: SelectableText(path),
-                subtitle: itemError == null
-                    ? null
-                    : _inlineMessage(
-                        itemError,
-                        'storage-core-cleanup-file-$path',
-                        () =>
-                            app.storageEpoch == epoch &&
-                            identical(app.state.coreCleanup, cleanup),
-                      ),
-              );
-            },
-          ),
-      ],
+    return ListTile(
+      key: const ValueKey('storage-core-cleanup-state'),
+      title: Text(title),
     );
   }
 
@@ -528,27 +615,9 @@ class _StorageDataPageState extends State<StorageDataPage> {
     final owner = app;
     final epoch = owner.state.storageEpoch;
     _scheduleReadNotice();
+    _scheduleCleanupNotice();
     return Scaffold(
-      appBar: AppBar(
-        title: Text(strings.storageData),
-        actions: [
-          IconButton(
-            tooltip: strings.refresh,
-            onPressed: _reading ? null : _refresh,
-            icon: SizedBox.square(
-              dimension: 24,
-              child: _reading
-                  ? const Center(
-                      child: SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    )
-                  : const Icon(Icons.refresh),
-            ),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: Text(strings.storageData)),
       body: SafeArea(
         top: false,
         child: Align(
@@ -559,98 +628,94 @@ class _StorageDataPageState extends State<StorageDataPage> {
               contentPadding: const EdgeInsets.symmetric(horizontal: 16),
               minLeadingWidth: 24,
               horizontalTitleGap: 16,
-              child: RefreshIndicator(
-                onRefresh: _refresh,
-                child: ListView(
-                  key: const PageStorageKey('storage-data'),
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  children: [
-                    _heading(strings.backupTitle),
-                    _StorageTransition(
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Text(strings.backupScopeNotice),
-                      ),
+              child: ListView(
+                key: const PageStorageKey('storage-data'),
+                children: [
+                  _heading(strings.backupTitle),
+                  _StorageTransition(
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Text(strings.backupScopeNotice),
                     ),
-                    BackupSettingsActions(app: app, active: _routeLive),
-                    const Divider(indent: 16, endIndent: 16),
-                    _heading(strings.storageUsage),
-                    _usageRow(
-                      'configurations',
-                      strings.configurations,
-                      icon: Icons.description_outlined,
-                      limit: ApplicationContract.backupConfigurationsJsonBytes,
-                      count: app.configsCurrent
-                          ? app.collection.entries.length
+                  ),
+                  BackupSettingsActions(app: app, active: _routeLive),
+                  const Divider(indent: 16, endIndent: 16),
+                  _heading(strings.storageUsage),
+                  _usageRow(
+                    'configurations',
+                    strings.configurations,
+                    icon: Icons.description_outlined,
+                    limit: ApplicationContract.backupConfigurationsJsonBytes,
+                    count: app.configsCurrent
+                        ? app.collection.entries.length
+                        : null,
+                    showCount: true,
+                  ),
+                  _usageRow(
+                    'overrides',
+                    strings.overridePlugins,
+                    icon: Icons.extension_outlined,
+                    limit: ApplicationContract.backupOverridesJsonBytes,
+                    count: app.overridesCurrent ? app.overrides.length : null,
+                    showCount: true,
+                  ),
+                  _usageRow(
+                    'preferences',
+                    strings.settings,
+                    icon: Icons.tune,
+                    limit: ApplicationContract.backupPreferencesJsonBytes,
+                  ),
+                  _usageRow(
+                    'core',
+                    strings.coreDataDirectory,
+                    icon: Icons.storage_outlined,
+                    description: strings.storageCoreNotice,
+                  ),
+                  _StorageTransition(_cleanupState()),
+                  const Divider(indent: 16, endIndent: 16),
+                  _heading(strings.storageCleanup),
+                  _StorageTransition(
+                    ListTile(
+                      key: const ValueKey('storage-clear-configurations'),
+                      leading: const Icon(Icons.delete_outline),
+                      title: Text(strings.clearConfigurations),
+                      onTap: !_cleaning && app.canManageStoredData
+                          ? () => _clearCollection(true, owner, epoch)
                           : null,
-                      showCount: true,
                     ),
-                    _usageRow(
-                      'overrides',
-                      strings.overridePlugins,
-                      icon: Icons.extension_outlined,
-                      limit: ApplicationContract.backupOverridesJsonBytes,
-                      count: app.overridesCurrent ? app.overrides.length : null,
-                      showCount: true,
+                  ),
+                  _StorageTransition(
+                    ListTile(
+                      key: const ValueKey('storage-clear-overrides'),
+                      leading: const Icon(Icons.delete_outline),
+                      title: Text(strings.clearOverrides),
+                      onTap: !_cleaning && app.canManageStoredData
+                          ? () => _clearCollection(false, owner, epoch)
+                          : null,
                     ),
-                    _usageRow(
-                      'preferences',
-                      strings.settings,
-                      icon: Icons.tune,
-                      limit: ApplicationContract.backupPreferencesJsonBytes,
+                  ),
+                  _StorageTransition(
+                    ListTile(
+                      key: const ValueKey('storage-clear-connections'),
+                      leading: const Icon(Icons.clear_all),
+                      title: Text(strings.clearInactiveConnections),
+                      subtitle: Text(strings.storageMemoryNotice),
+                      onTap: _cleaning ? null : _clearConnections,
                     ),
-                    _usageRow(
-                      'core',
-                      strings.coreDataDirectory,
-                      icon: Icons.storage_outlined,
-                      description: strings.storageCoreNotice,
-                    ),
-                    _StorageTransition(_cleanupState()),
-                    const Divider(indent: 16, endIndent: 16),
-                    _heading(strings.storageCleanup),
-                    _StorageTransition(
-                      ListTile(
-                        key: const ValueKey('storage-clear-configurations'),
-                        leading: const Icon(Icons.delete_outline),
-                        title: Text(strings.clearConfigurations),
-                        onTap: !_cleaning && app.canManageStoredData
-                            ? () => _clearCollection(true, owner, epoch)
-                            : null,
-                      ),
-                    ),
-                    _StorageTransition(
-                      ListTile(
-                        key: const ValueKey('storage-clear-overrides'),
-                        leading: const Icon(Icons.delete_outline),
-                        title: Text(strings.clearOverrides),
-                        onTap: !_cleaning && app.canManageStoredData
-                            ? () => _clearCollection(false, owner, epoch)
-                            : null,
-                      ),
-                    ),
-                    _StorageTransition(
-                      ListTile(
-                        key: const ValueKey('storage-clear-connections'),
-                        leading: const Icon(Icons.clear_all),
-                        title: Text(strings.clearInactiveConnections),
-                        subtitle: Text(strings.storageMemoryNotice),
-                        onTap: _cleaning ? null : _clearConnections,
-                      ),
-                    ),
-                    CoreCleanupAction(
-                      key: const ValueKey('storage-cleanup-files'),
-                      app: app,
-                      enabled: !_cleaning,
-                      isCurrent: () => _routeLive,
-                      request: const {},
-                      title: (strings) => strings.coreCleanupSelect,
-                      description: (strings) =>
-                          strings.coreCleanupSelectionNotice,
-                      icon: Icons.delete_sweep_outlined,
-                    ),
-                    const SizedBox(height: 24),
-                  ],
-                ),
+                  ),
+                  CoreCleanupAction(
+                    key: const ValueKey('storage-cleanup-files'),
+                    app: app,
+                    enabled: !_cleaning,
+                    isCurrent: () => _routeLive,
+                    request: const {},
+                    title: (strings) => strings.coreCleanupSelect,
+                    description: (strings) =>
+                        strings.coreCleanupSelectionNotice,
+                    icon: Icons.delete_sweep_outlined,
+                  ),
+                  const SizedBox(height: 24),
+                ],
               ),
             ),
           ),
@@ -661,6 +726,9 @@ class _StorageDataPageState extends State<StorageDataPage> {
 
   @override
   void dispose() {
+    _usageRequest++;
+    _usageRetry?.cancel();
+    _usageDeadline?.cancel();
     app.removeListener(_changed);
     _noticeChanges.dispose();
     super.dispose();

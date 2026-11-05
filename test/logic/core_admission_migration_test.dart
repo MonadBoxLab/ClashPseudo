@@ -362,9 +362,7 @@ void main() {
         ) {
           expect(request.arguments['kind'], 'geo');
           expect(request.arguments['name'], 'GeoIP');
-          request.complete({
-            'update': {'status': 'ok'},
-          });
+          request.complete({'status': 'ok'});
         });
         final retry = await fixture.operation.updateResource(
           captured,
@@ -426,9 +424,7 @@ void main() {
         fixture.script(ApplicationContract.coreOperationResourceUpdate, (
           request,
         ) {
-          request.complete({
-            'update': {'status': 'ok'},
-          });
+          request.complete({'status': 'ok'});
         });
         final retry = await fixture.execute({...command});
         expect(retry['success'], isTrue);
@@ -494,9 +490,7 @@ void main() {
         (request.wire['identity'] as Map)['processId'],
         replacement.processId,
       );
-      request.complete({
-        'update': {'status': 'ok'},
-      });
+      request.complete({'status': 'ok'});
     });
     final retry = await fixture.operation.updateResource(
       replacement,
@@ -521,10 +515,8 @@ void main() {
       ) {
         request.complete(
           {
-            'update': {
-              'status': 'ok',
-              'future': [false, null],
-            },
+            'status': 'ok',
+            'future': [false, null],
           },
           terminal: {'exited': false},
         );
@@ -554,13 +546,13 @@ void main() {
       );
 
       fixture.script(ApplicationContract.coreOperationRuntimeConfig, (request) {
-        request.complete({'mode': 'rule'});
+        request.complete('mode: rule\n');
       });
       final diagnostic = jsonDecode(
         await fixture.runtime.read('runtimeConfig', fixture.identity())
             as String,
       ) as Map;
-      expect((diagnostic['configuration'] as Map)['mode'], 'rule');
+      expect(diagnostic['configuration'], 'mode: rule\n');
       expect(pending.settled, isFalse);
       expect(fixture.core, same(captured));
       fixture.replaceCore(phase: 'RELEASING');
@@ -575,7 +567,7 @@ void main() {
       await pending.done;
       expect(pending.error, isNull);
       expect((pending.value!['update'] as Map)['status'], 'ok');
-      expect((pending.value!['update'] as Map)['future'], [false, null]);
+      expect((pending.value!['update'] as Map).containsKey('future'), isFalse);
       expect(pending.value!['generation'], captured.generation);
       expect(pending.value!['composition'], captured.composition);
       expect(pending.value!['stale'], isTrue);
@@ -593,9 +585,7 @@ void main() {
       fixture.script(ApplicationContract.coreOperationResourceUpdate, (
         request,
       ) {
-        request.complete({
-          'update': {'status': 'ok'},
-        });
+        request.complete({'status': 'ok'});
       });
       expect(
         (await fixture.operation.updateResource(

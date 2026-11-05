@@ -2,12 +2,9 @@ import '../locale/model_text.dart';
 import '../locale/message_text.dart';
 
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-
-import '../components/reading/original_text_view.dart';
 
 import '../components/collections/collection_workspace.dart';
 import '../components/collections/reading_list.dart';
@@ -73,6 +70,10 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
   bool _quiet = false;
   bool _confirmed = false;
   Object? _pendingNotice;
+  Object? _seenOperationError;
+  final _operationErrors =
+      <({Object identity, Object source, AppMessage message})>[];
+  bool _schedulingOperations = false;
 
   Object get _sourceIdentity => (
     widget.app.storageEpoch,
@@ -122,6 +123,38 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
       controller.errorSource == ConnectionErrorSource.read &&
       _feedbackSource == _sourceIdentity &&
       _feedbackLive();
+
+  void _scheduleOperationNotices(BuildContext noticeContext) {
+    _operationErrors.removeWhere(
+      (failure) => failure.source != _sourceIdentity,
+    );
+    if (_operationErrors.isEmpty || _schedulingOperations || !_feedbackLive()) {
+      return;
+    }
+    _schedulingOperations = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _schedulingOperations = false;
+      if (!noticeContext.mounted || !_feedbackLive()) return;
+      final failures = List.of(_operationErrors);
+      _operationErrors.clear();
+      for (final failure in failures) {
+        bool current({ModalRoute<dynamic>? popup}) =>
+            failure.source == _sourceIdentity && _feedbackLive(popup: popup);
+        if (!current()) continue;
+        unawaited(
+          showAppNotice(
+            noticeContext,
+            failure.message,
+            title: (strings) => strings.errorDetails,
+            identity: failure.identity,
+            eligibilityChanges: controller,
+            isCurrent: current,
+            isCurrentWithPopup: (popup) => current(popup: popup),
+          ),
+        );
+      }
+    });
+  }
 
   void _scheduleNotice(BuildContext noticeContext) {
     _syncFeedback();
@@ -301,6 +334,11 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
 
   void _changed() {
     if (!mounted) return;
+    final failure = controller.operationError;
+    if (failure != null && failure.identity != _seenOperationError) {
+      _seenOperationError = failure.identity;
+      if (failure.source == _sourceIdentity) _operationErrors.add(failure);
+    }
     _syncFeedback();
     if (_detailOpen && controller.detail == null) {
       setState(() => _detailOpen = false);
@@ -446,6 +484,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
       child: OperationNoticeHost(
         child: Builder(
           builder: (noticeContext) {
+            _scheduleOperationNotices(noticeContext);
             _scheduleNotice(noticeContext);
             return _content(noticeContext);
           },
@@ -464,7 +503,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
         strings.connectionOmitted(controller.data!.omitted),
     ].where((text) => text.isNotEmpty).join('\n');
     final badgeStyle = DefaultTextStyle.of(context).style
-        .merge(const TextStyle(fontSize: 12, height: 1.4));
+        .merge(Theme.of(context).textTheme.bodySmall!.copyWith(height: 1.4));
     var badgeWidth = 0.0;
     for (final label in [
       strings.connectionActive,
@@ -474,6 +513,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
         text: TextSpan(text: label, style: badgeStyle),
         textDirection: Directionality.of(context),
         textScaler: MediaQuery.textScalerOf(context),
+        locale: Localizations.maybeLocaleOf(context),
         maxLines: 1,
       )..layout();
       if (painter.width > badgeWidth) badgeWidth = painter.width;
@@ -511,10 +551,6 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
               isPresented: () =>
                   mounted && _workspace.currentState?.detailPresented == true,
               onClose: _closeDetail,
-              onErrorViewed: () {
-                if (_fault) _quiet = true;
-                _retireNotice();
-              },
               onMenuChanged: _setFilterOpen,
             )
           : null,
@@ -608,28 +644,18 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
                 ),
                 options: {
                   'connection-clear-inactive': strings.clearInactiveConnections,
-                  if (controller.errorMessage != null)
-                    'connection-list-error-details': strings.errorDetails,
                 },
                 disabledOptions: {
                   if (controller.clearing) 'connection-clear-inactive',
                 },
-                leadingIcon: (action) => Icon(
-                  action == 'connection-clear-inactive'
-                      ? Icons.clear_all_rounded
-                      : Icons.error_outline_rounded,
-                  size: 20,
-                ),
+                leadingIcon: (_) =>
+                    const Icon(Icons.clear_all_rounded, size: 20),
                 onOpened: () => _setFilterOpen(_actionsMenu, true),
                 onClosed: () => _setFilterOpen(_actionsMenu, false),
-                onSelected: (action) {
+                onSelected: (_) {
                   if (!_masterLive) return;
                   _setFilterOpen(_actionsMenu, false);
-                  if (action == 'connection-list-error-details') {
-                    _showError();
-                  } else if (!controller.clearing) {
-                    controller.clearInactive();
-                  }
+                  if (!controller.clearing) controller.clearInactive();
                 },
               ),
               const CollectionDetailsAction(),
@@ -887,10 +913,8 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
                     Expanded(
                       child: Text(
                         row.target,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
+                        style: Theme.of(context).textTheme.bodyLarge!
+                            .copyWith(fontWeight: FontWeight.w600),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -906,15 +930,15 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
                   row.chains.isEmpty ? '—' : row.path,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: colors.onSurfaceVariant,
-                  ),
+                  style: Theme.of(context).textTheme.bodySmall!
+                      .copyWith(color: colors.onSurfaceVariant),
                 ),
                 const SizedBox(height: 8),
                 LayoutBuilder(
                   builder: (context, constraints) {
-                    final size = MediaQuery.textScalerOf(context).scale(12);
+                    final size = MediaQuery.textScalerOf(
+                      context,
+                    ).scale(Theme.of(context).textTheme.bodySmall!.fontSize!);
                     final badge = AnimatedContainer(
                       duration: MediaQuery.disableAnimationsOf(context)
                           ? Duration.zero
@@ -930,29 +954,28 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
                       child: Text(
                         state,
                         softWrap: false,
-                        style: TextStyle(
-                          fontSize: 12,
+                        style: Theme.of(context).textTheme.bodySmall!
+                            .copyWith(height: 1.4, color: stateColor),
+                      ),
+                    );
+                    Widget metric(
+                      String value,
+                      Color color, {
+                      bool numeric = false,
+                    }) => SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Text(
+                        value,
+                        softWrap: false,
+                        style: Theme.of(context).textTheme.bodySmall!.copyWith(
                           height: 1.4,
-                          color: stateColor,
+                          color: color,
+                          fontFeatures: numeric
+                              ? const [FontFeature.tabularFigures()]
+                              : null,
                         ),
                       ),
                     );
-                    Widget metric(String value, Color color) =>
-                        SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Text(
-                            value,
-                            softWrap: false,
-                            style: TextStyle(
-                              fontSize: 12,
-                              height: 1.4,
-                              color: color,
-                              fontFeatures: const [
-                                FontFeature.tabularFigures(),
-                              ],
-                            ),
-                          ),
-                        );
                     final protocol = metric(
                       row.network.toUpperCase(),
                       colors.onSurfaceVariant,
@@ -963,6 +986,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
                           child: metric(
                             '↓ ${_bytes(row.download)}',
                             palette.download,
+                            numeric: true,
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -970,6 +994,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
                           child: metric(
                             '↑ ${_bytes(row.upload)}',
                             palette.upload,
+                            numeric: true,
                           ),
                         ),
                       ],

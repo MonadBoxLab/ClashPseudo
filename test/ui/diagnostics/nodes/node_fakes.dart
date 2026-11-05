@@ -42,7 +42,7 @@ Map<String, dynamic> page({
           'builtin': false,
           'udp': true,
           'history': [],
-          'tests': [],
+          'extra': <String, Object>{},
         },
     ],
   },

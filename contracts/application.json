@@ -61,6 +61,10 @@
     "local_interfaces": "localInterfaces",
     "runtime_changed": "runtimeChanged"
   },
+  "ui_event": {
+    "local_interfaces_changed": "localInterfacesChanged",
+    "applications_changed": "applicationsChanged"
+  },
   "core_field": {
     "protocol": "protocol",
     "operation": "operation",

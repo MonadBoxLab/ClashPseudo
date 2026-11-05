@@ -6,16 +6,19 @@ import 'package:clash_pseudo/src/model/core_snapshot.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../navigation/task_activity.dart';
 import '../theme/app_theme.dart';
 
 import 'delay_test_controller.dart';
+import '../../model/app_message.dart';
 import '../../model/delay_result.dart';
 import 'strategy_controller.dart';
 import '../../model/strategy_snapshot.dart';
 import '../components/feedback/operation_feedback.dart';
+import '../components/feedback/operation_notice.dart';
 import '../components/reading/provenance_details.dart';
 import '../../l10n/app_localizations.dart';
 import 'strategy_icon.dart';
@@ -150,122 +153,129 @@ class _StrategyPopupRoute extends PopupRoute<void> {
     Animation<double> animation,
     Animation<double> secondaryAnimation,
   ) {
-    return AnimatedBuilder(
-      animation: Listenable.merge([animation, strategies, _interactive]),
-      builder: (context, _) {
-        final media = MediaQuery.of(context);
-        final interactive = ownerCurrent();
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            final geometry = (constraints.biggest, media.textScaler.scale(14));
-            if (_geometry != geometry) {
-              _geometry = geometry;
-              _height = null;
-            }
-            Rect? source;
-            if (anchorBox.attached) {
-              final box = anchorBox;
-              final overlay = navigator!.overlay!.context.findRenderObject();
-              if (box.attached && box.hasSize && overlay is RenderBox) {
-                final rect =
-                    box.localToGlobal(Offset.zero, ancestor: overlay) &
-                    box.size;
-                if (rect.overlaps(Offset.zero & constraints.biggest)) {
-                  source = rect;
+    return OperationNoticeHost(
+      shrinkWrap: true,
+      child: AnimatedBuilder(
+        animation: Listenable.merge([animation, strategies, _interactive]),
+        builder: (context, _) {
+          final media = MediaQuery.of(context);
+          final interactive = ownerCurrent();
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final geometry = (
+                constraints.biggest,
+                media.textScaler.scale(14),
+              );
+              if (_geometry != geometry) {
+                _geometry = geometry;
+                _height = null;
+              }
+              Rect? source;
+              if (anchorBox.attached) {
+                final box = anchorBox;
+                final overlay = navigator!.overlay!.context.findRenderObject();
+                if (box.attached && box.hasSize && overlay is RenderBox) {
+                  final rect =
+                      box.localToGlobal(Offset.zero, ancestor: overlay) &
+                      box.size;
+                  if (rect.overlaps(Offset.zero & constraints.biggest)) {
+                    source = rect;
+                  }
                 }
               }
-            }
-            final core = strategies.app.state.core;
-            _canReturnToSource =
-                _canReturnToSource &&
-                strategies.app.storageEpoch == storageEpoch &&
-                source == anchor &&
-                core.generation == sourceCore.generation &&
-                core.configId == sourceCore.configId &&
-                core.revision == sourceCore.revision &&
-                core.composition == sourceCore.composition &&
-                strategies.groups.any((group) => group.name == name);
-            // Collapse toward the current captured card geometry only.
-            final animate =
-                _canReturnToSource &&
-                strategies.app.foreground &&
-                !media.disableAnimations;
-            final progress = animate
-                ? Curves.easeOutCubic.transform(animation.value)
-                : 1.0;
-            // Never collapse into a moved or retired card. The same popup still
-            // leaves continuously on its own surface, without adding a second
-            // animation to the valid card morph or waiting to revoke actions.
-            final fallback =
-                !animate &&
-                !media.disableAnimations &&
-                animation.status == AnimationStatus.reverse;
-            if (fallback) _fallbackReverseStart ??= animation.value;
-            final opacity = fallback
-                ? (animation.value / math.max(_fallbackReverseStart!, .0001))
-                      .clamp(0.0, 1.0)
-                : 1.0;
-            final colors = Theme.of(context).colorScheme;
-            return CustomSingleChildLayout(
-              delegate: _PopupPosition(
-                anchor: anchor,
-                progress: progress,
-                height: _height,
-                onMeasured: (value) {
-                  if (_height != null) return;
-                  _height = value;
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (isActive) changedExternalState();
-                  });
-                },
-                padding: EdgeInsets.fromLTRB(
-                  media.padding.left + 12,
-                  media.padding.top + 12,
-                  media.padding.right + 12,
-                  math.max(media.padding.bottom, media.viewInsets.bottom) + 12,
-                ),
-              ),
-              child: Opacity(
-                key: ValueKey('strategy-fallback-opacity-$name'),
-                opacity: opacity,
-                child: CustomPaint(
-                  painter: _PopupSurface(
-                    (source ?? anchor).size,
-                    progress,
-                    colors.surface,
-                    colors.outlineVariant,
+              final core = strategies.app.state.core;
+              _canReturnToSource =
+                  _canReturnToSource &&
+                  strategies.app.storageEpoch == storageEpoch &&
+                  source == anchor &&
+                  core.generation == sourceCore.generation &&
+                  core.configId == sourceCore.configId &&
+                  core.revision == sourceCore.revision &&
+                  core.composition == sourceCore.composition &&
+                  strategies.groups.any((group) => group.name == name);
+              // Collapse toward the current captured card geometry only.
+              final animate =
+                  _canReturnToSource &&
+                  strategies.app.foreground &&
+                  !media.disableAnimations;
+              final progress = animate
+                  ? Curves.easeOutCubic.transform(animation.value)
+                  : 1.0;
+              // Never collapse into a moved or retired card. The same popup still
+              // leaves continuously on its own surface, without adding a second
+              // animation to the valid card morph or waiting to revoke actions.
+              final fallback =
+                  !animate &&
+                  !media.disableAnimations &&
+                  animation.status == AnimationStatus.reverse;
+              if (fallback) _fallbackReverseStart ??= animation.value;
+              final opacity = fallback
+                  ? (animation.value / math.max(_fallbackReverseStart!, .0001))
+                        .clamp(0.0, 1.0)
+                  : 1.0;
+              final colors = Theme.of(context).colorScheme;
+              return CustomSingleChildLayout(
+                delegate: _PopupPosition(
+                  anchor: anchor,
+                  progress: progress,
+                  height: _height,
+                  onMeasured: (value) {
+                    if (_height != null) return;
+                    _height = value;
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (isActive) changedExternalState();
+                    });
+                  },
+                  padding: EdgeInsets.fromLTRB(
+                    media.padding.left + 12,
+                    media.padding.top + 12,
+                    media.padding.right + 12,
+                    math.max(media.padding.bottom, media.viewInsets.bottom) +
+                        12,
                   ),
-                  child: ClipRRect(
-                    key: ValueKey('strategy-reveal-$name'),
-                    clipper: _PopupClip((source ?? anchor).size, progress),
-                    child: ExcludeSemantics(
-                      excluding: !interactive,
-                      child: ExcludeFocus(
+                ),
+                child: Opacity(
+                  key: ValueKey('strategy-fallback-opacity-$name'),
+                  opacity: opacity,
+                  child: CustomPaint(
+                    painter: _PopupSurface(
+                      (source ?? anchor).size,
+                      progress,
+                      colors.surface,
+                      colors.outlineVariant,
+                    ),
+                    child: ClipRRect(
+                      key: ValueKey('strategy-reveal-$name'),
+                      clipper: _PopupClip((source ?? anchor).size, progress),
+                      child: ExcludeSemantics(
                         excluding: !interactive,
-                        child: IgnorePointer(
-                          ignoring: !interactive,
-                          child: StrategyPopup(
-                            controller: strategies,
-                            name: name,
-                            generation: generation,
-                            storageEpoch: storageEpoch,
-                            anchored: _height != null,
-                            progress: progress,
-                            sourceWidth: (source ?? anchor).width,
-                            active: _interactive,
-                            isCurrent: (feedback) =>
-                                ownerCurrent(feedback: feedback),
+                        child: ExcludeFocus(
+                          excluding: !interactive,
+                          child: IgnorePointer(
+                            ignoring: !interactive,
+                            child: StrategyPopup(
+                              controller: strategies,
+                              name: name,
+                              generation: generation,
+                              storageEpoch: storageEpoch,
+                              anchored: _height != null,
+                              progress: progress,
+                              sourceWidth: (source ?? anchor).width,
+                              active: _interactive,
+                              isCurrent: (feedback) =>
+                                  ownerCurrent(feedback: feedback),
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            );
-          },
-        );
-      },
+              );
+            },
+          );
+        },
+      ),
     );
   }
 }

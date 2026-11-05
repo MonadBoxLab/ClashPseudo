@@ -117,7 +117,8 @@ class WorkspaceLayout {
     }
 
     final lineHeight = measure('Ag', double.infinity, barLabelStyles).height;
-    for (final rail in width >= 600 ? [true, false] : [false]) {
+    for (final rail
+        in width >= 600 && height >= 480 ? [true, false] : [false]) {
       for (final count in [5, 4, 3]) {
         final tasks = destinations(count);
         if (rail) {
@@ -149,7 +150,7 @@ class WorkspaceLayout {
           }
         } else {
           final slotWidth = width / count;
-          if (slotWidth < 64) continue;
+          if (slotWidth < (count == 3 ? 64 : 120)) continue;
           final labelSizes = [
             for (final task in tasks)
               measure(labels[task]!, slotWidth - 16, barLabelStyles),

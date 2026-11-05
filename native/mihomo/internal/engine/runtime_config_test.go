@@ -4,29 +4,31 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/metacubex/mihomo/hub/executor"
+	"go.yaml.in/yaml/v3"
 )
 
-func TestRuntimeConfigPreservesPublicFeedbackWithoutSubstitutingRequestedInbound(t *testing.T) {
+func TestRuntimeConfigMatchesPublicGeneral(t *testing.T) {
 	if isolateEngineTest(t) {
 		return
 	}
 	var e Engine
-	input := []byte(`authentication: ["user:secret-auth"]
+	input := []byte(`authentication: ["fixture:example-password"]
+global-ua: "false"
 geox-url:
-  geoip: https://user:password@example.test/path?token=secret
-  geosite: https://example.test/site?token=secret
-  mmdb: https://example.test/country?token=secret
-  asn: https://example.test/asn?token=secret
+  geoip: https://fixture:example@example.test/path?token=example
+  geosite: https://example.test/site?token=example
+  mmdb: https://example.test/country?token=example
+  asn: https://example.test/asn?token=example
 rules: ["MATCH,DIRECT"]
 `)
 	if err := e.Prepare(t.TempDir(), input, "rule", func(int) bool { return true }); err != nil {
 		t.Fatal(err)
 	}
 	defer requireStop(t, &e)
-	// A parsed request is not evidence that the public listener table reports it.
 	e.cfg.General.Inbound.MixedPort = 31337
 	before, err := json.Marshal(e.cfg.General)
 	if err != nil {
@@ -40,36 +42,45 @@ rules: ["MATCH,DIRECT"]
 	if err != nil {
 		t.Fatal(err)
 	}
-	var public, actual map[string]any
-	if err := json.Unmarshal(expected, &public); err != nil {
+	var parsed any
+	if err := yaml.Unmarshal([]byte(value), &parsed); err != nil {
 		t.Fatal(err)
 	}
-	if err := json.Unmarshal([]byte(value), &actual); err != nil {
+	converted, err := json.Marshal(parsed)
+	if err != nil {
 		t.Fatal(err)
 	}
-	general, ok := actual["general"].(map[string]any)
-	if !ok {
-		t.Fatal("缺少公开general反馈", actual)
+	var want, got map[string]any
+	if err := json.Unmarshal(expected, &want); err != nil {
+		t.Fatal(err)
 	}
-	for key, want := range public {
-		if !reflect.DeepEqual(general[key], want) {
-			t.Fatalf("public feedback changed at %s", key)
-		}
+	if err := json.Unmarshal(converted, &got); err != nil {
+		t.Fatal(err)
 	}
-	if general["mixed-port"] == float64(31337) {
-		t.Fatal("requested inbound substituted for actual feedback")
+	if !reflect.DeepEqual(got, want) {
+		t.Fatal("YAML 与公开运行配置不同")
 	}
-	requested, ok := actual["requested"].(map[string]any)
-	if !ok || requested["mixed-port"] != float64(31337) {
-		t.Fatal("缺少独立保存的请求值", actual)
+	if got["global-ua"] != "false" {
+		t.Fatal("字符串类型发生变化")
 	}
-	platform, ok := actual["actual"].(map[string]any)
-	if !ok || platform["tun"] != nil || len(platform["listeners"].([]any)) != 0 {
-		t.Fatal("preparation fabricated active platform objects", actual)
+	if auth, ok := got["authentication"].([]any); !ok || len(auth) != 1 || auth[0] != "fixture" {
+		t.Fatal("认证字段与公开运行配置不同")
+	}
+	if got["mixed-port"] == float64(31337) {
+		t.Fatal("请求端口替代了公开运行状态")
+	}
+	if _, ok := got["requested"]; ok {
+		t.Fatal("运行配置包含应用包装")
+	}
+	if _, ok := got["actual"]; ok {
+		t.Fatal("运行配置包含平台包装")
+	}
+	if !strings.Contains(value, "\ntun:\n") {
+		t.Fatal("TUN 配置未按 YAML 展示")
 	}
 	after, err := json.Marshal(e.cfg.General)
 	if err != nil || string(before) != string(after) {
-		t.Fatal("reading feedback mutated the input")
+		t.Fatal("读取改变了请求配置")
 	}
 }
 
@@ -94,15 +105,14 @@ func TestRuntimeConfigReadsLiveModeAndRequiresActiveCore(t *testing.T) {
 			t.Fatal(err)
 		}
 		var result map[string]any
-		if err = json.Unmarshal([]byte(value), &result); err != nil {
+		if err = yaml.Unmarshal([]byte(value), &result); err != nil {
 			t.Fatal(err)
 		}
-		general, ok := result["general"].(map[string]any)
-		if !ok || general["mode"] != mode || general["mixed-port"] != float64(0) {
-			t.Fatal("query did not return live platform-managed state", result)
+		if result["mode"] != mode || result["mixed-port"] != 0 {
+			t.Fatal("读取没有返回实时运行状态")
 		}
-		if _, exists := general["rules"]; exists {
-			t.Fatal("query pretended to contain full YAML")
+		if _, exists := result["rules"]; exists {
+			t.Fatal("运行配置不是完整配置文件")
 		}
 	}
 	e.Cancel()

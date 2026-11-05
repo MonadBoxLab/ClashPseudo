@@ -20,8 +20,6 @@ class NodesController extends ChangeNotifier {
   final CoreSnapshot? expectedSource;
   bool sourceExpired = false;
   List<Map<String, dynamic>> nodes = const [];
-  Map<String, dynamic>? data;
-  Map<String, Object?>? dataQuery;
   AppMessage? readError;
   int total = 0;
   int offset = 0;
@@ -42,8 +40,9 @@ class NodesController extends ChangeNotifier {
   Timer? _retry;
   Timer? _deadline;
   bool _reading = false;
-  int? _queuedStart;
+  (int, bool)? _queued;
   int _retryMs = 250;
+  int _failures = 0;
 
   String _localIdentity = '';
   String? _loadedLocalIdentity;
@@ -115,15 +114,13 @@ class NodesController extends ChangeNotifier {
       app.configsCurrent,
       selected?.id,
       selected?.revision,
-      app.commandErrorMessage,
-      app.state.resultId,
     );
     if (_observed == key) return;
     _observed = key;
     _request++;
     _debounce?.cancel();
     _retry?.cancel();
-    _queuedStart = null;
+    _queued = null;
     _retryMs = 250;
     loading = _reading;
     current = false;
@@ -177,7 +174,7 @@ class NodesController extends ChangeNotifier {
     current = false;
     loading = _reading;
     failed = false;
-    _queuedStart = null;
+    _queued = null;
     _retryMs = 250;
     _retry?.cancel();
     _debounce?.cancel();
@@ -189,7 +186,7 @@ class NodesController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _read(int start) async {
+  Future<void> _read(int start, {bool fresh = false}) async {
     if (!canRead || !app.state.core.ready || (localCurrent && start > 0)) {
       _localPage(start);
       notifyListeners();
@@ -198,20 +195,25 @@ class NodesController extends ChangeNotifier {
     localCurrent = false;
     if (_reading) {
       // Retain the latest intent while the native read slot is occupied.
-      _queuedStart = start;
+      _queued = (start, fresh);
       notifyListeners();
       return;
     }
     _reading = true;
-    _queuedStart = null;
+    _queued = null;
     _retry?.cancel();
     var waiting = false;
     final expected = app.state.core;
     final querySearch = search;
-    final queryToken = start == 0 ? '' : token;
+    final queryToken = start == 0 || fresh ? '' : token;
     final request = ++_request;
+    final retainingCurrent =
+        fresh &&
+        _source?.matchesIdentity(expected) == true &&
+        _loadedSearch == querySearch &&
+        _loadedLocalIdentity == _localIdentity;
     loading = true;
-    current = false;
+    if (!retainingCurrent) current = false;
     failed = false;
     notifyListeners();
     const grace = Duration(
@@ -238,15 +240,16 @@ class NodesController extends ChangeNotifier {
       };
       final value = await app.platform.nodes(expected, query);
       if (_disposed) return;
-      data = Map.unmodifiable(value);
-      dataQuery = Map.unmodifiable(query);
       if (value['readPending'] == true) {
         if (!expected.matchesWireIdentity(value)) {
           throw const FormatException('Node read slot identity changed');
         }
         if (request == _request && canRead && value['stale'] != true) {
           waiting = true;
-          _retry = Timer(Duration(milliseconds: _retryMs), () => _read(start));
+          _retry = Timer(
+            Duration(milliseconds: _retryMs),
+            () => _read(start, fresh: fresh),
+          );
           _retryMs = (_retryMs * 2).clamp(250, 1000);
         }
         return;
@@ -258,8 +261,24 @@ class NodesController extends ChangeNotifier {
       final rows = (page['nodes'] as List)
           .map((item) => Map<String, dynamic>.unmodifiable(item as Map))
           .toList();
+      if (fresh && start > 0 && start >= count) {
+        if (request == _request &&
+            canRead &&
+            value['stale'] != true &&
+            expected.matchesIdentity(app.state.core) &&
+            expected.matchesWireIdentity(value) &&
+            querySearch == search) {
+          _queued ??= (
+            count == 0 ? 0 : ((count - 1) ~/ pageSize) * pageSize,
+            true,
+          );
+        }
+        return;
+      }
       if (count < start + rows.length ||
-          (start > 0 && version != queryToken) ||
+          (queryToken != null &&
+              queryToken.isNotEmpty &&
+              version != queryToken) ||
           (next != -1 &&
               (next != start + rows.length || next >= count || rows.isEmpty))) {
         throw const FormatException('Node page changed');
@@ -280,8 +299,10 @@ class NodesController extends ChangeNotifier {
           value['stale'] != true &&
           expected.matchesIdentity(app.state.core) &&
           expected.matchesWireIdentity(value);
+      if (current) _failures = 0;
     } catch (error) {
       if (_disposed) return;
+      current = false;
       readError = error is PlatformFailure
           ? messageFromFailure(error, fallback: messages.operationFailed)
           : messages.operationFailed.withDetail(error);
@@ -298,13 +319,26 @@ class NodesController extends ChangeNotifier {
       if (!_disposed) {
         loading = waiting;
         notifyListeners();
-        final queued = _queuedStart;
-        _queuedStart = null;
+        final queued = _queued;
+        _queued = null;
         if (queued != null && canRead && app.state.core.ready) {
-          unawaited(_read(queued));
+          unawaited(_read(queued.$1, fresh: queued.$2));
+        } else if (!waiting) {
+          _scheduleNext();
         }
       }
     }
+  }
+
+  void _scheduleNext() {
+    _retry?.cancel();
+    if (!canRead || !app.state.core.ready || localCurrent) return;
+    const seconds = [5, 10, 30, 60];
+    final delay = failed
+        ? Duration(seconds: seconds[_failures.clamp(0, seconds.length - 1)])
+        : const Duration(seconds: 30);
+    if (failed) _failures++;
+    _retry = Timer(delay, () => _read(offset, fresh: true));
   }
 
   Future<void> next() async {

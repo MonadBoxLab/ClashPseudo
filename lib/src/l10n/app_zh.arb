@@ -24,14 +24,19 @@
   "lanProxyInvalidPort": "端口必须为 1 到 65535 之间的整数。",
   "lanProxyUdp": "允许 UDP",
   "lanProxyUnknownInterface": "无法确认此接口的网络类型。请确认接口属于受信任的局域网后再选择。",
-  "lanProxyNoAddress": "没有可用的局域网接口地址。连接 Wi-Fi 或以太网后刷新。",
+  "lanProxyNoAddress": "没有可用的局域网接口地址。请连接 Wi-Fi 或以太网。",
   "lanProxyActual": "实际监听状态",
   "lanProxyNotRunning": "未监听",
+  "lanProxySocketBound": "Socket 已绑定",
+  "lanProxySocketFailed": "失败",
+  "lanProxySocketClosed": "已关闭",
+  "lanProxySocketCloseFailed": "关闭失败",
+  "lanProxyListenerFailed": "监听发生错误。",
   "lanProxyUnavailable": "地址已失效",
   "lanProxyRaw": "编辑 YAML 原文",
   "lanProxyFormUnavailable": "当前 YAML 无法完整显示为表单。请编辑原文；保存会保留原始内容。",
   "coreInterruptedTitle": "内核运行中断",
-  "coreInterruptedMessage": "已暂停自动启动。当前页面和编辑内容继续保留。请在总览重新启动、更换配置或清理文件。",
+  "coreInterruptedMessage": "已暂停自动启动。",
   "coreRecoveryRestart": "重新启动",
   "coreRecoverySelect": "更换配置",
   "coreCleanupSelect": "清理内核文件",
@@ -100,13 +105,14 @@
   "versionUnavailable": "暂时无法读取版本信息。",
   "coreVersion": "mihomo 内核版本",
   "refresh": "刷新",
-  "runtimeConfigSearch": "查找字段或值",
+  "runtimeConfigSearch": "搜索 YAML",
   "clearSearch": "清除搜索",
   "runtimeConfigLive": "运行中",
   "runtimeConfigPreview": "预览 · 未接管",
   "runtimeConfigEmpty": "请先选择一份已保存正文的配置。",
   "noSearchResults": "没有匹配的行",
   "nodeSearch": "名称、来源或类型",
+  "nodeDelayHistoryFailed": "部分测速记录没有有效延迟",
   "coreReadLoading": "正在读取内核数据…",
   "coreReadFailed": "读取失败 · 请刷新重试",
   "coreSnapshotStale": "上次读取结果 · 非当前状态",
@@ -118,10 +124,6 @@
   "errorDetails": "错误详情",
   "@errorDetails": {
     "description": "打开错误详情的入口文字和详情标题。"
-  },
-  "viewError": "查看错误",
-  "@viewError": {
-    "description": "查看相关操作或对象的错误。"
   },
   "technicalDetails": "技术详情",
   "@technicalDetails": {
@@ -250,6 +252,7 @@
   "delayPending": "未测",
   "delayRunning": "测试中",
   "delayFailed": "失败",
+  "delayBatchFailed": "部分测速失败或超时。",
   "delayTimeout": "超时",
   "delayExpired": "结果已失效",
   "delayStartFailed": "无法启动延迟测试",
@@ -614,6 +617,7 @@
     }
   },
   "modeTitle": "运行模式",
+  "modeFallbackLabel": "备用",
   "modeReadFailed": "模式读取失败",
   "modeDiffers": "当前模式与已保存的备用模式",
   "modeSaved": "已保存的备用模式：{mode}；仅在配置未指定 mode 字段时使用。",
@@ -648,7 +652,6 @@
       }
     }
   },
-  "rawData": "原始数据",
   "copyOriginalText": "复制原文",
   "connectionLimitedNotice": "记录容量已达上限，部分连接未显示。可清除已结束记录以腾出空间。",
   "@connectionLimitedNotice": {
@@ -707,7 +710,6 @@
   "autoLabel": "自动",
   "restoreAuto": "恢复自动",
   "sameNameMember": "同名成员",
-  "pinned": "已固定",
   "closeStrategyPopup": "关闭策略浮窗",
   "strategyChoiceSelect": "手动选择",
   "strategyChoiceUrlTest": "自动测速",
@@ -881,6 +883,7 @@
   },
   "privacyNoticeTitle": "隐私与许可",
   "privacyNoticeUnderstood": "我已了解",
+  "privacyNoticeReadFailed": "无法读取隐私提示状态。",
   "privacyNoticeNotSaved": "未能确认提示记录已保存。下次打开可能再次显示。",
   "privacyNoticeBody": "Clash Pseudo 开源、免费，不进行用户数据采集或上报，不提供任何代理节点或订阅服务。\n\n数据处理\n\n应用不统计用户的使用情况，不分析用户行为，也不自动上报崩溃信息。配置、插件与应用设置保存在设备上。代理和规则匹配在设备上处理流量、域名及 IP；连接信息与日志用于显示和诊断，已安装应用列表用于设置哪些应用的流量由 VPN 接管。\n\n网络通信\n\n配置和插件下载、DNS 查询、代理连接、测速、远程图标及规则／地理数据更新会访问相应网络服务，目标由配置和程序默认值确定。关闭 VPN 接管不关闭这些功能的网络访问。\n\n请求会向目标服务发送功能所需的内容和认证信息，服务也会看到连接来源的 IP。HTTP 来源的下载没有传输加密。\n\n权限用途\n\n- 网络访问与网络状态：建立连接、下载内容和检查网络。\n- 前台服务与通知：运行 VPN、局域网代理服务和后台任务，显示运行状态。\n- 已安装应用可见性：显示应用列表，设置哪些应用的流量由 VPN 接管。\n- VPN 授权：经 Android 授权后建立 VPN 接口，接管选定范围的网络流量。\n\n文件与备份\n\n配置和插件正文、来源地址及其中保存的凭据存放在应用私有目录，应用未另行加密。导出的 ZIP 未加密，包含配置、插件、应用设置及其中保存的来源地址和凭据。备份的导入、导出位于“设置 → 存储与数据”，通过 Android 文件选择器完成；保存位置在导出时选择。\n\nAndroid 系统备份和设备迁移可复制配置、插件与应用设置，是否启用由系统设置与所用备份服务决定。文件提供方的同步功能也可保存所选文件的云端副本。\n\n连接记录、内核日志与原始正文\n\n近期连接记录与日志只暂存在设备内存中，受容量和保留时间限制，不保存为历史文件；可在相应页面清除，进程结束后消失。\n\n可在“设置 → 诊断工具 → 内核日志”查看内核运行、连接和错误信息。保留的日志按内核原文显示；容量不足时移除或略过整条记录，并显示遗漏情况，不截断或改写正文。配置编辑器和备份保留原始正文。\n\n删除与查看\n\n可在应用内删除配置与插件、清除近期记录和日志，并逐项清理缓存数据库及可重建的地理数据文件。清理前需停止内核；只删除已确认的文件，协议身份、provider自定义文件和其他用户文件继续保留。\n\n也可在系统设置中撤销 VPN 授权或清除应用数据。清除应用数据或卸载不会删除已导出的文件、系统备份或其他外部副本。\n\n完整说明随功能变化更新，可在“设置 → 关于”查看当前安装版本的内容。\n\n项目仓库\n\nhttps://github.com/MonadBoxLab/ClashPseudo\n\n更多请参见 GPLv3 协议。",
   "privacyNoticeIntro": "Clash Pseudo 开源、免费，不进行用户数据采集或上报，不提供任何代理节点或订阅服务。",
@@ -1035,6 +1038,7 @@
   "strategyContextChangedRetry": "策略运行状态已变化，请等待重新读取当前配置。",
   "applyingStrategySelection": "正在应用策略选择",
   "trafficUpdateFailed": "更新失败",
+  "applicationSharedUidShort": "共享 UID · 联动选择",
   "applicationSharedUidNotice": "这些应用共享同一个 Android UID。选择或排除其中一个应用，也会影响：{packages}",
   "@applicationSharedUidNotice": {
     "placeholders": {
@@ -1220,10 +1224,6 @@
   "@dnsViewPreviousQuery": {
     "description": "查看页面保留的上次 DNS 查询结果。"
   },
-  "dnsQueryRawData": "DNS 查询原始数据",
-  "@dnsQueryRawData": {
-    "description": "查看完整 DNS 查询原始响应时使用的标题；入口文字使用 rawData。"
-  },
   "dnsQueryIdentity": "查询：{name} · {type}",
   "@dnsQueryIdentity": {
     "description": "显示这次响应对应的查询名称和记录类型；name 和 type 使用发起查询时保存的值。",
@@ -1248,10 +1248,6 @@
   "dnsCacheOperationDetails": "缓存操作详情",
   "@dnsCacheOperationDetails": {
     "description": "查看 DNS 缓存或 fake-IP 清理详情的入口文字和标题，包括清理对象、实际状态和各缓存池或映射池的结果。"
-  },
-  "dnsCacheRawData": "缓存操作原始数据",
-  "@dnsCacheRawData": {
-    "description": "查看 DNS 缓存操作完整原始响应时使用的标题。"
   },
   "dnsResolverNotice": "使用当前内核的解析器查询，可能读取缓存，结果不等同于客户端实际收到的 DNS 响应。",
   "dnsExpired": "结果已过期，请重新查询",
@@ -1339,6 +1335,9 @@
   "coreCleanupInitializing": "正在检查内核数据清理安排。",
   "coreCleanupRequired": "内核目录清理尚未执行。请在“存储与数据”中退出应用后重新打开。",
   "coreCleanupFailed": "内核数据清理未完成。",
+  "cleanupFileCompleted": "已完成",
+  "cleanupFileFailed": "失败",
+  "cleanupFilePending": "待处理",
   "coreCleanupCompleted": "所选内核文件已清理。再次使用内核时，可能会生成新文件。",
   "coreCleanupNeedsSelection": "请先选择要清理的内核文件。",
   "resourceLocalFile": "本地文件：{path}",
@@ -1442,7 +1441,6 @@
   "backupConnectionFailed": "恢复后的连接未能建立。",
   "backupSchedulesFailed": "自动更新任务登记未完成。",
   "backupSettingsRefreshFailed": "未能重新读取界面所显示的设置。",
-  "resourceRawData": "原始资源数据",
   "localCustomDeleteConfirm": "仅从本地自定义插件删除此项。优先级较低的同名定义可能重新生效，已有引用不会自动修改。是否继续？",
   "connectionRuleScope": "匹配范围",
   "connectionRuleUnavailable": "当前连接信息不可用于新增规则。",

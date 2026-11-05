@@ -444,7 +444,7 @@ void main() {
       expect(record.id, id);
       expect(record.ruleMetadata, isNull);
       expect(record.ruleError, contains('Connection rule identity changed'));
-      expect(record.raw['ruleSuggestions'], bridge.ruleSuggestions);
+      expect(record.toMap().containsKey('ruleSuggestions'), isFalse);
       observer.dispose();
     },
   );

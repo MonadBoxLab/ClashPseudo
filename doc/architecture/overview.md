@@ -70,7 +70,7 @@ ConfigStore、OverrideStore、PreferencesStore 各自读取和校验所属业务
 
 ## 目录与模块
 
-Flutter入口为[lib/main.dart](../../lib/main.dart)。UI入口创建界面；appBackgroundMain进入[platform的runBackground](../../lib/src/platform/app_bootstrap.dart)，创建后台binding并由AppBootstrap构造唯一AppRuntime、注册通道和发布状态。[logic/background_entry](../../lib/src/logic/background_entry.dart)只接收已经注入接口的AppRuntime并调用start，不创建binding或第二份runtime。
+Flutter入口为[lib/main.dart](../../lib/main.dart)。UI入口创建界面；appBackgroundMain进入[platform的runBackground](../../lib/src/platform/app_bootstrap.dart)，创建后台binding并由AppBootstrap构造唯一AppRuntime、注册通道和发布状态。
 
 | 目录 | 内容与依赖 |
 | --- | --- |
@@ -90,7 +90,7 @@ Go 包按单内核职责拆分：
 | --- | --- |
 | engine | 唯一core context、公开调用及实际资源收尾 |
 | configinput | 合成、字段来源、字段是否存在及必要默认值 |
-| coreview | 读取节点、策略、规则、资源、连接和运行配置，保留公开原始字段 |
+| coreview | 读取节点、策略、规则、资源和连接，保留公开字段 |
 | androidnet | Android平台规格、捕获的底层网络与系统DNS接入 |
 | ingress | 公开监听与TUN构造的必要平台参数、protect和资源登记 |
 | logstream | 日志订阅及有界传输queue，不保存第二份历史窗口 |

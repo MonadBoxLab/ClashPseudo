@@ -19,12 +19,17 @@ const dnsRecordTypes = [
 ];
 
 class DnsFailure implements Exception {
-  const DnsFailure(this.code, {this.detail});
+  const DnsFailure(this.code, {this.detail, this.cancellationError});
   final String code;
   final String? detail;
+  final Object? cancellationError;
 
   @override
-  String toString() => detail == null ? code : '$code\n$detail';
+  String toString() => [
+    code,
+    ?detail,
+    if (cancellationError != null) cancellationError.toString(),
+  ].join('\n');
 }
 
 /// Admission checks delegate IDNA, DNS wire limits and PTR conversion to the native
@@ -97,6 +102,23 @@ String? _dnsErrorCode(Object? error) {
   return 'queryFailed';
 }
 
+String? _dnsErrorDetail(Map<String, dynamic> value, Object? section) {
+  final data = section is Map ? section : const {};
+  final details = <String>{};
+  for (final detail in [
+    data['detail'],
+    data['errorDetail'],
+    value['operationErrorDetail'],
+    value['error'],
+    if (data['error'] is Map) data['error'],
+  ]) {
+    if (detail == null) continue;
+    final text = detail is String ? detail : jsonEncode(detail);
+    if (text.isNotEmpty) details.add(text);
+  }
+  return details.isEmpty ? null : details.join('\n');
+}
+
 class DnsResponse {
   DnsResponse._({
     required this.source,
@@ -110,7 +132,10 @@ class DnsResponse {
     required this.answer,
     required this.authority,
     required this.additional,
-    required this.raw,
+    required this.errorCode,
+    required this.errorDetail,
+    required this.cancellationError,
+    required this.stale,
   });
 
   final CoreSnapshot source;
@@ -125,24 +150,17 @@ class DnsResponse {
   final List<DnsRecord> authority;
   final List<DnsRecord> additional;
 
-  final Map<String, dynamic> raw;
-  String? get errorCode => _dnsErrorCode(
-    raw['operationError'] ?? (raw['dns'] as Map)['error'] ?? raw['error'],
-  );
-  String? get errorDetail => errorCode == null
-      ? null
-      : const JsonEncoder.withIndent('  ').convert(raw);
-  Object? get cancellationError => raw['cancelError'];
-  bool get stale =>
-      raw['stale'] == true || (raw['dns'] as Map)['stale'] == true;
+  final String? errorCode;
+  final String? errorDetail;
+  final Object? cancellationError;
+  final bool stale;
 
   factory DnsResponse.fromMap(Map<String, dynamic> value) {
+    if (utf8.encode(jsonEncode(value)).length >
+        ApplicationContract.dnsResultBytes) {
+      throw const DnsFailure('resultTooLarge');
+    }
     try {
-      // Reject malformed or oversized responses as a whole.
-      if (utf8.encode(jsonEncode(value)).length >
-          ApplicationContract.dnsResultBytes) {
-        throw const DnsFailure('resultTooLarge');
-      }
       final source = _identity(value);
       final networkEpoch = _integer(value['networkEpoch'], 0x7fffffffffffffff);
       final data = value['dns'];
@@ -150,14 +168,10 @@ class DnsResponse {
         throw DnsFailure(
           _dnsErrorCode(value['operationError'] ?? value['error']) ??
               'invalidResponse',
-          detail: const JsonEncoder.withIndent('  ').convert(value),
         );
       }
       if (data['error'] != null && data['question'] == null) {
-        throw DnsFailure(
-          _dnsErrorCode(data['error'])!,
-          detail: const JsonEncoder.withIndent('  ').convert(value),
-        );
+        throw DnsFailure(_dnsErrorCode(data['error'])!);
       }
       final question = data['question'];
       final elapsed = data['elapsedMs'];
@@ -196,13 +210,18 @@ class DnsResponse {
         answer: records(data['answer']),
         authority: records(data['authority']),
         additional: records(data['additional']),
-        raw: Map.unmodifiable(value),
+        errorCode: _dnsErrorCode(
+          value['operationError'] ?? data['error'] ?? value['error'],
+        ),
+        errorDetail: _dnsErrorDetail(value, data),
+        cancellationError: value['cancelError'],
+        stale: value['stale'] == true || data['stale'] == true,
       );
     } on DnsFailure catch (error) {
-      if (error.code == 'resultTooLarge') rethrow;
       throw DnsFailure(
         error.code,
-        detail: const JsonEncoder.withIndent('  ').convert(value),
+        detail: error.detail ?? _dnsErrorDetail(value, value['dns']),
+        cancellationError: value['cancelError'],
       );
     }
   }
@@ -236,7 +255,11 @@ class DnsCacheResult {
     this.source,
     this.networkEpoch,
     this.status, {
-    required this.raw,
+    required this.stale,
+    this.detail,
+    this.cancellationError,
+    this.resolverActive,
+    this.systemResolverActive,
     this.persistent,
     this.ipv4,
     this.ipv6,
@@ -244,9 +267,11 @@ class DnsCacheResult {
   final CoreSnapshot source;
   final int networkEpoch;
   final DnsCacheStatus status;
-  final Map<String, dynamic> raw;
-  bool get stale =>
-      raw['stale'] == true || (raw['cache'] as Map)['stale'] == true;
+  final bool stale;
+  final String? detail;
+  final Object? cancellationError;
+  final bool? resolverActive;
+  final bool? systemResolverActive;
   final bool? persistent;
   final DnsCachePool? ipv4;
   final DnsCachePool? ipv6;
@@ -255,20 +280,17 @@ class DnsCacheResult {
     Map<String, dynamic> value, {
     required bool fakeIp,
   }) {
+    if (utf8.encode(jsonEncode(value)).length >
+        ApplicationContract.dnsResultBytes) {
+      throw const DnsFailure('resultTooLarge');
+    }
     try {
-      if (utf8.encode(jsonEncode(value)).length >
-          ApplicationContract.dnsResultBytes) {
-        throw const DnsFailure('resultTooLarge');
-      }
       final source = _identity(value);
       final networkEpoch = _integer(value['networkEpoch'], 0x7fffffffffffffff);
       final cache = value['cache'];
       if (cache is! Map) throw const DnsFailure('invalidResponse');
-      if (cache['error'] is String) {
-        throw DnsFailure(
-          cache['error'] as String,
-          detail: const JsonEncoder.withIndent('  ').convert(value),
-        );
+      if (cache['error'] != null) {
+        throw DnsFailure(_dnsErrorCode(cache['error'])!);
       }
       final status = switch (cache['status']) {
         'completed' => DnsCacheStatus.completed,
@@ -297,7 +319,9 @@ class DnsCacheResult {
           source,
           networkEpoch,
           status,
-          raw: Map.unmodifiable(value),
+          stale: value['stale'] == true || cache['stale'] == true,
+          detail: _dnsErrorDetail(value, cache),
+          cancellationError: value['cancelError'],
           persistent: persistent,
           ipv4: ipv4,
           ipv6: ipv6,
@@ -319,13 +343,17 @@ class DnsCacheResult {
         source,
         networkEpoch,
         status,
-        raw: Map.unmodifiable(value),
+        stale: value['stale'] == true || cache['stale'] == true,
+        detail: _dnsErrorDetail(value, cache),
+        cancellationError: value['cancelError'],
+        resolverActive: cache['resolverActive'] as bool,
+        systemResolverActive: cache['systemResolverActive'] as bool,
       );
     } on DnsFailure catch (error) {
-      if (error.code == 'resultTooLarge') rethrow;
       throw DnsFailure(
         error.code,
-        detail: const JsonEncoder.withIndent('  ').convert(value),
+        detail: error.detail ?? _dnsErrorDetail(value, value['cache']),
+        cancellationError: value['cancelError'],
       );
     }
   }

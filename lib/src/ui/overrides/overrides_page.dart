@@ -103,6 +103,7 @@ class _OverridesPageState extends State<OverridesPage> {
 
   void _syncOwner() {
     _scheduleReadNotice();
+    _scheduleEntryNotice();
     if (_wasForeground && !app.foreground) {
       _presentation++;
     }
@@ -229,6 +230,8 @@ class _OverridesPageState extends State<OverridesPage> {
     String? Function(AppLocalizations)? technicalDetail,
     String Function(AppLocalizations)? title,
     String? subject,
+    Future<void> Function()? onRetry,
+    bool Function()? sourceCurrent,
   }) async {
     final presentation = _presentation;
     final owner = app;
@@ -242,10 +245,13 @@ class _OverridesPageState extends State<OverridesPage> {
         technicalDetail: technicalDetail,
         title: title,
         subject: subject,
+        onRetry: onRetry,
         eligibilityChanges: owner,
-        isCurrent: () => _canResume(presentation),
+        isCurrent: () =>
+            _canResume(presentation) && (sourceCurrent?.call() ?? true),
         isCurrentWithPopup: (popup) =>
             mounted &&
+            (sourceCurrent?.call() ?? true) &&
             identical(owner, app) &&
             presentation == _presentation &&
             widget.active &&
@@ -357,7 +363,82 @@ class _OverridesPageState extends State<OverridesPage> {
             error.summary,
             technicalDetail: error.technicalDetail,
             title: (strings) => strings.overridesUnreadable,
+            onRetry: () async {
+              if (source == (app, app.storageEpoch, _presentation) &&
+                  identical(app.overrideErrorMessage, error) &&
+                  _canResume(_presentation)) {
+                await app.refresh();
+              }
+            },
           ),
+        ),
+      );
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  Object? _entryNoticeSource;
+  final _entryFaults = <String, (String, AppMessage, DateTime?)>{};
+  bool _entryNoticeScheduled = false;
+
+  Map<String, (String, AppMessage, DateTime?)> get _entryErrors => {
+    for (final entry in app.overrides)
+      if (entry.errorMessage case final error?)
+        entry.id: (entry.name, error, entry.update.lastAttempt),
+  };
+
+  void _scheduleEntryNotice() {
+    if (_entryNoticeScheduled || !mounted) return;
+    _entryNoticeScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _entryNoticeScheduled = false;
+      if (!mounted) return;
+      final source = (app, app.storageEpoch, _presentation);
+      if (_entryNoticeSource != source) {
+        _entryNoticeSource = source;
+        _entryFaults.clear();
+      }
+      final errors = _entryErrors;
+      _entryFaults.removeWhere((id, _) => !errors.containsKey(id));
+      if (!_canResume(_presentation)) return;
+      final fresh = Map.of(errors)
+        ..removeWhere((id, value) => _entryFaults[id] == value);
+      if (fresh.isEmpty) return;
+      _entryFaults.addAll(fresh);
+      bool sameSource() =>
+          mounted &&
+          source == (app, app.storageEpoch, _presentation) &&
+          fresh.entries.every(
+            (entry) => _entryErrors[entry.key] == entry.value,
+          );
+      String summary(AppLocalizations strings) => strings.overrideActionFailed;
+      String detail(AppLocalizations strings) => fresh.values
+          .map((value) {
+            final error = value.$2;
+            return [
+              value.$1,
+              if (value.$3 case final time?)
+                '${strings.autoUpdateAttempt}: ${time.toLocal()}',
+              error.summary(strings),
+              ?error.technicalDetail(strings),
+            ].join('\n');
+          })
+          .join('\n\n');
+      unawaited(
+        showLocalizedOperationNotice(
+          context,
+          summary,
+          technicalDetail: detail,
+          eligibilityChanges: app,
+          isCurrent: () => sameSource() && _canResume(_presentation),
+          isCurrentWithPopup: (_) => sameSource() && _live(_presentation),
+          onDetails: () => _showDetails(
+            summary,
+            technicalDetail: detail,
+            title: (strings) => strings.overrideActionFailed,
+            sourceCurrent: sameSource,
+          ),
+          identity: ('override-errors', source, Object.hashAll(fresh.values)),
         ),
       );
     });
@@ -483,7 +564,6 @@ class _OverridesPageState extends State<OverridesPage> {
             .clamp(24.0, double.infinity);
     final menuOptions = <String, String>{
       'rename': strings.rename,
-      if (entry.errorMessage != null) 'error': strings.viewOverrideError,
       'mode': entry.mode == OverrideMode.prepend
           ? strings.overrideReplace
           : strings.overridePrepend,
@@ -499,7 +579,6 @@ class _OverridesPageState extends State<OverridesPage> {
     };
     final menuIcons = {
       'rename': (Icons.drive_file_rename_outline, palette.editAction),
-      'error': (Icons.error_outline, palette.error),
       'mode': (Icons.layers_outlined, palette.moreAction),
       'up': (Icons.arrow_upward, palette.moreAction),
       'down': (Icons.arrow_downward, palette.moreAction),
@@ -509,7 +588,7 @@ class _OverridesPageState extends State<OverridesPage> {
     };
     final disabledOptions = {
       for (final action in menuOptions.keys)
-        if ((action != 'error' && !canEdit) ||
+        if (!canEdit ||
             (action == 'up' && index == 0) ||
             (action == 'down' && index == order.length - 1))
           action,
@@ -592,7 +671,7 @@ class _OverridesPageState extends State<OverridesPage> {
             onPressed: onPressed,
             icon: const Icon(Icons.more_vert),
           ),
-          enabled: canEdit || entry.errorMessage != null,
+          enabled: canEdit,
           onSelected: (action) {
             if (!_canResume(presentation)) {
               return;
@@ -719,16 +798,6 @@ class _OverridesPageState extends State<OverridesPage> {
     );
   }
 
-  Future<void> _showEntryError(OverrideEntry entry) {
-    final message = entry.errorMessage ?? messages.operationNotCompletedRetry;
-    return _showDetails(
-      message.summary,
-      technicalDetail: message.technicalDetail,
-      title: (strings) => strings.overrideActionFailed,
-      subject: entry.name,
-    );
-  }
-
   Future<void> _menu(
     BuildContext context,
     OverrideEntry entry,
@@ -745,8 +814,6 @@ class _OverridesPageState extends State<OverridesPage> {
         await _changeText(entry, storageEpoch: storageEpoch);
       case 'source':
         await _changeText(entry, source: true, storageEpoch: storageEpoch);
-      case 'error':
-        await _showEntryError(entry);
       case 'mode':
         _change(entry, {
           'mode': entry.mode == OverrideMode.prepend
@@ -1063,15 +1130,11 @@ class _OverridesPageState extends State<OverridesPage> {
         'new': strings.newOverride,
         'file': strings.importFromFile,
         'url': strings.remoteOverride,
-        'retry': strings.refresh,
-        if (app.overrideErrorMessage != null) 'error': strings.errorDetails,
       },
       disabledOptions: {
         if (!enabled) ...['new', 'file', 'url'],
       },
       leadingIcon: (kind) => Icon(switch (kind) {
-        'error' => Icons.error_outline,
-        'retry' => Icons.refresh,
         'url' => Icons.link,
         'file' => Icons.file_open_outlined,
         _ => Icons.note_add_outlined,
@@ -1083,19 +1146,6 @@ class _OverridesPageState extends State<OverridesPage> {
           return;
         }
         switch (kind) {
-          case 'retry':
-            unawaited(app.refresh());
-          case 'error':
-            final error = app.overrideErrorMessage;
-            if (error != null) {
-              unawaited(
-                _showDetails(
-                  error.summary,
-                  technicalDetail: error.technicalDetail,
-                  title: (strings) => strings.overridesUnreadable,
-                ),
-              );
-            }
           case 'new':
             _newLocal(context, storageEpoch: storageEpoch);
           case 'file':

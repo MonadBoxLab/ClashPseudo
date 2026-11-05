@@ -46,11 +46,13 @@ class _Bridge extends AppBridge {
   int epoch = 0;
   Completer<void>? pending;
   bool failed = false;
+  int reads = 0;
   @override
   Future<AppSnapshot> snapshot() async =>
       AppSnapshot(phase: 'RUNNING', core: core(1), storageEpoch: epoch);
 
   Future<void> _wait() async {
+    reads++;
     await pending?.future;
     if (failed) throw StateError('Controlled read failure');
   }
@@ -342,21 +344,21 @@ void main() {
                   }
                 }
 
-                Future<void> refresh() async {
-                  if (category == 'groups') {
-                    tester
-                        .widget<StrategiesPage>(find.byType(StrategiesPage))
-                        .controller
-                        .retry();
-                  } else {
-                    await tester.tap(find.byIcon(Icons.refresh));
-                  }
+                Future<void> nextRead({bool afterFailure = false}) async {
+                  final previousReads = bridge.reads;
+                  expect(find.byIcon(Icons.refresh), findsNothing);
+                  final seconds = category == 'groups'
+                      ? (afterFailure ? 1 : 5)
+                      : (afterFailure ? 5 : 30);
+                  await tester.pump(Duration(seconds: seconds));
+                  await tester.pump();
+                  expect(bridge.reads, previousReads + 1);
                 }
 
                 if (change == 'runtime') {
                   // Hold a real bridge read pending through the geometry checks.
                   bridge.pending = Completer<void>();
-                  await refresh();
+                  await nextRead();
                   await frames();
                   bridge.count = category == 'nodes' || category == 'rules'
                       ? 20
@@ -367,11 +369,11 @@ void main() {
                   bridge.pending = null;
                   await frames();
                   bridge.failed = true;
-                  await refresh();
+                  await nextRead();
                   await frames();
                   bridge.failed = false;
                   bridge.count = category == 'groups' ? 2 : 1;
-                  await refresh();
+                  await nextRead(afterFailure: true);
                   await frames();
                 } else {
                   final start = category == 'groups'
@@ -474,8 +476,11 @@ void _categoryPaginationTest() {
         hasLength(50),
       );
       bridge.count = 40;
-      await tester.tap(find.byIcon(Icons.refresh));
+      final previousReads = bridge.reads;
+      expect(find.byIcon(Icons.refresh), findsNothing);
+      await tester.pump(const Duration(seconds: 30));
       await settleLocalDefinitions(tester);
+      expect(bridge.reads, previousReads + 1);
       final strings = lookupAppLocalizations(const Locale('en'));
       expect(find.text(strings.resultRange(1, 50, 120)), findsOneWidget);
       expect(target, findsNothing);

@@ -369,7 +369,7 @@ void main() {
     expect(parsed.answer.single.data, '"完整消息 原文"');
     expect(parsed.authority.single.data, 'ns.test.');
     expect(parsed.additional.single.data, '192.0.2.7');
-    expect(parsed.raw['dns'], message);
+    expect(parsed.source.matchesIdentity(fixture.core), isTrue);
     expect(parsed.errorCode, isNull);
   });
 
@@ -407,7 +407,7 @@ void main() {
     expect(result['error'], original);
     expect(result['cancelError'], cancellation);
     final parsed = DnsResponse.fromMap(result);
-    expect(parsed.raw['error'], original);
+    expect(parsed.errorCode, 'callFailed');
     expect(parsed.cancellationError, cancellation);
     expect(parsed.errorDetail, contains('cause 原文'));
     expect(parsed.errorDetail, contains('suppressed 原文'));

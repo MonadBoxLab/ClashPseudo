@@ -132,17 +132,6 @@ class AppTheme {
       dialogTheme: DialogThemeData(
         backgroundColor: palette.surface,
         surfaceTintColor: Colors.transparent,
-        titleTextStyle: TextStyle(
-          color: palette.ink,
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
-          height: 1.3,
-        ),
-        contentTextStyle: TextStyle(
-          color: palette.ink,
-          fontSize: 14,
-          height: 1.5,
-        ),
       ),
       bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: palette.surface,
@@ -153,7 +142,6 @@ class AppTheme {
         surfaceTintColor: Colors.transparent,
         elevation: 3,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        textStyle: TextStyle(color: palette.ink, fontSize: 14),
         iconColor: palette.ink,
       ),
       menuTheme: MenuThemeData(
@@ -293,9 +281,6 @@ class HomePalette extends ThemeExtension<HomePalette> {
     progress,
   )!;
 
-  Color get heroHighlight => brand == BrandColor.cinnabar
-      ? Color(dark ? 0xff49302a : 0xffc24a2d)
-      : Color.lerp(hero, accent, dark ? 0.18 : 0.12)!;
   Color get heroInk => legibleInk(hero);
   Color get startInk => legibleInk(accent);
   Color get ripple => brand == BrandColor.cinnabar

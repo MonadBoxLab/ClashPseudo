@@ -111,8 +111,8 @@ Future<void> _readPersistenceFailure(
   );
   await tester.pumpAndSettle();
   final notice = find.byType(PrivacyNoticeDialog);
-  final noticeState = tester.state(notice);
-  final noticeRoute = ModalRoute.of(tester.element(notice))!;
+  final noticeElement = tester.element(notice);
+  final noticeRoute = ModalRoute.of(noticeElement)!;
   final reader = find.descendant(
     of: notice,
     matching: find.byType(SelectionArea),
@@ -124,8 +124,13 @@ Future<void> _readPersistenceFailure(
       .first;
   final scrollState = tester.state<ScrollableState>(scrollable);
   final position = scrollState.position;
-  final details = find.byKey(const ValueKey('privacy-notice-error-details'));
-  await tester.ensureVisible(details);
+  final strings = AppLocalizations.of(noticeElement);
+  final details = find.descendant(
+    of: find.byType(SnackBar),
+    matching: find.widgetWithText(TextButton, strings.errorDetails),
+  );
+  expect(details.hitTestable(), findsOneWidget);
+  expect(tester.getRect(details).height, greaterThanOrEqualTo(48));
   final offset = position.pixels;
   await tester.tap(details);
   await tester.pumpAndSettle();
@@ -150,10 +155,9 @@ Future<void> _readPersistenceFailure(
   expect(copied, [original]);
   expect(ModalRoute.of(tester.element(result)), same(resultRoute));
   expect(resultRoute.isCurrent, isTrue);
-  final strings = AppLocalizations.of(tester.element(result));
   await tester.tap(find.text(strings.close));
   await tester.pumpAndSettle();
-  expect(tester.state(notice), same(noticeState));
+  expect(tester.element(notice), same(noticeElement));
   expect(ModalRoute.of(tester.element(notice)), same(noticeRoute));
   expect(noticeRoute.isCurrent, isTrue);
   expect(tester.state<SelectionAreaState>(reader), same(readerState));
@@ -161,6 +165,32 @@ Future<void> _readPersistenceFailure(
   expect(tester.state<ScrollableState>(scrollable), same(scrollState));
   expect(scrollState.position, same(position));
   expect(position.pixels, offset);
+}
+
+Future<void> _readSnackbarFailure(WidgetTester tester, String original) async {
+  await tester.pumpAndSettle();
+  final snack = find.byType(SnackBar);
+  expect(snack, findsOneWidget);
+  final strings = AppLocalizations.of(tester.element(snack));
+  await tester.tap(
+    find.descendant(
+      of: snack,
+      matching: find.widgetWithText(TextButton, strings.errorDetails),
+    ),
+  );
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const ValueKey('operation-technical-details')));
+  await tester.pumpAndSettle();
+  expect(
+    tester
+        .widget<SelectableText>(
+          find.byKey(const ValueKey('operation-technical-text')),
+        )
+        .data,
+    contains(original),
+  );
+  await tester.tap(find.widgetWithText(TextButton, strings.close));
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -194,8 +224,8 @@ void main() {
           expect(bridge.shown, isFalse);
           final dialog = find.byType(PrivacyNoticeDialog);
           final noticeState = tester.state(find.byType(FirstRunNotice));
-          final dialogState = tester.state(dialog);
-          final route = ModalRoute.of(tester.element(dialog));
+          final dialogElement = tester.element(dialog);
+          final route = ModalRoute.of(dialogElement);
           final reader = find.descendant(
             of: dialog,
             matching: find.byType(SelectionArea),
@@ -220,7 +250,7 @@ void main() {
               tester.state(find.byType(FirstRunNotice)),
               same(noticeState),
             );
-            expect(tester.state(dialog), same(dialogState));
+            expect(tester.element(dialog), same(dialogElement));
             expect(ModalRoute.of(tester.element(dialog)), same(route));
             expect(tester.state<SelectionAreaState>(reader), same(readerState));
             expect(readerState.selectableRegion, same(selectionState));
@@ -233,18 +263,10 @@ void main() {
               tester.element(find.text(localized.privacyNoticeIntro)),
               same(introElement),
             );
-            final sizeAnimation = find.descendant(
-              of: dialog,
-              matching: find.byType(AnimatedSize),
+            expect(
+              find.byKey(const ValueKey('privacy-notice-error-details')),
+              findsNothing,
             );
-            if (reducedMotion.value) {
-              expect(sizeAnimation, findsNothing);
-            } else {
-              expect(
-                tester.widget<AnimatedSize>(sizeAnimation).duration,
-                const Duration(milliseconds: 160),
-              );
-            }
             expect(bridge.reads, 1);
             expect(bridge.marks, 1);
             expect(tester.takeException(), isNull);
@@ -263,40 +285,17 @@ void main() {
             details: 'original fsync cause\nsuppressed directory close failure',
           );
           bridge.writeReply!.completeError(failure);
-          if (startsReduced) {
-            // With no animation frame pending, deliver the marker result before
-            // the original pump checks whether a frame is scheduled.
-            await tester.idle();
-            final upstream = find.ancestor(
-              of: dialog,
-              matching: find.byWidgetPredicate(
-                (widget) => widget is ValueListenableBuilder<AppMessage?>,
-              ),
-            );
-            expect(upstream, findsOneWidget);
-            final upstreamElement = tester.element(upstream);
-            final queuedFailure =
-                (upstreamElement.widget as ValueListenableBuilder<AppMessage?>)
-                    .valueListenable
-                    .value;
-            expect(
-              queuedFailure?.toMap(),
-              messages.privacyNoticeNotSaved.withDetail(failure).toMap(),
-            );
-            expect(upstreamElement.dirty, isTrue);
-            expect(tester.binding.hasScheduledFrame, isTrue);
-          }
-          await tester.pump();
+          await tester.pumpAndSettle();
           final expected = messages.privacyNoticeNotSaved
               .withDetail(failure)
               .summary(localized);
-          final errorText = find.text(expected);
+          final errorText = find.descendant(
+            of: find.byType(SnackBar),
+            matching: find.text(expected),
+          );
           expect(errorText, findsOneWidget);
           expect(tester.getSize(errorText).height, greaterThan(0));
-          final errorElement = tester.element(errorText);
           expectIdentity();
-          // The first normal→reduced change can interrupt the entrance size
-          // animation. Reduced→normal reuses that same local content subtree.
           for (final reduced in [
             !startsReduced,
             startsReduced,
@@ -306,8 +305,7 @@ void main() {
             await tester.pump();
             await tester.pump(const Duration(milliseconds: 16));
             expectIdentity();
-            expect(tester.element(errorText), same(errorElement));
-            expect(tester.widget<Text>(errorText).data, expected);
+            expect(errorText, findsOneWidget);
             expect(
               tester
                   .widget<TextButton>(
@@ -333,8 +331,7 @@ void main() {
           }
           await _readPersistenceFailure(tester, failure.toString());
           expectIdentity();
-          expect(tester.element(errorText), same(errorElement));
-          expect(tester.widget<Text>(errorText).data, expected);
+          expect(find.byType(SnackBar), findsNothing);
           expect(bridge.shown, isFalse);
           await tester.tap(find.text(localized.privacyNoticeUnderstood));
           await tester.pumpAndSettle();
@@ -440,23 +437,101 @@ void main() {
       expect(find.byType(SnackBar), findsNothing);
       controller.visibility(true);
       await _paintPrompt(tester);
+      await tester.pumpAndSettle();
       expect(find.byType(PrivacyNoticeDialog), findsNothing);
-      expect(
-        find.textContaining(strings.privacyNoticeNotSaved),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining('original read cause\nsuppressed close failure'),
-        findsOneWidget,
+      expect(find.text(strings.privacyNoticeReadFailed), findsOneWidget);
+      expect(find.textContaining('original read cause'), findsNothing);
+      await _readSnackbarFailure(
+        tester,
+        'original read cause\nsuppressed close failure',
       );
       await tester.tap(find.text('Stop'));
       expect(stops, 1);
       controller.visibility(controller.visible);
       await _paintPrompt(tester);
-      expect(bridge.reads, 1);
       expect(bridge.marks, 0);
     },
   );
+
+  testWidgets('隐私标记读取失败按退避重试，成功后不再提示', (tester) async {
+    final bridge = _InstallationBridge()
+      ..shown = true
+      ..readFailure = StateError('marker read failed');
+    final controller = _NoticeController(bridge);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(_app(controller));
+    await _paintPrompt(tester);
+    expect(bridge.reads, 1);
+    await tester.pump(const Duration(milliseconds: 900));
+    expect(bridge.reads, 1);
+    await tester.pump(const Duration(milliseconds: 101));
+    expect(bridge.reads, 2);
+    await tester.pump(const Duration(seconds: 2));
+    expect(bridge.reads, 3);
+    bridge.readFailure = null;
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    expect(bridge.reads, 4);
+    expect(bridge.marks, 0);
+    expect(find.byType(PrivacyNoticeDialog), findsNothing);
+    expect(find.byType(SnackBar), findsNothing);
+  });
+
+  testWidgets('读取超时后的重试等待真实读取结束', (tester) async {
+    final first = Completer<bool>();
+    final second = Completer<bool>();
+    final bridge = _InstallationBridge()..readReply = first;
+    final controller = _NoticeController(bridge);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(_app(controller));
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    expect(bridge.reads, 1);
+    final snack = find.byType(SnackBar);
+    expect(snack, findsOneWidget);
+    await tester.tap(
+      find.descendant(
+        of: snack,
+        matching: find.widgetWithText(TextButton, strings.retry),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(bridge.reads, 1);
+    bridge.readReply = second;
+    first.completeError(StateError('first read failed'));
+    await tester.pump();
+    expect(bridge.reads, 2);
+    second.complete(true);
+    await tester.pumpAndSettle();
+    expect(bridge.marks, 0);
+    expect(find.byType(PrivacyNoticeDialog), findsNothing);
+    expect(find.byType(SnackBar), findsNothing);
+  });
+
+  testWidgets('隐私标记写入失败后仅在用户重试时再次写入', (tester) async {
+    final bridge = _InstallationBridge()
+      ..writeFailure = StateError('marker write failed');
+    final controller = _NoticeController(bridge);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(_app(controller));
+    await _paintPrompt(tester);
+    await tester.pumpAndSettle();
+    expect(bridge.marks, 1);
+    await tester.pump(const Duration(seconds: 20));
+    expect(bridge.marks, 1);
+    bridge.writeFailure = null;
+    await tester.tap(
+      find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.widgetWithText(TextButton, strings.retry),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(bridge.marks, 2);
+    expect(bridge.shown, isTrue);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(find.byType(PrivacyNoticeDialog), findsOneWidget);
+  });
 
   testWidgets('failed write remains unconfirmed with full error and no loop', (
     tester,
@@ -472,6 +547,7 @@ void main() {
     var stops = 0;
     await tester.pumpWidget(_app(controller, stop: () => stops++));
     await _paintPrompt(tester);
+    await tester.pumpAndSettle();
     expect(find.textContaining(strings.privacyNoticeNotSaved), findsOneWidget);
     await _readPersistenceFailure(
       tester,
@@ -531,10 +607,7 @@ void main() {
         StateError('late original close failure'),
       );
       await _paintPrompt(tester);
-      expect(
-        find.textContaining('late original close failure'),
-        findsOneWidget,
-      );
+      await _readSnackbarFailure(tester, 'late original close failure');
       expect(bridge.marks, 1);
       expect(find.byType(PrivacyNoticeDialog), findsNothing);
     },
@@ -555,10 +628,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.byType(PrivacyNoticeDialog), findsNothing);
-      expect(
-        find.textContaining('failure during route reverse'),
-        findsOneWidget,
-      );
+      await _readSnackbarFailure(tester, 'failure during route reverse');
       expect(bridge.marks, 1);
     },
   );

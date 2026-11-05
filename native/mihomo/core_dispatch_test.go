@@ -24,6 +24,7 @@ import (
 	"github.com/metacubex/mihomo/component/profile/cachefile"
 	ML "github.com/metacubex/mihomo/log"
 	"github.com/metacubex/mihomo/tunnel"
+	"go.yaml.in/yaml/v3"
 )
 
 func requestBytes(t *testing.T, request coreRequest, extras map[string][]byte) []byte {
@@ -507,6 +508,20 @@ func TestDispatcherStrategyRestoreDoesNotWriteSelectedCache(t *testing.T) {
 	frames, _ := invokeBytes(t, d, prepare.Operation, prepare.RequestID, requestBytes(t, prepare, map[string][]byte{A.CorePartConfig: body, A.CorePartOverrides: []byte("[]"), A.CorePartOptions: options}), nativeCallbacks{Protect: func(int) error { return nil }})
 	if terminal := terminalFrom(t, frames); !terminal.Complete || terminal.Error != nil {
 		t.Fatal("profile装载失败", terminal)
+	}
+	configuration := validRequest(A.CoreOperationRuntimeConfig, 50)
+	configuration.InputID, configuration.Generation, configuration.NetworkRevision = prepare.InputID, prepare.Generation, prepare.NetworkRevision
+	frames, _ = invokeBytes(t, d, configuration.Operation, configuration.RequestID, requestBytes(t, configuration, nil))
+	if terminal := terminalFrom(t, frames); !terminal.Complete || terminal.Error != nil || len(frames) != 2 {
+		t.Fatal("运行配置读取失败", terminal)
+	}
+	var text string
+	if err := json.Unmarshal(frames[0].Payload, &text); err != nil {
+		t.Fatal(err)
+	}
+	var general map[string]any
+	if err := yaml.Unmarshal([]byte(text), &general); err != nil || general["mode"] != "rule" {
+		t.Fatal("运行配置不是预期的 YAML", err)
 	}
 	for index, tc := range []struct {
 		member  string

@@ -594,7 +594,7 @@ class CoreRuntime implements RuntimeCore {
         final owner = arguments['owner'] as String?;
         switch (method) {
           case 'strategies':
-            return jsonEncode((await strategies(source)).raw);
+            return jsonEncode(await _strategyResponse(source));
           case 'nodes':
           case 'rules':
             return _diagnosticRead(
@@ -657,7 +657,11 @@ class CoreRuntime implements RuntimeCore {
               if (!const ['rule', 'global', 'direct'].contains(actual)) {
                 throw PlatformFailure(
                   code: ApplicationContract.coreErrorCallFailed,
-                  details: result.value,
+                  details: {
+                    'message': '内核返回的模式无效',
+                    if (actual is String || actual is num || actual is bool)
+                      'actual': actual,
+                  },
                 );
               }
               if (!source.matchesIdentity((await platform.snapshot()).core)) {
@@ -666,9 +670,13 @@ class CoreRuntime implements RuntimeCore {
                     code: ApplicationContract.coreErrorCallFailed,
                     details: {
                       ...envelope(source),
-                      'result': result.value,
-                      ...result.terminal,
+                      'expected': arguments['mode'],
+                      'actual': actual,
                       'stale': true,
+                      if (result.cancelError != null)
+                        'cancelError': result.cancelError,
+                      if (result.terminal['nativeReceipt'] != null)
+                        'nativeReceipt': result.terminal['nativeReceipt'],
                     },
                   );
                 }
@@ -719,7 +727,12 @@ class CoreRuntime implements RuntimeCore {
                     token is! String ||
                     token.isEmpty ||
                     metadata['source'] != token) {
-                  throw FormatException('资源导出来源变化或未完整返回', terminal);
+                  throw _exportFailure(
+                    '资源导出来源变化或未完整返回',
+                    metadata,
+                    terminal,
+                    resources.length,
+                  );
                 }
                 return jsonEncode({
                   ...envelope(source),
@@ -747,21 +760,39 @@ class CoreRuntime implements RuntimeCore {
                     ? ApplicationContract.coreOperationRuntimeConfig
                     : ApplicationContract.coreOperationResourceUpdate,
                 arguments: {...query, ...timing},
+                maximumBytes: method == 'runtimeConfig'
+                    ? 4 * ApplicationContract.configurationTextBytes
+                    : ApplicationContract.coreIpcFrameBytes,
                 owner: owner,
                 operation: operation,
               );
               _requireSuccess(result);
+              final resultValue = result.value;
+              if (method == 'runtimeConfig' && resultValue is! String) {
+                throw const FormatException('运行配置不是文本');
+              }
               final value = method == 'runtimeConfig'
-                  ? <String, dynamic>{'configuration': result.value}
-                  : result.value is Map
-                  ? Map<String, dynamic>.from(result.value as Map)
-                  : {'result': result.value};
+                  ? <String, dynamic>{'configuration': resultValue}
+                  : <String, dynamic>{
+                      'update': resultValue is Map
+                          ? {
+                              for (final key in ['status', 'error', 'detail'])
+                                if (resultValue.containsKey(key))
+                                  key: resultValue[key],
+                            }
+                          : null,
+                      if (resultValue != null && resultValue is! Map)
+                        'updateType': resultValue.runtimeType.toString(),
+                    };
               return jsonEncode({
                 ...value,
                 ...envelope(source),
                 'stale': result.stale || await _readStale(source),
                 if (result.cancelError != null)
                   'cancelError': result.cancelError,
+                if (result.cancelError != null &&
+                    result.terminal['nativeReceipt'] != null)
+                  'nativeReceipt': result.terminal['nativeReceipt'],
               });
             });
           case 'sampleConnections':
@@ -875,23 +906,120 @@ class CoreRuntime implements RuntimeCore {
   Object? _failureValue(Object error) => switch (error) {
     PlatformFailure() => error.toMap(),
     ConfigFailure() => failureValue(error),
-    FormatException() => {
-      'message': error.message,
-      'source': error.source,
-      'offset': error.offset,
-    },
+    FormatException() => {'message': error.message, 'offset': error.offset},
     _ => error.toString(),
   };
 
+  PlatformFailure _exportFailure(
+    String message,
+    Map<String, dynamic> metadata,
+    Map<String, dynamic>? terminal,
+    int records,
+  ) => PlatformFailure(
+    code: ApplicationContract.coreErrorCallFailed,
+    details: {
+      'message': message,
+      'recordsRead': records,
+      for (final key in ['complete', 'stale', 'exited'])
+        if (terminal?[key] is bool) key: terminal![key],
+      if (terminal?['recordCount'] is int)
+        'recordCount': terminal!['recordCount'],
+      if (terminal?['source'] is String) 'source': terminal!['source'],
+      if (metadata['source'] is String) 'metadataSource': metadata['source'],
+      for (final key in ['error', 'cancelError', 'nativeReceipt'])
+        if (terminal?[key] != null) key: terminal![key],
+    },
+  );
+
+  Map<String, Object?> _prepareActual(CoreResult result) {
+    final value = result.value;
+    final platform = value is Map ? value['platform'] : null;
+    final vpn = platform is Map ? platform['vpn'] : null;
+    final lan = platform is Map ? platform['lan'] : null;
+    return {
+      'value': value is Map
+          ? {
+              for (final key in [
+                'prepared',
+                'attached',
+                'vpnIntent',
+                'lanIntent',
+                'vpnRunning',
+                'lanRunning',
+                'processId',
+                'inputId',
+                'generation',
+                'networkRevision',
+                'phase',
+                'purpose',
+                'configId',
+                'revision',
+                'composition',
+              ])
+                if (value[key] is String ||
+                    value[key] is num ||
+                    value[key] is bool)
+                  key: value[key],
+              if (vpn is Map && vpn['running'] is bool ||
+                  lan is Map && lan['running'] is bool)
+                'platform': {
+                  if (vpn is Map && vpn['running'] is bool)
+                    'vpn': {'running': vpn['running']},
+                  if (lan is Map && lan['running'] is bool)
+                    'lan': {'running': lan['running']},
+                },
+            }
+          : null,
+      if (value != null && value is! Map)
+        'valueType': value.runtimeType.toString(),
+      'terminal': {
+        for (final key in [
+          'complete',
+          'exited',
+          'stale',
+          'recordCount',
+          'source',
+          'error',
+          'cancelError',
+          'nativeReceipt',
+          'cancellation',
+        ])
+          if (result.terminal.containsKey(key)) key: result.terminal[key],
+      },
+    };
+  }
+
   void _requireSuccess(CoreResult result) {
     if (!result.complete || result.error != null) {
+      final value = result.value is Map ? result.value as Map : const {};
       throw PlatformFailure(
         code: ApplicationContract.coreErrorCallFailed,
         details: {
-          'error': result.error,
-          'cancelError': result.cancelError,
-          'result': result.value,
-          ...result.terminal,
+          for (final key in [
+            'complete',
+            'exited',
+            'stale',
+            'error',
+            'cancelError',
+            'nativeReceipt',
+          ])
+            if (result.terminal[key] != null) key: result.terminal[key],
+          for (final key in [
+            'status',
+            'mode',
+            'committed',
+            'ready',
+            'updated',
+            'error',
+            'detail',
+          ])
+            if (value[key] != null &&
+                (key == 'error' ||
+                    key == 'detail' ||
+                    value[key] is String ||
+                    value[key] is num ||
+                    value[key] is bool))
+              'result.$key': value[key],
         },
       );
     }
@@ -932,14 +1060,7 @@ class CoreRuntime implements RuntimeCore {
                   : const [])
               .map((row) => Map<String, dynamic>.from(row as Map)),
       project: method == 'nodes'
-          ? (record) {
-              final raw = record['raw'] as Map? ?? const {};
-              return {
-                ...record,
-                'source': record['sourceName'] ?? '',
-                'type': raw['type'] ?? record['type'] ?? '',
-              };
-            }
+          ? (record) => {...record, 'source': record['sourceName'] ?? ''}
           : null,
     );
     return {
@@ -967,7 +1088,10 @@ class CoreRuntime implements RuntimeCore {
     };
   }
 
-  Future<StrategySnapshot> strategies(CoreSnapshot source) async {
+  Future<StrategySnapshot> strategies(CoreSnapshot source) async =>
+      StrategySnapshot.fromMap(await _strategyResponse(source));
+
+  Future<Map<String, dynamic>> _strategyResponse(CoreSnapshot source) async {
     final call = await _begin(
       ApplicationContract.coreOperationStrategies,
       source,
@@ -985,16 +1109,26 @@ class CoreRuntime implements RuntimeCore {
         } else if (frame.kind == ApplicationContract.coreIpcFrameRecord) {
           records++;
           final record = frame.object;
-          final raw = record['raw'] as Map? ?? record;
           groups.add({
-            ...record,
-            'name': record['name'] ?? raw['name'],
-            'type': raw['type'] ?? '',
-            'hidden': raw['hidden'] == true,
-            'now': raw['now'] ?? '',
-            'fixed': raw['fixed'] ?? '',
-            'icon': raw['icon'] ?? '',
-            'members': record['members'] ?? const [],
+            for (final key in [
+              'name',
+              'type',
+              'hidden',
+              'now',
+              'currentIdentity',
+              'sourceIdentity',
+              'fixed',
+              'icon',
+              'provenance',
+            ])
+              if (record.containsKey(key)) key: record[key],
+            'members': [
+              for (final member in record['members'] as List)
+                {
+                  for (final key in ['name', 'type', 'identity'])
+                    if ((member as Map).containsKey(key)) key: member[key],
+                },
+            ],
           });
         } else if (frame.terminal) {
           terminal = frame.object;
@@ -1012,24 +1146,27 @@ class CoreRuntime implements RuntimeCore {
           (terminal['source'] as String).isEmpty ||
           metadata['source'] != null &&
               metadata['source'] != terminal['source']) {
-        throw FormatException('策略导出未完整返回', terminal);
+        throw _exportFailure('策略导出未完整返回', metadata, terminal, records);
       }
       stale = !source.matchesIdentity((await platform.snapshot()).core);
     } catch (error, stack) {
       return call.fail(error, stack);
     }
-    return StrategySnapshot.fromMap({
-      ...metadata,
+    return {
       ...envelope(source),
+      if (metadata.containsKey('mode')) 'mode': metadata['mode'],
       'groups': groups,
-      'terminal': terminal,
       'stale': stale,
       'globalReferenced': metadata['globalReferenced'] == true,
+      if (terminal['cancelError'] != null)
+        'cancelError': terminal['cancelError'],
+      if (terminal['cancelError'] != null && terminal['nativeReceipt'] != null)
+        'nativeReceipt': terminal['nativeReceipt'],
       'unrestored': [
         for (final item in _unrestored.entries)
           {'group': item.key, 'reason': item.value},
       ],
-    });
+    };
   }
 
   Future<List<Map<String, Object?>>> _lanInterfaces(
@@ -1130,7 +1267,14 @@ class CoreRuntime implements RuntimeCore {
     final publication = await client.publishRunInput(file.path, inputId);
     if (publication['durable'] != true) {
       throw ConfigFailure(
-        messages.storageSyncUnconfirmed.withDetail(publication),
+        messages.storageSyncUnconfirmed.withDetail({
+          if (publication['saved'] is bool) 'saved': publication['saved'],
+          if (publication['durable'] is bool) 'durable': publication['durable'],
+          if (publication['inputId'] is String)
+            'inputId': publication['inputId'],
+          if (publication['path'] is String) 'path': publication['path'],
+          if (publication['error'] != null) 'error': publication['error'],
+        }),
       );
     }
     final previous = await client.status();
@@ -1238,10 +1382,7 @@ class CoreRuntime implements RuntimeCore {
     void completeActual() {
       if (reply.isCompleted) return;
       reply.complete({
-        'actual': {
-          'value': preparedResult!.value,
-          'terminal': preparedResult!.terminal,
-        },
+        'actual': _prepareActual(preparedResult!),
         if (cleanupFailure != null)
           'cleanupError': failureValue(cleanupFailure!, cleanupStack),
       });
@@ -1311,7 +1452,11 @@ class CoreRuntime implements RuntimeCore {
             return;
           }
           throw ConfigFailure(
-            messages.coreContextUnconfirmed.withDetail(preparedResult!.value),
+            messages.coreContextUnconfirmed.withDetail({
+              'expected': envelope(source),
+              'platform': envelope(loaded),
+              'actual': _prepareActual(preparedResult!)['value'],
+            }),
           );
         }
         _restoredProcess = source.processId;
@@ -1345,10 +1490,7 @@ class CoreRuntime implements RuntimeCore {
               details: {
                 'error': failureValue(error, stack),
                 if (preparedResult != null)
-                  'actual': {
-                    'value': preparedResult!.value,
-                    'terminal': preparedResult!.terminal,
-                  },
+                  'actual': _prepareActual(preparedResult!),
                 if (cleanupFailure != null)
                   'cleanupError': failureValue(cleanupFailure!, cleanupStack),
               },
@@ -1573,7 +1715,9 @@ class CoreRuntime implements RuntimeCore {
         (value['next'] as int) < 0 ||
         value['dropped'] is! int ||
         (value['dropped'] as int) < 0) {
-      throw FormatException('日志 watermark 无效', value);
+      throw FormatException(
+        '日志 watermark 无效: ${{'expectedSource': window, if (value['source'] is String) 'source': value['source'], if (value['source'] is! String) 'sourceType': value['source'].runtimeType.toString(), if (value['next'] is int) 'next': value['next'], if (value['next'] is! int) 'nextType': value['next'].runtimeType.toString(), if (value['dropped'] is int) 'dropped': value['dropped'], if (value['dropped'] is! int) 'droppedType': value['dropped'].runtimeType.toString(), if (value['error'] != null) 'error': value['error']}}',
+      );
     }
     logs.clear(
       window,
@@ -1725,7 +1869,11 @@ class CoreRuntime implements RuntimeCore {
       if (!const ['rule', 'global', 'direct'].contains(value)) {
         throw PlatformFailure(
           code: ApplicationContract.coreErrorCallFailed,
-          details: result.value,
+          details: {
+            'message': '内核返回的模式无效',
+            if (value is String || value is num || value is bool)
+              'actual': value,
+          },
         );
       }
       actual = value as String;
@@ -1744,8 +1892,10 @@ class CoreRuntime implements RuntimeCore {
           details: {
             ...envelope(source),
             'expected': expected,
-            'result': result.value,
-            ...result.terminal,
+            'actual': actual,
+            if (result.cancelError != null) 'cancelError': result.cancelError,
+            if (result.terminal['nativeReceipt'] != null)
+              'nativeReceipt': result.terminal['nativeReceipt'],
           },
         );
       }
@@ -1795,7 +1945,12 @@ class CoreRuntime implements RuntimeCore {
         ].contains(status['phase'])) {
       throw PlatformFailure(
         code: ApplicationContract.coreErrorIdentityMismatch,
-        details: status,
+        details: {
+          'expectedProcessId': processId,
+          if (status['processId'] is String) 'processId': status['processId'],
+          if (status['phase'] is String) 'phase': status['phase'],
+          if (status['error'] != null) 'error': status['error'],
+        },
       );
     }
     final result = await _result(
@@ -1812,7 +1967,12 @@ class CoreRuntime implements RuntimeCore {
         ].contains(after['phase'])) {
       throw PlatformFailure(
         code: ApplicationContract.coreErrorIdentityMismatch,
-        details: after,
+        details: {
+          'expectedProcessId': processId,
+          if (after['processId'] is String) 'processId': after['processId'],
+          if (after['phase'] is String) 'phase': after['phase'],
+          if (after['error'] != null) 'error': after['error'],
+        },
       );
     }
     final value = result.object;
@@ -1820,8 +1980,15 @@ class CoreRuntime implements RuntimeCore {
         value['processRssBytes'] is! int ||
         (value['processRssBytes'] as int) < 0 ||
         value['sampledAt'] is! int) {
-      throw FormatException('内核内存读取失败', value);
+      throw FormatException(
+        '内核内存读取失败: ${{if (value['valid'] is bool) 'valid': value['valid'], if (value['valid'] is! bool) 'validType': value['valid'].runtimeType.toString(), if (value['processRssBytes'] is int) 'processRssBytes': value['processRssBytes'], if (value['processRssBytes'] is! int) 'processRssBytesType': value['processRssBytes'].runtimeType.toString(), if (value['sampledAt'] is int) 'sampledAt': value['sampledAt'], if (value['sampledAt'] is! int) 'sampledAtType': value['sampledAt'].runtimeType.toString(), if (value['error'] != null) 'error': value['error']}}',
+      );
     }
-    return {...value, 'processId': processId};
+    return {
+      'valid': true,
+      'processRssBytes': value['processRssBytes'],
+      'sampledAt': value['sampledAt'],
+      'processId': processId,
+    };
   }
 }

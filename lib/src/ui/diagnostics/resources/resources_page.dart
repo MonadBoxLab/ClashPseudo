@@ -2,16 +2,13 @@ import '../../../logic/diagnostics/core_collection_page.dart';
 import '../../components/feedback/operation_notice.dart';
 import '../../navigation/page_route.dart';
 
-import 'dart:convert';
-
 import 'package:clash_pseudo/src/model/core_snapshot.dart';
 import 'package:flutter/material.dart';
 
-import '../../theme/app_theme.dart';
 import '../../components/input/task_shortcuts.dart';
+import '../../components/input/toolbar_search_field.dart';
 import '../../components/collections/collection_workspace.dart';
 import '../../components/collections/reading_list.dart';
-import '../../components/reading/original_text_view.dart';
 import '../../components/reading/format_bytes.dart';
 import '../../components/input/choice_menu_button.dart';
 
@@ -150,21 +147,6 @@ class _ResourcesPageState extends State<ResourcesPage> {
   }
 
   void _closeDetails() => setState(() => _selected = null);
-
-  void _showRaw(Object? value, {bool Function()? isCurrent}) {
-    if (!(isCurrent?.call() ?? _masterLive)) return;
-    final strings = AppLocalizations.of(context);
-    Navigator.of(context).push<void>(
-      FocusedPageRoute(
-        builder: (_) => Scaffold(
-          appBar: AppBar(title: Text(strings.resourceRawData)),
-          body: OriginalTextView(
-            text: const JsonEncoder.withIndent('  ').convert(value),
-          ),
-        ),
-      ),
-    );
-  }
 
   Future<void> _localCustom(
     int storageEpoch, {
@@ -472,12 +454,6 @@ class _ResourcesPageState extends State<ResourcesPage> {
               ],
             ),
           ),
-          TextButton.icon(
-            key: const ValueKey('resource-raw-data'),
-            icon: const Icon(Icons.data_object),
-            label: Text(strings.resourceRawData),
-            onPressed: () => _showRaw(row, isCurrent: current),
-          ),
           if (kind == 'proxyProvider' || kind == 'ruleProvider')
             TextButton(
               onPressed: valid
@@ -601,6 +577,21 @@ class _ResourcesPageState extends State<ResourcesPage> {
           : _controller.status == ResourcesStatus.preview
           ? strings.runtimeConfigPreview
           : strings.runtimeConfigLive;
+      final subtitleStyle = Theme.of(context).textTheme.bodySmall!
+          .copyWith(height: 1.5);
+      final subtitleStrut = StrutStyle.fromTextStyle(
+        subtitleStyle,
+        forceStrutHeight: true,
+      );
+      final subtitleMeasure = TextPainter(
+        text: TextSpan(text: 'Ag', style: subtitleStyle),
+        strutStyle: subtitleStrut,
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+        locale: Localizations.maybeLocaleOf(context),
+      )..layout();
+      final subtitleHeight = subtitleMeasure.height * 2;
+      subtitleMeasure.dispose();
       Widget content() => Align(
         alignment: Alignment.topCenter,
         child: ConstrainedBox(
@@ -617,27 +608,11 @@ class _ResourcesPageState extends State<ResourcesPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (widget.geoName == null) ...[
-                    TextField(
+                    ToolbarSearchField(
                       controller: _search,
                       focusNode: _searchFocus,
+                      hintText: strings.resourceSearch,
                       onChanged: (value) => setState(() => _query = value),
-                      decoration: InputDecoration(
-                        labelText: strings.resourceSearch,
-                        prefixIconColor: WidgetStateColor.resolveWith(
-                          (states) => states.contains(WidgetState.disabled)
-                              ? Theme.of(context).disabledColor
-                              : HomePalette.of(context).moreAction,
-                        ),
-                        prefixIcon: const Icon(Icons.search),
-                        suffixIcon: IconButton(
-                          tooltip: strings.clearSearch,
-                          onPressed: () {
-                            _search.clear();
-                            setState(() => _query = '');
-                          },
-                          icon: const Icon(Icons.close),
-                        ),
-                      ),
                     ),
                     const SizedBox(height: 12),
                   ],
@@ -670,12 +645,19 @@ class _ResourcesPageState extends State<ResourcesPage> {
                     final updating = _controller.isUpdating(kind, name);
                     final updated = row['updatedAt']?.toString();
                     final supported = row['updateSupported'] == true;
+                    final selected =
+                        !_selectionExpired &&
+                        _selected != null &&
+                        _rowIdentity(row) == _rowIdentity(_selected!);
+                    final colors = Theme.of(context).colorScheme;
+                    final rowSubtitleStyle = subtitleStyle.copyWith(
+                      color: selected
+                          ? colors.onSecondaryContainer
+                          : colors.onSurfaceVariant,
+                    );
                     final tile = ListTile(
                       key: ValueKey(_rowIdentity(row)),
-                      selected:
-                          !_selectionExpired &&
-                          _selected != null &&
-                          _rowIdentity(row) == _rowIdentity(_selected!),
+                      selected: selected,
                       selectedTileColor: Theme.of(context)
                           .colorScheme
                           .secondaryContainer,
@@ -691,22 +673,18 @@ class _ResourcesPageState extends State<ResourcesPage> {
                         name.isEmpty ? '""' : name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        strutStyle: const StrutStyle(
-                          fontSize: 16,
-                          height: 1.5,
-                          forceStrutHeight: true,
-                        ),
                       ),
                       subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           SizedBox(
-                            height:
-                                MediaQuery.textScalerOf(context).scale(14) * 3,
+                            height: subtitleHeight,
                             child: Text(
                               _detail(strings, row),
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
+                              style: rowSubtitleStyle,
+                              strutStyle: subtitleStrut,
                             ),
                           ),
                           Text(
@@ -715,11 +693,8 @@ class _ResourcesPageState extends State<ResourcesPage> {
                                 : source,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            strutStyle: const StrutStyle(
-                              fontSize: 14,
-                              height: 1.5,
-                              forceStrutHeight: true,
-                            ),
+                            style: rowSubtitleStyle,
+                            strutStyle: subtitleStrut,
                           ),
                           Text(
                             updated == null
@@ -729,11 +704,8 @@ class _ResourcesPageState extends State<ResourcesPage> {
                                   ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            strutStyle: const StrutStyle(
-                              fontSize: 14,
-                              height: 1.5,
-                              forceStrutHeight: true,
-                            ),
+                            style: rowSubtitleStyle,
+                            strutStyle: subtitleStrut,
                           ),
                         ],
                       ),
@@ -805,13 +777,6 @@ class _ResourcesPageState extends State<ResourcesPage> {
           appBar: AppBar(
             title: Text(strings.externalResources),
             actions: [
-              IconButton(
-                tooltip: strings.resourceRawData,
-                onPressed: _controller.data == null
-                    ? null
-                    : () => _showRaw(_controller.data),
-                icon: const Icon(Icons.data_object),
-              ),
               const CollectionDetailsAction(),
               if (widget.geoName == null) ...[
                 ChoiceMenuButton<LocalYamlSection>(
@@ -831,23 +796,6 @@ class _ResourcesPageState extends State<ResourcesPage> {
                   },
                 ),
               ],
-              IconButton(
-                tooltip: strings.refresh,
-                onPressed: _controller.canRefresh
-                    ? () {
-                        if (_masterLive) {
-                          (_local.retry ?? _controller.refresh)();
-                        }
-                      }
-                    : null,
-                color: HomePalette.of(context).syncAction,
-                icon: _controller.loading
-                    ? const SizedBox.square(
-                        dimension: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.refresh),
-              ),
             ],
           ),
           body: content(),

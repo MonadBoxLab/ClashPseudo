@@ -19,6 +19,8 @@ internal class LocalInterfaces(context: Context, private val changed: (Map<Strin
     private var installed = false
     private var active = false
     private var revision = 0L
+    private var notifiedRevision = -1L
+    private var notifiedError: String? = null
     private var last: List<Map<String, Any?>> = emptyList()
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) = refresh()
@@ -101,10 +103,14 @@ internal class LocalInterfaces(context: Context, private val changed: (Map<Strin
         } == true
     }
 
-    private fun refresh() {
-        val previous = revision
+    @Synchronized private fun refresh() {
         val value = snapshot()
-        if (previous != value["revision"] || value["error"] != null) main.post { changed(value) }
+        val currentRevision = value["revision"] as Long
+        val error = value["error"] as? String
+        if (notifiedRevision == currentRevision && notifiedError == error) return
+        notifiedRevision = currentRevision
+        notifiedError = error
+        main.post { changed(value) }
     }
 
     fun close() {

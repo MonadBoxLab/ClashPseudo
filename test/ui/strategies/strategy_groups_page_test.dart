@@ -338,7 +338,7 @@ void main() {
         tester.widget<TextField>(draftName()).controller!.text,
         'Kept draft',
       );
-      await tester.tap(find.widgetWithText(TextButton, 'Discard'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Discard'));
       await settleLocalDefinitions(tester);
       expect(find.byType(StrategyGroupsPage), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -1212,7 +1212,8 @@ void main() {
       }
       bridge.pendingRead = null;
       await dismissNotice(tester);
-      await tester.tap(find.byTooltip('Refresh'));
+      expect(find.byTooltip('Refresh'), findsNothing);
+      await tester.pump(const Duration(seconds: 1));
       await settleLocalDefinitions(tester);
       expect(tester.getRect(add), addRect);
       expect(tester.getRect(title), titleRect);

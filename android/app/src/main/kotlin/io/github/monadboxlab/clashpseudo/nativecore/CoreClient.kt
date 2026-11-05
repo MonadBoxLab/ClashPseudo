@@ -858,14 +858,6 @@ class CoreClient private constructor(private val context: Context) {
         } }
         fun applicationAccess(generation: Long): Map<String, Any?>? =
             if (current(generation)) statusValue["applicationAccess"] as? Map<String, Any?> else null
-        fun logSource(): CoreHost.Snapshot? = null
-        fun runtimeRefreshCurrent(sessionGeneration: Long, coreGeneration: Long, composition: String, revision: Long, reason: String): Boolean =
-            current(coreGeneration) && session.snapshot().generation == sessionGeneration && snapshot().composition == composition &&
-                when (reason) {
-                    "networkChanged" -> statusValue["event"] == reason && (statusValue["nextNetworkRevision"] as? Number)?.toLong() == revision
-                    "specificationChanged" -> statusValue["event"] == reason && (statusValue["specificationRevision"] as? Number)?.toLong() == revision
-                    else -> false
-                }
     }
     private fun schedulePreviewIdle() {
         state.removeCallbacks(previewIdle)

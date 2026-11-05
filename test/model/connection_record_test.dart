@@ -1,8 +1,10 @@
+import 'dart:convert';
+
 import 'package:clash_pseudo/src/model/connection_snapshot.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('raw records retain unknown explicit values through observation and transfer', () {
+  test('连接观察只传输业务字段并按实际内容计量', () {
     final raw = <String, dynamic>{
       'id': 'explicit-values',
       'upload': 0,
@@ -21,18 +23,14 @@ void main() {
     final transferred = ConnectionRecord.fromMap(
       record.observed(active: false).toMap(),
     );
-    expect(transferred.raw, raw);
     expect(transferred.upload, 0);
     expect(transferred.download, 0);
-    expect(transferred.rawBytes, record.rawBytes);
+    expect(transferred.active, isFalse);
+    expect(transferred.toMap().containsKey('future'), isFalse);
+    expect(transferred.toMap().containsKey('raw'), isFalse);
     expect(
-      () => (transferred.raw['future'] as Map)['zero'] = 1,
-      throwsUnsupportedError,
-    );
-    expect(
-      () =>
-          ((transferred.raw['future'] as Map)['nested'] as List).add('changed'),
-      throwsUnsupportedError,
+      transferred.retainedBytes,
+      utf8.encode(jsonEncode(transferred.toMap())).length,
     );
   });
 
@@ -74,15 +72,14 @@ void main() {
       expect(transferred.start, source.start);
       expect(transferred.start!.microsecond, 456);
       expect(transferred.start!.isUtc, isFalse);
-      expect(observed.raw['start'], '2026-10-16T10:00:00.123456+05:30');
-      expect(transferred.raw, source.raw);
+      expect(transferred.chains, source.chains);
+      expect(transferred.host, source.host);
       expect(transferred.toMap(), observed.toMap());
-      expect(observed.toMap()['observation'], {
-        'active': true,
-        'observedAt': 1000,
-        'uploadSpeed': 0.0,
-        'downloadSpeed': 20.0,
-      });
+      expect(observed.toMap()['active'], isTrue);
+      expect(observed.toMap()['observedAt'], 1000);
+      expect(observed.toMap()['uploadSpeed'], 0.0);
+      expect(observed.toMap()['downloadSpeed'], 20.0);
+      expect(observed.toMap().containsKey('futureField'), isFalse);
       final ended = observed.observed(active: false);
       expect(ended.active, isFalse);
       expect(ended.observedAt, at);
@@ -113,14 +110,16 @@ void main() {
           'chains': List.generate(100, (index) => '节点$index'),
         };
         final record = ConnectionRecord.fromMap(raw);
-        expect(record.raw, raw);
+        expect(record.toMap().containsKey('futureField'), isFalse);
+        expect(record.toMap().containsKey('ruleSuggestions'), isFalse);
+        expect(record.chains, hasLength(100));
         expect(record.ruleMetadata, isNull);
         expect(record.ruleError, isNotEmpty);
         final observed = record.observed(active: false);
-        expect(observed.raw, same(record.raw));
+        expect(observed.chains, same(record.chains));
         expect(observed.ruleError, record.ruleError);
         final transferred = ConnectionRecord.fromMap(observed.toMap());
-        expect(transferred.raw, raw);
+        expect(transferred.toMap(), observed.toMap());
         expect(transferred.ruleError, record.ruleError);
         expect(transferred.active, isFalse);
         final snapshot = ConnectionSnapshot.fromMap({
@@ -133,7 +132,11 @@ void main() {
           ],
         });
         expect(snapshot.records.map((row) => row.id), ['one', 'two']);
-        expect(snapshot.records.first.raw, raw);
+        expect(snapshot.records.first.chains, hasLength(100));
+        expect(
+          snapshot.records.first.toMap().containsKey('futureField'),
+          isFalse,
+        );
       },
     );
   }
@@ -156,7 +159,7 @@ void main() {
     var transferred = record;
     for (var index = 0; index < 3; index++) {
       transferred = ConnectionRecord.fromMap(transferred.toMap());
-      expect(transferred.raw, raw);
+      expect(transferred.toMap().containsKey('ruleSuggestions'), isFalse);
       expect(transferred.ruleError, diagnostic);
       expect(transferred.ruleMetadata, isNull);
     }
