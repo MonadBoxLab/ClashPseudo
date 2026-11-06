@@ -1,22 +1,29 @@
 # 构建、自动化测试与验证工具
 
-命令在项目根目录执行。先按任务选择入口，再准备对应工具链、输出目录和授权：
+命令示例在项目根目录执行。项目工具统一通过 `python3 -I -B tool/main.py` 调用；从其他目录执行时，使用 `main.py` 的绝对路径。先按任务选择入口：
 
 | 任务 | 入口 | 主要输出 |
 | --- | --- | --- |
 | 日常修改检查 | 下文“自动化测试” | 分语言退出码与测试结果 |
-| 更新依赖或应用版本 | tool/dependencies/update.py | 限定输入、锁文件及法律材料 |
-| 本地完整交付 | “本地隔离act交付” | 四APK、对应源码、许可及SHA256SUMS |
+| 更新依赖或应用版本 | `main.py dependencies check`／`apply` | 限定输入、锁文件、许可及 JSON 报告 |
+| 验证依赖候选 | `main.py dependencies validate` | Python／Contract／Flutter／Go 测试日志 |
+| 手动分发 | “Android 分发与 GitHub Actions” | 四个 release APK、对应源码、许可及 SHA256SUMS |
 | Android lifecycle／JNI | “Android测试变体” | 配套主包、test APK和逐项JUnit结果 |
 | 系统界面操作 | “SDK观察器” | SDK节点／动作回执及process identity |
 | 网络集成 | “受控网络服务” | 动态端口、请求记录和关闭回执 |
 | 产物、备份和覆盖率核验 | 文末各工具入口 | 核验报告、原字节比较或覆盖率数据 |
 
-行为断言见[验证方法](verification.md)，执行职责见[应用架构](../architecture/overview.md)。路径占位符替换为本次工具链及输入的绝对路径。
+行为断言见[验证方法](verification.md)，执行职责见[应用架构](../architecture/overview.md)。路径占位符替换为本次工具链及输入的绝对路径。顶层、命令组和具体操作均支持 `-h`／`--help`；省略命令显示帮助并成功退出。查看帮助只需 Python，不启动 Go、Flutter 或网络请求。
+
+```sh
+python3 -I -B tool/main.py --help
+python3 -I -B tool/main.py dependencies --help
+python3 -I -B tool/main.py android build-core --help
+```
 
 ## 工具链与构建
 
-Flutter／Dart要求由[pubspec.yaml](../../pubspec.yaml)及[锁文件](../../pubspec.lock)确定，Android编译配置见[Gradle](../../android/app/build.gradle.kts)，Go版本和内核依赖见[go.mod](../../native/mihomo/go.mod)。原生[Bash入口](../../tool/android/build_core.sh)使用Linux x86_64构建宿主和项目选定的NDK／Go生成原生库。
+Flutter／Dart要求由[pubspec.yaml](../../pubspec.yaml)及[锁文件](../../pubspec.lock)确定，Android编译配置见[Gradle](../../android/app/build.gradle.kts)，Go版本和内核依赖见[go.mod](../../native/mihomo/go.mod)。[原生构建实现](../../tool/android/build_core.py)使用 Linux x86_64 宿主和项目选定的 NDK／Go，通过 `main.py android build-core` 构建原生库。
 
 构建前使 `ANDROID_HOME`／`ANDROID_SDK_ROOT` 与 `android/local.properties` 中的 `sdk.dir` 指向同一实际SDK；如同时设置两个环境变量，也应保持一致。Gradle从解析出的SDK目录取得NDK，产物核验工具从SDK环境取得Build Tools。`local.properties` 只记录本机位置，不纳入对应源码。
 
@@ -28,68 +35,78 @@ flutter test
 flutter build apk --release --no-pub --target-platform android-arm,android-arm64,android-x64
 ```
 
-Gradle按abiFilters和原生任务输入生成libmihomo_bridge.so，生产标签为`cmfa,with_gvisor`。JNI入口及保护callback由Keep保留。普通分发使用正常release配置；下文覆盖率采集另启`validationCoverage`或`validationNativeCoverage`测试变体。
+Gradle 按 `abiFilters` 和原生任务输入生成 `libmihomo_bridge.so`，生产 tags 为 `cmfa,with_gvisor`，最低 API 为 24，链接使用 16 KiB 对齐。JNI 入口及保护 callback 由 Keep 保留。原生库先在对应 ABI 的 staging 目录完成构建，再替换输出；失败时保留该 ABI 的旧库。单独构建使用：
+
+```sh
+python3 -I -B tool/main.py android build-core \
+  --ndk '<NDK目录>' --api 24 --output /var/tmp/native-libs \
+  --abis armeabi-v7a,arm64-v8a,x86_64
+```
+
+普通分发使用正常 release 配置；覆盖率采集另启 `validationCoverage` 或 `validationNativeCoverage` 测试变体。
 
 ## 依赖更新与应用版本
 
-[依赖入口](../../tool/dependencies/update.py)检查 mihomo 的最新正式 GitHub Release。`--check` 只查询并报告版本，保持工作树原状。GitHub Actions 发现新 mihomo 正式 Release，或用户显式准备应用 release 时，`--apply` 在隔离副本中统一解析 mihomo、相关 Go／hosted Pub／Maven 依赖、CA／Geo、兼容工具链及许可，再核对原工作树身份并写回限定输入。准备期间源码发生变化时停止写回。
+`dependencies check` 与 `dependencies apply` 共用候选解析。默认 `--scope all` 检查 mihomo、其他直接 Go 依赖、hosted Pub、Maven 和 CA／Geo；CA 或其他依赖单独变化也会生成候选。`check` 输出差异，不写回项目输入；`apply` 在临时副本中完成解析及许可收集后，事务写回声明、锁文件、通知和固定资源记录。
 
 ```sh
-python3 -I -B tool/dependencies/update.py --check
-# 准备新的应用 release，默认递增 patch。
-python3 -I -B tool/dependencies/update.py --apply
-# 同一次尚未分发的候选准备沿用应用版本。
-python3 -I -B tool/dependencies/update.py --apply --reuse-version
+python3 -I -B tool/main.py dependencies check
+python3 -I -B tool/main.py dependencies apply --report /var/tmp/dependency-report.json
+# 同一候选保留已经确定的应用版本。
+python3 -I -B tool/main.py dependencies apply --reuse-version
+# 只调整内核，其他生态和固定资源保持原选择。
+python3 -I -B tool/main.py dependencies apply \
+  --scope mihomo --mihomo-version '<目标selector>' --reuse-version
 ```
 
-工具链从官方 stable 元数据和兼容矩阵解析，保留 API24；Flutter 使用随附 Dart。SDK／Build Tools／NDK、Go、Java、Gradle、AGP 和 Kotlin 的选中版本、固定下载来源、摘要及排除原因随资源记录保存。本地 re_editor 保持 path 来源；protobuf replace 和其他许可要求按实际模块图复核，见[许可升级规范](../legal/dependencies.md#内核与依赖升级复核)。
+显式 `--mihomo-version` 需要 `--scope mihomo`；tag、commit、branch 或 `latest` 原样交给 Go，报告 `go list -m` 的实际选择。内核求解必需的传递依赖及关联许可随之更新。无真实变化返回 `unchanged` 和空文件列表，不递增应用版本；解析或下载失败返回非零退出码及原始错误。
 
-[release 输入记录](../../third_party/data/resources.json)保存五项资源的来源、版本／commit、大小、SHA-256、可编辑来源身份、许可、工具链与依赖解析决定。本机安装位置另写环境报告，不进入对应源码。普通构建、测试和同次 act 重试只消费固定输入，不查询 latest；缺少 payload 时按固定 URL 下载并核对摘要，不刷新 release 记录。
+Go、Flutter、JDK、SDK、NDK、Gradle、AGP 和 Kotlin 使用项目固定声明及下载记录，不参与日常自动更新。Flutter 使用随附 Dart，Go 使用 `GOTOOLCHAIN=local`。新依赖与固定工具链不兼容时保留 Go／Pub／Gradle 的原始错误；工具链升级单独进行。本地 re_editor 保持 path 来源，protobuf replace 及许可材料按实际模块图复核，见[许可升级规范](../legal/dependencies.md#内核与依赖升级复核)。
+
+[release 输入记录](../../third_party/data/resources.json)保存五项资源的来源、版本／commit、大小、SHA-256、可编辑来源身份、许可、工具链与依赖解析决定。本机安装位置另写环境报告，不进入对应源码。普通构建、测试和同一候选的验证只消费固定输入，不查询 latest；缺少 payload 时按固定 URL 下载并核对摘要，不刷新 release 记录。
 
 ### 固定输入与 generated assets
 
 先准备记录中的工具链，再生成资源，最后开始 Flutter／Gradle 构建。工具链准备入口不会查询最新版本：
 
 ```sh
-python3 -I -B tool/dependencies/toolchains.py \
+python3 -I -B tool/main.py dependencies prepare-toolchains \
   --environment /path/to/toolchain-environment.json
-python3 -I -B tool/dependencies/update.py --prepare-build
+python3 -I -B tool/main.py dependencies prepare-build
 # 已有 payload 的离线准备。
-python3 -I -B tool/dependencies/update.py --prepare-build --offline
+python3 -I -B tool/main.py dependencies prepare-build --offline
 ```
 
 环境报告中的 `environment` 对象提供 `JAVA_HOME`、`ANDROID_HOME`、`ANDROID_SDK_ROOT`、`PATH`、`GOTOOLCHAIN` 和 `CLASH_GRADLE`。后续命令使用这些实际路径；Gradle 可直接执行 `CLASH_GRADLE` 指向的固定可执行文件。准备入口同时写入本机 `android/local.properties`，不把其路径作为分发输入。
 
 五项 payload、资源 manifest、BundledAssetContract 和法律资产输出至 `build/generated/bundled/`，Gradle 将其中 assets 与 Kotlin source 注册为生成输入。源码目录不保存 payload，也不以旧源码 manifest 作为 fallback。应用内许可、APK 核验和对应源码打包使用同一资源记录。离线重建对应源码包时，可通过 `--payload-directory` 指向包内 `build-inputs/bundled/assets/`。
 
-### 应用版本
+### 本地隔离回退
 
-[pubspec.yaml](../../pubspec.yaml)是应用版本的唯一来源，采用 x.y.z+N，独立于内核版本。正式稳定发布前使用 **0.y.z 开发版本**：功能新增或不兼容调整递增 y 并将 z 归零，缺陷、安全及常规依赖维护递增 z。自动更新保持0.y.z阶段，首次1.x通过下述stable操作准备。
-
-首次稳定发布须由用户明确决定，通过 `--bump stable` 将 0.y.z 提升为 **1.0.0**；不沿用开发阶段的 y。稳定期按一次完整交付的变化确定增量：
-
-- **x，主版本**：需要用户调整或处理的不兼容变化，例如配置／备份格式的不兼容变化、重要能力移除或核心使用流程变化。递增 x 后，y、z 归零。
-- **y，次版本**：向后兼容的应用功能新增。递增 y 后，z 归零。
-- **z，补丁版本**：保持既有使用contract的维护更新，包括缺陷修复、安全更新、性能改善及常规依赖升级。
-
-常规 mihomo 正式版更新默认递增 z；同次发布的内核升级次数不单独叠加应用版本。版本在构建前确定，不由每次 commit、测试、覆盖采集或内部里程碑递增。Flutter 的 x.y.z+N 中，x.y.z 对应 Android versionName，N 对应 versionCode；每个新的 Android 分发版本递增 N，同次发布的失败重试、续跑与缺失资产补齐复用已经确定的版本。即使订正显示版本阶段，N 也不回退；历史产物及其材料保持原版本与字节。
+在独立源码副本中保存基线的声明、锁文件和资源记录，再从副本根目录执行下列命令。`--reuse-version` 保留应用版本，`scope=mihomo` 只改变内核及 Go 求解必需输入：
 
 ```sh
-# 准备应用功能版本及同次 release 输入。
-python3 -I -B tool/dependencies/update.py --apply --bump minor
-# 仅在用户明确决定首次稳定发布时执行；不自动触发。
-python3 -I -B tool/dependencies/update.py --apply --bump stable
-# 稳定期不兼容变化使用 major；开发期 major 会拒绝。
-python3 -I -B tool/dependencies/update.py --apply --bump major
-# 同一次尚未分发的候选准备沿用已经确定的版本。
-python3 -I -B tool/dependencies/update.py --apply --reuse-version
+python3 -I -B tool/main.py dependencies apply \
+  --scope mihomo --mihomo-version '<目标selector>' --reuse-version
+GOTOOLCHAIN=local go -C native/mihomo list -mod=readonly -m github.com/metacubex/mihomo
+GOTOOLCHAIN=local go -C native/mihomo test -mod=readonly -tags=cmfa,with_gvisor ./... -count=1
+GOTOOLCHAIN=local go -C native/mihomo vet -mod=readonly -tags=cmfa,with_gvisor ./...
+flutter build apk --debug --no-pub --target-platform android-arm,android-arm64,android-x64
 ```
 
-源码、Git tag、APK 和对应源码包使用同一版本。显式执行 `--apply` 表示准备一次应用 release；`--reuse-version` 用于同一次待发布交付，不代表新分发版本。GitHub Actions 未发现新 mihomo 且没有显式应用发布请求时，只报告检查结果，不刷新资源或创建 release。0.y.z 的 GitHub Release 标记为 prerelease，首次稳定提升只接受明确的手动选择。release 是 APK 构建模式，开发／稳定阶段由应用版本确定。
+记录实际 Go 选择、测试退出码及 debug APK 的三 ABI 生产 native 库。随后通过同一更新入口选择基线 selector，比较非 Go 输入保持不变，再运行对应测试与构建。本地使用调试签名；正式分发签名和四个 release APK 的结果另从 Actions 记录。
+
+### 应用版本
+
+[pubspec.yaml](../../pubspec.yaml)是应用版本的唯一声明。更新器先准备依赖与资源候选，有实际变化时将 patch 和 Android versionCode 各加一，一次更新多项依赖也只递增一次。例如 `1.0.0+1` 的候选使用 `1.0.1+2`。无变化、同一候选再次 apply 和普通构建均不递增。
+
+CI 每次从默认分支基准准备候选，同一基准重跑得到相同版本；成功发布后，后续实际更新从默认分支的新版本继续递增。本地隔离回退实验使用 `--reuse-version` 保留应用版本，自动发布不使用该选项。
+
+应用版本与 GitHub 发布类型独立：`pre-release`／`release` 来自 workflow 配置，不从 `0.x`、版本后缀或 mihomo selector 推断。两种发布类型均使用正式签名的 release APK；选择正式 release 不额外提升 major 或 patch。
 
 ### 独立产物核验输入
 
-`--apply --evidence '<新目录>'`从实际 Go 模块解析、Android releaseRuntimeClasspath 及独立的 Flutter release bundle 构建生成 go-modules.json、android-dependencies.txt 和 decoded NOTICES。输入目录在命令前保持不存在，Flutter SDK 的正常生成文件仍使用构建输出目录。产物核验将这些输入与待检 APK 比较，调用见[许可核验工具](#备份与许可核验工具)。
+`dependencies apply --evidence '<新目录>'`从实际 Go 模块解析、Android releaseRuntimeClasspath 及独立的 Flutter release bundle 构建生成 go-modules.json、android-dependencies.txt 和 decoded NOTICES。输入目录在命令前保持不存在，Flutter SDK 的正常生成文件仍使用构建输出目录。产物核验将这些输入与待检 APK 比较，调用见[许可核验工具](#备份与许可核验工具)。
 
 ## Android 分发与 GitHub Actions
 
@@ -102,119 +119,73 @@ python3 -I -B tool/dependencies/update.py --apply --reuse-version
 | clash-pseudo-x.y.z+N-armeabi-v7a.apk | 使用 32 位 Android 系统的设备 |
 | clash-pseudo-x.y.z+N-x86_64.apk | 相应设备和模拟器 |
 
-本地四包构建顺序：
-
-1. 固定源码及资源输入，执行通用构建。
-2. 将`build/app/outputs/flutter-apk/app-release.apk`复制为独立产物目录中的版本化universal文件。
-3. 执行分架构构建，从同目录取得`app-ABI-release.apk`三个文件。
-4. 逐包检查目标ABI、原生库、buildinfo、生产tags、16KiB对齐、版本、签名及法律资产，再生成对应源码和许可包。
+本地已通过环境提供分发签名时，使用一次 split 构建生成四包：
 
 ```sh
-flutter build apk --release --no-pub --target-platform android-arm,android-arm64,android-x64
-# 将app-release.apk保存为产物目录中的版本化universal文件后，再执行下一条。
 flutter build apk --release --no-pub --target-platform android-arm,android-arm64,android-x64 --split-per-abi
-python3 -I tool/artifacts/package_sources.py --evidence '<核验输入目录>' \
+python3 -I -B tool/main.py artifacts package-sources --evidence '<核验输入目录>' \
   --resource-sources '<固定资源可编辑来源清单>' --output '<版本对应源码.tar.gz>'
 ```
 
+应用 Gradle 的 `splits.abi.isUniversalApk=true` 在同轮 split 构建中增加通用包。构建工具按 AGP 输出元数据定位四个 APK，再使用上表文件名保存；逐包检查 ABI、生产 buildinfo、16 KiB 对齐、Android 签名及法律资产。无分发签名的本地集成测试使用 debug variant，不执行本段 release 构建。
+
 四包共享覆盖实际源码和依赖的 sources.tar.gz 与 licenses.tar.gz。SHA256SUMS 包含全部四个 APK、对应源码包及许可包。对应源码入口默认读取当前工作树的正式输入，包含必要的未忽略新增文件，按当前删除状态处理已删除文件；`build-inputs/source-tree.json` 记录 workingTree、dirty、基准提交及逐文件字节数／SHA-256／可执行位，归档期间复核源码稳定。`--commit '<提交>'`适用于与该提交一致的干净源码。固定资源可编辑来源清单默认取核验输入目录中的 `resource-sources.json`，也可由上述参数指定；材料要求见[许可升级规范](../legal/dependencies.md)。SDK 本机位置、签名材料和设备备份保持在源码包之外，公开合成测试证书与私钥随测试保留。
 
-[自动工作流](../../.github/workflows/update-dependencies.yml)每日检查 mihomo 正式 Release，也接受手动触发。新内核维护发布默认递增 patch；手动触发可选择完整交付所需的 minor、稳定期 major，或明确选择 stable 准备首次 1.0.0 稳定发布；定时任务不能执行 stable 提升。publish_current 用于准备一次独立应用发布。pubspec.yaml 已准备新版本时复用该版本；首次稳定选择必须实际提升开发版本，不能被未建 tag 的版本复用逻辑跳过。已有未完成发布按原 tag 与开发／稳定性质续跑，保留已成功资产，按校验文件或原始 Actions 归档恢复缺失材料，完成核验后补齐远程资产。
+### 自动更新与发布
 
-发布使用[GitHub Actions工作流](../../.github/workflows/update-dependencies.yml)：
+[Update and release](../../.github/workflows/dependency-updates.yml) 每天 UTC 05:17（北京时间 13:17）检查依赖和 bundled 资源，也支持手动运行。有更新时构建并直接发布，不创建依赖 PR。
 
-1. [release.py](../../tool/dependencies/release.py)生产模式在独立CI工作区准备发布输入，提交限定变更，原子推送应用tag和源码。
-2. [publish-release.cjs](../../.github/scripts/publish-release.cjs)核对远程tag、版本归属和全部资产摘要。
-3. 建立draft，上传并核验完整资产后正式发布。
-
-生产`ReleasePreparation.execute`执行fetch、reset、提交、tag和push，运行前取得该次真实Actions发布授权。本地交付选择下文的`--prepare-act`及`--local`。
-
-### 本地隔离act交付
-
-先固定待交付的源码和资源来源，再用`--prepare-act`在项目外的新目录生成独立源码副本和act启动文件：
-
-```sh
-python3 -I -B tool/dependencies/release.py --prepare-act \
-  --project /path/to/frozen-project \
-  --output '/var/tmp/<new-empty-act-root>' \
-  --resource-sources /path/to/resource-sources.json \
-  --runner-image '<Debian系runner镜像:tag或digest>' \
-  --artifact-host '<runner容器可达的限定IPv4>' \
-  --docker-host '<显式Docker unix endpoint>' \
-  --act /usr/local/bin/act
-```
-
-准备完成后得到以下材料；随后由validate、dryrun和command分别执行检查及job：
-
-| 目录／文件 | 内容 |
+| 阶段 | 执行内容与结果 |
 | --- | --- |
-| workspace、origin.git | 固定输入副本及隔离本地Git来源 |
-| home、action-cache、artifacts、cache、temp、docker-config | 本次运行使用的独立目录 |
-| control/launch.json | cwd、白名单environment及validate／dryrun／command参数数组 |
-| control/secrets | 初始空、0600；由获授权操作者从既有分发签名配置填入四项签名变量 |
+| 准备候选 | 从默认分支基准执行更新；有真实变化时 patch 和 versionCode 各加一，创建本轮候选提交 |
+| 构建 | 仅在 release 构建步骤注入分发签名；一次 split 构建产出通用包和三个 ABI 包，检查签名、对齐、buildinfo 和法律资产 |
+| 保存材料 | 保存候选 Git bundle、四 APK、对应源码、许可包、SHA256SUMS 及本轮发布类型，artifact 保留 7 天 |
+| 发布 | 发布 job 从 bundle 导入同一候选提交，原子推送默认分支与 tag，建立草稿并上传全部资产，完成后公开 |
 
-runner选择明确的Debian／Ubuntu系tag或digest；artifact-host使用容器可达的限定IPv4，排除loopback、unspecified和multicast；docker-host显式提供本机Unix endpoint。启动环境使用launch.json的白名单，签名值写入secrets文件并保持在命令参数和日志之外。
+准备 job 使用 `contents: read`，发布 job 使用 `contents: write`。Action 固定到完整 release tag。候选提交、源码包、APK、tag 和 Release 的 Source 对应同一次输入；发布 job 不重新构建或重新提交候选。
 
-分别执行validate、dryrun，再执行command。以下示例运行validate；检查结果后，将末尾参数依次改为dryrun和command，沿launch.json保存的环境与数组调用：
+workflow 通过统一入口的 `dependencies release context`、`commit`、`build`、`publish` 执行对应步骤。`dependencies validate` 供本地运行测试和静态检查，发布流程不调用该命令，也不读取其报告。具体参数通过各操作的 `--help` 查看。
 
-```sh
-python3 -I -B - '/var/tmp/<act-root>/control/launch.json' validate <<'PY'
-import json
-import subprocess
-import sys
-from pathlib import Path
+在 `Actions → Update and release → Run workflow` 中选择本次发布类型：
 
-launch = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-phase = sys.argv[2]
-if phase not in ("validate", "dryrun", "command"):
-    raise SystemExit("phase must be validate, dryrun or command")
-raise SystemExit(subprocess.run(
-    launch[phase], cwd=launch["cwd"], env=launch["environment"],
-    check=False,
-).returncode)
-PY
-```
+- 两种类型都使用正式签名的 release APK。pre-release 不设为 Latest，release 设为 Latest。
+- 日常无变化时不递增、不创建提交、tag 或 Release。手动以 `release` 运行且无更新时，如果当前提交已有完整 pre-release，则原地转为正式 release 并设为 Latest，APK 和版本不变；没有对应 pre-release 时报告无变化。定时运行不触发转换。
 
-本地job使用以下入口，要求`CLASH_LOCAL_EXECUTION=true`，从副本`.local`固定来源生成完整四APK、对应源码、许可及SHA256SUMS：
-
-```sh
-python3 -I -B tool/dependencies/release.py --local \
-  --output "$RUNNER_TEMP/clash-release"
-```
-
-`--local`使用独立LocalPreparation，从副本`.local/input.json`读取固定输入，复用当前应用版本和依赖，构建前后比较输入身份。输出plan标记local及workingTree，Node发布入口据此拒绝远程发布。记录表分别填写prepare、validate、dryrun、job及逐包核验的命令、退出码和产物摘要；远程发布使用获授权的真实GitHub Actions工作区。
+下载、解析或构建失败时查看对应步骤日志。发布 job 失败后使用 `Re-run failed jobs` 继续本次材料；已推送的 tag 指向本轮候选时继续上传，不把默认分支推回旧提交。基准已变化而 tag 尚未推送时重新运行整个 workflow；artifact 已过期时按错误报告处理缺失材料。
 
 ### 签名来源
 
-Gradle与发布工具共用以下四个环境变量；Actions从同名Secrets提供：
+release 与本地 debug 使用不同 keystore。pre-release／release 构建只读取以下四个环境变量，Actions 从同名 Secrets 注入；`android/key.properties` 只配置 debug：
 
-- `CLASH_PSEUDO_ANDROID_KEYSTORE_BASE64`：用户控制的固定 Android 分发密钥文件的 Base64 内容。
-- `CLASH_PSEUDO_ANDROID_KEYSTORE_PASSWORD`：密钥库密码。
-- `CLASH_PSEUDO_ANDROID_KEY_ALIAS`：密钥别名。
-- `CLASH_PSEUDO_ANDROID_KEY_PASSWORD`：密钥密码。
+- `CLASH_PSEUDO_ANDROID_KEYSTORE_BASE64`：分发 keystore 的 Base64 内容。
+- `CLASH_PSEUDO_ANDROID_KEYSTORE_PASSWORD`：分发密钥库密码。
+- `CLASH_PSEUDO_ANDROID_KEY_ALIAS`：分发密钥别名。
+- `CLASH_PSEUDO_ANDROID_KEY_PASSWORD`：分发密钥密码。
 
-四项中任一变量存在即选择环境来源，空字符串也算存在；此时四项都须非空且不含NUL。值保持原样，不trim，不与本地配置混合，也不在部分或无效环境输入时回退。Base64按Java `Base64.getDecoder()` 解码原值，允许省略末尾padding，拒绝多余padding和空解码结果。
+四个环境变量必须同时完整提供，值保持原样；Base64 使用 Java 解码器。release 缺少分发签名时失败，即使存在本地调试 keystore 也不替代。`CLASH_REQUIRE_DISTRIBUTION_SIGNING=true` 是 Actions release 构建设置，不是第五个 Secret。分发签名仅注入 release 构建步骤。
 
-仅当四项全部不存在时读取 `android/key.properties`，必需属性为 `storeFile`、`storePassword`、`keyAlias`、`keyPassword`。文件按 `java.util.Properties.load(UTF-8 Reader)` 解释分隔符、空白、转义与续行；例如 `storePassword==abc` 的值为 `=abc`。四项须非空且不含NUL，`storeFile` 相对properties文件的父目录解析，密钥须为已有文件。
+本地 debug 读取 `android/key.properties` 的 `storeFile`、`storePassword`、`keyAlias`、`keyPassword`；不存在该文件时使用标准 debug 签名。Properties 按 UTF-8 读取，`storeFile` 相对该文件的父目录解析；debug 不使用环境中的分发密钥。修改本地调试签名后，安装包的签名随之改变，已有应用数据通过备份／恢复迁移。
 
-`CLASH_REQUIRE_DISTRIBUTION_SIGNING=true` 在读取本地配置前要求四环境来源。Actions固定使用这一设置，缺少Secret时构建失败。release任务要求可用签名，debug／instrumentation在无签名配置时使用标准调试签名；若显式提供了坏配置，配置阶段仍会报错。
+环境 keystore 解码到临时文件，POSIX 权限为 0600，构建成功或失败均清理；解码字节在 finally 中清零。日志、构建 artifact 和对应源码不包含 keystore、密码或本机签名配置。
 
-环境密钥恢复到仓库外自有临时文件，POSIX权限为0600，成功与失败均执行清理。密钥和密码只由用户授权提供，文档约定本地配置位置；日志、构建归档和对应源码只保留公开证书摘要与分发材料。已有调试签名安装切换固定分发签名时，通过应用备份／恢复衔接数据。
+### Actions 启用与发布类型
 
-### Actions启用
-
-启用发布前确认远程默认分支、GITHUB_TOKEN的提交／tag推送策略及四个签名Secrets。按用户确定的公开发布时点将仓库变量 `AUTOMATIC_RELEASES_ENABLED` 设为 `true`；手动触发与公开发布同样按用户授权执行。job使用 contents: write 和 actions: read，保持同仓库发布串行执行。
+1. 用户自行推送修改，在仓库 `Settings → Secrets and variables → Actions → Secrets` 确认已有四个同名分发签名 Secrets。
+2. 确认发布 job 的 `GITHUB_TOKEN` 可写默认分支及 tag。分支或 tag 保护拒绝时，在失败步骤查看原始错误并按仓库规则处理。
+3. 打开 `Actions → Update and release → Run workflow`，选择 `release_type`、`scope`，需要指定内核时填写 `mihomo_version` 并选择 `scope=mihomo`。
+4. 在运行 Summary 查看变化、实际应用／内核版本、构建和发布结果；成功后到 `Releases` 下载四个 release APK、对应源码、许可包及 `SHA256SUMS`。
+5. 暂停或恢复使用 workflow 页面菜单中的 `Disable workflow`／`Enable workflow`。
 
 ## 共同静态contract
 
 [application contract](../../contracts/application.json)维护跨Dart、Kotlin、Go和JNI共同使用的容量、期限、归档字段及core IPC协议。[生成入口](../../tool/contracts/generate.py)生成各语言的编译期定义；各层检查实际收到的输入，运行身份和期限起点取自实际受理与执行。修改声明后生成，在构建及独立测试前检查一致性：
 
 ```sh
-python3 -I tool/contracts/generate.py
-python3 -I tool/contracts/generate.py --check
+python3 -I -B tool/main.py contracts generate
+python3 -I -B tool/main.py contracts check
 ```
 
-原生构建入口检查静态 contract 生成结果，`--check` 不依赖资源下载。Gradle 跟踪声明、生成器及影响原生编译的环境参数。Geo／CA 元数据由固定 release 记录和本次生成 manifest 单独生成至 `build/generated/bundled/`，沿用 `asset_metadata` 的校验；法律资产从同次来源与许可原文生成。APK 核验比较包内 payload、元数据及法律资产的实际字节。
+原生构建入口检查静态 Contract 生成结果，`contracts check` 不依赖资源下载。Gradle 跟踪声明、工具模块、生成文件及影响原生编译的环境参数。Geo／CA 元数据由固定 release 记录和本次生成 manifest 单独生成至 `build/generated/bundled/`，沿用 `asset_metadata` 的校验；法律资产从同次来源与许可原文生成。APK 核验比较包内 payload、元数据及法律资产的实际字节。
 
 ### Core IPC contract
 
@@ -245,14 +216,13 @@ Binder控制消息最多64KiB，大输入和逐条结果经ParcelFileDescriptor�
 同一主题按断言所属层分别测试。例如消息包含[模型](../../test/model/app_message_test.dart)、[本地化显示](../../test/ui/locale/app_message_test.dart)、[消息存储](../../test/logic/storage/message_storage_test.dart)和[平台解码](../../test/platform/channel/platform_message_test.dart)；存储预算包含[纯JSON](../../test/model/storage_json_test.dart)及[文件I/O](../../test/logic/storage/storage_files_test.dart)。DNS与普通诊断分别测试[原始响应模型](../../test/model/dns_passthrough_test.dart)、[平台诊断解码](../../test/platform/channel/diagnostic_reads_test.dart)、[Controller等待调用完成](../../test/ui/diagnostics/dns/dns_passthrough_test.dart)和[诊断读取的来源检查](../../test/ui/diagnostics/read_passthrough_test.dart)。不指定文件运行flutter test时，执行整个test目录中的测试。
 
 ```sh
-python3 -I tool/contracts/generate.py --check
+python3 -I -B tool/main.py contracts check
 flutter analyze
 flutter test
-GOTOOLCHAIN=local go -C native/mihomo test -tags=cmfa,with_gvisor ./... -count=1
-GOTOOLCHAIN=local go -C native/mihomo vet -tags=cmfa,with_gvisor ./...
+GOTOOLCHAIN=local go -C native/mihomo test -mod=readonly -tags=cmfa,with_gvisor ./... -count=1
+GOTOOLCHAIN=local go -C native/mihomo vet -mod=readonly -tags=cmfa,with_gvisor ./...
 ./android/gradlew -p android :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest -Ptarget-platform=android-x64
 python3 -I -B -m unittest discover -s test/tool -v
-node --test test/tool/dependency_release_action.test.cjs
 git diff --check
 ```
 
@@ -260,10 +230,10 @@ git diff --check
 
 ```sh
 dart format --output=none --set-exit-if-changed lib test tool/coverage benchmark
-GOTOOLCHAIN=local go -C native/mihomo test -tags=cmfa,with_gvisor -race ./...
+GOTOOLCHAIN=local go -C native/mihomo test -mod=readonly -tags=cmfa,with_gvisor -race ./...
 ```
 
-检查结果按入口记录：Flutter报告页面、业务及平台桥断言，Go报告生产tags下的接入调用，JVM／instrumentation报告Android机制，Python／Node报告工具输入、失败和清理结果。失败时保留原输出、失败用例及所用输入；修改后重新执行对应入口。记录字段见[结果记录](verification.md#结果口径)。
+检查结果按入口记录：Flutter报告页面、业务及平台桥断言，Go报告生产tags下的接入调用，JVM／instrumentation报告Android机制，Python报告工具输入、失败和清理结果。失败时保留原输出、失败用例及所用输入；修改后重新执行对应入口。记录字段见[结果记录](verification.md#结果口径)。
 
 ### 表单到parsercontract
 
@@ -273,7 +243,7 @@ GOTOOLCHAIN=local go -C native/mihomo test -tags=cmfa,with_gvisor -race ./...
 DEFINITION_FORMS_OUTPUT="$OUT/definition-forms.json" flutter test --no-pub \
   test/ui/overrides/forms/shared/definition_forms_test.dart
 DEFINITION_FORMS_GENERATED="$OUT/definition-forms.json" GOTOOLCHAIN=local \
-  go -C native/mihomo test -tags cmfa,with_gvisor ./...
+  go -C native/mihomo test -mod=readonly -tags cmfa,with_gvisor ./...
 ```
 
 [定义contract](../../native/mihomo/internal/engine/definition_forms_contract_test.go)检查组、provider和规则保存输入经两种Compose后解析；[节点contract](../../native/mihomo/internal/engine/proxy_form_contract_test.go)分别覆盖24种GUI新建和28种原始type。记录各type的表单输出及parser结果，协议网络用例另记录受控端请求和会话结果。
@@ -312,7 +282,7 @@ adb -s "$SERIAL" shell am instrument -w -r \
 [构建器](../../tool/android/build_sdk_observer.py)接受明确工具链，依次执行javac、d8、aapt2、zipalign、apksigner，生成`observer.apk`和记录源码／APK摘要、manifest及命令退出码的构建材料：
 
 ```sh
-python3 -I tool/android/build_sdk_observer.py \
+python3 -I -B tool/main.py android build-sdk-observer \
   --android-jar '<Android平台android.jar>' \
   --build-tools '<Build Tools目录>' \
   --java-release '<项目Java编译目标>' \
@@ -332,7 +302,7 @@ OBSERVER_SHA256="$(python3 -I -c 'import json, sys; from pathlib import Path; pr
 [运行器](../../tool/android/run_sdk_observer.py)核查self-target元数据、已安装test APK的摘要及API／ABI，并记录动作前后的主进程PID／startTicks与SDK配置回执，输出到仓库外系统临时目录的新路径。输出中保留动作前后配置和process identity，并与场景要求的配置名及接管结果关联。serial指定目标，allowed-serial给出接受列表，可重复提供。
 
 ```sh
-python3 -I tool/android/run_sdk_observer.py \
+python3 -I -B tool/main.py android run-sdk-observer \
   --serial "$SERIAL" --allowed-serial "$SERIAL" \
   --action snapshot --apk-sha256 "$OBSERVER_SHA256" \
   --window-package io.github.monadboxlab.clashpseudo \
@@ -352,12 +322,12 @@ snapshot读取指定的精确标签，click定位唯一对象并提交一次动�
 
 ## 受控网络服务
 
-[native_fixture.py](../../tool/network/native_fixture.py)用Python标准库提供合成HTTP、UDP、DNS UDP＋TCP及限定目标SOCKS。传入本机数值IPv4和nonce，动态端口由ready事件报告，DNS双协议共用实际端口：
+[network native-fixture](../../tool/network/native_fixture/__init__.py)用Python标准库提供合成HTTP、UDP、DNS UDP＋TCP及限定目标SOCKS。传入本机数值IPv4和nonce，动态端口由ready事件报告，DNS双协议共用实际端口：
 
 ```sh
-python3 -I tool/network/native_fixture.py \
+python3 -I -B tool/main.py network native-fixture \
   --host '<本机IPv4地址>' --nonce controlled-check --seconds 60
-python3 -I tool/network/native_fixture.py --self-test
+python3 -I -B tool/main.py network native-fixture --self-test
 ```
 
 nonce由8..48个小写字母、数字或连字符组成，服务运行1..300秒，最多接受10条连接。SOCKS只转发该服务的HTTP，DNS只为.fixture.test合成A记录；IPv6等场景另设测试服务。到期或终止后，关闭监听和已接受连接，等待请求与受理threadjoin；closed事件返回tasksJoined／remainingAccepted。
@@ -369,11 +339,11 @@ nonce由8..48个小写字母、数字或连字符组成，服务运行1..300秒�
 [verify_backup.py](../../tool/artifacts/verify_backup.py)流式检查manifest、固定三文件、实际大小／CRC／SHA及输入身份。比较三个业务文件原始字节，ZIP时间戳和压缩方式差异单独处理：
 
 ```sh
-python3 -I tool/artifacts/verify_backup.py '<正式导出.zip>'
-python3 -I tool/artifacts/verify_backup.py '<受保护原件.zip>' --compare '<重新导出.zip>'
+python3 -I -B tool/main.py artifacts verify-backup '<正式导出.zip>'
+python3 -I -B tool/main.py artifacts verify-backup '<受保护原件.zip>' --compare '<重新导出.zip>'
 ```
 
-[verify_release_licenses.py](../../tool/artifacts/verify_release_licenses.py)核查法律资产、独立来源的decoded NOTICES、各ABI的Go buildinfo、模块Version／Sum／Replace／tags，以及CA、Geo和PSL来源材料。预期输入通过[依赖入口](#独立产物核验输入)生成。`--xnet-source`使用`go-modules.json`实际选中的x/net模块原始zip；工具核对模块h1、编译表修订、通知和可编辑PSL列表。
+[verify_release_licenses.py](../../tool/artifacts/verify_release_licenses.py)核查法律资产、独立来源的decoded NOTICES、各ABI的Go buildinfo、模块Version／Sum／Replace／tags，以及CA、Geo和PSL来源材料。预期输入通过[依赖入口](#独立产物核验输入)生成。`--xnet-source`使用`go-modules.json`实际选中的x/net模块原始zip；工具使用 Go 下载及模块校验结果，读取编译表修订、通知和可编辑 PSL 列表。
 
 universal省略`--abi`时要求armeabi-v7a、arm64-v8a、x86_64三个架构；三个分架构包各指定对应的`--abi`。每个APK使用各自已存在的空输出目录。将`OUT`设为项目外本次工作目录的绝对路径，再创建四个报告目录并逐包核验：
 
@@ -385,27 +355,27 @@ VERSION='<x.y.z+N>'
 mkdir "$OUT/license-universal" "$OUT/license-armeabi-v7a" \
   "$OUT/license-arm64-v8a" "$OUT/license-x86_64"
 
-python3 -I tool/artifacts/verify_release_licenses.py \
+python3 -I -B tool/main.py artifacts verify-release-licenses \
   --project "$PWD" --apk "$APK_DIR/clash-pseudo-$VERSION-universal.apk" \
   --notices "$EVIDENCE/NOTICES" --go-modules "$EVIDENCE/go-modules.json" \
   --android-dependencies "$EVIDENCE/android-dependencies.txt" \
   --xnet-source "$XNET_SOURCE" --output-dir "$OUT/license-universal"
 
-python3 -I tool/artifacts/verify_release_licenses.py \
+python3 -I -B tool/main.py artifacts verify-release-licenses \
   --project "$PWD" --apk "$APK_DIR/clash-pseudo-$VERSION-armeabi-v7a.apk" \
   --abi armeabi-v7a \
   --notices "$EVIDENCE/NOTICES" --go-modules "$EVIDENCE/go-modules.json" \
   --android-dependencies "$EVIDENCE/android-dependencies.txt" \
   --xnet-source "$XNET_SOURCE" --output-dir "$OUT/license-armeabi-v7a"
 
-python3 -I tool/artifacts/verify_release_licenses.py \
+python3 -I -B tool/main.py artifacts verify-release-licenses \
   --project "$PWD" --apk "$APK_DIR/clash-pseudo-$VERSION-arm64-v8a.apk" \
   --abi arm64-v8a \
   --notices "$EVIDENCE/NOTICES" --go-modules "$EVIDENCE/go-modules.json" \
   --android-dependencies "$EVIDENCE/android-dependencies.txt" \
   --xnet-source "$XNET_SOURCE" --output-dir "$OUT/license-arm64-v8a"
 
-python3 -I tool/artifacts/verify_release_licenses.py \
+python3 -I -B tool/main.py artifacts verify-release-licenses \
   --project "$PWD" --apk "$APK_DIR/clash-pseudo-$VERSION-x86_64.apk" \
   --abi x86_64 \
   --notices "$EVIDENCE/NOTICES" --go-modules "$EVIDENCE/go-modules.json" \
@@ -420,8 +390,8 @@ python3 -I tool/artifacts/verify_release_licenses.py \
 Dart使用[采集工具](../../tool/coverage/flutter.dart)的collect入口。输出为仓库外系统临时目录中的新绝对路径，父目录须已存在。工具在独立临时目录创建加载全部应用库的loader及根hook执行副本，退出时清理：
 
 ```sh
-dart run tool/coverage/flutter.dart collect "$OUT/coverage-run"
-dart run tool/coverage/summary.dart "$OUT/coverage-run/application.info"
+python3 -I -B tool/main.py coverage flutter collect "$OUT/coverage-run"
+python3 -I -B tool/main.py coverage summary "$OUT/coverage-run/application.info"
 ```
 
 检查采集工具的完整执行过程时，可在collect输出路径之后指定test/..._test.dart文件；省略文件时执行整个test目录。两种方式都会加载全部应用库，报告相同范围的源码数量；inventory.json记录实际测试文件。定向运行按所选测试范围记录结果，最终应用覆盖率按验收范围统一采集。

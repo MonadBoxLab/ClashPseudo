@@ -2,7 +2,9 @@
 
 import argparse
 from contextlib import redirect_stdout, redirect_stderr
-import importlib.util
+import tool_test_support
+from tool.dependencies import update, resources, sources, versions, packages, inputs, legal
+from tool.common import io as common_io, workspace, process
 import gzip
 import hashlib
 import io
@@ -23,67 +25,27 @@ from frozen_resource_fixture import frozen_resources
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def load(name, relative):
-    spec = importlib.util.spec_from_file_location(name, ROOT / relative)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-update = load("dependency_update", "tool/dependencies/update.py")
-legal = load("dependency_legal", "tool/dependencies/legal.py")
-
-
 class VersionTest(unittest.TestCase):
-    def test_levels_reset_subordinate_components_and_increment_android_code_once(self):
-        source = "name: test\nversion: 2.7.9+42\n\ndependencies:\n"
-        for level, version in (("major", "3.0.0+43"), ("minor", "2.8.0+43"), ("patch", "2.7.10+43")):
-            with self.subTest(level=level):
-                text, actual = update.bump_version(source, level)
-                self.assertEqual(actual, version)
-                self.assertEqual(text, "name: test\nversion: " + version + "\n\ndependencies:\n")
+    def test_patch_and_android_code_increment_once(self):
+        text, value = versions.bump_version("name: sample\nversion: 1.0.0+1\n")
+        self.assertEqual(value, "1.0.1+2")
+        self.assertEqual(text, "name: sample\nversion: 1.0.1+2\n")
 
-    def test_default_maintenance_example(self):
-        self.assertEqual(update.bump_version("version: 1.0.0+1\n"),
-                         ("version: 1.0.1+2\n", "1.0.1+2"))
+    def test_declaration_read_preserves_publisher_version_policy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pubspec.yaml").write_text('version: "2.3.4+2100000000" # 应用声明\n')
+            self.assertEqual(versions.application_version(root), "2.3.4+2100000000")
+            text, value = versions.bump_version((root / "pubspec.yaml").read_text())
+            self.assertEqual(value, "2.3.5+2100000001")
+            self.assertIn('# 应用声明', text)
 
-    def test_development_updates_stay_development_until_explicit_first_stable(self):
-        source = "name: sample\nversion: 0.7.9+42\n"
-        for level, expected in (("patch", "0.7.10+43"), ("minor", "0.8.0+43"), ("stable", "1.0.0+43")):
-            with self.subTest(level=level):
-                text, version = update.bump_version(source, level)
-                self.assertEqual(version, expected)
-                self.assertEqual(text, "name: sample\nversion: " + expected + "\n")
-        with self.assertRaisesRegex(ValueError, "明确选择 stable"):
-            update.bump_version(source, "major")
-        with self.assertRaisesRegex(ValueError, "仅适用于"):
-            update.bump_version("version: 1.2.3+43\n", "stable")
-
-    def test_invalid_or_duplicate_version_and_android_limit(self):
-        for text in ("", "version: 1.0+1", "version: 1.0.0", "version: 1.0.0-beta+1",
-                     "version: 1.0.0+1\nversion: 1.0.1+2\n", "version: 1.0.0+2100000000"):
-            with self.subTest(text=text), self.assertRaises(ValueError):
-                update.bump_version(text)
-
-    def test_stable_metadata_filters_previews(self):
-        self.assertEqual(update.stable_version("v1.19.33"), (1, 19, 33))
-        for version in ("1.3.0-rc1", "1.3.0-alpha01", "v1.3.0+build", "latest", "1"):
-            self.assertIsNone(update.stable_version(version))
-
-    def test_github_draft_and_prerelease_are_rejected(self):
-        for release in ({"tag_name": "v1.19.33", "draft": True},
-                        {"tag_name": "v1.19.33", "prerelease": True},
-                        {"tag_name": "v1.19.33-rc1"}, {"tag_name": "1.19.33"}, {}):
-            with mock.patch.object(update, "fetch", return_value=json.dumps(release).encode()), self.assertRaises(ValueError):
-                update.mihomo_release()
-
-    def test_latest_formal_github_release_is_selected_without_manual_tag(self):
-        for version in ("v1.19.33", "v1.19.34"):
-            release = {"tag_name": version, "draft": False, "prerelease": False}
-            with self.subTest(version=version), mock.patch.object(
-                    update, "fetch", return_value=json.dumps(release).encode()) as fetch:
-                self.assertEqual(update.mihomo_release(), version)
-            fetch.assert_called_once_with("https://api.github.com/repos/MetaCubeX/mihomo/releases/latest")
+    def test_official_latest_tag_is_used_without_a_second_version_policy(self):
+        for selector in ("v1.0.0", "preview-next", "release/next"):
+            with self.subTest(selector=selector), mock.patch.object(
+                    packages, "fetch", return_value=json.dumps({"tag_name": selector}).encode()) as fetch:
+                self.assertEqual(packages.mihomo_release(), selector)
+                fetch.assert_called_once_with("https://api.github.com/repos/MetaCubeX/mihomo/releases/latest")
 
 
 class UpdateTest(unittest.TestCase):
@@ -93,7 +55,7 @@ class UpdateTest(unittest.TestCase):
         self.base = Path(self.temporary.name)
         self.root = self.base / "project"
         self.root.mkdir()
-        for name in update.INPUTS:
+        for name in inputs.INPUTS:
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("existing " + name + "\n")
@@ -102,14 +64,14 @@ class UpdateTest(unittest.TestCase):
             "name: sample\nversion: 1.0.0+1\n\ndependencies:\n"
             "  flutter:\n    sdk: flutter\n  http: ^1.0.0\n"
             "  re_editor:\n    path: third_party/sources/re_editor\n"
-            "dev_dependencies:\n  coverage: ^1.16.0\n")
+            "dev_dependencies:\n  coverage: ^1.0.0\n")
         (self.root / "pubspec.lock").write_text("existing lock\n")
         (self.root / "native/mihomo/go.mod").write_text(
-            "module example.test/app\n\ngo 1.27.1\n\nrequire (\n"
-            f"\t{update.MIHOMO} v1.19.32\n\tgolang.org/x/net v0.40.0\n)\n")
+            "module example.test/app\n\ngo 1.0.0\n\nrequire (\n"
+            f"\t{packages.MIHOMO} v1.0.0\n\tgolang.org/x/net v1.0.0\n)\n")
         (self.root / "android/app/build.gradle.kts").write_text(
             'plugins { id("com.android.application") }\n'
-            'implementation("androidx.work:work-runtime:2.12.0")\n')
+            'implementation("androidx.work:work-runtime:1.0.0")\n')
         self.source_directory = self.base / "resource-sources"
         self.source_directory.mkdir()
 
@@ -132,235 +94,249 @@ class UpdateTest(unittest.TestCase):
 
         self.sources = {"format": "clash-pseudo-resource-sources", "version": 1, "sources": [
             dict(source("geoip", "1" * 40, "geoip.tar.gz"), kind="geoip",
-                 processing=update.GEOIP_DATA_PROCESSING,
+                 processing=sources.GEOIP_DATA_PROCESSING,
                  inputs=[source("geoip", "2" * 40, "geoip-inputs.tar.gz", "合成 GeoIP 补充输入")]),
             dict(source("geosite", "3" * 40, "geosite.tar.gz"), kind="geosite"),
         ]}
         self.source_manifest = self.source_directory / "resource-sources.json"
-        self.source_manifest.write_bytes(update.json_bytes(self.sources))
-        self.record, self.generated = frozen_resources(self.root, update, source_metadata=self.sources)
+        self.source_manifest.write_bytes(common_io.json_bytes(self.sources))
+        self.record, self.generated = frozen_resources(self.root, resources, source_metadata=self.sources)
         self.record["application"] = "1.0.0+1"
-        for path in (self.root / update.RESOURCE_RECORD, self.generated / "resources.json"):
-            path.write_bytes(update.json_bytes(self.record))
+        for path in (self.root / resources.RESOURCE_RECORD, self.generated / "resources.json"):
+            path.write_bytes(common_io.json_bytes(self.record))
         self.prepared = self.base / "resources"
-        update.prepare_resources(list(self.record["resources"].values()), self.prepared, {
-            kind: self.generated / "assets" / name for kind, name in update.RESOURCE_ASSETS.items()})
+        resources.prepare_resources(list(self.record["resources"].values()), self.prepared, {
+            kind: self.generated / "assets" / name for kind, name in resources.RESOURCE_ASSETS.items()})
         subprocess.run(["git", "init", "-q", self.root], check=True, capture_output=True)
         subprocess.run(["git", "-C", self.root, "add", "."], check=True, capture_output=True)
         self.updater = mock.Mock()
-        self.manifest = {"Go": "1.27.1", "Require": [
-            {"Path": update.MIHOMO, "Version": "v1.19.32"},
-            {"Path": "golang.org/x/net", "Version": "v0.40.0"},
-            {"Path": "github.com/rasky/go-lzo", "Version": "v0.0.0-20200203143853-96a758eda86e", "Indirect": True},
-            {"Path": "github.com/metacubex/chacha", "Version": "v0.1.5", "Indirect": True},
+        self.manifest = {"Go": "1.0.0", "Require": [
+            {"Path": packages.MIHOMO, "Version": "v1.0.0"},
+            {"Path": "golang.org/x/net", "Version": "v1.0.0"},
+            {"Path": "github.com/rasky/go-lzo", "Version": "v1.0.0", "Indirect": True},
+            {"Path": "github.com/metacubex/chacha", "Version": "v1.0.0", "Indirect": True},
         ], "Replace": []}
-        self.updater.go_run.return_value = json.dumps(self.manifest)
-        self.updater.go_updates.return_value = {update.MIHOMO: "v1.19.33"}
         self.updater.pub_updates.return_value = {}
         self.updater.android_updates.return_value = {}
-        self.toolchains = {"go": {"version": "1.28.0"}, "flutter": {"version": "4.0.0"}}
-        self.environment = {
-            "PATH": os.pathsep.join((str(self.base / "toolchains/flutter/bin"),
-                                     str(self.base / "toolchains/go/bin"), os.environ["PATH"])),
-            "CLASH_TOOLCHAIN_FIXTURE": "stable",
-        }
+        self.target = "v1.0.1"
+        self.toolchains = {"format": "clash-pseudo-toolchains", "version": 1, "minSdk": 24,
+                           "selected": {"go": {"version": "go1.0.0"}}, "documents": ["old"]}
+        self.record["toolchains"] = self.toolchains
+        self.record["dependencies"] = {"go": {packages.MIHOMO: {"selected": "v1.0.0"},
+                                               "golang.org/x/net": {"selected": "v1.0.0"}}, "pub": {}, "android": {}}
+        (self.root / resources.RESOURCE_RECORD).write_bytes(common_io.json_bytes(self.record))
+        self.environment = {"PATH": "/fixture/flutter/bin:/fixture/go/bin:" + os.environ["PATH"],
+                            "CLASH_TOOLCHAIN_FIXTURE": "stable"}
         self.bootstrap = mock.Mock()
-        self.bootstrap.resolve.return_value = self.toolchains
         self.bootstrap.prepare.return_value = (self.environment, {"fixture": "measured"})
+        self.updater.update_go.side_effect = self.write_go
+        self.updater.update_pub.side_effect = self.write_pub
+        self.updater.update_android.side_effect = self.write_android
 
-    def arguments(self, **values):
-        defaults = dict(project=self.root, go="go", flutter="flutter", go_module=[], pub=[], android=[],
-                        apply=True, check=False, evidence=None, bump="patch", reuse_version=False,
-                        resolved_release="v1.19.33", prepared_resources=None, toolchain_cache=self.base / "cache")
-        defaults.update(values)
-        return argparse.Namespace(**defaults)
+    def write_go(self, changes):
+        path = self.work / "native/mihomo/go.mod"
+        text = path.read_text()
+        for name, version in changes.items():
+            text = re.sub(re.escape(name) + r"\s+v[^\s]+", name + " " + version, text)
+        path.write_text(text)
+
+    def write_pub(self, changes):
+        if changes:
+            (self.work / "pubspec.lock").write_text(json.dumps(changes))
+
+    def write_android(self, changes):
+        packages.Updater(self.work).update_android(changes)
 
     def execute(self, **values):
-        original_load, original_run = update.load_tool, update.run
+        defaults = dict(apply=True, toolchain_cache=self.base / "cache")
+        defaults.update(values)
+        before_environment = dict(os.environ)
 
-        def load_tool(name, path):
-            return self.bootstrap if name == "dependency_toolchains" else original_load(name, path)
-
-        def create_updater(work, go, flutter):
+        def create_updater(work, go, flutter, *, env):
             self.work = work
-            self.updater.root = work
-            self.updater.go = go
-            self.updater.flutter = flutter
+            self.updater.root, self.updater.go, self.updater.flutter = work, go, flutter
+            self.assertEqual(env, self.environment)
+            self.assertEqual(dict(os.environ), before_environment)
+            self.assertEqual(go, "/fixture/go/bin/go")
+            self.assertEqual(flutter, "/fixture/flutter/bin/flutter")
+            current = re.search(re.escape(packages.MIHOMO) + r"\s+(v[^\s]+)",
+                                (work / "native/mihomo/go.mod").read_text())[1]
+            self.updater.go_updates.return_value = {} if current == self.target else {packages.MIHOMO: self.target}
             self.updater.resolution = {
-                "go": {name: {"selected": version} for name, version in self.updater.go_updates.return_value.items()},
-                "pub": {name: {"selected": version} for name, (version, _) in self.updater.pub_updates.return_value.items()},
-                "android": {name: {"selected": version} for name, version in self.updater.android_updates.return_value.items()},
+                "go": {packages.MIHOMO: {"previous": current, "selected": self.target}},
+                "pub": {}, "android": {},
             }
-            if values.get("apply", True):
-                self.assertEqual(os.environ["PATH"], self.environment["PATH"])
-                self.assertEqual(go, str(self.base / "toolchains/go/bin/go"))
-                self.assertEqual(flutter, str(self.base / "toolchains/flutter/bin/flutter"))
-                self.assertEqual(self.bootstrap.method_calls[-1], mock.call.apply_versions(work, self.toolchains))
+            def go_run(*arguments):
+                manifest = json.loads(json.dumps(self.manifest))
+                text = (work / "native/mihomo/go.mod").read_text()
+                for row in manifest["Require"]:
+                    match = re.search(re.escape(row["Path"]) + r"\s+(v[^\s]+)", text)
+                    if match:
+                        row["Version"] = match[1]
+                if arguments[:5] == ("list", "-mod=readonly", "-m", "-f", "{{.Version}}"):
+                    return next(row["Version"] for row in manifest["Require"] if row["Path"] == packages.MIHOMO)
+                return json.dumps(manifest)
+            self.updater.go_run.side_effect = go_run
             return self.updater
 
-        def run(command, cwd, env=None):
-            if str(command[0]) == str(self.base / "toolchains/flutter/bin/flutter"):
-                self.assertEqual(command[1:], ["pub", "get", "--enforce-lockfile"])
-                return ""
-            return original_run(command, cwd, env)
-
         with mock.patch.object(update, "Updater", side_effect=create_updater), \
-                mock.patch.object(update, "load_tool", side_effect=load_tool), \
-                mock.patch.object(update, "run", side_effect=run), \
-                mock.patch.object(update, "delivery_resources", return_value={
-                    "prepared": self.prepared, "sources": self.source_manifest}):
-            return update.execute(self.arguments(**values))
+                mock.patch.object(update, "toolchains", self.bootstrap), \
+                mock.patch.object(update, "mihomo_release", return_value=self.target), \
+                mock.patch.object(sources, "delivery_resources", return_value={
+                    "prepared": self.prepared, "sources": self.source_manifest}), \
+                mock.patch.object(resources, "prepare_bundled_assets"):
+            result = update.execute(self.root, **defaults)
+        self.assertEqual(dict(os.environ), before_environment)
+        return result
 
-    def test_check_preserves_user_changes_and_index(self):
-        (self.root / "pubspec.yaml").write_text("name: user-edited\nversion: 1.0.0+1\n")
-        before = update.snapshot(self.root)
+    def test_check_resolves_full_candidate_without_writing_project_or_index(self):
+        before = inputs.snapshot(self.root)
         index = (self.root / ".git/index").read_bytes()
-        result = self.execute(apply=False, check=True)
+        result = self.execute(apply=False)
         self.assertEqual(result["status"], "available")
-        self.assertEqual(update.snapshot(self.root), before)
+        self.assertEqual(inputs.snapshot(self.root), before)
         self.assertEqual((self.root / ".git/index").read_bytes(), index)
-        self.updater.update_go.assert_not_called()
-        self.updater.legal.assert_not_called()
-
-    def test_dependency_and_feature_release_use_one_minor_bump(self):
-        result = self.execute(bump="minor")
-        self.assertEqual(result["version"], "1.1.0+2")
-        self.assertEqual(result["files"], ["pubspec.yaml", update.RESOURCE_RECORD])
+        self.updater.update_go.assert_called_once()
         self.updater.legal.return_value.go_notices.assert_called_once()
-        self.updater.legal.return_value.pub_licenses.assert_called_once()
-        self.updater.legal.return_value.android_notices.assert_called_once()
-        self.bootstrap.resolve.assert_called_once_with()
-        self.bootstrap.prepare.assert_called_once_with(self.toolchains, self.base / "cache", self.work)
-        self.bootstrap.freeze_archives.assert_called_once_with(self.toolchains, {"fixture": "measured"})
-        self.bootstrap.apply_versions.assert_called_once_with(self.work, self.toolchains)
-        record = update.verify_bundled_assets(self.root)
-        self.assertEqual(record["application"], result["version"])
-        self.assertEqual(record["toolchains"], self.toolchains)
-        self.assertEqual(record["dependencies"], self.updater.resolution)
-        self.assertEqual(record["sourceInputs"], self.sources)
-
-    def test_no_update_and_retry_preserve_determined_version(self):
-        (self.root / "pubspec.yaml").write_text("version: 1.1.0+2\n")
-        self.updater.go_updates.return_value = {}
-        before = update.snapshot(self.root)
-        result = self.execute(apply=False, check=True, resolved_release="v1.19.32")
-        self.assertEqual(result["status"], "unchanged")
-        self.assertEqual(result["version"], "1.1.0+2")
-        self.assertEqual(result["files"], [])
-        self.assertEqual(update.snapshot(self.root), before)
-        result = self.execute()
-        self.assertEqual(result["status"], "updated")
-        self.assertEqual(result["version"], "1.1.1+3")
-        self.assertEqual(result["files"], ["pubspec.yaml", update.RESOURCE_RECORD])
-        result = self.execute(reuse_version=True)
-        self.assertEqual(result["status"], "updated")
-        self.assertEqual(result["version"], "1.1.1+3")
-        self.assertEqual(result["files"], [])
-
-    def test_additional_kernel_update_does_not_stack_pending_release_version(self):
-        (self.root / "pubspec.yaml").write_text("version: 1.1.0+2\n")
-        before = (self.root / "pubspec.yaml").read_bytes()
-        result = self.execute(reuse_version=True)
-        self.assertEqual(result["version"], "1.1.0+2")
-        self.assertEqual(result["files"], [update.RESOURCE_RECORD])
-        self.assertEqual((self.root / "pubspec.yaml").read_bytes(), before)
-        self.updater.update_go.assert_called_once_with({update.MIHOMO: "v1.19.33"})
-
-    def test_explicit_release_queries_all_direct_dependencies_and_bumps_once(self):
-        self.updater.go_updates.return_value = {}
-        result = self.execute(bump="major")
-        self.assertEqual(result["version"], "2.0.0+2")
-        self.updater.go_updates.assert_called_once_with([update.MIHOMO, "golang.org/x/net"], "v1.19.33")
-        self.updater.pub_updates.assert_called_once_with(["http", "coverage"])
+        self.updater.pub_updates.assert_called_once_with([])
         self.updater.android_updates.assert_called_once_with(["androidx.work:work-runtime"])
-        self.updater.legal.assert_called_once()
 
-    def test_first_stable_uses_real_version_writer_and_major_rejection_preserves_inputs(self):
-        (self.root / "pubspec.yaml").write_text("version: 0.7.9+42\n")
-        before = update.snapshot(self.root)
-        with self.assertRaisesRegex(ValueError, "明确选择 stable"):
-            self.execute(bump="major")
-        self.assertEqual(update.snapshot(self.root), before)
-        self.updater.go_updates.return_value = {}
-        result = self.execute(bump="stable")
-        self.assertEqual(result["version"], "1.0.0+43")
-        self.assertEqual((self.root / "pubspec.yaml").read_text(), "version: 1.0.0+43\n")
-        self.assertEqual(result["files"], ["pubspec.yaml", update.RESOURCE_RECORD])
-        self.updater.go_updates.assert_called_with([update.MIHOMO, "golang.org/x/net"], "v1.19.33")
-        self.assertEqual((self.root / "pubspec.lock").read_text(), "existing lock\n")
+    def test_noop_apply_does_not_bump_or_write_diagnostic_differences(self):
+        self.target = "v1.0.0"
+        self.record["toolchains"]["selected"]["actions"] = {"actions/checkout": {"commit": "old"}}
+        self.record["dependencies"]["go"][packages.MIHOMO]["previous"] = "v0.9.0"
+        (self.root / resources.RESOURCE_RECORD).write_bytes(common_io.json_bytes(self.record))
+        before = inputs.snapshot(self.root)
+        for _ in range(2):
+            result = self.execute()
+            self.assertEqual(result["status"], "unchanged")
+            self.assertEqual(result["files"], [])
+            self.assertEqual(result["version"], "1.0.0+1")
+            self.assertEqual(inputs.snapshot(self.root), before)
 
-    def test_development_no_update_and_pending_retry_keep_version_and_android_code(self):
-        (self.root / "pubspec.yaml").write_text("version: 0.1.0+3\n")
-        result = self.execute(reuse_version=True)
-        self.assertEqual(result["version"], "0.1.0+3")
-        self.assertEqual(result["files"], [update.RESOURCE_RECORD])
-        self.updater.go_updates.return_value = {}
+    def test_real_update_defaults_to_one_patch_and_retry_is_unchanged(self):
         result = self.execute()
-        self.assertEqual(result["status"], "updated")
-        self.assertEqual(result["version"], "0.1.1+4")
-        self.assertEqual(result["files"], ["pubspec.yaml", update.RESOURCE_RECORD])
-        result = self.execute(reuse_version=True)
-        self.assertEqual(result["version"], "0.1.1+4")
-        self.assertEqual(result["files"], [])
-
-    def test_resolution_or_license_failure_preserves_inputs(self):
-        before = update.snapshot(self.root)
-        index = (self.root / ".git/index").read_bytes()
-        environment = dict(os.environ)
-        for operation in (self.updater.update_go, self.updater.legal.return_value.go_notices):
-            with self.subTest(operation=operation):
-                operation.side_effect = ValueError("specific failure")
-                with self.assertRaisesRegex(ValueError, "specific failure"):
-                    self.execute()
-                self.assertEqual(update.snapshot(self.root), before)
-                self.assertEqual((self.root / ".git/index").read_bytes(), index)
-                self.assertEqual(dict(os.environ), environment)
-                operation.side_effect = None
-
-    def test_success_restores_environment_and_explicit_dependency_selection(self):
-        environment = dict(os.environ)
-        result = self.execute(go_module=[update.MIHOMO], pub=["coverage"], android=["androidx.work:work-runtime"])
         self.assertEqual(result["version"], "1.0.1+2")
-        self.assertEqual(dict(os.environ), environment)
-        self.updater.go_updates.assert_called_once_with([update.MIHOMO], "v1.19.33")
-        self.updater.pub_updates.assert_called_once_with(["coverage"])
-        self.updater.android_updates.assert_called_once_with(["androidx.work:work-runtime"])
-        self.assertIn("    sdk: flutter\n", (self.root / "pubspec.yaml").read_text())
-        self.assertIn("    path: third_party/sources/re_editor\n", (self.root / "pubspec.yaml").read_text())
+        self.assertEqual(result["files"], ["native/mihomo/go.mod", "pubspec.yaml", resources.RESOURCE_RECORD])
+        self.assertEqual(self.execute()["status"], "unchanged")
+        self.assertEqual(versions.application_version(self.root), "1.0.1+2")
 
-    def test_full_source_identity_change_prevents_input_writeback(self):
+    def test_check_and_apply_choose_the_same_candidate_version(self):
+        checked = self.execute(apply=False)
+        applied = self.execute()
+        self.assertEqual(checked["version"], applied["version"])
+        self.assertEqual(checked["files"], applied["files"])
+
+
+    def test_reuse_version_preserves_pending_version_with_dependency_change(self):
+        result = self.execute(reuse_version=True)
+        self.assertEqual(result["version"], "1.0.0+1")
+        self.assertNotIn("pubspec.yaml", result["files"])
+
+
+    def test_mihomo_scope_uses_fixed_inputs_and_does_not_query_other_ecosystems(self):
+        before = inputs.snapshot(self.root)
+        result = self.execute(scope="mihomo", reuse_version=True)
+        self.bootstrap.resolve.assert_not_called()
+        self.bootstrap.apply_versions.assert_not_called()
+        self.bootstrap.freeze_archives.assert_not_called()
+        self.updater.pub_updates.assert_not_called()
+        self.updater.android_updates.assert_not_called()
+        self.updater.legal.return_value.pub_licenses.assert_not_called()
+        self.updater.legal.return_value.android_notices.assert_not_called()
+        self.assertEqual(result["go"], {packages.MIHOMO: self.target})
+        after = inputs.snapshot(self.root)
+        for name in inputs.INPUTS:
+            if name not in ("native/mihomo/go.mod", resources.RESOURCE_RECORD):
+                self.assertEqual(after[name], before[name], name)
+        record = resources.read_release_resources(self.root)
+        for key in ("resources", "toolchains", "sourceInputs", "licenses"):
+            self.assertEqual(record[key], self.record[key])
+
+    def test_explicit_older_release_is_allowed_only_in_mihomo_scope(self):
+        self.target = "v0.9.0"
+        result = self.execute(scope="mihomo", mihomo_version=self.target, reuse_version=True)
+        self.assertEqual(result["mihomo"], {"previous": "v1.0.0", "selected": self.target})
+        self.updater.go_updates.assert_called_once_with([packages.MIHOMO], self.target)
+        with self.assertRaisesRegex(ValueError, "需要 --scope mihomo"):
+            update.execute(self.root, mihomo_version=self.target)
+
+    def test_invalid_scope_combination_fails_before_release_lookup(self):
+        for options in ({"scope": "other"}, {"scope": "mihomo", "pub": ["http"]}):
+            with self.subTest(options=options), mock.patch.object(update, "mihomo_release") as release:
+                with self.assertRaises(ValueError):
+                    update.execute(self.root, **options)
+                release.assert_not_called()
+
+    def test_ca_only_change_is_detected_and_bumped(self):
+        self.target = "v1.0.0"
+        candidate = json.loads(json.dumps(self.record))
+        candidate["resources"]["ca"]["version"] = "2026-11-01"
+        candidate["resources"]["ca"]["sourceUrl"] = "https://curl.se/ca/cacert-2026-11-01.pem"
+        with mock.patch.object(sources, "resource_changes", return_value={resources.RESOURCE_RECORD: common_io.json_bytes(candidate)}):
+            result = self.execute()
+        self.assertEqual(result["go"], {})
+        self.assertEqual(set(result["resources"]), {"ca"})
+        self.assertEqual(result["version"], "1.0.1+2")
+
+    def test_pub_only_lock_change_is_detected_without_new_mihomo(self):
+        self.target = "v1.0.0"
+        self.updater.pub_updates.return_value = {"http": ("1.1.0", "direct")}
+        result = self.execute()
+        self.assertEqual(result["go"], {})
+        self.assertIn("pubspec.lock", result["files"])
+        self.assertEqual(result["version"], "1.0.1+2")
+
+    def test_resolution_and_license_failure_preserve_project_and_environment(self):
+        before = inputs.snapshot(self.root)
+        for operation in (self.updater.update_go, self.updater.legal.return_value.go_notices):
+            prior = operation.side_effect
+            operation.side_effect = ValueError("具体失败")
+            with self.assertRaisesRegex(ValueError, "具体失败"):
+                self.execute()
+            self.assertEqual(inputs.snapshot(self.root), before)
+            operation.side_effect = prior
+
+    def test_evidence_failure_precedes_all_project_writeback(self):
+        before = inputs.snapshot(self.root)
+        self.updater.evidence.side_effect = ValueError("evidence failed")
+        with self.assertRaisesRegex(ValueError, "evidence failed"):
+            self.execute(evidence=self.base / "evidence")
+        self.assertEqual(inputs.snapshot(self.root), before)
+
+    def test_environment_is_explicit_and_separate_between_runs(self):
+        self.execute(apply=False)
+        self.environment["CLASH_TOOLCHAIN_FIXTURE"] = "second"
+        self.execute(apply=False)
+        self.assertNotIn("CLASH_TOOLCHAIN_FIXTURE", os.environ)
+
+    def test_source_change_stops_writeback(self):
         source = self.root / "user.txt"
-        source.write_bytes(b"initial source\n")
-        before = update.snapshot(self.root)
-        index = (self.root / ".git/index").read_bytes()
-        status = update.run(["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"], self.root)
-
-        def change_source(names):
-            source.write_bytes(b"concurrent source\n")
+        source.write_text("initial")
+        before = inputs.snapshot(self.root)
+        def change(_names):
+            source.write_text("concurrent")
             return {}
-
-        self.updater.pub_updates.side_effect = change_source
-        with self.assertRaisesRegex(ValueError, "归档期间工作树发生变化"):
+        self.updater.pub_updates.side_effect = change
+        with self.assertRaisesRegex(ValueError, "工作树发生变化"):
             self.execute()
-        self.assertEqual(update.snapshot(self.root), before)
-        self.assertEqual((self.root / ".git/index").read_bytes(), index)
-        self.assertEqual(source.read_bytes(), b"concurrent source\n")
-        self.assertEqual(update.run(["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"], self.root), status)
+        self.assertEqual(inputs.snapshot(self.root), before)
+        self.assertEqual(source.read_text(), "concurrent")
 
     def test_concurrent_change_is_not_overwritten(self):
-        before = update.snapshot(self.root)
+        before = inputs.snapshot(self.root)
         after = dict(before, **{"pubspec.yaml": b"version: 1.0.1+2\n"})
         (self.root / "pubspec.yaml").write_text("version: 7.0.0+12\n")
         with self.assertRaisesRegex(ValueError, "更新期间文件发生变化"):
-            update.publish_changes(self.root, before, after)
+            inputs.publish_changes(self.root, before, after)
         self.assertEqual((self.root / "pubspec.yaml").read_text(), "version: 7.0.0+12\n")
 
     def test_only_owned_updated_inputs_are_written(self):
         path = self.root / "user.txt"
         path.write_text("keep")
-        before = update.snapshot(self.root)
+        before = inputs.snapshot(self.root)
         after = dict(before, **{"native/mihomo/go.mod": b"updated\n"})
-        self.assertEqual(update.publish_changes(self.root, before, after), ["native/mihomo/go.mod"])
+        self.assertEqual(inputs.publish_changes(self.root, before, after), ["native/mihomo/go.mod"])
         self.assertEqual(path.read_text(), "keep")
 
     def test_deleted_tracked_file_is_not_resurrected(self):
@@ -368,103 +344,151 @@ class UpdateTest(unittest.TestCase):
         path.unlink()
         destination = self.base / "copy"
         destination.mkdir()
-        update.copy_workspace(self.root, destination)
+        workspace.copy_workspace(self.root, destination)
         self.assertFalse((destination / "pubspec.lock").exists())
 
     def test_go_toolchain_and_transitive_changes_keep_the_selected_target(self):
         before = json.loads(json.dumps(self.manifest))
         before["Require"][1]["Indirect"] = True
-        updater = update.Updater(self.root)
-        for toolchain in ({"Go": "1.28.0"}, {"Toolchain": "go1.28.0"},
-                          {"Go": "1.28.0", "Toolchain": "go1.28.0"}):
+        updater = packages.Updater(self.root)
+        for toolchain in ({"Go": "1.0.1"}, {"Toolchain": "go1.0.1"},
+                          {"Go": "1.0.1", "Toolchain": "go1.0.1"}):
             after = dict(before, **toolchain, Require=[
-                dict(row, Version="v1.19.33" if row["Path"] == update.MIHOMO else
-                     "v0.41.0" if row["Path"] == "golang.org/x/net" else row["Version"])
+                dict(row, Version="v1.0.1" if row["Path"] == packages.MIHOMO else
+                     "v1.0.1" if row["Path"] == "golang.org/x/net" else row["Version"])
                 for row in before["Require"]] + [
                     {"Path": "example.test/transitive", "Version": "v1.0.0", "Indirect": True}])
             with self.subTest(toolchain=toolchain), mock.patch.object(
-                    updater, "go_run", side_effect=[json.dumps(before), "", "", json.dumps(after)]) as process:
-                updater.update_go({update.MIHOMO: "v1.19.33"})
+                    updater, "go_run", side_effect=[json.dumps(before), "", "", "", json.dumps(after)]) as process:
+                updater.update_go({packages.MIHOMO: "v1.0.1"})
             self.assertEqual(process.call_args_list, [
-                mock.call("mod", "edit", "-json"), mock.call("get", update.MIHOMO + "@v1.19.33"),
-                mock.call("mod", "tidy"), mock.call("mod", "edit", "-json")])
+                mock.call("mod", "edit", "-json"), mock.call("get", packages.MIHOMO + "@v1.0.1"),
+                mock.call("mod", "tidy"), mock.call("mod", "verify"), mock.call("mod", "edit", "-json")])
 
     def test_go_replace_changes_stop_before_writeback(self):
         original = [{"Old": {"Path": "google.golang.org/protobuf"},
-                     "New": {"Path": "github.com/metacubex/protobuf", "Version": "v1.36.7"}}]
+                     "New": {"Path": "github.com/metacubex/protobuf", "Version": "v1.0.0"}}]
         before = dict(self.manifest, Replace=original)
-        snapshot = update.snapshot(self.root)
-        updater = update.Updater(self.root)
+        snapshot = inputs.snapshot(self.root)
+        updater = packages.Updater(self.root)
         for replacement in ([], [{"Old": original[0]["Old"], "New": {"Path": "example.test/replacement"}}],
                             [{"Old": original[0]["Old"],
-                              "New": {"Path": "github.com/metacubex/protobuf", "Version": "v1.36.8"}}]):
+                              "New": {"Path": "github.com/metacubex/protobuf", "Version": "v1.0.1"}}]):
             after = dict(before, Replace=replacement)
             with self.subTest(replacement=replacement), mock.patch.object(
-                    updater, "go_run", side_effect=[json.dumps(before), "", "", json.dumps(after)]):
+                    updater, "go_run", side_effect=[json.dumps(before), "", "", "", json.dumps(after)]):
                 with self.assertRaisesRegex(ValueError, "Go replace 发生变化"):
-                    updater.update_go({update.MIHOMO: "v1.19.33"})
-            self.assertEqual(update.snapshot(self.root), snapshot)
+                    updater.update_go({packages.MIHOMO: "v1.0.1"})
+            self.assertEqual(inputs.snapshot(self.root), snapshot)
 
-    def test_go_license_modules_and_selected_version_remain_required(self):
-        updater = update.Updater(self.root)
-        snapshot = update.snapshot(self.root)
-        for missing in ("github.com/rasky/go-lzo", "github.com/metacubex/chacha", update.MIHOMO):
+    def test_go_license_modules_remain_required(self):
+        updater = packages.Updater(self.root)
+        snapshot = inputs.snapshot(self.root)
+        for missing in ("github.com/rasky/go-lzo", "github.com/metacubex/chacha"):
             after = dict(self.manifest, Require=[
-                dict(row, Version="v1.19.33" if row["Path"] == update.MIHOMO else row["Version"])
+                dict(row, Version="v1.0.1" if row["Path"] == packages.MIHOMO else row["Version"])
                 for row in self.manifest["Require"] if row["Path"] != missing])
-            message = "实际 Go 解析与更新目标不同" if missing == update.MIHOMO else "许可版本约束丢失：" + missing
+            message = "许可版本约束丢失：" + missing
             with self.subTest(missing=missing), mock.patch.object(
-                    updater, "go_run", side_effect=[json.dumps(self.manifest), "", "", json.dumps(after)]):
+                    updater, "go_run", side_effect=[json.dumps(self.manifest), "", "", "", json.dumps(after)]):
                 with self.assertRaisesRegex(ValueError, message):
-                    updater.update_go({update.MIHOMO: "v1.19.33"})
-            self.assertEqual(update.snapshot(self.root), snapshot)
-        with mock.patch.object(updater, "go_run", side_effect=[
-                json.dumps(self.manifest), "", "", json.dumps(self.manifest)]):
-            with self.assertRaisesRegex(ValueError, "实际 Go 解析与更新目标不同"):
-                updater.update_go({update.MIHOMO: "v1.19.33"})
-        self.assertEqual(update.snapshot(self.root), snapshot)
+                    updater.update_go({packages.MIHOMO: "v1.0.1"})
+            self.assertEqual(inputs.snapshot(self.root), snapshot)
 
     def test_pub_uses_resolvable_version_and_preserves_dev_section(self):
-        updater = update.Updater(self.root)
-        output = {"packages": [{"package": "coverage", "kind": "dev", "current": {"version": "1.16.0"},
-                                "resolvable": {"version": "1.17.0"}, "latest": {"version": "2.0.0"}}]}
-        dependencies = {"packages": [{"name": "coverage", "source": "hosted", "version": "1.16.0"}]}
-        with mock.patch.object(update, "run", side_effect=["", json.dumps(output), json.dumps(dependencies), ""]) as process:
+        updater = packages.Updater(self.root)
+        output = {"packages": [{"package": "coverage", "kind": "dev", "current": {"version": "1.0.0"},
+                                "resolvable": {"version": "1.0.1"}, "latest": {"version": "2.0.0"}}]}
+        dependencies = {"packages": [{"name": "coverage", "source": "hosted", "version": "1.0.0"}]}
+        with mock.patch.object(packages, "run", side_effect=["", json.dumps(output), json.dumps(dependencies), "",
+                    json.dumps({"packages": [{"name": "coverage", "version": "1.0.1"}]}), ""]) as process:
             updates = updater.pub_updates(["coverage"])
             updater.update_pub(updates)
-        self.assertEqual(updates, {"coverage": ("1.17.0", "dev")})
-        self.assertIn("dev:coverage@1.17.0", process.call_args.args[0])
+        self.assertEqual(updates, {"coverage": ("1.0.1", "dev")})
+        self.assertIn("dev:coverage@1.0.1", process.call_args_list[3].args[0])
 
     def test_android_library_update_preserves_build_plugins(self):
         path = self.root / "android/app/build.gradle.kts"
-        source = 'plugins { id("com.android.application") }\nimplementation("androidx.work:work-runtime:2.12.0")\n'
+        source = 'plugins { id("com.android.application") }\nimplementation("androidx.work:work-runtime:1.0.0")\n'
         path.write_text(source)
-        update.Updater(self.root).update_android({"androidx.work:work-runtime": "2.13.0"})
-        self.assertEqual(path.read_text(), source.replace("2.12.0", "2.13.0"))
+        packages.Updater(self.root).update_android({"androidx.work:work-runtime": "1.0.1"})
+        self.assertEqual(path.read_text(), source.replace("1.0.0", "1.0.1"))
 
-    def test_android_selection_falls_back_to_sdk_compatible_formal_version(self):
+    def test_android_uses_gradle_latest_release_and_records_fixed_result(self):
         path = self.root / "android/app/build.gradle.kts"
-        source = 'implementation("androidx.work:work-runtime:2.12.0")\n'
-        path.write_text(source)
-        metadata = (b"<metadata><versioning><versions><version>2.12.0</version>"
-                    b"<version>2.13.0</version><version>2.14.0</version>"
-                    b"<version>2.15.0-alpha01</version></versions></versioning></metadata>")
-        with mock.patch.object(update, "fetch", return_value=metadata), mock.patch.object(
-                update, "run", side_effect=["", ValueError("uses-sdk:minSdkVersion 24 cannot be smaller than 26"), ""]):
-            result = update.Updater(self.root).android_updates(["androidx.work:work-runtime"])
-        self.assertEqual(result, {"androidx.work:work-runtime": "2.13.0"})
-        self.assertEqual(path.read_text(), source)
+        original = ('implementation("example:library:1.0")\n'
+                    'testImplementation("example:tests:old")\n'
+                    'androidTestImplementation("example:runner:old")\n')
+        path.write_text(original)
+        updater = packages.Updater(self.root, env={"CLASH_GRADLE": "/fixed/gradle"})
+        def run(command, cwd, env):
+            if command[1:3] == ["pub", "get"]:
+                return ""
+            self.assertEqual(command[0], "/fixed/gradle")
+            self.assertNotIn("Release", command[-1])
+            self.assertEqual(path.read_text().count(":latest.release"), 3)
+            script = Path(command[command.index("--init-script") + 1]).read_text()
+            for configuration in ("releaseRuntimeClasspath", "debugUnitTestRuntimeClasspath", "debugAndroidTestRuntimeClasspath"):
+                self.assertIn(configuration, script)
+            return 'CLASH_DEPENDENCIES={"example:library":"release-next","example:tests":"2","example:runner":"3"}\n'
+        with mock.patch.object(packages, "run", side_effect=run):
+            updates = updater.android_updates(["example:library", "example:tests", "example:runner"])
+        self.assertEqual(updates, {"example:library": "release-next", "example:tests": "2", "example:runner": "3"})
+        self.assertEqual(path.read_text(), original)
+        updater.update_android(updates)
+        self.assertNotIn("latest.release", path.read_text())
+        self.assertIn('example:library:release-next', path.read_text())
 
-    def test_android_resolution_failure_is_not_treated_as_sdk_incompatibility(self):
+    def test_gradle_failure_is_preserved_without_trying_an_older_candidate(self):
         path = self.root / "android/app/build.gradle.kts"
-        source = 'implementation("example:library:1.0.0")\n'
-        path.write_text(source)
-        metadata = b"<metadata><versioning><versions><version>2.0.0</version></versions></versioning></metadata>"
-        with mock.patch.object(update, "fetch", return_value=metadata), mock.patch.object(
-                update, "run", side_effect=["", ValueError("repository unavailable")]):
-            with self.assertRaisesRegex(ValueError, "repository unavailable"):
-                update.Updater(self.root).android_updates(["example:library"])
-        self.assertEqual(path.read_text(), source)
+        original = 'implementation("example:library:1.0")\n'
+        path.write_text(original)
+        failure = ValueError("Gradle 原始不兼容错误")
+        with mock.patch.object(packages, "run", side_effect=["", failure]) as run:
+            with self.assertRaises(ValueError) as caught:
+                packages.Updater(self.root).android_updates(["example:library"])
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(path.read_text(), original)
+
+    def test_go_selector_is_passed_unchanged_and_normalized_by_go(self):
+        updater = packages.Updater(self.root)
+        after = json.loads(json.dumps(self.manifest))
+        after["Require"][0]["Version"] = "v1.0.1-0.20000101000000-123456789abc"
+        for selector in ("feature/next", "latest", "123456789abc", "v1.0.1-rc.1"):
+            with self.subTest(selector=selector), mock.patch.object(updater, "go_run", side_effect=[
+                    json.dumps(self.manifest), "", "", "", json.dumps(after)]) as run:
+                updater.update_go({packages.MIHOMO: selector})
+                self.assertEqual(run.call_args_list[1], mock.call("get", packages.MIHOMO + "@" + selector))
+                self.assertEqual(updater.resolution["go"][packages.MIHOMO]["selected"], after["Require"][0]["Version"])
+
+    def test_go_command_error_is_preserved(self):
+        updater = packages.Updater(self.root)
+        failure = ValueError("go: unknown revision feature/missing")
+        with mock.patch.object(updater, "go_run", side_effect=[json.dumps(self.manifest), failure]):
+            with self.assertRaises(ValueError) as caught:
+                updater.update_go({packages.MIHOMO: "feature/missing"})
+        self.assertIs(caught.exception, failure)
+
+    def test_pub_selects_hosted_packages_from_the_resolver_not_version_spelling(self):
+        updater = packages.Updater(self.root)
+        rows = [{"package": name, "kind": "direct", "current": {"version": "old"},
+                 "resolvable": {"version": "next-build"}} for name in ("hosted", "flutter", "re_editor")]
+        graph = {"packages": [{"name": "hosted", "source": "hosted"}, {"name": "flutter", "source": "sdk"},
+                              {"name": "re_editor", "source": "path"}]}
+        with mock.patch.object(packages, "run", side_effect=["", json.dumps({"packages": rows}), json.dumps(graph)]):
+            self.assertEqual(updater.pub_updates(), {"hosted": ("next-build", "direct")})
+
+    def test_mihomo_selector_report_uses_actual_go_result(self):
+        self.target = "v1.0.1-0.20000101000000-123456789abc"
+        result = self.execute(scope="mihomo", mihomo_version="feature/next", reuse_version=True)
+        self.updater.go_updates.assert_called_once_with([packages.MIHOMO], "feature/next")
+        self.assertEqual(result["mihomo"]["selected"], self.target)
+
+    def test_all_scope_only_installs_the_existing_toolchain_record(self):
+        self.execute()
+        self.assertEqual(self.bootstrap.method_calls, [mock.call.prepare(self.toolchains, self.base / "cache", self.work)])
+        self.assertEqual(resources.read_release_resources(self.root)["toolchains"], self.toolchains)
 
     def test_pub_sdk_and_path_packages_keep_their_sources(self):
         for name, source in (("flutter", "sdk"), ("re_editor", "path")):
@@ -472,32 +496,19 @@ class UpdateTest(unittest.TestCase):
                                       "resolvable": {"version": "2.0.0"}}]}
             dependencies = {"packages": [{"name": name, "source": source}]}
             with self.subTest(name=name), mock.patch.object(
-                    update, "run", side_effect=["", json.dumps(outdated), json.dumps(dependencies)]):
+                    packages, "run", side_effect=["", json.dumps(outdated), json.dumps(dependencies)]):
                 with self.assertRaisesRegex(ValueError, "hosted 直接依赖"):
-                    update.Updater(self.root).pub_updates([name])
+                    packages.Updater(self.root).pub_updates([name])
 
     def test_evidence_build_failure_is_reported(self):
-        updater = update.Updater(self.root)
-        with mock.patch.object(update, "prepare_bundled_assets", return_value=self.generated) as prepare, \
+        updater = packages.Updater(self.root)
+        with mock.patch.object(packages, "prepare_bundled_assets", return_value=self.generated) as prepare, \
                 mock.patch.object(updater, "graph"), mock.patch.object(updater, "android_graph", return_value="graph"), \
-                mock.patch.object(update, "run", side_effect=ValueError("asset build failed")):
+                mock.patch.object(packages, "run", side_effect=ValueError("asset build failed")):
             with self.assertRaisesRegex(ValueError, "asset build failed"):
                 updater.evidence(self.base / "evidence")
         prepare.assert_called_once_with(self.root)
 
-    def test_cli_rejects_removed_manual_tag_and_version_only_arguments(self):
-        for arguments in (["--check", "--version-only", "--bump", "minor"],
-                          ["--apply", "--version-only"], ["--apply", "--mihomo-tag", "v1.19.33"]):
-            with self.subTest(arguments=arguments), redirect_stderr(io.StringIO()), \
-                    self.assertRaises(SystemExit) as error:
-                update.main(arguments)
-            self.assertEqual(error.exception.code, 2)
-
-    def test_cli_reports_failure(self):
-        output = io.StringIO()
-        with mock.patch.object(update, "execute", side_effect=ValueError("license conflict")), redirect_stderr(output):
-            self.assertEqual(update.main(["--apply"]), 1)
-        self.assertEqual(json.loads(output.getvalue())["error"], "license conflict")
 
 
 class SourceNoticeTest(unittest.TestCase):
@@ -510,7 +521,7 @@ class SourceNoticeTest(unittest.TestCase):
         cls.addClassCleanup(environment.stop)
         temporary = tempfile.TemporaryDirectory(prefix="source-notices-")
         cls.addClassCleanup(temporary.cleanup)
-        cls.updater = update.Updater(ROOT)
+        cls.updater = packages.Updater(ROOT)
         cls.graph = cls.updater.graph(Path(temporary.name) / "modules.json")
         cls.legal = cls.updater.legal(Path(temporary.name))
 
@@ -562,7 +573,7 @@ class LegalTest(unittest.TestCase):
         self.root = Path(self.temporary.name)
         updater = mock.Mock(root=self.root, go="go")
         self.process = mock.Mock()
-        self.legal = legal.Legal(updater, self.root, mock.Mock(), self.process, update.artifacts)
+        self.legal = legal.Legal(updater, self.root, mock.Mock(), self.process, packages.artifacts)
 
     def classifier(self, names):
         def result(command, cwd):

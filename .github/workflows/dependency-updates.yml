@@ -1,0 +1,147 @@
+name: Update and release
+
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 发布类型
+        type: choice
+        options: [pre-release, release]
+        default: &release_type pre-release
+      scope:
+        description: 更新范围
+        type: choice
+        options: [all, mihomo]
+        default: all
+      mihomo_version:
+        description: mihomo tag、commit、branch 或 latest；填写时 scope 必须为 mihomo
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-updates
+  cancel-in-progress: false
+
+jobs:
+  candidate:
+    name: 准备并构建候选
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    outputs:
+      ready: ${{ steps.commit.outputs.ready }}
+      base: ${{ steps.context.outputs.base }}
+    env:
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      SCHEDULE_RELEASE_TYPE: *release_type
+      UPDATE_SCOPE: ${{ inputs.scope || 'all' }}
+      MIHOMO_VERSION: ${{ inputs.mihomo_version || '' }}
+    steps:
+      - name: 检出默认分支
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: 记录基准和发布类型
+        id: context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TYPE: ${{ inputs.release_type || env.SCHEDULE_RELEASE_TYPE }}
+        run: >-
+          python3 -I -B tool/main.py dependencies release context
+          --state "$RUNNER_TEMP/release-state.json"
+          --release-type "$RELEASE_TYPE"
+
+      - name: 恢复固定工具链缓存
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/clash-pseudo/toolchains
+          key: toolchains-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('third_party/data/resources.json') }}
+          restore-keys: toolchains-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: 准备依赖更新
+        shell: bash
+        run: >-
+          python3 -I -B tool/main.py dependencies apply
+          --scope "$UPDATE_SCOPE" --mihomo-version "$MIHOMO_VERSION"
+          --report "$RUNNER_TEMP/update-report.json"
+          2>&1 | tee "$RUNNER_TEMP/dependency-update.log"
+
+      - name: 创建候选提交
+        id: commit
+        run: >-
+          python3 -I -B tool/main.py dependencies release commit
+          --state "$RUNNER_TEMP/release-state.json"
+          --report "$RUNNER_TEMP/update-report.json"
+          --output "$RUNNER_TEMP/release-materials"
+
+      - name: 正式构建、签名并打包四个 APK
+        if: steps.commit.outputs.operation == 'publish'
+        env:
+          CLASH_REQUIRE_DISTRIBUTION_SIGNING: 'true'
+          CLASH_PSEUDO_ANDROID_KEYSTORE_BASE64: ${{ secrets.CLASH_PSEUDO_ANDROID_KEYSTORE_BASE64 }}
+          CLASH_PSEUDO_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.CLASH_PSEUDO_ANDROID_KEYSTORE_PASSWORD }}
+          CLASH_PSEUDO_ANDROID_KEY_ALIAS: ${{ secrets.CLASH_PSEUDO_ANDROID_KEY_ALIAS }}
+          CLASH_PSEUDO_ANDROID_KEY_PASSWORD: ${{ secrets.CLASH_PSEUDO_ANDROID_KEY_PASSWORD }}
+        run: >-
+          python3 -I -B tool/main.py dependencies release build
+          --state "$RUNNER_TEMP/release-state.json"
+          --build-output "$RUNNER_TEMP/release-build"
+          --output "$RUNNER_TEMP/release-materials"
+
+      - name: 保存完整发布材料
+        if: steps.commit.outputs.ready == 'true'
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: release-materials
+          path: ${{ runner.temp }}/release-materials/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: 保存更新和构建日志
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: dependency-build
+          path: |
+            ${{ runner.temp }}/update-report.json
+            ${{ runner.temp }}/dependency-update.log
+            ${{ runner.temp }}/release-build/build.json
+            ${{ runner.temp }}/release-build/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish:
+    name: 推送并发布
+    needs: candidate
+    if: needs.candidate.outputs.ready == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: 检出基准中的发布工具
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.candidate.outputs.base }}
+          fetch-depth: 0
+
+      - name: 读取同一次运行的发布材料
+        uses: actions/download-artifact@v8.0.2
+        with:
+          name: release-materials
+          path: ${{ runner.temp }}/release-materials
+
+      - name: 核对候选、原子推送并发布
+        run: >-
+          python3 -I -B tool/main.py dependencies release publish
+          --bundle "$RUNNER_TEMP/release-materials"

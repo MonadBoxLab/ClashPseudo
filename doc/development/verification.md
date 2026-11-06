@@ -16,7 +16,7 @@
 
 输入应能区分正常与异常分支，例如旧owner／新owner、保存前／提交后、取消前已开始执行／取消后才返回结果。异步检查保留原身份，资源检查等所属I/O、close或join结束。公开接口的返回及资源条件见[内核公开能力](../architecture/core-integration.md#public-api-boundaries)。
 
-实际依赖版本、lock、工具链、复现输入、原始错误和通过／失败结果归入当次构建／验证报告。后续依赖更新生成匹配的新报告，旧报告保留当时输入与结果；复用旧结果先核对源码、测试、依赖、资源和工具链的未变范围。内核上游问题保留原调用与断言，修复随依赖版本更新引入。
+实际依赖版本、lock、工具链、复现输入、原始错误和通过／失败结果归入当次构建／验证报告。后续依赖更新生成匹配的新报告，旧报告保留当时输入与结果；复用旧结果先核对源码、测试、依赖、资源和工具链的未变范围。应用回归覆盖自有接口接入和 lifecycle，不测试 mihomo 内部实现；已确认的上游问题通过依赖更新解决。
 
 AVD用于功能、状态变化、取消、实际退出和数据完整性的定性验证。容量、吞吐、延迟及长期稳定性在实机和受控网络中测量，同时记录设备与网络条件。AVD上的负载失败保留原输入、错误、清理结果和未执行断言；少量真实连接的关闭、对端EOF及Stop场景独立记录，不替代原负载验收，也不据此推算实机容量。
 
@@ -217,7 +217,7 @@ Store读取和编码时检查JSON深度、节点数、正文及集合大小。An
 
 ### Dart
 
-[采集工具](../../tool/coverage/flutter.dart)保留`validate`／`collect`入口，通过coverage公开API及HitMap／LCOV处理函数、行和VM branch。[测试配置](../../test/flutter_test_config.dart)在APP_FUNCTION_COVERAGE=true时注册root tearDownAll，每个完成的isolate写出包含collector元数据的raw。临时library loader加载未import库及part，记录源码分母、生成排除项及未映射源码；纯编译期生成contract排除，使用这些常量的业务代码仍参与统计。
+[采集工具](../../tool/coverage/flutter.dart)通过 `python3 -I -B tool/main.py coverage flutter validate`／`collect` 调用，通过coverage公开API及HitMap／LCOV处理函数、行和VM branch。[测试配置](../../test/flutter_test_config.dart)在APP_FUNCTION_COVERAGE=true时注册root tearDownAll，每个完成的isolate写出包含collector元数据的raw。临时library loader加载未import库及part，记录源码分母、生成排除项及未映射源码；纯编译期生成contract排除，使用这些常量的业务代码仍参与统计。
 
 先用小fixture验证成功、断言失败、进程中断、损坏或缺失raw、缺少测试终态及未调用函数零命中，再对固定的应用输入执行完整收集。每次使用新的外部临时输出目录，保留命令、stdout／stderr、JSON reporter事件、raw、application.info和inventory.json：
 
@@ -245,7 +245,7 @@ Store读取和编码时检查JSON深度、节点数、正文及集合大小。An
 
 ## 最终产物与许可
 
-同一份固定源码和资源生成通用版、armeabi-v7a、arm64-v8a、x86_64四个正常release APK，逐包填写：
+发布流程在同一候选提交和固定资源上一次 split 构建生成通用版、armeabi-v7a、arm64-v8a、x86_64 四个 release APK。GitHub 的 pre-release／release 均使用分发环境签名，逐包填写：
 
 - 应用ID、versionName／versionCode、签名证书、APK摘要和目标ABI。
 - 非debuggable、非instrumentation，同ABI原生库、ELF LOAD及ZIP的16KiB对齐、实际加载。
@@ -270,4 +270,4 @@ Store读取和编码时检查JSON深度、节点数、正文及集合大小。An
 | 文件恢复 | 导出、选中同一ZIP、一次覆盖、重新导出，比较三文件原字节、选择及最新运行意图 |
 | 磁盘清理 | 安排、原PID退出、新PID初始化、删除范围及范围外原字节 |
 
-本地act另外记录prepare、validate、dryrun、job和四包核验的退出码及产物身份，见[本地交付](build-and-test.md#本地隔离act交付)。
+自动发布记录默认分支基准、候选提交、发布类型、测试退出码、四个 release APK、源码与许可包的实际结果。本地隔离回退记录 Go test／vet 及 debug APK 中三 ABI 生产 native 库的结果；分发签名和正式四包构建另列 Actions 结果。操作入口见[自动更新与发布](build-and-test.md#自动更新与发布)。

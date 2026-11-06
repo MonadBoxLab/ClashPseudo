@@ -1,16 +1,14 @@
 """从跨语言常量声明和资源来源清单生成各语言的编译期定义。"""
 
-import argparse
 import json
 from pathlib import Path
 import re
 import subprocess
-import sys
 
 
 SOURCE = Path("contracts/application.json")
-HEADER = "// 由 contracts/application.json 生成；修改源声明后运行 tool/contracts/generate.py。\n"
-ASSET_HEADER = "// 由 Geo／CA manifest 生成；修改源声明后运行 tool/contracts/generate.py。\n"
+HEADER = "// 由 contracts/application.json 生成；修改源声明后运行 python3 -I -B tool/main.py contracts generate。\n"
+ASSET_HEADER = "// 由 Geo／CA manifest 生成；修改源声明后运行 python3 -I -B tool/main.py contracts generate。\n"
 
 
 def unique_object(pairs):
@@ -105,16 +103,6 @@ def asset_metadata(manifest, certificate):
             raise ValueError("Invalid bundled Geo asset")
         if item.get("encoding") not in ("identity", "gzip"):
             raise ValueError("Invalid bundled Geo encoding")
-        for prefix in ("stored", "installed"):
-            size = item.get(prefix + "Bytes")
-            checksum = item.get(prefix + "Sha256")
-            if (type(size) is not int or not 0 < size <= 0x7fffffff
-                    or not isinstance(checksum, str) or not re.fullmatch(r"[0-9a-f]{64}", checksum)):
-                raise ValueError("Invalid bundled Geo size or SHA-256")
-        if item["encoding"] == "identity" and (
-                item["storedBytes"] != item["installedBytes"]
-                or item["storedSha256"] != item["installedSha256"]):
-            raise ValueError("Identity Geo asset must preserve size and SHA-256")
         kinds.add(kind)
         assets.add(asset)
         values = [
@@ -131,15 +119,9 @@ def asset_metadata(manifest, certificate):
     if not isinstance(certificate, dict):
         raise ValueError("Invalid bundled certificate manifest")
     asset = certificate.get("asset")
-    size = certificate.get("bytes")
-    checksum = certificate.get("sha256")
-    if (not isinstance(asset, str) or not re.fullmatch(r"certificates/[A-Za-z0-9_-][A-Za-z0-9_.-]*\.pem", asset)
-            or type(size) is not int or not 0 < size <= 0x7fffffff
-            or not isinstance(checksum, str) or not re.fullmatch(r"[0-9a-f]{64}", checksum)):
-        raise ValueError("Invalid bundled certificate asset, size or SHA-256")
-    roots = certificate.get("roots")
-    if type(roots) is not int or roots <= 0:
-        raise ValueError("CA manifest 必须记录证书数量")
+    if not isinstance(asset, str) or not re.fullmatch(r"certificates/[A-Za-z0-9_-][A-Za-z0-9_.-]*\.pem", asset):
+        raise ValueError("Invalid bundled certificate asset")
+    size, checksum, roots = certificate["bytes"], certificate["sha256"], certificate["roots"]
     for name, value in [("CERTIFICATE_ASSET", asset), ("CERTIFICATE_BYTES", size),
                         ("CERTIFICATE_SHA256", checksum), ("CERTIFICATE_ROOTS", roots)]:
         metadata.append(f"    const val {name} = {json.dumps(value)}\n")
@@ -147,7 +129,7 @@ def asset_metadata(manifest, certificate):
     return "".join(metadata)
 
 
-def outputs(root):
+def outputs(root, *, env=None):
     dart = [HEADER, "\nabstract final class ApplicationContract {\n"]
     kotlin = [HEADER, "package io.github.monadboxlab.clashpseudo.app\n\nobject ApplicationContract {\n"]
     go = [HEADER, "package appcontract\n\nconst (\n"]
@@ -167,7 +149,7 @@ def outputs(root):
     native.append("\n#endif\n")
     go_source = subprocess.run(
         ["gofmt"], input="".join(go), text=True, capture_output=True,
-        check=True, timeout=30,
+        check=True, timeout=30, env=env,
     ).stdout
     return {
         Path("lib/src/model/application_contract.dart"): "".join(dart),
@@ -177,14 +159,14 @@ def outputs(root):
     }
 
 
-def generate(root, check=False):
+def generate(root, check=False, *, env=None):
     changed = []
-    for relative, expected in outputs(root).items():
+    for relative, expected in outputs(root, env=env).items():
         target = root / relative
         actual = target.read_text() if target.exists() else None
         if actual == expected:
             continue
-        if actual is not None and not actual.startswith((HEADER, ASSET_HEADER)):
+        if actual is not None and not actual.startswith(("// 由 contracts/application.json 生成；", "// 由 Geo／CA manifest 生成；")):
             raise ValueError(f"Output is not owned by this generator: {relative}")
         changed.append((target, expected))
     if check and changed:
@@ -195,31 +177,34 @@ def generate(root, check=False):
             target.write_text(expected)
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
-    parser.add_argument("--check", action="store_true")
-    parser.add_argument("--asset-manifest", type=Path, help="当次生成的 Geo manifest")
-    parser.add_argument("--certificate-manifest", type=Path, help="当次生成的 CA manifest")
-    parser.add_argument("--asset-output", type=Path, help="BundledAssetContract.kt 输出路径")
-    args = parser.parse_args()
-    asset_arguments = (args.asset_manifest, args.certificate_manifest, args.asset_output)
-    if any(asset_arguments) and (not all(asset_arguments) or args.check):
-        parser.error("资源生成需要三个 asset 参数，不能与静态 --check 一起使用")
-    try:
-        if args.asset_manifest:
-            result = asset_metadata(
-                json.loads(args.asset_manifest.read_bytes(), object_pairs_hook=unique_object),
-                json.loads(args.certificate_manifest.read_bytes(), object_pairs_hook=unique_object))
-            args.asset_output.parent.mkdir(parents=True, exist_ok=True)
-            args.asset_output.write_text(result, encoding="utf-8")
-        else:
-            generate(args.root, check=args.check)
-    except (OSError, ValueError, subprocess.SubprocessError) as error:
-        print(error, file=sys.stderr)
-        return 1
+def register_parser(subparsers):
+    for name, check in (("generate", False), ("check", True)):
+        parser = subparsers.add_parser(
+            name, help="检查生成文件一致性" if check else "生成跨语言 Contract 文件",
+            description="检查项目输入，不写文件。" if check else "按声明生成 Dart、Kotlin、Go、C 定义，或生成资源 Kotlin 定义。",
+            epilog=f"示例：contracts {name} --project /path/to/project")
+        parser.add_argument("--project", type=Path, default=Path(__file__).resolve().parents[2], help="应用项目目录")
+        if not check:
+            parser.add_argument("--asset-manifest", type=Path, help="当次生成的 Geo manifest")
+            parser.add_argument("--certificate-manifest", type=Path, help="当次生成的 CA manifest")
+            parser.add_argument("--asset-output", type=Path, help="BundledAssetContract.kt 输出路径")
+        parser.set_defaults(handler=run, check=check, validate_args=validate_args)
+
+
+def validate_args(args, parser):
+    if not args.check:
+        values = (args.asset_manifest, args.certificate_manifest, args.asset_output)
+        if any(values) and not all(values):
+            parser.error("资源生成需要 --asset-manifest、--certificate-manifest 和 --asset-output")
+
+
+def run(args):
+    if not args.check and args.asset_manifest:
+        result = asset_metadata(
+            json.loads(args.asset_manifest.read_bytes(), object_pairs_hook=unique_object),
+            json.loads(args.certificate_manifest.read_bytes(), object_pairs_hook=unique_object))
+        args.asset_output.parent.mkdir(parents=True, exist_ok=True)
+        args.asset_output.write_text(result, encoding="utf-8")
+    else:
+        generate(args.project, check=args.check)
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

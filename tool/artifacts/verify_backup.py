@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """核对SAF备份ZIP的manifest和三个业务文件；--compare比较两份备份的业务正文。"""
-import argparse
 from contextlib import contextmanager
 import hashlib
 import json
@@ -130,11 +129,16 @@ def compare_archives(first, second):
         return {"threeBusinessFilesByteIdentical": True, "parts": parts_a}
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+def register_parser(subparsers):
+    parser = subparsers.add_parser(
+        "verify-backup", help="核验备份 ZIP 及逐字节比较业务文件", description=__doc__,
+        epilog="示例：artifacts verify-backup /tmp/backup.zip --compare /tmp/second.zip；不修改输入，输出 JSON。")
     parser.add_argument("archive", type=Path)
     parser.add_argument("--compare", type=Path, help="第二份SAF导出ZIP，逐字节比较configurations.json、overrides.json和preferences.json")
-    args = parser.parse_args()
+    parser.set_defaults(handler=run)
+
+
+def run(args):
     try:
         result = compare_archives(args.archive, args.compare) if args.compare else inspect_archive(args.archive)
     except KeyboardInterrupt:
@@ -145,7 +149,3 @@ def main():
         return 1
     print(json.dumps(result, ensure_ascii=False))
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

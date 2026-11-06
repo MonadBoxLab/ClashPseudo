@@ -1,6 +1,7 @@
 """测试备份文件读取、清单校验、摘要计算和业务文件内容比较。"""
 import hashlib
-import importlib.util
+import tool_test_support
+from tool.artifacts import verify_backup as TOOL
 import json
 import os
 from pathlib import Path
@@ -13,10 +14,6 @@ import warnings
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location("backup_verifier", ROOT / "tool/artifacts/verify_backup.py")
-assert SPEC is not None and SPEC.loader is not None
-TOOL = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(TOOL)
 
 
 class VerifyBackupTest(unittest.TestCase):
@@ -182,7 +179,7 @@ class VerifyBackupTest(unittest.TestCase):
 
     def test_cli_success_and_failed_compare_have_distinct_checked_exit_codes(self):
         first = self.write()
-        command = [sys.executable, "-I", str(ROOT / "tool/artifacts/verify_backup.py"), str(first)]
+        command = [sys.executable, "-I", "-B", str(ROOT / "tool/main.py"), "artifacts", "verify-backup", str(first)]
         success = subprocess.run(command, capture_output=True, timeout=10, check=True)
         self.assertIn("parts", json.loads(success.stdout))
         changed = self.write("changed.zip", values=dict(self.values, **{"preferences.json": b"{}"}))

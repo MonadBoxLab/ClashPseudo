@@ -1,6 +1,8 @@
 """使用合成文件，测试资源写入失败后的文件恢复和输入变化检查。"""
 
-import importlib.util
+import tool_test_support
+from tool.dependencies import packages, inputs, legal
+from tool.common import io as common_io, workspace
 import io
 import json
 from pathlib import Path
@@ -13,15 +15,11 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def load(name, relative):
-    spec = importlib.util.spec_from_file_location(name, ROOT / relative)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
-update = load("resource_update_safety", "tool/dependencies/update.py")
-legal = load("resource_legal_safety", "tool/dependencies/legal.py")
+
+
+
 
 
 class TransactionSafetyTest(unittest.TestCase):
@@ -29,12 +27,12 @@ class TransactionSafetyTest(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.first, self.second = update.GO_INPUTS
+        self.first, self.second = inputs.GO_INPUTS
         for name in (self.first, self.second):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(("original " + name).encode())
-        self.before = update.snapshot(self.root)
+        self.before = inputs.snapshot(self.root)
         self.after = dict(self.before)
         self.after.update({self.first: b"first candidate", self.second: b"second candidate"})
 
@@ -45,12 +43,12 @@ class TransactionSafetyTest(unittest.TestCase):
         for after in (dict(self.after, **{"../outside": b"bad"}),
                       dict(self.after, **{self.second: None})):
             with self.subTest(keys=list(after)), self.assertRaises(ValueError):
-                update.publish_changes(self.root, self.before, after)
-            self.assertEqual(update.snapshot(self.root), self.before)
+                inputs.publish_changes(self.root, self.before, after)
+            self.assertEqual(inputs.snapshot(self.root), self.before)
             self.assert_no_staging_files()
 
     def test_stage_failure_does_not_change_any_input(self):
-        original = update.stage_bytes
+        original = workspace.stage_bytes
         failure = OSError("staging storage exhausted")
         calls = 0
 
@@ -61,15 +59,15 @@ class TransactionSafetyTest(unittest.TestCase):
                 raise failure
             return original(path, data)
 
-        with mock.patch.object(update, "stage_bytes", side_effect=stage):
+        with mock.patch.object(workspace, "stage_bytes", side_effect=stage):
             with self.assertRaises(OSError) as caught:
-                update.publish_changes(self.root, self.before, self.after)
+                inputs.publish_changes(self.root, self.before, self.after)
         self.assertIs(caught.exception, failure)
-        self.assertEqual(update.snapshot(self.root), self.before)
+        self.assertEqual(inputs.snapshot(self.root), self.before)
         self.assert_no_staging_files()
 
     def test_second_replace_failure_rolls_back_the_first_atomic_replacement(self):
-        original = update.os.replace
+        original = workspace.os.replace
         failure = OSError("second rename failed")
         calls = 0
 
@@ -80,20 +78,20 @@ class TransactionSafetyTest(unittest.TestCase):
                 raise failure
             return original(source, target)
 
-        with mock.patch.object(update.os, "replace", side_effect=replace):
+        with mock.patch.object(workspace.os, "replace", side_effect=replace):
             with self.assertRaises(OSError) as caught:
-                update.publish_changes(self.root, self.before, self.after)
+                inputs.publish_changes(self.root, self.before, self.after)
         self.assertIs(caught.exception, failure)
-        self.assertEqual(update.snapshot(self.root), self.before)
+        self.assertEqual(inputs.snapshot(self.root), self.before)
         self.assert_no_staging_files()
 
     def test_directory_sync_failure_after_rename_keeps_original_cause_and_rolls_back(self):
         failure = OSError("directory fsync failed")
-        with mock.patch.object(update, "sync_directory", side_effect=[failure, None]):
+        with mock.patch.object(workspace, "sync_directory", side_effect=[failure, None]):
             with self.assertRaises(OSError) as caught:
-                update.publish_changes(self.root, self.before, self.after)
+                inputs.publish_changes(self.root, self.before, self.after)
         self.assertIs(caught.exception, failure)
-        self.assertEqual(update.snapshot(self.root), self.before)
+        self.assertEqual(inputs.snapshot(self.root), self.before)
         self.assert_no_staging_files()
 
     def test_new_target_is_removed_when_the_following_replacement_fails(self):
@@ -103,7 +101,7 @@ class TransactionSafetyTest(unittest.TestCase):
         after = {new_name: b"new candidate", **after}
         after[new_name] = b"new candidate"
         after[self.first] = b"changed existing"
-        original = update.os.replace
+        original = workspace.os.replace
         failure = OSError("failure after new target")
         calls = 0
 
@@ -114,10 +112,10 @@ class TransactionSafetyTest(unittest.TestCase):
                 raise failure
             return original(source, target)
 
-        with mock.patch.object(update.os, "replace", side_effect=replace):
+        with mock.patch.object(workspace.os, "replace", side_effect=replace):
             with self.assertRaises(OSError):
-                update.publish_changes(self.root, self.before, after)
-        self.assertEqual(update.snapshot(self.root), self.before)
+                inputs.publish_changes(self.root, self.before, after)
+        self.assertEqual(inputs.snapshot(self.root), self.before)
         self.assertFalse((self.root / new_name).exists())
         self.assert_no_staging_files()
 
@@ -130,9 +128,9 @@ class TransactionSafetyTest(unittest.TestCase):
             if calls == 1:
                 (self.root / self.second).write_bytes(b"concurrent user edit")
 
-        with mock.patch.object(update, "sync_directory", side_effect=synced):
+        with mock.patch.object(workspace, "sync_directory", side_effect=synced):
             with self.assertRaisesRegex(ValueError, "更新期间文件发生变化"):
-                update.publish_changes(self.root, self.before, self.after)
+                inputs.publish_changes(self.root, self.before, self.after)
         self.assertEqual((self.root / self.first).read_bytes(), self.before[self.first])
         self.assertEqual((self.root / self.second).read_bytes(), b"concurrent user edit")
         self.assert_no_staging_files()
@@ -144,9 +142,9 @@ class TransactionSafetyTest(unittest.TestCase):
             (self.root / self.first).write_bytes(b"later user edit")
             raise failure
 
-        with mock.patch.object(update, "sync_directory", side_effect=synced):
+        with mock.patch.object(workspace, "sync_directory", side_effect=synced):
             with self.assertRaises(OSError) as caught:
-                update.publish_changes(self.root, self.before, self.after)
+                inputs.publish_changes(self.root, self.before, self.after)
         self.assertIs(caught.exception, failure)
         self.assertEqual((self.root / self.first).read_bytes(), b"later user edit")
         self.assertEqual((self.root / self.second).read_bytes(), self.before[self.second])
@@ -155,7 +153,7 @@ class TransactionSafetyTest(unittest.TestCase):
     def test_rollback_failure_is_attached_without_replacing_original_failure(self):
         publication = OSError("publication fsync")
         cleanup = OSError("rollback rename")
-        original = update.os.replace
+        original = workspace.os.replace
         calls = 0
 
         def replace(source, target):
@@ -165,27 +163,27 @@ class TransactionSafetyTest(unittest.TestCase):
                 raise cleanup
             return original(source, target)
 
-        with mock.patch.object(update.os, "replace", side_effect=replace), mock.patch.object(
-                update, "sync_directory", side_effect=publication):
+        with mock.patch.object(workspace.os, "replace", side_effect=replace), mock.patch.object(
+                workspace, "sync_directory", side_effect=publication):
             with self.assertRaises(OSError) as caught:
-                update.publish_changes(self.root, self.before, self.after)
+                inputs.publish_changes(self.root, self.before, self.after)
         self.assertIs(caught.exception, publication)
         self.assertTrue(any("rollback rename" in note for note in caught.exception.__notes__))
         self.assert_no_staging_files()
 
     def test_interrupt_is_not_a_success_and_rolls_back_published_bytes(self):
         interrupted = KeyboardInterrupt()
-        with mock.patch.object(update, "sync_directory", side_effect=[interrupted, None]):
+        with mock.patch.object(workspace, "sync_directory", side_effect=[interrupted, None]):
             with self.assertRaises(KeyboardInterrupt) as caught:
-                update.publish_changes(self.root, self.before, self.after)
+                inputs.publish_changes(self.root, self.before, self.after)
         self.assertIs(caught.exception, interrupted)
-        self.assertEqual(update.snapshot(self.root), self.before)
+        self.assertEqual(inputs.snapshot(self.root), self.before)
         self.assert_no_staging_files()
 
     def test_concurrent_change_of_an_unchanged_input_aborts_the_whole_transaction(self):
         (self.root / "pubspec.yaml").write_bytes(b"user version change")
         with self.assertRaisesRegex(ValueError, "更新期间文件发生变化"):
-            update.publish_changes(self.root, self.before, self.after)
+            inputs.publish_changes(self.root, self.before, self.after)
         self.assertEqual((self.root / self.first).read_bytes(), self.before[self.first])
         self.assertEqual((self.root / self.second).read_bytes(), self.before[self.second])
         self.assertEqual((self.root / "pubspec.yaml").read_bytes(), b"user version change")
@@ -196,7 +194,7 @@ class TransactionSafetyTest(unittest.TestCase):
         outside.mkdir()
         (self.root / "pubspec.yaml").symlink_to(outside / "target")
         with self.assertRaisesRegex(ValueError, "符号链接"):
-            update.publish_changes(self.root, self.before, self.after)
+            inputs.publish_changes(self.root, self.before, self.after)
         self.assertFalse((outside / "target").exists())
         self.assertEqual((self.root / self.first).read_bytes(), self.before[self.first])
         self.assert_no_staging_files()
@@ -220,38 +218,38 @@ class NetworkSafetyTest(unittest.TestCase):
 
     def test_stream_overflow_is_detected_even_without_content_length(self):
         response = self.Response(b"12345", None)
-        with mock.patch.object(update.urllib.request, "build_opener") as opener:
+        with mock.patch.object(common_io.urllib.request, "build_opener") as opener:
             opener.return_value.open.return_value = response
             with self.assertRaisesRegex(ValueError, "上限"):
-                update.fetch("https://example.test/fixed", limit=4)
-        self.assertTrue(all(0 < size <= update.CHUNK for size in response.read_calls))
+                common_io.fetch("https://example.test/fixed", limit=4)
+        self.assertTrue(all(0 < size <= common_io.CHUNK for size in response.read_calls))
 
     def test_oversized_declared_response_is_rejected_without_reading(self):
         response = self.Response(b"12345", "5")
-        with mock.patch.object(update.urllib.request, "build_opener") as opener:
+        with mock.patch.object(common_io.urllib.request, "build_opener") as opener:
             opener.return_value.open.return_value = response
             with self.assertRaisesRegex(ValueError, "上限"):
-                update.fetch("https://example.test/fixed", limit=4)
+                common_io.fetch("https://example.test/fixed", limit=4)
         self.assertEqual(response.read_calls, [])
 
     def test_short_declared_response_is_not_accepted_as_complete_in_memory(self):
         response = self.Response(b"abc", "4")
-        with mock.patch.object(update.urllib.request, "build_opener") as opener:
+        with mock.patch.object(common_io.urllib.request, "build_opener") as opener:
             opener.return_value.open.return_value = response
             with self.assertRaisesRegex(ValueError, "Content-Length 声明的字节数与实际读取的字节数不一致"):
-                update.fetch("https://example.test/fixed", limit=8)
+                common_io.fetch("https://example.test/fixed", limit=8)
 
     def test_short_declared_response_is_not_accepted_as_complete_on_disk(self):
         response = self.Response(b"abc", "4")
         with tempfile.TemporaryDirectory(prefix="short-resource-response-") as temporary:
             destination = Path(temporary) / "payload.part"
-            with mock.patch.object(update.urllib.request, "build_opener") as opener:
+            with mock.patch.object(common_io.urllib.request, "build_opener") as opener:
                 opener.return_value.open.return_value = response
                 with self.assertRaisesRegex(ValueError, "Content-Length 声明的字节数与实际读取的字节数不一致"):
-                    update.fetch("https://example.test/fixed", limit=8, destination=destination)
+                    common_io.fetch("https://example.test/fixed", limit=8, destination=destination)
             self.assertEqual(destination.read_bytes(), b"abc")
-            self.assertFalse((destination.parent / "receipt.json").exists())
-        self.assertTrue(all(0 < size <= update.CHUNK for size in response.read_calls))
+            self.assertFalse((destination.parent / "resource.json").exists())
+        self.assertTrue(all(0 < size <= common_io.CHUNK for size in response.read_calls))
 
     def test_short_reads_are_accumulated_until_real_eof_not_assumed_complete(self):
         class Chunked(self.Response):
@@ -259,14 +257,14 @@ class NetworkSafetyTest(unittest.TestCase):
                 return super().read(min(size, 1))
 
         response = Chunked(b"abcd", "4")
-        with mock.patch.object(update.urllib.request, "build_opener") as opener:
+        with mock.patch.object(common_io.urllib.request, "build_opener") as opener:
             opener.return_value.open.return_value = response
-            self.assertEqual(update.fetch("https://example.test/fixed", limit=8), b"abcd")
+            self.assertEqual(common_io.fetch("https://example.test/fixed", limit=8), b"abcd")
         self.assertEqual(len(response.read_calls), 5)
 
     def test_https_redirect_must_not_downgrade_to_http(self):
         with self.assertRaisesRegex(ValueError, "HTTPS"):
-            update.HttpsRedirect().redirect_request(None, None, 302, "Found", {}, "http://example.test/data")
+            common_io.HttpsRedirect().redirect_request(None, None, 302, "Found", {}, "http://example.test/data")
 
 
 class LegalSafetyTest(unittest.TestCase):
@@ -303,7 +301,7 @@ class LegalSafetyTest(unittest.TestCase):
             target.write_bytes(data)
             notice = root / "third_party/notices/publicsuffix.txt"
             notice.parent.mkdir(parents=True)
-            original = ("Public Suffix List数据通知\n实现包：golang.org/x/net/publicsuffix，模块golang.org/x/net v0.35.0。\n"
+            original = ("Public Suffix List数据通知\n实现包：golang.org/x/net/publicsuffix，模块golang.org/x/net v1.0.0。\n"
                         "table.go所记录的PSL提交：\n" + revision + "（2023-08-03T10:01:25Z）\n"
                         "https://raw.githubusercontent.com/publicsuffix/list/" + revision + "/public_suffix_list.dat\n"
                         "SHA-256：" + legal.sha(data) + "\n").encode()
@@ -311,8 +309,8 @@ class LegalSafetyTest(unittest.TestCase):
             updater = mock.Mock(root=root, go="go")
             updater.go_run.return_value = json.dumps({"Dir": str(root)})
             fetch = mock.Mock(side_effect=AssertionError("fixed PSL must not be fetched"))
-            instance = legal.Legal(updater, root, fetch, mock.Mock(), update.artifacts)
-            graph = {"golang.org/x/net": {"Path": "golang.org/x/net", "Version": "v0.35.0"}}
+            instance = legal.Legal(updater, root, fetch, mock.Mock(), packages.artifacts)
+            graph = {"golang.org/x/net": {"Path": "golang.org/x/net", "Version": "v1.0.0"}}
             result = instance.public_suffix(graph)
             self.assertEqual(result["revision"], revision)
             self.assertEqual(result["sha256"], legal.sha(data))
@@ -337,20 +335,20 @@ class LegalSafetyTest(unittest.TestCase):
             target.write_bytes(data)
             notice = root / "third_party/notices/publicsuffix.txt"
             notice.parent.mkdir(parents=True)
-            notice.write_text("x/net v0.35.0；PSL " + revision + "\n" + legal.sha(data))
+            notice.write_text("x/net v1.0.0；PSL " + revision + "\n" + legal.sha(data))
             license_file = root / "third_party/data/certificates/MPL-2.0.txt"
             license_file.parent.mkdir(parents=True)
             license_file.write_bytes(b"synthetic MPL original\r\n")
             updater = mock.Mock(root=root, go="go")
             updater.go_run.return_value = json.dumps({"Dir": str(root)})
             fetch = mock.Mock(return_value=data)
-            instance = legal.Legal(updater, root, fetch, mock.Mock(), update.artifacts)
+            instance = legal.Legal(updater, root, fetch, mock.Mock(), packages.artifacts)
             graph = {"golang.org/x/net": {"Path": "golang.org/x/net", "Version": "v0.1.0", "Replace": {
-                "Path": "example.test/net", "Version": "v0.35.0"}}}
+                "Path": "example.test/net", "Version": "v1.0.0"}}}
             result = instance.public_suffix(graph)
             self.assertEqual(result["module"], "example.test/net")
             fetch.assert_called_once_with("https://raw.githubusercontent.com/publicsuffix/list/" + revision + "/public_suffix_list.dat")
-            self.assertIn("example.test/net v0.35.0；PSL " + revision, notice.read_text())
+            self.assertIn("example.test/net v1.0.0；PSL " + revision, notice.read_text())
 
     def test_selected_xnet_replacement_supplies_the_actual_psl_revision(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -361,7 +359,7 @@ class LegalSafetyTest(unittest.TestCase):
             table.write_text("// generated from git revision " + revision + "\npackage publicsuffix\n")
             updater = mock.Mock(root=root, go="go")
             updater.go_run.return_value = json.dumps({"Dir": str(root)})
-            instance = legal.Legal(updater, root, mock.Mock(), mock.Mock(), update.artifacts)
+            instance = legal.Legal(updater, root, mock.Mock(), mock.Mock(), packages.artifacts)
             graph = {"golang.org/x/net": {"Path": "golang.org/x/net", "Version": "v0.1.0", "Replace": {
                 "Path": "example.test/net", "Version": "v0.2.0"}}}
             source = instance.public_suffix_source(graph)

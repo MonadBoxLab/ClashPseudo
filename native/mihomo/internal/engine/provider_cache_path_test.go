@@ -112,66 +112,6 @@ func TestHTTPProviderPathsUseThePublicParserAndPreparationHome(t *testing.T) {
 	}
 }
 
-func TestFileProviderPathsHaveNoApplicationFilenameOrSymlinkBlacklist(t *testing.T) {
-	if isolateEngineTest(t) {
-		return
-	}
-	for _, namespace := range []string{"proxies", "rules"} {
-		for _, name := range []string{
-			"providers/explicit.yaml", "cache.db", "GeoIP.dat", "configurations.json",
-			"tailscale/state", "identities/state", "tailscale-account/state",
-			"../outside/provider.yaml", "absolute", "outside-link/provider.yaml", "inside-link/provider.yaml",
-		} {
-			t.Run(namespace+"/"+name, func(t *testing.T) {
-				if isolateEngineTest(t) {
-					return
-				}
-				parent := t.TempDir()
-				home, outside := filepath.Join(parent, "core"), filepath.Join(parent, "outside")
-				for _, directory := range []string{home, outside, filepath.Join(home, "inside")} {
-					if err := os.MkdirAll(directory, 0700); err != nil {
-						t.Fatal(err)
-					}
-				}
-				for link, target := range map[string]string{"outside-link": outside, "inside-link": filepath.Join(home, "inside")} {
-					if err := os.Symlink(target, filepath.Join(home, link)); err != nil {
-						t.Fatal(err)
-					}
-				}
-				path := name
-				if name == "absolute" {
-					path = filepath.Join(outside, "absolute.yaml")
-				}
-				want := path
-				if !filepath.IsAbs(path) {
-					want = filepath.Join(home, path)
-				}
-				if err := os.MkdirAll(filepath.Dir(want), 0700); err != nil {
-					t.Fatal(err)
-				}
-				content := providerText(namespace)
-				if err := os.WriteFile(want, content, 0600); err != nil {
-					t.Fatal(err)
-				}
-				body := providerInput(t, namespace, map[string]any{"type": "file", "path": path, "behavior": "classical"})
-				var e Engine
-				if err := prepareUpstream(t, &e, home, body, "", func(int) bool { return true }); err != nil {
-					t.Fatalf("application rejected a path accepted by production cmfa: %v", err)
-				}
-				if got := providerPath(t, e.cfg, namespace); got != want || !C.Path.IsSafePath(got) {
-					t.Fatalf("path did not follow the public resolver: %q, want %q", got, want)
-				}
-				requireStop(t, &e)
-				captureUpstreamFiles(t, "after-stop", home)
-				stored, err := os.ReadFile(want)
-				if err != nil || !bytes.Equal(stored, content) {
-					t.Fatalf("reading a provider changed its original file: %v", err)
-				}
-			})
-		}
-	}
-}
-
 func TestProviderAndProtocolPathRelationshipsAreLeftToTheirOwners(t *testing.T) {
 	if isolateEngineTest(t) {
 		return

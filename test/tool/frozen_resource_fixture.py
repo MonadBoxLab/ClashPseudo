@@ -51,7 +51,7 @@ def frozen_resources(root, update, *, source_metadata=None):
         else:
             row["sourcePage"] = "https://db-ip.com/db/download/ip-to-" + ("country" if kind == "mmdb" else "asn") + "-lite"
         specs[kind] = update.resource_spec(row)
-    record = {"format": "clash-pseudo-release-resources", "version": 1, "application": "0.2.0+4",
+    record = {"format": "clash-pseudo-release-resources", "version": 1, "application": "1.0.0+1",
               "resources": specs,
               "licenses": {name: {"bytes": (root / name).stat().st_size,
                                   "sha256": hashlib.sha256((root / name).read_bytes()).hexdigest()}

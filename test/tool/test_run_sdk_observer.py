@@ -1,6 +1,8 @@
 """SDK 运行入口的授权边界、参数引用和异步进程身份。"""
 import hashlib
-import importlib.util
+import tool_test_support
+from tool.cli import parse_args
+from tool.android import run_sdk_observer as TOOL
 import json
 from pathlib import Path
 import shlex
@@ -10,10 +12,6 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location("sdk_runner", ROOT / "tool/android/run_sdk_observer.py")
-assert SPEC is not None and SPEC.loader is not None
-TOOL = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(TOOL)
 APK = b"fixture-only-sdk-apk"
 DIGEST = hashlib.sha256(APK).hexdigest()
 SERIAL = "owned-avd:12345"
@@ -33,7 +31,7 @@ class RunSdkObserverTest(unittest.TestCase):
         self.temporary.cleanup()
 
     def args(self, *extra):
-        return TOOL.arguments(["--serial", SERIAL, "--allowed-serial", SERIAL, "--apk-sha256", DIGEST,
+        return parse_args(["android", "run-sdk-observer"] +["--serial", SERIAL, "--allowed-serial", SERIAL, "--apk-sha256", DIGEST,
                                "--output", str(self.root / "output"), "--action", "snapshot",
                                "--window-package", TOOL.APP, "--label", "Tunnel stopped", *extra])
 
@@ -100,7 +98,7 @@ class RunSdkObserverTest(unittest.TestCase):
 
     def test_scoped_click_requires_explicit_ack_and_submits_exact_label_once(self):
         label = "Settings\nTab 3 of 3"
-        args = TOOL.arguments(["--serial", SERIAL, "--allowed-serial", SERIAL, "--action", "click",
+        args = parse_args(["android", "run-sdk-observer"] +["--serial", SERIAL, "--allowed-serial", SERIAL, "--action", "click",
                                "--apk-sha256", DIGEST, "--output", str(self.root / "click"),
                                "--window-package", TOOL.APP, "--label", label, "--allow-ui-action"])
         result = self.execute(args)
@@ -118,7 +116,7 @@ class RunSdkObserverTest(unittest.TestCase):
                       ["--window-package", TOOL.APP, "--label", "Settings", "--label", "Other", "--allow-ui-action"],
                       ["--window-package", TOOL.APP, "--label", "Start tunnel", "--allow-ui-action"]):
             with self.subTest(extra=extra), self.assertRaises(SystemExit):
-                TOOL.arguments(common + extra)
+                parse_args(["android", "run-sdk-observer"] +common + extra)
         self.assertFalse((self.root / "click").exists())
 
     def test_explicit_authorization_handles_changed_serial_and_device_count(self):
@@ -260,7 +258,7 @@ class RunSdkObserverTest(unittest.TestCase):
                       ["--serial", SERIAL, "--action", "snapshot", "--window-package", "com.android.systemui", "--label", "Clash Pseudo"],
                       ["--serial", SERIAL, "--action", "start", "--expected-config-name", "owned"]):
             with self.subTest(parts=parts), self.assertRaises(SystemExit):
-                TOOL.arguments(common + parts)
+                parse_args(["android", "run-sdk-observer"] +common + parts)
         self.assertFalse((self.root / "output").exists())
 
 

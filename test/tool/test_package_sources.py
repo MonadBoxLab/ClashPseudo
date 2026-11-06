@@ -3,7 +3,11 @@
 
 import gzip
 import hashlib
-import importlib.util
+import tool_test_support
+from tool.artifacts import package_sources
+from tool.dependencies import resources
+from tool.common import workspace
+from tool.cli import main as cli_main
 import io
 import json
 from pathlib import Path
@@ -19,9 +23,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class SourceArchiveTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        spec = importlib.util.spec_from_file_location("real_packager", ROOT / "tool/artifacts/package_sources.py")
-        cls.packager = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(cls.packager)
+        cls.packager = package_sources
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="clash-source-case-")
@@ -33,9 +35,12 @@ class SourceArchiveTest(unittest.TestCase):
         self.names = []
         self.status = " M lib/current.dart\0?? lib/new.dart\0"
         self.command = mock.Mock(side_effect=self.git)
-        patcher = mock.patch.object(self.packager.update, "run", self.command)
+        patcher = mock.patch.object(self.packager, "run", self.command)
         patcher.start()
         self.addCleanup(patcher.stop)
+        shared = mock.patch.object(workspace, "run", self.command)
+        shared.start()
+        self.addCleanup(shared.stop)
 
     def git(self, command, cwd):
         self.assertEqual(cwd, self.root)
@@ -180,7 +185,7 @@ class SourceArchiveTest(unittest.TestCase):
         metadata = {"format": "clash-pseudo-resource-sources", "version": 1, "sources": rows}
         manifest.write_text(json.dumps(metadata))
         from frozen_resource_fixture import frozen_resources
-        frozen_resources(self.root, self.packager.update, source_metadata=metadata)
+        frozen_resources(self.root, resources, source_metadata=metadata)
         return manifest, metadata
 
     def test_fixed_editable_data_archives_are_preserved_without_extraction(self):
@@ -252,7 +257,7 @@ class SourceArchiveTest(unittest.TestCase):
 
     def package_inputs(self):
         manifest, _ = self.resources()
-        self.file("pubspec.yaml", b"version: 0.1.0+3\n")
+        self.file("pubspec.yaml", b"version: 1.0.0+1\n")
         self.file("lib/current.dart", b"current dirty source\n")
         self.file("third_party/data/certificates/manifest.json", b"{}\n")
         configuration = self.root / ".dart_tool/package_config.json"
@@ -277,12 +282,13 @@ class SourceArchiveTest(unittest.TestCase):
                 return '{"frameworkRevision":"synthetic"}'
             return original(arguments, cwd)
         self.command.side_effect = command
+        updater.run.side_effect = command
         return manifest, evidence, updater
 
     def test_full_package_identifies_tar_bytes_not_head_as_the_dirty_source(self):
         manifest, evidence, updater = self.package_inputs()
         output = self.base / "sources.tar.gz"
-        with mock.patch.object(self.packager.update, "application_version", return_value="0.1.0+3", create=True), \
+        with mock.patch.object(self.packager, "application_version", return_value="1.0.0+1", create=True), \
                 mock.patch.object(self.packager, "maven_sources", return_value={"metadata.pom": b"original POM"}):
             self.packager.create(updater, evidence, output, resource_sources=manifest)
         with tarfile.open(output) as archive:
@@ -298,18 +304,20 @@ class SourceArchiveTest(unittest.TestCase):
             readme = archive.extractfile("README.txt").read().decode()
             self.assertIn("应用源码：当前工作树快照", readme)
             universal_save = (
-                "  cp build/app/outputs/flutter-apk/app-release.apk "
-                "../clash-pseudo-0.1.0+3-apks/clash-pseudo-0.1.0+3-universal.apk\n")
+                "  cp build/app/outputs/apk/release/app-universal-release.apk "
+                "../clash-pseudo-1.0.0+1-apks/clash-pseudo-1.0.0+1-universal.apk\n")
             split_build = (
                 "  flutter build apk --release --no-pub --target-platform "
                 "android-arm,android-arm64,android-x64 --split-per-abi\n")
             self.assertIn(universal_save, readme)
             self.assertIn(split_build, readme)
-            self.assertLess(readme.index(universal_save), readme.index(split_build))
+            self.assertLess(readme.index(split_build), readme.index(universal_save))
+            self.assertEqual(readme.count("flutter build apk "), 1)
+            self.assertIn("四个分发签名环境变量", readme)
             for abi in ("arm64-v8a", "armeabi-v7a", "x86_64"):
                 self.assertIn(
                     f"  cp build/app/outputs/flutter-apk/app-{abi}-release.apk "
-                    f"../clash-pseudo-0.1.0+3-apks/clash-pseudo-0.1.0+3-{abi}.apk\n", readme)
+                    f"../clash-pseudo-1.0.0+1-apks/clash-pseudo-1.0.0+1-{abi}.apk\n", readme)
             self.assertIn("build-inputs/resource-sources.json", archive.getnames())
             self.assertIn("build-inputs/certificates.json", archive.getnames())
             self.assertIn("build-inputs/geodata.json", archive.getnames())
@@ -321,7 +329,7 @@ class SourceArchiveTest(unittest.TestCase):
             (self.root / "lib/current.dart").write_bytes(b"newer user edit")
             return "go version synthetic\n"
         updater.go_run.side_effect = version
-        with mock.patch.object(self.packager.update, "application_version", return_value="0.1.0+3", create=True), \
+        with mock.patch.object(self.packager, "application_version", return_value="1.0.0+1", create=True), \
                 mock.patch.object(self.packager, "maven_sources", return_value={"metadata.pom": b"original POM"}), \
                 self.assertRaisesRegex(ValueError, "工作树发生变化"):
             self.packager.create(updater, evidence, output, resource_sources=manifest)
@@ -331,7 +339,7 @@ class SourceArchiveTest(unittest.TestCase):
     def test_original_four_argument_consumer_uses_default_evidence_resource_sources(self):
         _, evidence, updater = self.package_inputs()
         output = self.base / "sources.tar.gz"
-        with mock.patch.object(self.packager.update, "application_version", return_value="0.1.0+3", create=True), \
+        with mock.patch.object(self.packager, "application_version", return_value="1.0.0+1", create=True), \
                 mock.patch.object(self.packager, "maven_sources", return_value={"metadata.pom": b"original POM"}):
             self.packager.create(updater, evidence, output, None)
         with tarfile.open(output) as archive:
@@ -345,9 +353,9 @@ class SourceArchiveTest(unittest.TestCase):
         evidence = self.base / "evidence"
         output = self.base / "sources.tar.gz"
         updater = mock.Mock()
-        with mock.patch.object(self.packager.update, "Updater", return_value=updater, create=True), \
+        with mock.patch.object(self.packager, "Updater", return_value=updater, create=True), \
                 mock.patch.object(self.packager, "create") as create:
-            self.assertEqual(self.packager.main(["--project", str(self.root), "--evidence", str(evidence),
+            self.assertEqual(cli_main(["artifacts", "package-sources", "--project", str(self.root), "--evidence", str(evidence),
                                                   "--output", str(output)]), 0)
         create.assert_called_once_with(updater, evidence, output, None, None, None)
 
@@ -372,7 +380,7 @@ class SourceArchiveTest(unittest.TestCase):
             output.write_bytes(b"replacement user material")
             raise ValueError("synthetic dependency failure")
         updater.go_run.side_effect = version
-        with mock.patch.object(self.packager.update, "application_version", return_value="0.1.0+3", create=True), \
+        with mock.patch.object(self.packager, "application_version", return_value="1.0.0+1", create=True), \
                 mock.patch.object(self.packager, "maven_sources", return_value={"metadata.pom": b"original POM"}), \
                 self.assertRaisesRegex(ValueError, "synthetic dependency failure"):
             self.packager.create(updater, evidence, output, resource_sources=manifest)

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """使用指定的工具链构建 SDK 测试程序，测试程序以自身测试包为目标。"""
-import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -93,8 +92,12 @@ def build(android_jar, build_tools, keystore, output, *, java_release, min_api, 
     return result
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+def register_parser(subparsers):
+    parser = subparsers.add_parser(
+        "build-sdk-observer", help="构建独立 SDK 测试 APK", description=__doc__,
+        epilog="示例：android build-sdk-observer --android-jar /sdk/platforms/android-36/android.jar "
+               "--build-tools /sdk/build-tools/<version> --java-release 17 --min-api 24 --target-sdk 36 "
+               "--debug-keystore /tmp/debug.keystore --output /tmp/observer-build")
     parser.add_argument("--android-jar", type=Path, required=True, help="Android 平台 android.jar 文件路径")
     parser.add_argument("--build-tools", type=Path, required=True, help="Android SDK Build Tools 目录")
     parser.add_argument("--javac", default="javac", help="javac 命令或路径；默认从 PATH 查找")
@@ -104,11 +107,10 @@ def main():
     parser.add_argument("--debug-keystore", type=Path, required=True,
                         help="包含 androiddebugkey 别名的调试签名密钥库")
     parser.add_argument("--output", type=Path, required=True, help="系统临时目录下的仓库外新目录，用于保存构建输出")
-    args = parser.parse_args()
-    print(json.dumps(build(args.android_jar, args.build_tools, args.debug_keystore, args.output,
-                           java_release=args.java_release, min_api=args.min_api,
-                           target_sdk=args.target_sdk, javac=args.javac), ensure_ascii=False))
+    parser.set_defaults(handler=run)
 
 
-if __name__ == "__main__":
-    main()
+def run(args):
+    return build(args.android_jar, args.build_tools, args.debug_keystore, args.output,
+                 java_release=args.java_release, min_api=args.min_api,
+                 target_sdk=args.target_sdk, javac=args.javac)

@@ -93,10 +93,10 @@ CC-BY-SA-4.0、GeoSite MIT、CC-BY-4.0 及 MPL-2.0 原文随材料分发。同�
 
 ## 内核与依赖升级复核
 
-[更新工具](../../tool/dependencies/update.py)提供 `--check` 和 `--apply`。前者查询 mihomo 正式 Release；后者准备同次应用 release 的工具链、mihomo／相关依赖、CA／Geo 及许可。可用 `--go-module`、`--pub` 和 `--android` 选择现有依赖，mihomo 目标来自官方正式 Release，不接受人工 tag。GitHub Actions 的触发与发布步骤见[Android 分发](../development/build-and-test.md#android-分发与-github-actions)。
+[统一入口](../../tool/main.py)的 `dependencies check` 与 `dependencies apply` 默认检查应用依赖及 CA／Geo；Go／Flutter／JDK／SDK／NDK／Gradle／AGP／Kotlin 使用项目固定工具链。`check` 仅报告候选，`apply` 写回实际变化。`--scope mihomo --mihomo-version '<selector>'` 将 selector 交给 Go，记录实际解析结果，不额外查询 GitHub Release 来批准该输入。自动更新及发布步骤见[Android 分发](../development/build-and-test.md#android-分发与-github-actions)。
 
-1. 用 `--check` 查看内核候选，再执行 `--apply --evidence /var/tmp/new-dependency-evidence` 准备 release 及核验输入。同次候选重试使用固定材料，不重复查询最新资源。应用版本使用[版本策略](../development/build-and-test.md#应用版本)，常规内核维护更新默认递增补丁版本。
-2. 检查官方兼容矩阵与 API24 约束、工具链选中／排除决定、protobuf replace 及 go-lzo／chacha 显式要求。Go 通知按三个 Android 目标架构和生产 tags 收集模块，保存 LICENSE／COPYING、NOTICE、版权、AUTHORS／PATENTS、模块 Sum、GoModSum 及原始 zip 摘要；mihomo 根许可和可编辑 PSL 列表一并更新。
+1. 用 `dependencies check` 查看候选，再执行 `dependencies apply --evidence /var/tmp/new-dependency-evidence` 更新输入并生成核验材料。无实际变化不递增版本；一次依赖与资源更新只将 patch 和 versionCode 各加一，详见[应用版本](../development/build-and-test.md#应用版本)。
+2. 检查实际解析结果、protobuf replace 及 go-lzo／chacha 的许可来源。Go 通知按三个 Android 目标架构和生产 tags 收集模块，保存 LICENSE／COPYING、NOTICE、版权、AUTHORS／PATENTS、模块 Sum、GoModSum 及原始 zip 摘要；mihomo 根许可和可编辑 PSL 列表一并更新。
 3. 对许可正文计算SHA-256，复用已有相同字节的识别结果；新增文本使用工具所选Google licenseclassifier识别。缺少原文时从该模块固定上游提交取得；遇到未知许可、缺少授权或组合冲突时，按报错给出的依赖、文件和摘要核对原文与授权条款，确定依赖选择后重新运行更新。
 4. Pub按当前SDK可解析的hosted版本更新，保留SDK／path来源。Android按本次`releaseRuntimeClasspath`更新POM、运行归档、嵌套JAR、sources.jar及许可头。检查声明、锁文件与通知中的选择一致。
 5. 构建通用版及三个分架构APK。用证据目录中的`go-modules.json`、`android-dependencies.txt`和独立构建生成并解码的`NOTICES`校验APK，分别检查各ABI的buildinfo，再准备对应源码、许可包及`SHA256SUMS`。
@@ -116,7 +116,7 @@ GOTOOLCHAIN=local go -C native/mihomo version -m '<libmihomo_bridge.so>'
 在当前源码内容确定后，准备含`go-modules.json`、`android-dependencies.txt`、独立构建生成并解码的`NOTICES`的证据目录，以及下一节的固定资源源码清单和登记归档。将证据和输出放在仓库外，运行：
 
 ```sh
-python3 -I -B tool/artifacts/package_sources.py \
+python3 -I -B tool/main.py artifacts package-sources \
   --project /path/to/frozen-project \
   --evidence /path/to/independent-evidence \
   --resource-sources /path/to/resource-sources.json \
@@ -154,7 +154,7 @@ python3 -I -B tool/artifacts/package_sources.py \
 - DAT 的存储正文与安装正文相同；DB-IP 保存官方 gzip，安装时解压。APK ZIP 压缩大小另计。
 - PSL 从实际所选 x/net 模块的 `publicsuffix/table.go` 读取 `git revision`；存在 `Replace` 时使用替换模块。核对通知中的模块版本、revision 及可编辑列表 SHA-256，并随包提供 MPL 全文。
 
-APK核验工具的`--xnet-source`填写上述有效x/net模块的原始zip。工具重新计算Go h1，读取编译表记录的提交，再比较来源通知和可编辑列表。
+APK 核验工具的 `--xnet-source` 填写上述有效 x/net 模块的原始 zip。模块下载和校验使用 Go；工具读取编译表记录的提交，并比较来源通知和可编辑列表。
 
 #### 资源对应源码清单
 
@@ -177,61 +177,18 @@ GeoIP主对象记录转换器源码，至少提供一份官方release数据归�
 单独准备固定源码时，从同次 release 记录的 `resources` 复制 `geoip` 与 `geosite` 完整记录，以 kind 为键组成 `fixed-geo-specs.json`；保留 GeoIP 的 `sourceInputs`，逐项核对数据归档的 `sourceCommit` 和 `description`。运行：
 
 ```sh
-python3 -I -B tool/dependencies/update.py \
-  --prepare-resource-sources /path/to/fixed-geo-specs.json \
+python3 -I -B tool/main.py dependencies prepare-resource-sources \
+  --spec /path/to/fixed-geo-specs.json \
   --project /path/to/project \
   --destination /var/tmp/new-fixed-source-materials
 ```
 
 成功输出的`sources`指向`resource-sources.json`。再次使用同一目录时，工具核对已登记原件的大小、SHA-256和固定来源后复用。缺少GeoIP补充输入时，补齐该次数据来源记录后重跑。
 
-#### 交付准备与同一tag重新运行
+#### 发布材料与重跑
 
-新交付依次准备资源、固定源码和许可材料，再更新应用输入。完整且无需更新的交付返回`unchanged`。
+`Update and release` 在同一候选提交上运行测试、正式签名的四 APK 构建和源码打包。源码包使用候选提交，版本、tag 与 Release 的 Source 指向同一输入；许可包及 `SHA256SUMS` 与四包一并上传。发布类型由仓库默认值或本次手动选择决定，两种类型都使用 release variant。
 
-已有tag但交付中断时，在GitHub Actions重新运行该版本的发布任务。准备步骤按以下顺序处理：
+发布 job 失败时重跑失败 job，继续使用原 artifact 中的 Git bundle 和构建材料。tag 已指向本轮候选时继续上传草稿；已公开且资产一致时结束，不改写已公开字节。基准在首次推送前改变时重新准备候选；artifact 过期则按失败报告处理缺失材料，不重建另一批字节替代原产物。
 
-1. 读取tag的应用版本与源码提交，下载已有资产和`SHA256SUMS`并核摘要。
-2. 从该版本的Actions归档补齐缺项。Release缺少校验文件时，先核归档源码的版本、提交和`workingTree=false`，再使用其校验文件。
-3. 从已校验的源码包读取`build-inputs/version.json`、`resources.json`、`certificates.json`、`geodata.json`及`resource-sources.json`，连同`build-inputs/bundled/`中的五项payload和登记资源归档，核对tag版本、提交、CA／Geo manifest、固定来源、大小和SHA-256。
-4. 恢复同次记录、payload及资源源码后构建缺失APK，保留已校验的资产，补齐对应源码、许可和校验文件，再由发布步骤上传并完成Release。
-
-出现来源缺失、身份或摘要不符时，按错误中的资产名检查该tag的Release与Actions材料，找回同次交付的源码包和校验文件后重跑。重复成员、路径穿越、链接或超限归档会在恢复时被拒绝。
-
-#### 本地act与候选材料
-
-本地候选使用当前应用版本、工作树和固定资源。先确定本次runner镜像、Docker daemon的Unix socket及runner容器可达的宿主IPv4；在同一Docker守护进程中运行容器，通过HTTP请求确认该地址可访问，再准备副本：
-
-```sh
-python3 -I -B tool/dependencies/release.py --prepare-act \
-  --project /path/to/frozen-project \
-  --output /var/tmp/new-act-materials \
-  --resource-sources /path/to/resource-sources.json \
-  --runner-image '<Debian系runner镜像:tag或digest>' \
-  --artifact-host '<runner容器可达的宿主IPv4>' \
-  --docker-host 'unix:///path/to/docker.sock' \
-  --act /path/to/act
-```
-
-输出目录须为仓库外新路径。准备结果包含`workspace/`源码副本、`origin.git`本地Git远程仓库、独立HOME和Docker配置、`control/`运行参数、`action-cache/`及`artifacts/`。固定资源位于副本的`.local/resource-inputs/resource-sources/`，逐文件输入摘要位于`.local/input.json`。
-
-在权限为0600的`control/secrets`中配置本次候选使用的四个签名变量：`CLASH_PSEUDO_ANDROID_KEYSTORE_BASE64`、`CLASH_PSEUDO_ANDROID_KEYSTORE_PASSWORD`、`CLASH_PSEUDO_ANDROID_KEY_ALIAS`、`CLASH_PSEUDO_ANDROID_KEY_PASSWORD`。从本次使用的签名配置取得这四个变量。`control/env`已设置`CLASH_LOCAL_EXECUTION=true`及分发签名要求。
-
-按`control/launch.json`中的独立环境依次运行`validate`、`dryrun`、`command`。以下命令执行validate；将最后的`validate`改为`dryrun`执行预演，再改为`command`运行job：
-
-```sh
-python3 -I - /var/tmp/new-act-materials/control/launch.json validate <<'PY'
-import json
-from pathlib import Path
-import subprocess
-import sys
-
-launch = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-raise SystemExit(subprocess.run(launch[sys.argv[2]], cwd=launch["cwd"],
-                               env=launch["environment"]).returncode)
-PY
-```
-
-`validate`参数包含`--validate --dryrun`，`dryrun`包含`--dryrun`；`command`执行实际job。运行使用显式env／secret／var／input／event文件、action缓存、artifact路径及平台镜像映射。artifact服务绑定所填宿主IPv4的34567端口；job的daemon socket挂载设置为`-`，容器选项使用`restrict`，本地cache server关闭。
-
-本地workflow调用`release.py --local --output "$RUNNER_TEMP/clash-release"`，按锁文件解析依赖，构建并核验四个APK，生成当前工作树源码、许可包、`SHA256SUMS`和`release.json`。计划记录`local`、`workingTree`、输入摘要、证书摘要及各资产大小／SHA-256。到`artifacts/`取得上传材料，按其中校验文件核对下载结果；正式分发使用GitHub Actions发布任务。
+本地回退实验在独立源码副本中执行 `dependencies apply --scope mihomo --mihomo-version '<selector>' --reuse-version`，保留应用版本及非 Go 输入，使用 debug APK 验证生产 native 接入。分发签名及四个 release APK 的实际结果从配置了 Secrets 的 Actions 运行取得。入口及启停见[自动更新与发布](../development/build-and-test.md#自动更新与发布)。

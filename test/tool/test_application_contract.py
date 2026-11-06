@@ -1,15 +1,13 @@
 """检查跨语言常量的生成结果，以及生成文件是否需要更新。"""
 
-import importlib.util
+import tool_test_support
+from tool.contracts import generate as GENERATOR
 import json
 from pathlib import Path
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location("application_contract_generator", ROOT / "tool/contracts/generate.py")
-GENERATOR = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(GENERATOR)
 
 
 class ApplicationContractTest(unittest.TestCase):
@@ -96,9 +94,7 @@ class ApplicationContractTest(unittest.TestCase):
     def test_incomplete_or_invalid_resources_fail_before_writing(self):
         original = self.geo.read_text()
         for key, value in [("kind", "unknown"), ("asset", "../outside"),
-                           ("asset", "$interpolation"), ("encoding", "unknown"),
-                           ("storedBytes", True), ("installedBytes", -1),
-                           ("installedSha256", "bad")]:
+                           ("asset", "$interpolation"), ("encoding", "unknown")]:
             with self.subTest(key=key, value=value):
                 manifest = json.loads(original)
                 manifest["files"][0][key] = value
@@ -110,6 +106,18 @@ class ApplicationContractTest(unittest.TestCase):
         self.ca.unlink()
         GENERATOR.generate(self.root)
         GENERATOR.generate(self.root, check=True)
+
+    def test_resource_generation_copies_measured_values_without_revalidation(self):
+        manifest = json.loads(self.geo.read_text())
+        manifest["files"][0].update(storedBytes=2**32, installedBytes=2**32 + 1,
+                                    storedSha256="stored-result", installedSha256="installed-result")
+        certificate = json.loads(self.ca.read_text())
+        certificate.update(bytes=0, sha256="certificate-result", roots=0)
+        result = GENERATOR.asset_metadata(manifest, certificate)
+        self.assertIn('4294967297L, "installed-result", 4294967296L, "stored-result"', result)
+        self.assertIn('CERTIFICATE_BYTES = 0', result)
+        self.assertIn('CERTIFICATE_ROOTS = 0', result)
+        self.assertIn('CERTIFICATE_SHA256 = "certificate-result"', result)
 
     def test_output_ownership_is_checked_before_any_write(self):
         GENERATOR.generate(self.root)

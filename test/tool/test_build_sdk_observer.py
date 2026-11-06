@@ -1,5 +1,6 @@
 """self-target SDK 打包适配的显式工具链、可删除输出与失败／中断记录。"""
-import importlib.util
+import tool_test_support
+from tool.android import build_sdk_observer as TOOL
 import json
 from pathlib import Path
 import subprocess
@@ -9,10 +10,6 @@ from unittest import mock
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location("observer_builder", ROOT / "tool/android/build_sdk_observer.py")
-assert SPEC is not None and SPEC.loader is not None
-TOOL = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(TOOL)
 
 
 class BuildSdkObserverTest(unittest.TestCase):

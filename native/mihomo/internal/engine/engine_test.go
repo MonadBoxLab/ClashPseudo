@@ -83,13 +83,7 @@ func runEngineProcessNamed(t *testing.T, name string, environment ...string) {
 		}
 	}
 	command.Env = append(command.Env, environment...)
-	var output []byte
-	var err error
-	if strings.Contains(name, "TestFileProviderPathsHaveNoApplicationFilenameOrSymlinkBlacklist/proxies/cache.db") {
-		output, err = runUpstreamProcess(t, command)
-	} else {
-		output, err = command.CombinedOutput()
-	}
+	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("独立core测试失败: %v; context=%v\n%s", err, ctx.Err(), output)
 	}

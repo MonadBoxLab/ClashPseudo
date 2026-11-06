@@ -167,7 +167,7 @@ RESOURCES同样使用METADATA、逐条RECORD及TERMINAL，不把完整provider�
 
 provider加载、下载、缓存和刷新沿公开接口。四类Geo手动更新分别调用updater.UpdateMMDB／UpdateASN及对应GeoIP／GeoSite入口，下载、验证、替换及reader管理交上游。自动更新只使用公开RegisterGeoUpdater，不增加逐库到期、启动检查或重试调度。随包Geo与默认根材料的固定来源及大小摘要见[resources.json](../../third_party/data/resources.json)，payload、安装metadata及常量由构建生成到build/generated/bundled；Geo按缺失及来源条件经[Android安装](android.md#内置geo)部署，不覆盖已有空文件或损坏文件。
 
-资源返回公开对象的实际数量、mtime、内核时间及来源地址，不在应用接入层推断另一套下载／修复状态。磁盘文件存在、更新返回成功和实际reader所见内容分别检查。缺失或损坏的MMDB／ASN可能触发上游Fatal，测试以串行subprocess保留输入、实际退出码及错误，记录实际Go版本、mihomo module版本和复现条件。
+资源返回公开对象的实际数量、mtime、内核时间及来源地址，不在应用接入层推断另一套下载／修复状态。磁盘文件存在、更新返回成功和实际reader所见内容分别检查。
 
 普通诊断保留业务字段、来源和实际错误，JSON解码失败保留解析错误及位置，不将完整响应作为错误详情。页面5秒后显示未确认时仍等原调用，后续同类查询合并为最近一次；进入后台不丢弃已受理更新结果。
 

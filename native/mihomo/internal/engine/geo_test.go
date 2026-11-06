@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/metacubex/mihomo/component/geodata"
+	"github.com/metacubex/mihomo/component/updater"
 	C "github.com/metacubex/mihomo/constant"
 	"go.yaml.in/yaml/v3"
 
@@ -237,6 +238,78 @@ func TestManualGeoUpdatesAreIndividualAndDoNotEnableMatchers(t *testing.T) {
 		if before[i] != after[i] {
 			t.Fatal("manual download changed matcher enablement")
 		}
+	}
+}
+
+func TestGeoTargetsDoNotSurviveCoreProcessRestart(t *testing.T) {
+	if isolateEngineTest(t) {
+		return
+	}
+	phase := os.Getenv("PSEUDO_ENGINE_PHASE")
+	if phase == "" {
+		home := t.TempDir()
+		runEnginePhase(t, home, "matchers")
+		runEnginePhase(t, home, "fresh")
+		return
+	}
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.URL.Path == "/GeoSite" {
+			_, _ = w.Write(minimalGeoData)
+		} else {
+			_, _ = w.Write(minimalMMDB())
+		}
+	}))
+	defer server.Close()
+	sources := fmt.Sprintf("geox-url:\n mmdb: %s/MMDB\n asn: %s/ASN\n geosite: %s/GeoSite\n", server.URL, server.URL, server.URL)
+	home := os.Getenv("PSEUDO_ENGINE_HOME")
+	rules := "rules: ['MATCH,DIRECT']\n"
+	if phase == "matchers" {
+		for _, file := range []string{"Country.mmdb", "ASN.mmdb", "GeoSite.dat"} {
+			data := minimalMMDB()
+			if file == "GeoSite.dat" {
+				data = minimalGeoData
+			}
+			if err := os.WriteFile(filepath.Join(home, file), data, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		rules = "rules: ['GEOIP,cn,DIRECT', 'IP-ASN,64500,DIRECT', 'GEOSITE,cn,DIRECT', 'MATCH,DIRECT']\n"
+	}
+	var e Engine
+	body := "mode: rule\nlog-level: silent\ngeodata-mode: false\ngeo-auto-update: false\ngeo-update-interval: 1\n" + rules + sources
+	if err := e.Prepare(home, []byte(body), "rule", func(int) bool { return true }); err != nil {
+		t.Fatal(err)
+	}
+	defer requireStop(t, &e)
+	if phase == "matchers" {
+		if !geodata.GeoIpEnable() || !geodata.ASNEnable() || !geodata.GeoSiteEnable() {
+			t.Fatal("首个进程没有初始化三类Geo matcher")
+		}
+		return
+	}
+	if geodata.GeoIpEnable() || geodata.ASNEnable() || geodata.GeoSiteEnable() {
+		t.Fatal("新core进程保留了旧进程的Geo matcher状态")
+	}
+	if err := updater.UpdateGeoDatabases(); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := e.Resources()
+	var rows coreview.ResourceList
+	if err != nil || json.Unmarshal([]byte(listed), &rows) != nil {
+		t.Fatalf("无法读取新context的Geo状态: %v", err)
+	}
+	for _, row := range rows.Resources {
+		if row.Kind == "geo" && (row.AutoUpdateTarget == nil || *row.AutoUpdateTarget) {
+			t.Errorf("MATCH-only新进程错误继承旧Geo target: %+v", row)
+		}
+	}
+	if strings.Contains(listed, `"enabled"`) {
+		t.Fatal("Geo target被错误标记为当前matcher使用状态")
+	}
+	if got := requests.Load(); got != 0 {
+		t.Errorf("MATCH-only新进程下载了未使用的Geo数据库: %d", got)
 	}
 }
 

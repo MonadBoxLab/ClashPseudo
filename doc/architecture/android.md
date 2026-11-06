@@ -212,4 +212,4 @@ API34+采用Android默认TrustManager acceptedIssuers，API24—33追加Mozilla 
 
 snapshot先核查完整大小与SHA，再逐PEM块交CertificateFactory；API24按可处理curl注释的逐块路径解析。Dart与Go使用同源默认根；协议证书、pin及Tailscale roots保留各自作用域，域名、pin与撤销策略由对应客户端处理。
 
-发布ABI为armeabi-v7a、arm64-v8a和x86_64，实际映射见Gradle及[原生构建入口](../../tool/android/build_core.sh)。最低Android版本由Flutter与项目配置确定，API与CPU架构分别核对。SDK JsonReader部分操作可能构造大标量，结合文件和节点预算核验最低API的实际堆峰值，方法见[备份恢复验证](../development/verification.md#备份与恢复)。
+发布 ABI 为 armeabi-v7a、arm64-v8a 和 x86_64，实际映射见 Gradle 及[原生构建实现](../../tool/android/build_core.py)。Gradle 通过 `python3 -I -B tool/main.py android build-core` 构建，使用生产 tags 和 16 KiB 对齐；一次 split release 构建同时输出通用包及三个 ABI 包。release 仅使用四个分发签名环境变量，`android/key.properties` 只配置 debug，未配置本地密钥时使用标准 debug 签名。最低 Android 版本由 Flutter 与项目配置确定，API 与 CPU 架构分别核对。SDK JsonReader 部分操作可能构造大标量，结合文件和节点预算核验最低 API 的实际堆峰值，方法见[备份恢复验证](../development/verification.md#备份与恢复)。

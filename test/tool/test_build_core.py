@@ -4,12 +4,16 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
+import tool_test_support
+from tool.android import build_core
+from unittest import mock
 import tempfile
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "tool/android/build_core.sh"
+SCRIPT = ROOT / "tool/main.py"
 
 
 class BuildCoreTest(unittest.TestCase):
@@ -24,7 +28,10 @@ class BuildCoreTest(unittest.TestCase):
         compilers.mkdir(parents=True)
         for target in ("armv7a-linux-androideabi", "aarch64-linux-android", "x86_64-linux-android"):
             compiler = compilers / (target + "24-clang")
-            compiler.write_text("#!/bin/sh\nexit 0\n")
+            compiler.write_text(
+                "#!/usr/bin/env python3\nimport os,pathlib,sys\n"
+                "if os.environ.get('BUILD_CORE_CC_FAIL'): sys.exit(19)\n"
+                "pathlib.Path(sys.argv[sys.argv.index('-o')+1]).write_bytes(b'coverage object')\n")
             compiler.chmod(0o755)
         go = self.bin / "go"
         go.write_text(
@@ -32,10 +39,10 @@ class BuildCoreTest(unittest.TestCase):
             "import json,os,pathlib,sys\n"
             "args=sys.argv[1:]\n"
             "if '-C' in args: os.chdir(args[args.index('-C')+1])\n"
-            "if 'list' in args:\n print('v1.0.0'); sys.exit(0)\n"
+            "if 'list' in args:\n print(os.environ.get('BUILD_CORE_VERSION','v1.0.0')); sys.exit(0)\n"
             "with open(os.environ['BUILD_CORE_RECORD'],'a') as f:\n"
             " f.write(json.dumps({'args':args,'env':{k:os.environ.get(k) for k in "
-            "['GOOS','GOARCH','GOARM','CC','CGO_ENABLED','GOTOOLCHAIN']}})+'\\n')\n"
+            "['GOOS','GOARCH','GOARM','CC','CGO_ENABLED','GOTOOLCHAIN','CGO_CFLAGS','CGO_CPPFLAGS','CGO_CXXFLAGS','CGO_LDFLAGS']}})+'\\n')\n"
             "if os.environ.get('BUILD_CORE_FAIL'): sys.exit(3)\n"
             "pathlib.Path(args[args.index('-o')+1]).write_bytes(b'controlled build')\n"
         )
@@ -45,9 +52,11 @@ class BuildCoreTest(unittest.TestCase):
         self.env = dict(os.environ, PATH=str(self.bin) + os.pathsep + os.environ["PATH"],
                         BUILD_CORE_RECORD=str(self.record), GOARM="5")
 
-    def run_build(self, abis, api="24"):
-        return subprocess.run(["bash", str(SCRIPT), str(self.ndk), api, str(self.output), abis],
-                              cwd=ROOT, env=self.env, capture_output=True, text=True, timeout=30)
+    def run_build(self, abis, api="24", *, coverage=False, cwd=ROOT):
+        return subprocess.run([sys.executable, "-I", "-B", str(SCRIPT), "android", "build-core",
+                               "--ndk", str(self.ndk), "--api=" + api, "--output", str(self.output),
+                               "--abis=" + abis, *(["--coverage"] if coverage else [])],
+                              cwd=cwd, env=self.env, capture_output=True, text=True, timeout=30)
 
     def test_three_abis_use_their_own_compiler_and_arm_setting(self):
         result = self.run_build("armeabi-v7a,arm64-v8a,x86_64")
@@ -66,6 +75,13 @@ class BuildCoreTest(unittest.TestCase):
             self.assertIn("-buildmode=c-shared", call["args"])
             self.assertEqual((self.output / abi / "libmihomo_bridge.so").read_bytes(), b"controlled build")
             self.assertEqual(list((self.output / abi).glob(".staging.*")), [])
+
+    def test_go_selected_version_is_used_without_application_version_filter(self):
+        self.env["BUILD_CORE_VERSION"] = "selected-by-go"
+        result = self.run_build("x86_64")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        call = json.loads(self.record.read_text())
+        self.assertIn("engine.Version=selected-by-go", call["args"][call["args"].index("-ldflags") + 1])
 
     def test_relative_output_stays_relative_to_the_calling_directory(self):
         self.output = Path(os.path.relpath(self.output, ROOT))
@@ -98,13 +114,78 @@ class BuildCoreTest(unittest.TestCase):
         self.assertEqual(library.read_bytes(), b"previous library")
         self.assertEqual(list(directory.glob(".staging.*")), [])
 
+    def test_coverage_preserves_user_cgo_flags_without_cross_abi_accumulation(self):
+        self.env.update(CGO_CFLAGS="-O2 -DUSER_FLAG=1", CGO_LDFLAGS="-Wl,--as-needed",
+                        CGO_CPPFLAGS="-DCPP_USER=1", CGO_CXXFLAGS="-DCXX_USER=1")
+        result = self.run_build("armeabi-v7a,arm64-v8a,x86_64", coverage=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = [json.loads(line) for line in self.record.read_text().splitlines()]
+        for call in calls:
+            env = call["env"]
+            self.assertTrue(env["CGO_CFLAGS"].startswith("-O2 -DUSER_FLAG=1 "))
+            self.assertEqual(env["CGO_CFLAGS"].count("-fcoverage-mapping"), 1)
+            self.assertEqual(env["CGO_CFLAGS"].count("-fprofile-list="), 1)
+            self.assertEqual(env["CGO_LDFLAGS"], "-Wl,--as-needed -fprofile-instr-generate")
+            self.assertEqual(env["CGO_CPPFLAGS"], "-DCPP_USER=1")
+            self.assertEqual(env["CGO_CXXFLAGS"], "-DCXX_USER=1")
+            ldflags = call["args"][call["args"].index("-ldflags") + 1]
+            self.assertIn("max-page-size=16384", ldflags)
+            self.assertIn("coverage_probe.o", ldflags)
+        self.record.unlink()
+        result = self.run_build("x86_64")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        env = json.loads(self.record.read_text())["env"]
+        self.assertEqual(env["CGO_CFLAGS"], self.env["CGO_CFLAGS"])
+        self.assertEqual(env["CGO_LDFLAGS"], self.env["CGO_LDFLAGS"])
+
+    def test_coverage_compiler_failure_preserves_previous_library(self):
+        directory = self.output / "x86_64"
+        directory.mkdir(parents=True)
+        library = directory / "libmihomo_bridge.so"
+        library.write_bytes(b"previous library")
+        self.env["BUILD_CORE_CC_FAIL"] = "1"
+        result = self.run_build("x86_64", coverage=True)
+        self.assertEqual(result.returncode, 19, result.stderr)
+        self.assertEqual(library.read_bytes(), b"previous library")
+        self.assertFalse(self.record.exists())
+        self.assertEqual(list(directory.glob(".staging.*")), [])
+
+    def test_build_api_uses_explicit_environment_without_mutating_inputs(self):
+        before = dict(os.environ)
+        provided = dict(self.env)
+        libraries = build_core.build(ROOT, self.ndk, 24, self.output, ["armeabi-v7a", "x86_64"], env=provided)
+        self.assertEqual(len(libraries), 2)
+        self.assertEqual(provided, self.env)
+        self.assertEqual(dict(os.environ), before)
+
+    def test_unsupported_host_or_missing_compiler_stops_before_output(self):
+        with mock.patch.object(build_core.platform, "system", return_value="Darwin"):
+            with self.assertRaisesRegex(ValueError, "Linux"):
+                build_core.build(ROOT, self.ndk, 24, self.output, ["x86_64"], env=self.env)
+        self.assertFalse(self.output.exists())
+        (self.ndk / "toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android24-clang").unlink()
+        with self.assertRaisesRegex(ValueError, "NDK"):
+            build_core.build(ROOT, self.ndk, 24, self.output, ["x86_64"], env=self.env)
+        self.assertFalse(self.output.exists())
+
+    def test_coverage_output_with_spaces_and_arbitrary_cwd(self):
+        self.output = self.base / "output with spaces"
+        result = self.run_build("x86_64", coverage=True, cwd=self.base)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.output / "x86_64/libmihomo_bridge.so").is_file())
+
     def test_gradle_filters_and_native_task_share_the_requested_abis(self):
         gradle = (ROOT / "android/app/build.gradle.kts").read_text()
         self.assertIn('"android-arm" to "armeabi-v7a"', gradle)
         self.assertIn('providers.gradleProperty("target-platform")', gradle)
         self.assertIn("abiFilters += nativeAbis", gradle)
         self.assertIn('inputs.property("abis", nativeAbis.joinToString(","))', gradle)
-        self.assertIn('nativeOutput.get().asFile, nativeAbis.joinToString(","))', gradle)
+        self.assertIn('"--output", nativeOutput.get().asFile, "--abis", nativeAbis.joinToString(","))', gradle)
+        self.assertIn('"android", "build-core"', gradle)
+        self.assertIn('"dependencies", "prepare-build"', gradle)
+        self.assertIn('include("**/*.py")', gradle)
+        self.assertEqual(gradle.count("inputs.files(toolSources)"), 2)
+        self.assertNotIn("build_core.sh", gradle)
 
 
 if __name__ == "__main__":

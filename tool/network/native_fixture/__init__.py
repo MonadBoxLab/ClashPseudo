@@ -118,3 +118,54 @@ class Fixture:
                     raise RuntimeError("accepted request did not finish")
             self.closed = True
             event("closed", tasksJoined=True, remainingAccepted=0)
+
+
+def register_parser(subparsers):
+    parser = subparsers.add_parser(
+        "native-fixture", help="提供 HTTP、UDP、DNS 及限定目标的 SOCKS 测试服务",
+        description="绑定显式 IPv4 地址和动态端口，输出 JSON 事件；不写项目输入。",
+        epilog="示例：network native-fixture --self-test；network native-fixture --host 127.0.0.1 --nonce test-run-123")
+    parser.add_argument("--host", type=ipv4_host, help="显式提供服务绑定的本机 IPv4 地址")
+    parser.add_argument("--nonce", help="合成请求标识，8..48 个小写字母、数字或连字符")
+    parser.add_argument("--seconds", type=int, default=60, help="服务模式总生命周期 1..300 秒，含 close/join")
+    parser.add_argument("--self-test", action="store_true", help="仅短时 loopback 自测，不访问外网")
+    parser.set_defaults(handler=run, validate_args=validate_args)
+
+
+def validate_args(args, parser):
+    if args.self_test:
+        if args.host or args.nonce:
+            parser.error("--self-test 仅使用内部 loopback 环境")
+    elif not args.host or not args.nonce or not re.fullmatch(r"[a-z0-9-]{8,48}", args.nonce):
+        parser.error("需要 --host 及 8..48 个小写字母、数字或连字符组成的 --nonce")
+    if not 1 <= args.seconds <= 300:
+        parser.error("--seconds 必须为 1..300 秒")
+
+
+def run(args):
+    if args.self_test:
+        from .self_test import self_test
+        self_test()
+        return 0
+    import signal
+    import time
+    started = time.monotonic()
+    stop = threading.Event()
+    previous = {number: signal.signal(number, lambda *_: stop.set())
+                for number in (signal.SIGTERM, signal.SIGINT)}
+    try:
+        fixture = Fixture(args.host, 0, args.nonce)
+        try:
+            if not stop.is_set():
+                fixture.start()
+                # 为关闭监听和等待请求线程退出预留时间。
+                reserve = min(5, args.seconds / 2)
+                stop.wait(max(0, args.seconds - reserve - (time.monotonic() - started)))
+        finally:
+            fixture.close()
+    finally:
+        for number, handler in previous.items():
+            signal.signal(number, handler)
+    if time.monotonic() - started > args.seconds:
+        raise RuntimeError("所有资源已退出，但总生命周期超出指定边界")
+    return 0

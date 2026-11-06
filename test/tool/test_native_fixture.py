@@ -1,6 +1,6 @@
 """受控服务必须关闭已接收的真实 socket 并等待处理线程退出。"""
 import errno
-import importlib.util
+import tool_test_support
 from pathlib import Path
 import socket
 import struct
@@ -12,13 +12,10 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location("fixture_entry", ROOT / "tool/network/native_fixture.py")
-assert SPEC is not None and SPEC.loader is not None
-ENTRY = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(ENTRY)
-NETWORK = sys.modules["native_fixture.network_servers"]
-SCENARIOS = sys.modules["native_fixture.scenarios"]
-SELF_TEST = sys.modules["native_fixture.self_test"]
+from tool.network import native_fixture as ENTRY
+from tool.network.native_fixture import network_servers as NETWORK
+from tool.network.native_fixture import scenarios as SCENARIOS
+from tool.network.native_fixture import self_test as SELF_TEST
 
 
 class NativeFixtureTest(unittest.TestCase):
@@ -33,7 +30,7 @@ class NativeFixtureTest(unittest.TestCase):
                 ENTRY.Fixture(host, port, nonce)
 
     def test_explicit_host_is_not_tied_to_a_particular_network_or_replaced_on_bind_failure(self):
-        package = sys.modules["native_fixture"]
+        package = ENTRY
         for host in ("192.0.2.17", "198.51.100.8"):
             with self.subTest(host=host), \
                     mock.patch.object(package, "HTTPServer", side_effect=OSError("address not assigned")) as bind, \
@@ -50,7 +47,7 @@ class NativeFixtureTest(unittest.TestCase):
                 fixture.close()
 
     def test_constructor_bind_failure_or_cancellation_closes_prior_listeners(self):
-        package = sys.modules["native_fixture"]
+        package = ENTRY
         original = package.HTTPServer
         created = []
 
@@ -93,7 +90,7 @@ class NativeFixtureTest(unittest.TestCase):
             fixture.close()
 
     def test_dns_dynamic_udp_does_not_reuse_an_existing_tcp_listener_port(self):
-        package = sys.modules["native_fixture"]
+        package = ENTRY
         http, udp = package.HTTPServer, package.UDPServer
         created = []
 
@@ -120,7 +117,7 @@ class NativeFixtureTest(unittest.TestCase):
         self.assertTrue(all(server.socket.fileno() == -1 for server in fixture.servers))
 
     def test_dns_pair_reserves_both_protocols_before_later_tcp_listeners(self):
-        package = sys.modules["native_fixture"]
+        package = ENTRY
         tcp, udp = package.TCPServer, package.UDPServer
         dns = []
 
@@ -170,7 +167,7 @@ class NativeFixtureTest(unittest.TestCase):
             fixture.close()
 
     def test_dns_pair_conflicts_close_candidates_and_keep_the_exhausted_bind_error(self):
-        package = sys.modules["native_fixture"]
+        package = ENTRY
         tcp, udp, http = package.TCPServer, package.UDPServer, package.HTTPServer
         for conflicts in (1, 16):
             with self.subTest(conflicts=conflicts), socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as occupied:
@@ -229,7 +226,7 @@ class NativeFixtureTest(unittest.TestCase):
                 self.assertTrue(all(server.socket.fileno() == -1 for server in created))
 
     def test_dns_pair_other_bind_errors_and_cancellation_close_the_tcp_candidate(self):
-        package = sys.modules["native_fixture"]
+        package = ENTRY
         tcp, udp, http = package.TCPServer, package.UDPServer, package.HTTPServer
         for error in (OSError(errno.EACCES, "injected DNS UDP bind failure"), KeyboardInterrupt()):
             with self.subTest(error=type(error).__name__):
@@ -258,7 +255,7 @@ class NativeFixtureTest(unittest.TestCase):
                           ["--host", "127.0.0.1", "--nonce", "valid-fixture", "--seconds", "301"],
                           ["--host", "127.0.0.1", "--nonce", "valid-fixture", "--port", "18880"]):
             with self.subTest(arguments=arguments):
-                value = subprocess.run([sys.executable, "-I", str(ROOT / "tool/network/native_fixture.py"), *arguments],
+                value = subprocess.run([sys.executable, "-I", "-B", str(ROOT / "tool/main.py"), "network", "native-fixture", *arguments],
                                        capture_output=True, timeout=5)
                 self.assertEqual(value.returncode, 2)
 

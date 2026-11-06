@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """在指定设备上运行已安装的 SDK 测试程序并保存操作结果，测试程序以自身测试包为目标。"""
-import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -29,8 +28,11 @@ def _output_path(path):
     return output
 
 
-def arguments(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
+def register_parser(subparsers):
+    parser = subparsers.add_parser(
+        "run-sdk-observer", help="在指定设备运行 SDK 检查", description=__doc__,
+        epilog="示例：android run-sdk-observer --serial emulator-5554 --allowed-serial emulator-5554 "
+               "--action keyguard-state --apk-sha256 <sha256> --output /tmp/sdk-observation")
     parser.add_argument("--serial", required=True, help="要检查的设备序列号")
     parser.add_argument("--allowed-serial", action="append", required=True,
                         help="允许操作的设备序列号，可重复指定以提供多个序列号")
@@ -42,7 +44,10 @@ def arguments(argv=None):
     parser.add_argument("--expected-config-name")
     parser.add_argument("--window-package", choices=WINDOWS)
     parser.add_argument("--label", action="append", default=[], help="snapshot 要查找、click 要点击的控件标签；须与显示文字完全一致，可重复指定")
-    args = parser.parse_args(argv)
+    parser.set_defaults(handler=run, validate_args=validate_args)
+
+
+def validate_args(args, parser):
     if (any(not serial or any(c.isspace() or c == "\0" for c in serial)
             for serial in [args.serial, *args.allowed_serial]) or
             len(set(args.allowed_serial)) != len(args.allowed_serial) or args.serial not in args.allowed_serial):
@@ -159,9 +164,9 @@ def observe(args):
         (args.output / "results.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
 
 
-def main():
+def run(args):
     try:
-        result = observe(arguments())
+        result = observe(args)
     except KeyboardInterrupt:
         print("检查已取消。已发送的操作可能仍在执行，请查看设备状态和已保存的操作结果。", file=sys.stderr)
         return 130
@@ -170,7 +175,3 @@ def main():
         return 1
     print(json.dumps(result, ensure_ascii=False))
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

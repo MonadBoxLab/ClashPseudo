@@ -1,4 +1,4 @@
-// 由 contracts/application.json 生成；修改源声明后运行 tool/contracts/generate.py。
+// 由 contracts/application.json 生成；修改源声明后运行 python3 -I -B tool/main.py contracts generate。
 #ifndef CLASH_PSEUDO_APPLICATION_CONTRACT_H
 #define CLASH_PSEUDO_APPLICATION_CONTRACT_H
 

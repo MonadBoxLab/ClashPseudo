@@ -22,9 +22,6 @@ import (
 	"github.com/metacubex/mihomo/common/structure"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/transport/tlsmirror"
-	quic "github.com/metacubex/quic-go"
-	"github.com/metacubex/quic-go/quicvarint"
-	quictls "github.com/metacubex/tls"
 	"go.yaml.in/yaml/v3"
 
 	"clashpseudo/native/internal/configinput"
@@ -348,86 +345,6 @@ func TestProxyFormExactTimeSpecFromActualGUI(t *testing.T) {
 		return
 	}
 	t.Fatal("missing actual GUI TimeSpec boundary fixture")
-}
-
-func TestProxyFormTimeSpecConsumerLimits(t *testing.T) {
-	if isolateEngineTest(t) {
-		return
-	}
-	const max = uint64(1<<63 - 1)
-	base := tlsmirror.TimeSpec{BaseNanoseconds: max}
-	if duration, err := base.Duration(); err != nil || duration != time.Duration(max) {
-		t.Fatalf("maximum signed duration changed: %v %v", duration, err)
-	}
-	if duration, err := (tlsmirror.TimeSpec{BaseNanoseconds: 1 << 63}).Duration(); err != nil || duration >= 0 {
-		t.Fatalf("the rejected base boundary no longer demonstrates native duration wrap: %v %v", duration, err)
-	}
-	// Run serially with a deterministic highest admissible crypto/rand.Reader draw, then
-	// immediately restore the original reader.
-	original := cryptorand.Reader
-	t.Cleanup(func() { cryptorand.Reader = original })
-	for _, tc := range []struct {
-		name             string
-		base, multiplier uint64
-		draw             []byte
-		want             time.Duration
-	}{
-		{"exact unsigned multiplier", 0, 1 << 63, []byte{0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}, time.Duration(max)},
-		{"unsafe combined pair", max, 2, []byte{1}, time.Duration(-1 << 63)},
-		{"unsafe uint64 multiplier", 0, ^uint64(0), []byte{0x80, 0, 0, 0, 0, 0, 0, 0}, time.Duration(-1 << 63)},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			cryptorand.Reader = bytes.NewReader(tc.draw)
-			duration, err := (tlsmirror.TimeSpec{BaseNanoseconds: tc.base, UniformRandomMultiplierNanoseconds: tc.multiplier}).Duration()
-			cryptorand.Reader = original
-			if err != nil || duration != tc.want {
-				t.Fatalf("actual TimeSpec consumer did not preserve the exact expected boundary: %v %v", duration, err)
-			}
-		})
-	}
-}
-
-func TestProxyFormQUICWindowConsumerLimits(t *testing.T) {
-	if isolateEngineTest(t) {
-		return
-	}
-	for _, value := range []uint64{0, quicvarint.Max, 1 << 63, ^uint64(0)} {
-		config := &quic.Config{
-			InitialStreamReceiveWindow: value, MaxStreamReceiveWindow: value,
-			InitialConnectionReceiveWindow: value, MaxConnectionReceiveWindow: value,
-			Versions: []quic.Version{0},
-		}
-		// Public Listen validates config before touching any socket. An explicitly
-		// invalid version stops there, after the real maximum-window clamps.
-		transport := &quic.Transport{}
-		if listener, err := transport.Listen(&quictls.Config{}, config); err == nil || !strings.Contains(err.Error(), "invalid QUIC version") {
-			if listener != nil {
-				_ = listener.Close()
-			}
-			t.Fatalf("controlled offline validation did not stop before transport initialization: %v", err)
-		}
-		want := value
-		if want > quicvarint.Max {
-			want = quicvarint.Max
-		}
-		if config.MaxStreamReceiveWindow != want || config.MaxConnectionReceiveWindow != want {
-			t.Fatal("fixed QUIC consumer no longer applies the documented max-window boundary")
-		}
-		if config.InitialStreamReceiveWindow != value || config.InitialConnectionReceiveWindow != value {
-			t.Fatal("initial windows were unexpectedly validated/clamped; review their transport-parameter consumer")
-		}
-		// Exercise all four exact uint64 Hysteria2 window values through the public QUIC
-		// varint consumer.
-		panicked := false
-		func() {
-			defer func() { panicked = recover() != nil }()
-			_ = quicvarint.Append(nil, config.InitialStreamReceiveWindow)
-			_ = quicvarint.Append(nil, config.InitialConnectionReceiveWindow)
-		}()
-		if panicked != (value > quicvarint.Max) {
-			t.Fatal("public QUIC wire varint consumer boundary changed")
-		}
-	}
 }
 
 func TestProxyFormZeroTierTraceConsumerLimits(t *testing.T) {

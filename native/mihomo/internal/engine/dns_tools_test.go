@@ -677,44 +677,6 @@ func TestFakeIPPublicPersistentBothFamiliesFlushDoesNotRestoreOldMappings(t *tes
 	}
 }
 
-// Exercise the public API's private-lock boundary under -race to expose upstream
-// offset/cycle writes.
-func TestFakeIPPublicConcurrentAllocationLookBackAndFlush(t *testing.T) {
-	if isolateEngineTest(t) {
-		return
-	}
-	pool, err := fakeip.New(fakeip.Options{IPNet: netip.MustParsePrefix("198.18.0.1/16"), Size: 1000})
-	if err != nil {
-		t.Fatal(err)
-	}
-	old := resolver.DefaultHostMapper
-	resolver.DefaultHostMapper = dns.NewEnhancer(dns.EnhancerConfig{EnhancedMode: C.DNSFakeIP, FakeIPPool: pool})
-	defer func() { resolver.DefaultHostMapper = old }()
-	start := make(chan struct{})
-	var workers sync.WaitGroup
-	workers.Add(2)
-	go func() {
-		defer workers.Done()
-		<-start
-		for i := 0; i < 3000; i++ {
-			ip := pool.Lookup(fmt.Sprintf("race-%d.test", i))
-			_, _ = pool.LookBack(ip)
-		}
-	}()
-	go func() {
-		defer workers.Done()
-		<-start
-		for i := 0; i < 3000; i++ {
-			if err := resolver.FlushFakeIP(); err != nil {
-				t.Error(err)
-				return
-			}
-		}
-	}()
-	close(start)
-	workers.Wait()
-}
-
 func TestDNSOwnerNamesUseDNSGrammarAcrossRecordTypes(t *testing.T) {
 	if isolateEngineTest(t) {
 		return

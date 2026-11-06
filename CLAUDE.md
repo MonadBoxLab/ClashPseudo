@@ -14,17 +14,18 @@
 - 应用以PASSTHROUGH为目标，遵循KISS与奥卡姆剃刀：复用现有接口和对象，删除重复状态、无当前需求的抽象及重复执行步骤。
 - mihomo负责配置解析、协议、规则匹配、Geo数据库及内部缓存。应用自有Dart、Kotlin、JNI和Go代码负责交互、业务保存、平台接入与资源lifecycle。
 - 禁止为修补mihomo自身问题修改上游源码、维护补丁或fork、复制或替换其内部实现，也禁止在应用及Go／JNI接入层增加替代处理。该边界适用于全部内核功能，不限于Geo。
-- 属于上游的问题保留原始错误和实际测试结果，记录所用版本及复现条件，修复通过更新上游版本获得；不得通过吞错、改变配置语义或弱化断言让测试通过。
+- 应用测试覆盖自有接口调用、平台适配、状态和lifecycle，不为mihomo内部行为建立本地回归或发布门槛。已确认的上游问题通过更新上游版本解决，不在应用侧补偿。
+- 测试按实际应用缺陷和行为选择，不添加仅检查源码字符串、配置字面量或步骤排列的 trivial 测试。自动更新发布 workflow 不运行测试，也不依赖测试报告。
 - 应用只修复自身的接口调用、平台适配、状态显示及lifecycle错误。数据库下载、验证、修复和reader管理使用mihomo的公开接口，不另建应用实现。
 
 ## 事实来源与开发约定
 
-- 跨语言常量以[contracts/application.json](contracts/application.json)为来源，由[生成器](tool/contracts/generate.py)生成Dart／Kotlin／Go／C定义；生成一致性使用其 `--check` 入口。
+- 自有工具统一通过[tool/main.py](tool/main.py)调用，每级支持 `-h/--help`。跨语言常量以[contracts/application.json](contracts/application.json)为来源，使用 `python3 -I -B tool/main.py contracts generate` 生成 Dart／Kotlin／Go／C 定义，使用 `contracts check` 检查一致性。
 - 依赖版本以声明、锁文件和实际解析为准：Flutter见[pubspec.yaml](pubspec.yaml)／[pubspec.lock](pubspec.lock)，Go见[go.mod](native/mihomo/go.mod)／[go.sum](native/mihomo/go.sum)。Go生产tags为 `cmfa,with_gvisor`。
 - re_editor使用[本地适配](third_party/sources/re_editor/)，来源与修改见[PATCHES](third_party/sources/re_editor/PATCHES.md)。
 - 自有文档使用中文，第三方原文和原始输出保持来源身份。README面向应用用户，doc面向产品与维护者。
 - 应用采用GPL-3.0-only；依赖更新、通知及对应源码按[许可与升级规范](doc/legal/dependencies.md)维护。
-- 提交标题采用简短英文 `type(scope): subject`，正文署名 `Assisted by AI`。
+- 提交标题采用简短英文 `type(scope): subject`，AI 协助开发的提交正文署名 `Assisted by AI`；GitHub Actions 机器人自动提交不添加 AI 署名。
 
 ## 文字与说明
 
@@ -35,7 +36,6 @@
 - 删除自证、免责、预防质疑、过程辩解和写作元叙述，不换措辞保留同一意图。
 - 直接写功能、操作、架构、接口、来源、许可与实际结果；执行结果逐项说明成功、失败和未完成事项。
 - 使用说明写明实际界面入口、操作顺序、可见结果和下一步动作。
-- README参考Apple App Store与Google Play Store的应用说明，介绍用途、主要功能和使用体验；具体操作步骤放在doc所属功能文档。
 
 ## 开发入口
 
