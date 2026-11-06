@@ -352,7 +352,7 @@ class _OverviewPageState extends State<OverviewPage> {
     return ConstrainedBox(
       key: _hero,
       constraints: BoxConstraints(
-        minHeight: compact ? 320 : 460,
+        minHeight: compact ? 320 : 420,
         maxWidth: 1200,
       ),
       child: ListenableBuilder(

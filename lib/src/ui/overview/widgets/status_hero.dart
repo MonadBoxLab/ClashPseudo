@@ -242,7 +242,7 @@ class StatusHero extends StatelessWidget {
         child: SafeArea(
           bottom: false,
           child: Padding(
-            padding: EdgeInsets.fromLTRB(24, 12, 24, compact ? 12 : 32),
+            padding: EdgeInsets.fromLTRB(24, 12, 24, compact ? 12 : 24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -325,7 +325,7 @@ class StatusHero extends StatelessWidget {
                 ),
                 Expanded(
                   child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: compact ? 8 : 28),
+                    padding: EdgeInsets.symmetric(vertical: compact ? 8 : 12),
                     // Preferred height supplies the sliver minimum; Flex distributes
                     // additional room around the LayoutBuilder.
                     child: SizedBox(

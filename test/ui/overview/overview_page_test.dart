@@ -748,8 +748,8 @@ void main() {
           tester.getRect(find.byKey(const ValueKey('network-surface'))),
         ];
         void check() {
-          final top = tester.getRect(identity).bottom + 28;
-          final bottom = tester.getRect(mode).top - 28;
+          final top = tester.getRect(identity).bottom + 12;
+          final bottom = tester.getRect(mode).top - 12;
           final button = tester.getRect(power);
           final tail = tester.getRect(uptime).bottom - button.bottom;
           final centered = ((top + bottom) / 2).clamp(
