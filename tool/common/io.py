@@ -2,7 +2,10 @@
 import hashlib
 import io
 import json
+import logging
 import os
+import time
+from urllib.parse import urlsplit
 from pathlib import Path
 import stat
 import urllib.request
@@ -52,6 +55,10 @@ class HttpsRedirect(urllib.request.HTTPRedirectHandler):
 def fetch(url, *, limit=FETCH_LIMIT, destination=None):
     """通过HTTPS下载更新材料，按limit限制响应大小。"""
     require(url.startswith("https://"), "来源必须使用 HTTPS：" + url)
+    source = urlsplit(url)
+    label = (source.hostname or "") + source.path
+    started = time.monotonic()
+    logging.info("下载：%s", label)
     request = urllib.request.Request(url, headers={"User-Agent": "clash-pseudo-dependency-update"})
     with urllib.request.build_opener(HttpsRedirect()).open(request, timeout=60) as response:
         require(response.geturl().startswith("https://"), "响应来源必须使用 HTTPS")
@@ -61,12 +68,14 @@ def fetch(url, *, limit=FETCH_LIMIT, destination=None):
         if destination is None:
             data = read_bounded(response, limit)
             require(length is None or len(data) == int(length), "Content-Length 声明的字节数与实际读取的字节数不一致")
+            logging.info("下载完成：%s，%.1f MiB，耗时 %.1f 秒", label, len(data) / 1024**2, time.monotonic() - started)
             return data
         with Path(destination).open("xb") as output:
             result = transfer(response, output, limit)
             output.flush()
             os.fsync(output.fileno())
         require(length is None or result["bytes"] == int(length), "Content-Length 声明的字节数与实际读取的字节数不一致")
+        logging.info("下载完成：%s，%.1f MiB，耗时 %.1f 秒", label, result["bytes"] / 1024**2, time.monotonic() - started)
         return result
 
 

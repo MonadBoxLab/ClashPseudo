@@ -83,7 +83,9 @@ class Updater:
         result = json.loads(self.run([self.flutter, "pub", "outdated", "--json", "--show-all"], self.root))
         packages = {row["package"]: row for row in result["packages"]}
         resolved = json.loads(self.run([self.flutter, "pub", "deps", "--json"], self.root))
-        hosted = {row["name"] for row in resolved["packages"] if row.get("source") == "hosted"}
+        self.pub_previous = {row["name"]: row["version"] for row in resolved["packages"]
+                             if row.get("source") == "hosted"}
+        hosted = self.pub_previous.keys()
         names = names or [row["package"] for row in result["packages"]
                           if row.get("kind") in ("direct", "dev") and row["package"] in hosted]
         updates = {}

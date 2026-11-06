@@ -4,7 +4,9 @@ import contextlib
 import gzip
 import hashlib
 import json
+import logging
 import os
+import time
 import shutil
 import subprocess
 import sys
@@ -32,20 +34,30 @@ def _command(arguments, root, environment, output, report, label):
     log = output / (label + ".log")
     entry = {"name": label, "command": list(map(str, arguments)), "log": log.name}
     report["steps"].append(entry)
-    print("执行：" + label, file=sys.stderr, flush=True)
+    started = time.monotonic()
+    logging.info("开始：%s；日志：%s", label, log)
     with log.open("w", encoding="utf-8") as stream:
         stream.write(json.dumps(entry["command"], ensure_ascii=False) + "\n")
         stream.flush()
-        result = subprocess.run(entry["command"], cwd=root, env=environment,
-                                stdout=stream, stderr=subprocess.STDOUT, check=False)
-    entry["exitCode"] = result.returncode
-    require(result.returncode == 0, f"{label} 失败（{result.returncode}），原始输出：{log}")
+        with subprocess.Popen(entry["command"], cwd=root, env=environment,
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                              text=True, errors="replace", bufsize=1) as process:
+            for line in process.stdout:
+                stream.write(line)
+                stream.flush()
+                print(line, file=sys.stderr, end="", flush=True)
+            returncode = process.wait()
+    entry["exitCode"] = returncode
+    require(returncode == 0, f"{label} 失败（{returncode}），原始输出：{log}")
+    logging.info("完成：%s，耗时 %.1f 秒", label, time.monotonic() - started)
 
 
 def _operation(function, output, report, label):
     log = output / (label + ".log")
     entry = {"name": label, "log": log.name, "exitCode": 1}
     report["steps"].append(entry)
+    started = time.monotonic()
+    logging.info("开始：%s；日志：%s", label, log)
     with log.open("w", encoding="utf-8") as stream, \
             contextlib.redirect_stdout(stream), contextlib.redirect_stderr(stream):
         try:
@@ -54,6 +66,7 @@ def _operation(function, output, report, label):
             print(str(error), file=stream)
             raise
     entry["exitCode"] = 0
+    logging.info("完成：%s，耗时 %.1f 秒", label, time.monotonic() - started)
     return result
 
 

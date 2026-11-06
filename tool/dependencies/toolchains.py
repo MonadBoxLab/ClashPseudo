@@ -2,7 +2,9 @@
 
 import hashlib
 import json
+import logging
 import os
+import time
 from pathlib import Path, PurePosixPath
 import re
 import shutil
@@ -53,8 +55,11 @@ def installed_files(directory):
 def install_archive(row, destination, *, fetch=None):
     """下载与解包分别使用新空目录；只复用已核对的完成记录。"""
     fetch = fetch or download
+    started = time.monotonic()
+    label = row.get("package") or destination.parent.name
     marker = destination / "receipt.json"
     if marker.is_file():
+        logging.info("核对工具链缓存：%s", label)
         receipt = json.loads(marker.read_bytes(), object_pairs_hook=unique_object)
         require(all(row.get(key) == value for key, value in receipt["input"].items())
                        and row.get("sha256", receipt["archive"]["sha256"]) == receipt["archive"]["sha256"],
@@ -72,6 +77,7 @@ def install_archive(row, destination, *, fetch=None):
         require(expected and all(actual.get(name) == row for name, row in expected.items())
                        and all(generated_metadata(name) for name in actual.keys() - expected.keys()),
                        "工具链缓存文件发生变化")
+        logging.info("工具链缓存可用：%s，耗时 %.1f 秒", label, time.monotonic() - started)
         return destination / "content", receipt["archive"]
     require(not destination.exists(), "工具链缓存未完成，请使用新空目录：" + str(destination))
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -86,6 +92,7 @@ def install_archive(row, destination, *, fetch=None):
         if "officialSha1" in row:
             with archive.open("rb") as stream:
                 require(hashlib.file_digest(stream, "sha1").hexdigest() == row["officialSha1"], "Android 官方 SHA-1 不同")
+        logging.info("解包工具链：%s", label)
         target = Path(extracted)
         if zipfile.is_zipfile(archive):
             with zipfile.ZipFile(archive) as contents:
@@ -137,6 +144,7 @@ def install_archive(row, destination, *, fetch=None):
         shutil.move(str(target), destination / "content")
         marker.write_bytes(json_bytes({"input": row, "archive": measured,
                                                "files": installed_files(destination / "content")}))
+    logging.info("工具链安装完成：%s，耗时 %.1f 秒", label, time.monotonic() - started)
     return destination / "content", measured
 
 

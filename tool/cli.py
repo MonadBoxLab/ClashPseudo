@@ -1,6 +1,7 @@
 """项目工具的命令注册、参数检查和退出码。"""
 import argparse
 import json
+import logging
 from pathlib import Path
 import subprocess
 import sys
@@ -70,6 +71,7 @@ def main(argv=None):
     if args.handler is None:
         args.command_parser.print_help()
         return 0
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S", force=True)
     try:
         result = args.handler(args)
         if isinstance(result, dict):
@@ -77,15 +79,15 @@ def main(argv=None):
             return 0
         return result or 0
     except KeyboardInterrupt:
-        print("操作已取消。", file=sys.stderr)
+        logging.warning("操作已取消。")
         return 130
     except subprocess.CalledProcessError as error:
-        print(str(error), file=sys.stderr)
+        logging.error("%s", error)
         for output in (error.stdout, error.stderr):
             if output:
                 print(output.decode(errors="replace") if isinstance(output, bytes) else output, file=sys.stderr)
         return error.returncode if error.returncode > 0 else 128 - error.returncode
     except (OSError, ValueError, RuntimeError, KeyError, TypeError, EOFError,
             subprocess.SubprocessError, ET.ParseError, zipfile.BadZipFile) as error:
-        print(str(error), file=sys.stderr)
+        logging.error("%s", error)
         return 1

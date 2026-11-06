@@ -474,7 +474,7 @@ class UpdateTest(unittest.TestCase):
         updater = packages.Updater(self.root)
         rows = [{"package": name, "kind": "direct", "current": {"version": "old"},
                  "resolvable": {"version": "next-build"}} for name in ("hosted", "flutter", "re_editor")]
-        graph = {"packages": [{"name": "hosted", "source": "hosted"}, {"name": "flutter", "source": "sdk"},
+        graph = {"packages": [{"name": "hosted", "source": "hosted", "version": "old"}, {"name": "flutter", "source": "sdk"},
                               {"name": "re_editor", "source": "path"}]}
         with mock.patch.object(packages, "run", side_effect=["", json.dumps({"packages": rows}), json.dumps(graph)]):
             self.assertEqual(updater.pub_updates(), {"hosted": ("next-build", "direct")})

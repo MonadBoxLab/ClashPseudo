@@ -1,7 +1,9 @@
 """依赖候选解析、范围选择、差异判定与事务写回。"""
 import copy
 import json
+import logging
 import os
+import time
 from pathlib import Path
 import tempfile
 
@@ -53,6 +55,8 @@ def execute(project, *, apply=False, scope="all", mihomo_version=None,
             "mihomo 范围不接受其他依赖或资源选择")
     require(apply or not (evidence or reuse_version or prepared_resources),
             "版本操作、证据和已准备资源需要 apply")
+    started = time.monotonic()
+    logging.info("开始依赖%s，范围：%s", "更新" if apply else "检查", scope)
     root = Path(project).resolve()
     previous_version = application_version(root)
     before = snapshot(root)
@@ -75,6 +79,7 @@ def execute(project, *, apply=False, scope="all", mihomo_version=None,
         current = old_modules[MIHOMO]
         go_names = ([MIHOMO] if scope == "mihomo" else list(go_module) or
                     [row["Path"] for row in manifest["Require"] if not row.get("Indirect")])
+        logging.info("查询 Go 依赖更新，mihomo 目标：%s", target)
         go_updates = updater.go_updates(go_names, target)
         pub_updates, android_updates = {}, {}
         if scope == "all":
@@ -82,8 +87,10 @@ def execute(project, *, apply=False, scope="all", mihomo_version=None,
             pub_names = list(pub)
             android_names = list(android) or sorted({m["name"] for m in MAVEN_DECLARATION.finditer(
                 (work / "android/app/build.gradle.kts").read_text(encoding="utf-8"))})
+            logging.info("解析 Pub 依赖更新")
             pub_updates = updater.pub_updates(pub_names)
             updater.update_pub(pub_updates)
+            logging.info("解析 Maven 依赖更新")
             android_updates = updater.android_updates(android_names)
             if android_updates:
                 updater.update_android(android_updates)
@@ -96,15 +103,19 @@ def execute(project, *, apply=False, scope="all", mihomo_version=None,
         go_changes = changes_between(old_modules, new_modules)
         legal = updater.legal(base)
         if scope == "all" or go_changes:
+            logging.info("更新 Go 依赖许可")
             legal.go_notices()
         if scope == "all":
+            logging.info("检查 Pub 依赖许可")
             legal.pub_licenses()
+            logging.info("更新 Maven 依赖许可")
             legal.android_notices()
         version = application_version(work)
         candidate = copy.deepcopy(original_record)
         prepared = prepared_resources
         if scope == "all":
             if prepared is None:
+                logging.info("准备 CA、Geo 资源及对应源码")
                 delivery = sources.delivery_resources(work, base / "delivery", prepare=True)
                 prepared, source_manifest = delivery["prepared"], delivery["sources"]
             else:
@@ -143,6 +154,7 @@ def execute(project, *, apply=False, scope="all", mihomo_version=None,
         files = sorted(name for name in INPUTS if before[name] != after[name])
         check_working_tree(root, identity)
         if apply and files:
+            logging.info("写回 %d 个依赖输入文件，应用版本：%s", len(files), version)
             publish_changes(root, before, after)
         report = {
             "status": ("updated" if apply else "available") if files else "unchanged",
@@ -155,4 +167,5 @@ def execute(project, *, apply=False, scope="all", mihomo_version=None,
             "toolchains": {},
             "resources": changes_between(original_record["resources"], candidate["resources"]),
         }
+    logging.info("依赖处理完成：%s，变化文件 %d 个，耗时 %.1f 秒", report["status"], len(files), time.monotonic() - started)
     return report
