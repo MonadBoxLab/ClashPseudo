@@ -1,167 +1,87 @@
 {
-  "application": "0.2.0+4",
+  "application": "0.2.1+5",
   "dependencies": {
     "android": {
       "androidx.test:runner": {
-        "excluded": [],
-        "latest": "1.7.0",
-        "previous": "1.7.0",
-        "selected": "1.7.0"
+        "selected": "1.8.0-alpha03"
       },
       "androidx.work:work-runtime": {
-        "excluded": [],
-        "latest": "2.12.0",
-        "previous": "2.12.0",
         "selected": "2.12.0"
       },
       "junit:junit": {
-        "excluded": [],
-        "latest": "4.13.2",
-        "previous": "4.13.2",
         "selected": "4.13.2"
       }
     },
     "go": {
       "github.com/gofrs/uuid/v5": {
-        "previous": "v5.4.0",
         "selected": "v5.5.1"
       },
       "github.com/metacubex/gopacket": {
-        "previous": "v1.1.20-0.20230608035415-7e2f98a3e759",
         "selected": "v1.1.20-0.20230608035415-7e2f98a3e759"
       },
       "github.com/metacubex/gvisor": {
-        "previous": "v0.0.0-20260922041103-e2cbcd6e7400",
         "selected": "v0.0.0-20260922041103-e2cbcd6e7400"
       },
       "github.com/metacubex/mihomo": {
-        "previous": "v1.19.33",
         "selected": "v1.19.33"
       },
       "github.com/metacubex/quic-go": {
-        "previous": "v0.61.1-0.20260727080200-2548683b76f4",
         "selected": "v0.61.1-0.20260727080200-2548683b76f4"
       },
       "github.com/metacubex/sing-tun": {
-        "previous": "v0.4.28",
-        "selected": "v0.4.28"
+        "selected": "v0.4.29"
       },
       "github.com/metacubex/tls": {
-        "previous": "v0.1.9",
         "selected": "v0.1.9"
       },
       "github.com/miekg/dns": {
-        "previous": "v1.1.63",
         "selected": "v1.1.73"
       },
       "github.com/oschwald/maxminddb-golang": {
-        "previous": "v1.12.0",
         "selected": "v1.13.1"
       },
       "github.com/sirupsen/logrus": {
-        "previous": "v1.9.4",
         "selected": "v1.10.2"
       },
       "go.yaml.in/yaml/v3": {
-        "previous": "v3.0.5",
-        "selected": "v3.0.5"
+        "selected": "v3.0.6"
       },
       "go4.org/netipx": {
-        "previous": "v0.0.0-20260823151212-3075585bcbeb",
         "selected": "v0.0.0-20260823151212-3075585bcbeb"
       },
       "golang.org/x/net": {
-        "previous": "v0.35.0",
         "selected": "v0.62.0"
       },
       "golang.org/x/sys": {
-        "previous": "v0.30.0",
         "selected": "v0.49.0"
       },
       "google.golang.org/protobuf": {
-        "previous": "v1.34.2",
         "selected": "v1.36.12"
       }
     },
     "pub": {
       "coverage": {
-        "current": {
-          "version": "1.16.0"
-        },
-        "kind": "dev",
-        "latest": {
-          "version": "1.16.0"
-        },
         "selected": "1.16.0"
       },
       "file_selector": {
-        "current": {
-          "version": "1.1.0"
-        },
-        "kind": "direct",
-        "latest": {
-          "version": "1.1.0"
-        },
         "selected": "1.1.0"
       },
       "flutter_lints": {
-        "current": {
-          "version": "6.0.0"
-        },
-        "kind": "dev",
-        "latest": {
-          "version": "6.0.0"
-        },
         "selected": "6.0.0"
       },
       "flutter_svg": {
-        "current": {
-          "version": "2.3.0"
-        },
-        "kind": "direct",
-        "latest": {
-          "version": "2.3.2"
-        },
         "selected": "2.3.2"
       },
       "intl": {
-        "current": {
-          "version": "0.20.3"
-        },
-        "kind": "direct",
-        "latest": {
-          "version": "0.20.3"
-        },
         "selected": "0.20.3"
       },
       "vector_graphics_compiler": {
-        "current": {
-          "version": "1.3.2"
-        },
-        "kind": "direct",
-        "latest": {
-          "version": "1.3.4"
-        },
         "selected": "1.3.4"
       },
       "yaml": {
-        "current": {
-          "version": "3.1.4"
-        },
-        "kind": "direct",
-        "latest": {
-          "version": "3.1.4"
-        },
         "selected": "3.1.4"
       },
       "yaml_edit": {
-        "current": {
-          "version": "2.2.4"
-        },
-        "kind": "direct",
-        "latest": {
-          "version": "2.2.4"
-        },
         "selected": "2.2.4"
       }
     }
@@ -188,99 +108,99 @@
   "resources": {
     "asn": {
       "encoding": "gzip",
-      "installedBytes": 9566363,
-      "installedSha256": "4384bfcfb594391bc4e0ab37751f44661eaf7cadbeee28a90a6b82dc935fec4c",
+      "installedBytes": 9648279,
+      "installedSha256": "81565a450281c949fc83745f5ec9cfea70b035163b1152b055645884765d153d",
       "kind": "asn",
       "sourcePage": "https://db-ip.com/db/download/ip-to-asn-lite",
-      "sourceUrl": "https://download.db-ip.com/free/dbip-asn-lite-2026-10.mmdb.gz",
-      "storedBytes": 5186202,
-      "storedSha256": "6cdde02baa8c1bd619ab84c2e505ecd91d45288b5a87faadf1b7c41525a17a94",
-      "version": "2026-10"
+      "sourceUrl": "https://download.db-ip.com/free/dbip-asn-lite-2026-11.mmdb.gz",
+      "storedBytes": 5237630,
+      "storedSha256": "36a8c45136877d8df48ad371de6c9c97c861dedd356277f30de730c16fc0f928",
+      "version": "2026-11"
     },
     "ca": {
       "certificateRoots": 118,
-      "checksumUrl": "https://curl.se/ca/cacert-2026-10-20.pem.sha256",
+      "checksumUrl": "https://curl.se/ca/cacert-2026-11-05.pem.sha256",
       "encoding": "identity",
       "installedBytes": 200116,
-      "installedSha256": "796f1389bfea13c0ed78f663b765baaff54a508e5483786bd6ece73c5e3e3cbe",
+      "installedSha256": "427c064216761a1e72a8b30f0d954d08cb6e4435a82091fb865afd20c8497285",
       "kind": "ca",
-      "sourceUrl": "https://curl.se/ca/cacert-2026-10-20.pem",
+      "sourceUrl": "https://curl.se/ca/cacert-2026-11-05.pem",
       "storedBytes": 200116,
-      "storedSha256": "796f1389bfea13c0ed78f663b765baaff54a508e5483786bd6ece73c5e3e3cbe",
-      "version": "2026-10-20"
+      "storedSha256": "427c064216761a1e72a8b30f0d954d08cb6e4435a82091fb865afd20c8497285",
+      "version": "2026-11-05"
     },
     "geoip": {
       "encoding": "identity",
-      "installedBytes": 23258601,
-      "installedSha256": "4ff4b2ec242a9e87b296ba27ddb85f8311e8d3e071eaebac5be9231c60e408dd",
+      "installedBytes": 23876117,
+      "installedSha256": "eedb24b3b9fcba27e06b92c0428dab90d9496083091ae4cf39e11387fd99d0e2",
       "kind": "geoip",
       "licenseSha256": "5e436ff8ffbb77d8607220e9bce20c8915d860010feeb6c1ebef5a85688e9b39",
-      "sourceCommit": "fd96fbac6cffc06ab9a10d6ee8fad61afe9b771c",
+      "sourceCommit": "803b99b77354d910449eff3e8ecf70a6c8a524d3",
       "sourceInputs": [
         {
-          "description": "release 202610050438 构建提交中的 text/*.txt 补充输入",
-          "sourceCommit": "a746d384303c341dd1fb6db6169df175a729e297"
+          "description": "release 202611050539 构建提交中的 text/*.txt 补充输入",
+          "sourceCommit": "e216a728bce53eaebef72b0afe5c524b12362e33"
         }
       ],
-      "sourceUrl": "https://github.com/v2fly/geoip/releases/download/202610050438/geoip.dat",
-      "storedBytes": 23258601,
-      "storedSha256": "4ff4b2ec242a9e87b296ba27ddb85f8311e8d3e071eaebac5be9231c60e408dd",
-      "version": "202610050438"
+      "sourceUrl": "https://github.com/v2fly/geoip/releases/download/202611050539/geoip.dat",
+      "storedBytes": 23876117,
+      "storedSha256": "eedb24b3b9fcba27e06b92c0428dab90d9496083091ae4cf39e11387fd99d0e2",
+      "version": "202611050539"
     },
     "geosite": {
       "encoding": "identity",
-      "installedBytes": 2403150,
-      "installedSha256": "f1ab5cebf0466706550be0642d04391188785ffc99b55c57eddafc92fba48bd2",
+      "installedBytes": 2412929,
+      "installedSha256": "64c3e8a3cb40a0261edd701d9f07d4ca96af69821bf73d3a3be8509bb200bb9f",
       "kind": "geosite",
       "licenseSha256": "b9d84a22870d3f21c91a4c6e410c9cc51d00902f5233ad0c84011479244bf7d2",
-      "sourceCommit": "1daade8c4bb957d21d1f5c09c2b050d699e8e96c",
-      "sourceUrl": "https://github.com/v2fly/domain-list-community/releases/download/20261030132534/dlc.dat",
-      "storedBytes": 2403150,
-      "storedSha256": "f1ab5cebf0466706550be0642d04391188785ffc99b55c57eddafc92fba48bd2",
-      "version": "20261030132534"
+      "sourceCommit": "16fd8005d390470e8523745c9fa631c9e767cc61",
+      "sourceUrl": "https://github.com/v2fly/domain-list-community/releases/download/20261106131544/dlc.dat",
+      "storedBytes": 2412929,
+      "storedSha256": "64c3e8a3cb40a0261edd701d9f07d4ca96af69821bf73d3a3be8509bb200bb9f",
+      "version": "20261106131544"
     },
     "mmdb": {
       "encoding": "gzip",
-      "installedBytes": 8348509,
-      "installedSha256": "dbd70ccfa2a13627eaf4913d19920a1a229f1b3c5439ac01c509995b6364202a",
+      "installedBytes": 8515063,
+      "installedSha256": "145ce5dfb812d8de28547e6289bb5c5f8b3df2f1dea21d324d5b575e0431311f",
       "kind": "mmdb",
       "sourcePage": "https://db-ip.com/db/download/ip-to-country-lite",
-      "sourceUrl": "https://download.db-ip.com/free/dbip-country-lite-2026-10.mmdb.gz",
-      "storedBytes": 4123384,
-      "storedSha256": "4cd44536ddfd40fec7eca94a233f7d19f38d470e6522e653cb8d27001f5fe177",
-      "version": "2026-10"
+      "sourceUrl": "https://download.db-ip.com/free/dbip-country-lite-2026-11.mmdb.gz",
+      "storedBytes": 4205904,
+      "storedSha256": "75fe430010f6d38a8c4331c202bf0df6ce3221a6e6d823b9e5a6d951e4cf9758",
+      "version": "2026-11"
     }
   },
   "sourceInputs": {
     "format": "clash-pseudo-resource-sources",
     "sources": [
       {
-        "bytes": 26464,
-        "file": "geoip-fd96fbac6cffc06ab9a10d6ee8fad61afe9b771c.tar.gz",
+        "bytes": 26105,
+        "file": "geoip-803b99b77354d910449eff3e8ecf70a6c8a524d3.tar.gz",
         "inputs": [
           {
-            "bytes": 14090898,
-            "description": "release 202610050438 构建提交中的 text/*.txt 补充输入",
-            "file": "geoip-a746d384303c341dd1fb6db6169df175a729e297.tar.gz",
-            "sha256": "203b0cf04f4c3a513011117ed19358dc550af517b609fe2ba432df541236f968",
-            "sourceCommit": "a746d384303c341dd1fb6db6169df175a729e297",
-            "sourceUrl": "https://github.com/v2fly/geoip/archive/a746d384303c341dd1fb6db6169df175a729e297.tar.gz"
+            "bytes": 14402348,
+            "description": "release 202611050539 构建提交中的 text/*.txt 补充输入",
+            "file": "geoip-e216a728bce53eaebef72b0afe5c524b12362e33.tar.gz",
+            "sha256": "af251795a95eeaaa6f5ae91bec84576f8bfc5f15339f0816e4d8839c665fd890",
+            "sourceCommit": "e216a728bce53eaebef72b0afe5c524b12362e33",
+            "sourceUrl": "https://github.com/v2fly/geoip/archive/e216a728bce53eaebef72b0afe5c524b12362e33.tar.gz"
           }
         ],
         "kind": "geoip",
         "processing": "V2Fly geoip 官方构建使用同一仓库 release 数据提交中的 text/*.txt 及转换器 config.json，合并 DB-IP Lite Country MMDB、内置 private 与 test 列表后生成所分发的 GeoIP.dat。",
-        "sha256": "b9e16410eb699c69396243c41ebf1c6e55a94898be3363fa0e8dde567a2285cb",
-        "sourceCommit": "fd96fbac6cffc06ab9a10d6ee8fad61afe9b771c",
-        "sourceUrl": "https://github.com/v2fly/geoip/archive/fd96fbac6cffc06ab9a10d6ee8fad61afe9b771c.tar.gz"
+        "sha256": "47e1f9fb5773ac5f670a076c71c908ee11c02057b2af28fbfd2da350938e0cf5",
+        "sourceCommit": "803b99b77354d910449eff3e8ecf70a6c8a524d3",
+        "sourceUrl": "https://github.com/v2fly/geoip/archive/803b99b77354d910449eff3e8ecf70a6c8a524d3.tar.gz"
       },
       {
-        "bytes": 351133,
-        "file": "domain-list-community-1daade8c4bb957d21d1f5c09c2b050d699e8e96c.tar.gz",
+        "bytes": 352707,
+        "file": "domain-list-community-16fd8005d390470e8523745c9fa631c9e767cc61.tar.gz",
         "inputs": [],
         "kind": "geosite",
-        "sha256": "bee50c36c3866890387d6d0ffef5f559c0156d22dbbfa9896f0d0c8c631493a7",
-        "sourceCommit": "1daade8c4bb957d21d1f5c09c2b050d699e8e96c",
-        "sourceUrl": "https://github.com/v2fly/domain-list-community/archive/1daade8c4bb957d21d1f5c09c2b050d699e8e96c.tar.gz"
+        "sha256": "4da6aa2033809a19cc36419a640971e890ced92834348f3c17373c4d2e417bf5",
+        "sourceCommit": "16fd8005d390470e8523745c9fa631c9e767cc61",
+        "sourceUrl": "https://github.com/v2fly/domain-list-community/archive/16fd8005d390470e8523745c9fa631c9e767cc61.tar.gz"
       }
     ],
     "version": 1

@@ -330,5 +330,5 @@ if (validationCoverage) {
 dependencies {
     implementation("androidx.work:work-runtime:2.12.0")
     testImplementation("junit:junit:4.13.2")
-    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test:runner:1.8.0-alpha03")
 }
