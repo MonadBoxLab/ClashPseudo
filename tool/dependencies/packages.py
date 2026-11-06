@@ -135,7 +135,8 @@ class Updater:
                 script.write_text(
                     "def requests = new groovy.json.JsonSlurper().parseText(" + json.dumps(json.dumps(configurations)) + ")\n"
                     + """gradle.projectsEvaluated {
-    def app = gradle.rootProject.project(':app')
+    def app = gradle.rootProject.findProject(':app')
+    if (app == null) return
     app.tasks.register('clashDependencyUpdates') {
         doLast {
             def selected = [:]

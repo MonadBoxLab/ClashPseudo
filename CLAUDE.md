@@ -25,7 +25,7 @@
 - re_editor使用[本地适配](third_party/sources/re_editor/)，来源与修改见[PATCHES](third_party/sources/re_editor/PATCHES.md)。
 - 自有文档使用中文，第三方原文和原始输出保持来源身份。README面向应用用户，doc面向产品与维护者。
 - 应用采用GPL-3.0-only；依赖更新、通知及对应源码按[许可与升级规范](doc/legal/dependencies.md)维护。
-- 提交标题采用简短英文 `type(scope): subject`，AI 协助开发的提交正文署名 `Assisted by AI`；GitHub Actions 机器人自动提交不添加 AI 署名。
+- 提交标题和正文使用英文，标题采用简短的 `type(scope): subject`。AI 协助开发的提交仅使用通用署名 `Assisted by AI`，不添加具体模型或厂商署名；GitHub Actions 机器人自动提交不添加 AI 署名。
 
 ## 文字与说明
 
