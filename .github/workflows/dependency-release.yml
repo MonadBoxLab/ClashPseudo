@@ -1,4 +1,4 @@
-name: Update and release
+name: Dependency release
 
 on:
   schedule:

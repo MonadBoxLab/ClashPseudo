@@ -133,7 +133,7 @@ python3 -I -B tool/main.py artifacts package-sources --evidence '<核验输入�
 
 ### 自动更新与发布
 
-[Update and release](../../.github/workflows/dependency-updates.yml) 每天 UTC 05:17（北京时间 13:17）检查依赖和 bundled 资源，也支持手动运行。有更新时构建并直接发布，不创建依赖 PR。
+[Dependency release](../../.github/workflows/dependency-release.yml) 每天 UTC 05:17（北京时间 13:17）检查依赖和 bundled 资源，也支持手动运行。有更新时构建并直接发布，不创建依赖 PR。
 
 | 阶段 | 执行内容与结果 |
 | --- | --- |
@@ -146,7 +146,7 @@ python3 -I -B tool/main.py artifacts package-sources --evidence '<核验输入�
 
 workflow 通过统一入口的 `dependencies release context`、`commit`、`build`、`publish` 执行对应步骤。`dependencies validate` 供本地运行测试和静态检查，发布流程不调用该命令，也不读取其报告。具体参数通过各操作的 `--help` 查看。
 
-在 `Actions → Update and release → Run workflow` 中选择本次发布类型：
+在 `Actions → Dependency release → Run workflow` 中选择本次发布类型：
 
 - 两种类型都使用正式签名的 release APK。pre-release 不设为 Latest，release 设为 Latest。
 - 日常无变化时不递增、不创建提交、tag 或 Release。手动以 `release` 运行且无更新时，如果当前提交已有完整 pre-release，则原地转为正式 release 并设为 Latest，APK 和版本不变；没有对应 pre-release 时报告无变化。定时运行不触发转换。
@@ -172,7 +172,7 @@ release 与本地 debug 使用不同 keystore。pre-release／release 构建只�
 
 1. 用户自行推送修改，在仓库 `Settings → Secrets and variables → Actions → Secrets` 确认已有四个同名分发签名 Secrets。
 2. 确认发布 job 的 `GITHUB_TOKEN` 可写默认分支及 tag。分支或 tag 保护拒绝时，在失败步骤查看原始错误并按仓库规则处理。
-3. 打开 `Actions → Update and release → Run workflow`，选择 `release_type`、`scope`，需要指定内核时填写 `mihomo_version` 并选择 `scope=mihomo`。
+3. 打开 `Actions → Dependency release → Run workflow`，选择 `release_type`、`scope`，需要指定内核时填写 `mihomo_version` 并选择 `scope=mihomo`。
 4. 在运行 Summary 查看变化、实际应用／内核版本、构建和发布结果；成功后到 `Releases` 下载四个 release APK、对应源码、许可包及 `SHA256SUMS`。
 5. 暂停或恢复使用 workflow 页面菜单中的 `Disable workflow`／`Enable workflow`。
 

@@ -187,7 +187,7 @@ python3 -I -B tool/main.py dependencies prepare-resource-sources \
 
 #### 发布材料与重跑
 
-`Update and release` 在同一候选提交上运行测试、正式签名的四 APK 构建和源码打包。源码包使用候选提交，版本、tag 与 Release 的 Source 指向同一输入；许可包及 `SHA256SUMS` 与四包一并上传。发布类型由仓库默认值或本次手动选择决定，两种类型都使用 release variant。
+`Dependency release` 在同一候选提交上完成正式签名的四 APK 构建和源码打包。源码包使用候选提交，版本、tag 与 Release 的 Source 指向同一输入；许可包及 `SHA256SUMS` 与四包一并上传。发布类型由 workflow 默认值或本次手动选择决定，两种类型都使用 release variant。
 
 发布 job 失败时重跑失败 job，继续使用原 artifact 中的 Git bundle 和构建材料。tag 已指向本轮候选时继续上传草稿；已公开且资产一致时结束，不改写已公开字节。基准在首次推送前改变时重新准备候选；artifact 过期则按失败报告处理缺失材料，不重建另一批字节替代原产物。
 
