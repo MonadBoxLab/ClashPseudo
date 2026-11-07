@@ -8,9 +8,10 @@ import tempfile
 from urllib.parse import quote
 
 from tool.artifacts import update_bundle
-from tool.common.io import require
+from tool.common.io import json_bytes, require
 from tool.common.process import run
-from tool.dependencies.versions import _declaration, application_version
+from tool.dependencies import inputs, resources
+from tool.dependencies.versions import _declaration, application_version, bump_version
 
 ROOT = Path(__file__).resolve().parents[2]
 RETRY = "Release is incomplete; rerun the release job in the original Actions run, and stop if the original artifact is missing"
@@ -58,10 +59,33 @@ def remote_ref(project, ref):
     return records.get(ref + "^{}", records.get(ref))
 
 
-def record(project, repository, tag):
+def records(project, repository):
     pages = json.loads(run(["gh", "api", "--paginate", "--slurp",
                            f"repos/{repository}/releases?per_page=100"], project))
-    return next((item for page in pages for item in page if item["tag_name"] == tag), None)
+    return [item for page in pages for item in page]
+
+
+def record(project, repository, tag):
+    return next((item for item in records(project, repository) if item["tag_name"] == tag), None)
+
+
+def published_commit(project, releases):
+    published = [item for item in releases if not item["draft"]]
+    if not published:
+        return None
+    message = "Cannot determine the last published commit"
+    require(all(item.get("published_at") for item in published), message + ": missing publication time")
+    latest_time = max(item["published_at"] for item in published)
+    latest = [item for item in published if item["published_at"] == latest_time]
+    require(len(latest) == 1, message + ": multiple releases have the latest publication time")
+    tag = latest[0]["tag_name"]
+    run(["git", "check-ref-format", "refs/tags/" + tag], project)
+    target = remote_ref(project, "refs/tags/" + tag)
+    require(target, message + ": remote tag is missing: " + tag)
+    try:
+        return update_bundle.git(project, "rev-parse", "--verify", target + "^{commit}")
+    except ValueError as error:
+        raise ValueError(message + ": tag commit is unavailable locally: " + tag + "\n" + str(error)) from error
 
 
 def complete(record, version):
@@ -82,12 +106,18 @@ def context(project, state, requested="pre-release"):
     version = application_version(root)
     tag = check_tag(root, version)
     repository = os.environ["GITHUB_REPOSITORY"]
-    current = record(root, repository, tag)
+    releases = records(root, repository)
+    current = next((item for item in releases if item["tag_name"] == tag), None)
     target = remote_ref(root, "refs/tags/" + tag)
     if current or target:
         require(target and complete(current, version), RETRY)
+    published = published_commit(root, releases)
+    source_changed = published is None or (
+        update_bundle.git(root, "rev-parse", base + "^{tree}")
+        != update_bundle.git(root, "rev-parse", published + "^{tree}"))
     plan = {"base": base, "branch": branch, "repository": repository,
             "run_id": os.environ["GITHUB_RUN_ID"], "release_type": requested,
+            "source_changed": source_changed,
             "promote": os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
             and requested == "release" and target == base and complete(current, version)
             and current["prerelease"]}
@@ -108,8 +138,21 @@ def commit(project, state, report, destination):
     else:
         require(report["status"] == "unchanged", "Dependency update is incomplete")
         update_bundle.clean(root)
-        candidate = plan["base"]
-        operation = "promote" if plan["promote"] else "none"
+        if plan["source_changed"]:
+            before = inputs.snapshot(root)
+            declaration, version = bump_version(before["pubspec.yaml"].decode("utf-8"))
+            resource_record = resources.read_release_resources(root)
+            resource_record["application"] = version
+            after = dict(before)
+            after.update({"pubspec.yaml": declaration.encode("utf-8"),
+                          resources.RESOURCE_RECORD: json_bytes(resource_record)})
+            check_tag(root, version)
+            files = inputs.publish_changes(root, before, after)
+            candidate = update_bundle.commit_candidate(root, plan["base"], files)
+            operation = "publish"
+        else:
+            candidate = plan["base"]
+            operation = "promote" if plan["promote"] else "none"
     plan.update(commit=candidate, version=version, tag="v" + version, operation=operation)
     save(state, plan)
     if operation == "promote":
@@ -265,7 +308,7 @@ def publish(project, directory):
 
 
 def register_parser(subparsers):
-    group = subparsers.add_parser("release", help="Prepare, build, and publish dependency updates")
+    group = subparsers.add_parser("release", help="Prepare, build, and publish application updates")
     operations = group.add_subparsers(title="Operations")
     parser = operations.add_parser("context", help="Record the release type and check the default branch and existing releases")
     parser.add_argument("--project", type=Path, default=ROOT)

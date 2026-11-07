@@ -15,6 +15,7 @@ from tool.dependencies import release, validation
 class GitHub:
     def __init__(self):
         self.current = None
+        self.history = []
         self.files = {}
         self.calls = []
         self.fail_upload = False
@@ -25,10 +26,11 @@ class GitHub:
         if command[0] != "gh":
             return run(command, cwd, env)
         if command[1] == "api":
-            return json.dumps([[self.current] if self.current else []])
+            return json.dumps([self.history, [self.current] if self.current else []])
         action, tag = command[2:4]
         if action == "create":
-            self.current = {"tag_name": tag, "draft": True, "prerelease": False, "assets": []}
+            self.current = {"tag_name": tag, "draft": True, "prerelease": False, "assets": [],
+                            "published_at": "2026-11-08T12:00:00Z"}
         elif action == "upload":
             for source in command[command.index("--clobber") + 1:]:
                 path = Path(source)
@@ -76,6 +78,12 @@ class ReleaseTest(unittest.TestCase):
         self.git("init", "-b", "main")
         (self.root / "pubspec.yaml").write_text("name: app\nversion: 1.0.0+1\n", encoding="utf-8")
         (self.root / "unchanged.txt").write_text("baseline", encoding="utf-8")
+        (self.root / "lib").mkdir()
+        (self.root / "lib/main.dart").write_text("void main() {}\n", encoding="utf-8")
+        resource_path = self.root / release.resources.RESOURCE_RECORD
+        resource_path.parent.mkdir(parents=True)
+        release.save(resource_path, {"format": "clash-pseudo-release-resources", "version": 1,
+            "application": "1.0.0+1", "resources": {name: {} for name in release.resources.RESOURCE_ASSETS}})
         self.git("add", ".")
         self.git("commit", "-m", "基准")
         self.base = self.git("rev-parse", "HEAD")
@@ -90,7 +98,7 @@ class ReleaseTest(unittest.TestCase):
         self.materials = self.directory / "materials"
         self.version = "1.0.1+2"
         self.plan = {"base": self.base, "branch": "main", "repository": "owner/project", "run_id": "123",
-                     "release_type": "pre-release", "promote": False}
+                     "release_type": "pre-release", "promote": False, "source_changed": False}
         release.save(self.state, self.plan)
         self.github = GitHub()
         github = mock.patch.object(release, "run", side_effect=self.github.run)
@@ -120,6 +128,47 @@ class ReleaseTest(unittest.TestCase):
         release.save(self.materials / "release.json", self.plan)
         (self.materials / "notes.md").write_text("发布说明", encoding="utf-8")
 
+    def published_baseline(self, *, prerelease=True):
+        tag = "v1.0.0+1"
+        self.git("tag", "-a", tag, self.base, "-m", "Published baseline")
+        self.git("push", "origin", "refs/tags/" + tag)
+        self.github.current = {"tag_name": tag, "draft": False, "prerelease": prerelease,
+            "published_at": "2026-11-07T12:00:00Z",
+            "assets": [{"name": name, "state": "uploaded"} for name in release.names("1.0.0+1")]}
+
+    def source_update(self):
+        (self.root / "lib/main.dart").write_text("void main() { print('updated'); }\n", encoding="utf-8")
+        self.git("add", "lib/main.dart")
+        self.git("commit", "-m", "fix(app): update source")
+        self.base = self.git("rev-parse", "HEAD")
+        self.git("push", "origin", "main")
+        run(["git", "pull", "--ff-only"], self.publisher)
+
+    def unchanged_dependencies(self, *, requested="pre-release"):
+        release.context(self.root, self.state, requested)
+        release.save(self.report, {"status": "unchanged", "files": []})
+        self.plan = release.commit(self.root, self.state, self.report, self.materials)
+        return self.plan
+
+    def build_candidate(self):
+        def build(project, output, *, commit):
+            self.assertEqual(project, self.root)
+            self.assertEqual(commit, self.plan["commit"])
+            self.assertEqual(release.application_version(project), self.version)
+            record = release.resources.read_release_resources(project)
+            self.assertEqual(record["application"], self.version)
+            output.mkdir()
+            for name in release.names(self.version)[:-1]:
+                (output / name).write_bytes((commit + name).encode())
+            (output / "SHA256SUMS").write_text("".join(
+                release.digest(output / name) + "  " + name + "\n" for name in release.names(self.version)[:-1]))
+            return {"status": "built", "version": self.version, "mihomo": "v1.0.0", "commit": commit,
+                    "assets": list(release.names(self.version))}
+        with mock.patch.object(validation, "build_release", side_effect=build) as builder:
+            result = release.build(self.root, self.state, self.directory / "build", self.materials)
+            builder.assert_called_once()
+        return result
+
     def test_context_uses_pre_release_by_default_and_accepts_both_types(self):
         self.assertEqual(release.context(self.root, self.state)["release_type"], "pre-release")
         for requested in ("pre-release", "release"):
@@ -140,12 +189,134 @@ class ReleaseTest(unittest.TestCase):
         self.assertFalse(plan["promote"])
 
     def test_no_change_creates_no_commit_bundle_or_version_bump(self):
-        release.save(self.report, {"status": "unchanged", "files": []})
-        result = release.commit(self.root, self.state, self.report, self.materials)
+        self.published_baseline()
+        result = self.unchanged_dependencies()
         self.assertEqual(result["operation"], "none")
         self.assertEqual(result["version"], "1.0.0+1")
         self.assertEqual(self.git("rev-parse", "HEAD"), self.base)
         self.assertFalse(self.materials.exists())
+
+    def test_first_release_builds_and_publishes_without_dependency_changes(self):
+        result = self.unchanged_dependencies()
+        self.assertEqual(result["operation"], "publish")
+        self.assertEqual(result["version"], self.version)
+        self.assertEqual(self.git("rev-list", "--count", self.base + "..HEAD"), "1")
+        self.assertEqual(self.git("rev-parse", "HEAD^"), self.base)
+        self.build_candidate()
+        release.publish(self.publisher, self.materials)
+        self.assertEqual(release.remote_ref(self.publisher, "refs/tags/v" + self.version), result["commit"])
+        self.assertTrue(self.github.current["prerelease"])
+        self.assertEqual(self.unchanged_dependencies()["operation"], "none")
+        self.assertEqual(self.git("rev-parse", "HEAD"), result["commit"])
+
+    def test_source_update_builds_publishes_and_does_not_repeat_on_next_run(self):
+        self.published_baseline()
+        self.source_update()
+        before = release.resources.read_release_resources(self.root)
+        result = self.unchanged_dependencies()
+        self.assertEqual(result["operation"], "publish")
+        self.assertEqual(result["version"], self.version)
+        self.assertEqual(self.git("rev-parse", "HEAD^"), self.base)
+        self.assertEqual(update_bundle.changed_paths(self.root, self.base, result["commit"]),
+                         {"pubspec.yaml", release.resources.RESOURCE_RECORD})
+        after = release.resources.read_release_resources(self.root)
+        self.assertEqual(after, dict(before, application=self.version))
+        self.assertEqual(self.git("show", "HEAD:lib/main.dart"), "void main() { print('updated'); }")
+        self.build_candidate()
+        release.publish(self.publisher, self.materials)
+        self.github.calls.clear()
+        release.publish(self.publisher, self.materials)
+        self.assertEqual(self.github.mutations(), [])
+        self.assertEqual(self.unchanged_dependencies()["operation"], "none")
+        self.assertEqual(self.git("rev-parse", "HEAD"), result["commit"])
+        self.assertEqual(release.application_version(self.root), self.version)
+
+    def test_source_update_with_manual_release_publishes_new_version_instead_of_promotion(self):
+        self.published_baseline()
+        previous = self.github.current
+        old_target = self.base
+        self.source_update()
+        with mock.patch.dict(os.environ, GITHUB_EVENT_NAME="workflow_dispatch"):
+            result = self.unchanged_dependencies(requested="release")
+        self.assertFalse(result["promote"])
+        self.assertEqual(result["operation"], "publish")
+        self.assertEqual(result["version"], self.version)
+        self.build_candidate()
+        release.publish(self.publisher, self.materials)
+        self.assertFalse(self.github.current["prerelease"])
+        self.assertTrue(self.github.current["latest"])
+        self.assertTrue(previous["prerelease"])
+        self.assertEqual(release.remote_ref(self.root, "refs/tags/v1.0.0+1"), old_target)
+
+    def test_dependency_only_update_keeps_the_updaters_version(self):
+        self.published_baseline()
+        self.plan = release.context(self.root, self.state)
+        self.assertFalse(self.plan["source_changed"])
+        self.candidate()
+        self.assertEqual(self.plan["operation"], "publish")
+        self.assertEqual(self.plan["version"], self.version)
+        self.assertEqual(self.git("rev-list", "--count", self.base + "..HEAD"), "1")
+
+    def test_dependency_and_source_updates_bump_once(self):
+        self.published_baseline()
+        self.source_update()
+        self.plan = release.context(self.root, self.state)
+        self.assertTrue(self.plan["source_changed"])
+        candidate = self.candidate()
+        self.assertEqual(self.plan["version"], self.version)
+        self.assertEqual(release.application_version(self.root), self.version)
+        self.assertEqual(self.git("rev-parse", candidate + "^"), self.base)
+        self.assertEqual(self.git("rev-list", "--count", self.base + "..HEAD"), "1")
+
+    def test_latest_public_prerelease_is_used_instead_of_older_stable_release(self):
+        self.published_baseline(prerelease=False)
+        self.github.history.append(self.github.current)
+        self.bundle()
+        release.publish(self.publisher, self.materials)
+        published = self.plan["commit"]
+        result = self.unchanged_dependencies()
+        self.assertFalse(result["source_changed"])
+        self.assertEqual(result["operation"], "none")
+        self.assertEqual(result["commit"], published)
+        self.assertEqual(release.application_version(self.root), self.version)
+
+    def test_empty_commit_after_public_release_does_not_release_identical_inputs(self):
+        self.published_baseline()
+        self.git("commit", "--allow-empty", "-m", "chore: no input changes")
+        base = self.git("rev-parse", "HEAD")
+        result = self.unchanged_dependencies()
+        self.assertEqual(result["operation"], "none")
+        self.assertEqual(result["version"], "1.0.0+1")
+        self.assertEqual(self.git("rev-parse", "HEAD"), base)
+
+    def test_unresolvable_last_public_tag_fails_instead_of_treating_it_as_first_release(self):
+        self.github.current = {"tag_name": "v0.9.0+1", "draft": False, "prerelease": True,
+                               "published_at": "2026-11-07T12:00:00Z", "assets": []}
+        with self.assertRaisesRegex(ValueError, "Cannot determine the last published commit: remote tag is missing"):
+            release.context(self.root, self.state)
+        self.assertEqual(self.git("rev-parse", "HEAD"), self.base)
+        self.assertEqual(self.github.mutations(), [])
+
+    def test_unavailable_last_public_commit_reports_tag_and_original_error(self):
+        run(["git", "commit", "--allow-empty", "-m", "Unfetched release"], self.publisher)
+        run(["git", "push", "origin", "HEAD:refs/tags/v0.9.0+1"], self.publisher)
+        self.github.current = {"tag_name": "v0.9.0+1", "draft": False, "prerelease": True,
+                               "published_at": "2026-11-07T12:00:00Z", "assets": []}
+        with self.assertRaisesRegex(ValueError, "Cannot determine the last published commit: tag commit is unavailable locally: v0.9.0"):
+            release.context(self.root, self.state)
+        self.assertEqual(self.git("rev-parse", "HEAD"), self.base)
+
+    def test_ambiguous_publication_times_fail_instead_of_guessing_a_baseline(self):
+        self.published_baseline()
+        self.github.history.append(dict(self.github.current, tag_name="v0.9.0+1"))
+        with self.assertRaisesRegex(ValueError, "Cannot determine the last published commit: multiple releases"):
+            release.context(self.root, self.state)
+
+    def test_missing_publication_time_reports_unidentifiable_baseline(self):
+        self.published_baseline()
+        self.github.current.pop("published_at")
+        with self.assertRaisesRegex(ValueError, "Cannot determine the last published commit: missing publication time"):
+            release.context(self.root, self.state)
 
     def test_candidate_commit_message_and_bundle_preserve_hash(self):
         self.bundle()
@@ -282,6 +453,7 @@ class ReleaseTest(unittest.TestCase):
     def test_only_explicit_manual_release_prepares_promotion(self):
         self.git("push", "origin", self.base + ":refs/tags/v1.0.0+1")
         self.github.current = {"tag_name": "v1.0.0+1", "draft": False, "prerelease": True,
+            "published_at": "2026-11-07T12:00:00Z",
             "assets": [{"name": name, "state": "uploaded"} for name in release.names("1.0.0+1")]}
         for event, requested, expected in (("schedule", "release", False),
                 ("schedule", "pre-release", False), ("workflow_dispatch", "pre-release", False),
@@ -293,17 +465,24 @@ class ReleaseTest(unittest.TestCase):
     def test_manual_promotion_reuses_all_assets_without_build_push_or_version_bump(self):
         self.bundle()
         release.publish(self.publisher, self.materials)
-        self.plan.update(operation="promote", promote=True, release_type="release", base=self.plan["commit"])
+        candidate = self.plan["commit"]
         promotion = self.directory / "promotion"
-        promotion.mkdir()
-        release.save(promotion / "release.json", self.plan)
+        with mock.patch.dict(os.environ, GITHUB_EVENT_NAME="workflow_dispatch"):
+            release.context(self.root, self.state, "release")
+        release.save(self.report, {"status": "unchanged", "files": []})
+        plan = release.commit(self.root, self.state, self.report, promotion)
+        self.assertEqual(plan["operation"], "promote")
+        self.assertEqual(plan["commit"], candidate)
+        self.assertEqual(plan["version"], self.version)
+        self.assertEqual([path.name for path in promotion.iterdir()], ["release.json"])
         self.github.calls.clear()
         release.publish(self.root, promotion)
         self.assertFalse(self.github.current["prerelease"])
         self.assertTrue(self.github.current["latest"])
         self.assertEqual([call[2] for call in self.github.mutations()], ["edit"])
         self.assertFalse(any(call[:2] == ["git", "push"] for call in self.github.calls))
-        self.assertEqual(self.git("rev-parse", "HEAD"), self.plan["commit"])
+        self.assertEqual(self.git("rev-parse", "HEAD"), candidate)
+        self.assertEqual(release.application_version(self.root), self.version)
 
     def test_promotion_rejects_incomplete_or_corrupted_prerelease(self):
         self.bundle()

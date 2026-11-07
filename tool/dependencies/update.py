@@ -89,7 +89,7 @@ def execute(project, *, apply=False, scope="all", mihomo_version=None,
                 (work / "android/app/build.gradle.kts").read_text(encoding="utf-8"))})
             logging.info("Resolving Pub dependency updates")
             pub_updates = updater.pub_updates(pub_names)
-            updater.update_pub(pub_updates)
+            updater.update_pub(pub_updates, names=pub_names)
             logging.info("Resolving Maven dependency updates")
             android_updates = updater.android_updates(android_names)
             if android_updates:

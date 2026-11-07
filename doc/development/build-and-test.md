@@ -47,7 +47,7 @@ python3 -I -B tool/main.py android build-core \
 
 ## 依赖更新与应用版本
 
-Pub依赖在pubspec.yaml中使用`^`兼容版本范围，pubspec.lock纳入Git，记录本次解析的精确版本与摘要。发布前主动更新依赖；更新器使用Pub报告的可解析版本调整兼容范围，并同步锁文件。普通构建沿用锁文件，不在构建过程中另选版本。
+Pub依赖在pubspec.yaml中使用`^`兼容版本范围，pubspec.lock纳入Git，记录本次解析的精确版本与摘要。发布前主动更新依赖；更新器使用Pub报告的可解析版本调整兼容范围，并同步锁文件。默认全量更新即使没有直接依赖版本变化，也会升级兼容范围内的传递依赖；仅锁文件变化同样生成候选，并检查变化依赖的许可。显式`--pub`按指定依赖执行定向升级，SDK与path来源保持不变。普通构建沿用锁文件，不在构建过程中另选版本。
 
 `dependencies check` 与 `dependencies apply` 共用候选解析。默认 `--scope all` 检查 mihomo、其他直接 Go 依赖、hosted Pub、Maven 和 CA／Geo；CA 或其他依赖单独变化也会生成候选。`check` 输出差异，不写回项目输入；`apply` 在临时副本中完成解析及许可收集后，事务写回声明、锁文件、通知和固定资源记录。
 
@@ -100,7 +100,7 @@ flutter build apk --debug --no-pub --target-platform android-arm,android-arm64,a
 
 ### 应用版本
 
-[pubspec.yaml](../../pubspec.yaml)是应用版本的唯一声明。更新器先准备依赖与资源候选，有实际变化时将 patch 和 Android versionCode 各加一，一次更新多项依赖也只递增一次。例如 `1.0.0+1` 的候选使用 `1.0.1+2`。无变化、同一候选再次 apply 和普通构建均不递增。
+[pubspec.yaml](../../pubspec.yaml)是应用版本的唯一声明。更新器先准备依赖与资源候选，有实际变化时将 patch 和 Android versionCode 各加一，一次更新多项依赖也只递增一次。例如 `1.0.0+1` 的候选使用 `1.0.1+2`。发布流程还比较当前源码与最近公开发布的源码；依赖与资源无变化但源码有更新，或首次发布时，同样递增一次并创建候选，同时同步资源记录中的应用版本。依赖更新已经递增版本时不重复递增。全部输入无变化、同一候选再次 apply 和普通构建均不递增。
 
 CI 每次从默认分支基准准备候选，同一基准重跑得到相同版本；成功发布后，后续实际更新从默认分支的新版本继续递增。本地隔离回退实验使用 `--reuse-version` 保留应用版本，自动发布不使用该选项。
 
@@ -135,11 +135,11 @@ python3 -I -B tool/main.py artifacts package-sources --evidence '<核验输入�
 
 ### 自动更新与发布
 
-[Dependency release](../../.github/workflows/dependency-release.yml) 每天 UTC 05:17（北京时间 13:17）检查依赖和 bundled 资源，也支持手动运行。有更新时构建并直接发布，不创建依赖 PR。
+[Dependency release](../../.github/workflows/dependency-release.yml) 每天 UTC 05:17（北京时间 13:17）检查依赖、bundled 资源和未发布的源码更新，也支持手动运行。源码、依赖或资源任一有更新，或尚无公开发布时，构建并直接发布，不创建依赖 PR。源码比较包含最近公开的 pre-release，不只查看正式 release；按 Git tree 比较实际内容，空提交不触发重复发布。
 
 | 阶段 | 执行内容与结果 |
 | --- | --- |
-| 准备候选 | 从默认分支基准执行更新；有真实变化时 patch 和 versionCode 各加一，创建本轮候选提交 |
+| 准备候选 | 从默认分支基准更新依赖与资源，并比较最近公开发布的源码；任一输入有变化或首次发布时，patch 和 versionCode 各加一，创建本轮候选提交 |
 | 构建 | 仅在 release 构建步骤注入分发签名；一次 split 构建产出通用包和三个 ABI 包，检查签名、对齐、buildinfo 和法律资产 |
 | 保存材料 | 保存候选 Git bundle、四 APK、对应源码、许可包、SHA256SUMS 及本轮发布类型，artifact 保留 7 天 |
 | 发布 | 发布 job 从 bundle 导入同一候选提交，原子推送默认分支与 tag，建立草稿并上传全部资产，完成后公开 |
@@ -151,7 +151,8 @@ workflow 通过统一入口的 `dependencies release context`、`commit`、`buil
 在 `Actions → Dependency release → Run workflow` 中选择本次发布类型：
 
 - 两种类型都使用正式签名的 release APK。pre-release 不设为 Latest，release 设为 Latest。
-- 日常无变化时不递增、不创建提交、tag 或 Release。手动以 `release` 运行且无更新时，如果当前提交已有完整 pre-release，则原地转为正式 release 并设为 Latest，APK 和版本不变；没有对应 pre-release 时报告无变化。定时运行不触发转换。
+- 默认使用`scope=all`主动更新依赖。源码、依赖或资源有变化时，两种发布类型都会生成新候选；依赖报告为`unchanged`不会跳过尚未发布的源码更新。
+- 源码、依赖和资源均无变化时不递增、不创建提交、tag 或 Release。手动以`release`运行且无更新时，如果当前提交已有完整pre-release，则原地转为正式release并设为Latest，APK和版本不变；没有对应pre-release时报告无变化。定时运行不触发转换。
 
 下载、解析或构建失败时查看对应步骤日志。发布 job 失败后使用 `Re-run failed jobs` 继续本次材料；已推送的 tag 指向本轮候选时继续上传，不把默认分支推回旧提交。基准已变化而 tag 尚未推送时重新运行整个 workflow；artifact 已过期时按错误报告处理缺失材料。
 

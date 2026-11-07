@@ -140,7 +140,7 @@ class UpdateTest(unittest.TestCase):
             text = re.sub(re.escape(name) + r"\s+v[^\s]+", name + " " + version, text)
         path.write_text(text)
 
-    def write_pub(self, changes):
+    def write_pub(self, changes, *, names=()):
         if changes:
             (self.work / "pubspec.lock").write_text(json.dumps(changes))
 
@@ -279,13 +279,69 @@ class UpdateTest(unittest.TestCase):
         self.assertEqual(set(result["resources"]), {"ca"})
         self.assertEqual(result["version"], "1.0.1+2")
 
-    def test_pub_only_lock_change_is_detected_without_new_mihomo(self):
+    def test_pub_transitive_update_is_checked_applied_and_licensed_without_direct_changes(self):
         self.target = "v1.0.0"
-        self.updater.pub_updates.return_value = {"http": ("1.1.0", "direct")}
-        result = self.execute()
-        self.assertEqual(result["go"], {})
-        self.assertIn("pubspec.lock", result["files"])
-        self.assertEqual(result["version"], "1.0.1+2")
+        lock = self.root / "pubspec.lock"
+        lock.write_text(json.dumps({"http": "1.0.0", "transitive": "1.0.0"}))
+        self.record["dependencies"]["pub"] = {"http": {"selected": "1.0.0"}}
+        (self.root / resources.RESOURCE_RECORD).write_bytes(common_io.json_bytes(self.record))
+        source = self.base / "transitive"
+        source.mkdir()
+        (source / "LICENSE").write_bytes(b"Fixture license")
+
+        def pub_run(command, cwd=None):
+            path = self.work / "pubspec.lock"
+            selected = json.loads(path.read_text())
+            operation = command[2]
+            if operation == "get":
+                config = self.work / ".dart_tool/package_config.json"
+                config.parent.mkdir(exist_ok=True)
+                config.write_text(json.dumps({"packages": [
+                    {"name": "transitive", "rootUri": source.as_uri()}]}))
+            elif operation == "outdated":
+                return json.dumps({"packages": [{"package": name,
+                    "kind": "direct" if name == "http" else "transitive",
+                    "current": {"version": version},
+                    "resolvable": {"version": "1.0.0" if name == "http" else "1.0.1"}}
+                    for name, version in selected.items()]})
+            elif operation == "upgrade":
+                selected["transitive"] = "1.0.1"
+                path.write_text(json.dumps(selected))
+            elif operation == "deps":
+                return json.dumps({"packages": [{"name": name, "version": version,
+                    "source": "hosted"} for name, version in selected.items()]})
+            else:
+                self.fail("Unexpected Pub operation: " + repr(command))
+            return ""
+
+        self.updater.run.side_effect = pub_run
+        self.updater.pub_updates.side_effect = lambda names: packages.Updater.pub_updates(self.updater, names)
+        self.updater.update_pub.side_effect = lambda changes, **options: packages.Updater.update_pub(
+            self.updater, changes, **options)
+        self.updater.legal.return_value.pub_licenses.side_effect = lambda: legal.Legal(
+            self.updater, self.base, mock.Mock(), self.updater.run, packages.artifacts).pub_licenses()
+        before = inputs.snapshot(self.root)
+        with mock.patch.object(legal.Legal, "check", side_effect=ValueError("License rejected")):
+            with self.assertRaisesRegex(ValueError, "License rejected"):
+                self.execute()
+        self.assertEqual(inputs.snapshot(self.root), before)
+        with mock.patch.object(legal.Legal, "check") as check_license:
+            checked = self.execute(apply=False)
+            self.assertEqual(checked["status"], "available")
+            self.assertEqual(inputs.snapshot(self.root), before)
+            applied = self.execute()
+            self.assertEqual(applied["status"], "updated")
+            self.assertEqual(applied["files"], checked["files"])
+            self.assertEqual(applied["go"], {})
+            self.assertEqual(applied["pub"], {})
+            self.assertIn("pubspec.lock", applied["files"])
+            self.assertEqual(applied["version"], "1.0.1+2")
+            self.assertEqual(json.loads(lock.read_text()), {"http": "1.0.0", "transitive": "1.0.1"})
+            self.assertEqual((self.root / "pubspec.yaml").read_bytes(),
+                             before["pubspec.yaml"].replace(b"1.0.0+1", b"1.0.1+2"))
+            self.assertEqual(self.execute()["status"], "unchanged")
+            self.assertEqual(check_license.call_args_list, [
+                mock.call({"LICENSE": b"Fixture license"}), mock.call({"LICENSE": b"Fixture license"})])
 
     def test_resolution_and_license_failure_preserve_project_and_environment(self):
         before = inputs.snapshot(self.root)
@@ -400,13 +456,15 @@ class UpdateTest(unittest.TestCase):
         output = {"packages": [{"package": "coverage", "kind": "dev", "current": {"version": "1.0.0"},
                                 "resolvable": {"version": "1.0.1"}, "latest": {"version": "2.0.0"}}]}
         dependencies = {"packages": [{"name": "coverage", "source": "hosted", "version": "1.0.0"}]}
-        with mock.patch.object(packages, "run", side_effect=["", json.dumps(output), json.dumps(dependencies), "",
+        with mock.patch.object(packages, "run", side_effect=["", json.dumps(output), json.dumps(dependencies), "", "",
                     json.dumps({"packages": [{"name": "coverage", "version": "1.0.2"}]}), ""]) as process:
             updates = updater.pub_updates(["coverage"])
-            updater.update_pub(updates)
+            updater.update_pub(updates, names=["coverage"])
         self.assertEqual(updates, {"coverage": ("1.0.2", "dev")})
         self.assertEqual(updater.resolution["pub"]["coverage"]["selected"], "1.0.2")
         self.assertIn("dev:coverage@^1.0.1", process.call_args_list[3].args[0])
+        self.assertEqual(process.call_args_list[4].args[0],
+                         ["flutter", "pub", "upgrade", "--no-example", "coverage"])
 
     def test_android_library_update_preserves_build_plugins(self):
         path = self.root / "android/app/build.gradle.kts"

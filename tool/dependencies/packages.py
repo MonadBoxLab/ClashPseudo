@@ -102,17 +102,20 @@ class Updater:
                 updates[name] = (version, row["kind"])
         return updates
 
-    def update_pub(self, updates):
-        if not updates:
-            return
-        descriptors = [("dev:" if kind == "dev" else "") + name + "@^" + version
-                       for name, (version, kind) in sorted(updates.items())]
-        self.run([self.flutter, "pub", "add", "--no-example", *descriptors], self.root)
+    def update_pub(self, updates, *, names=()):
+        if updates:
+            descriptors = [("dev:" if kind == "dev" else "") + name + "@^" + version
+                           for name, (version, kind) in sorted(updates.items())]
+            self.run([self.flutter, "pub", "add", "--no-example", *descriptors], self.root)
+        self.run([self.flutter, "pub", "upgrade", "--no-example", *names], self.root)
         resolved = json.loads(self.run([self.flutter, "pub", "deps", "--json"], self.root))
         versions = {row["name"]: row["version"] for row in resolved["packages"]}
-        for name in updates:
-            self.resolution["pub"].setdefault(name, {})["selected"] = versions[name]
-            updates[name] = (versions[name], updates[name][1])
+        for name, row in self.resolution["pub"].items():
+            row["selected"] = versions[name]
+            if versions[name] != self.pub_previous[name]:
+                updates[name] = (versions[name], row["kind"])
+            else:
+                updates.pop(name, None)
         self.run([self.flutter, "pub", "get", "--enforce-lockfile"], self.root)
 
     def android_updates(self, names):
