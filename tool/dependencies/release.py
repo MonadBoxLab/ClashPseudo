@@ -117,12 +117,13 @@ def context(project, state, requested="pre-release"):
         != update_bundle.git(root, "rev-parse", published + "^{tree}"))
     plan = {"base": base, "branch": branch, "repository": repository,
             "run_id": os.environ["GITHUB_RUN_ID"], "release_type": requested,
-            "source_changed": source_changed,
+            "source_changed": source_changed, "first_release": published is None,
             "promote": os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
             and requested == "release" and target == base and complete(current, version)
             and current["prerelease"]}
     save(state, plan)
     output("base", base)
+    output("first_release", str(plan["first_release"]).lower())
     return plan
 
 
@@ -132,27 +133,28 @@ def commit(project, state, report, destination):
     require(update_bundle.git(root, "rev-parse", "HEAD") == plan["base"], "HEAD changed during the update")
     version = application_version(root)
     check_tag(root, version)
-    if report["status"] == "updated":
-        candidate = update_bundle.commit_candidate(root, plan["base"], report["files"])
+    require(report["status"] in ("updated", "unchanged"), "Dependency update is incomplete")
+    updated = report["status"] == "updated"
+    if not updated:
+        update_bundle.clean(root)
+    files = set(report["files"]) if updated else set()
+    if plan["first_release"] or (not updated and plan["source_changed"]):
+        before = inputs.snapshot(root)
+        declaration, version = bump_version(before["pubspec.yaml"].decode("utf-8"),
+                                            bump_patch=not plan["first_release"])
+        resource_record = resources.read_release_resources(root)
+        resource_record["application"] = version
+        after = dict(before)
+        after.update({"pubspec.yaml": declaration.encode("utf-8"),
+                      resources.RESOURCE_RECORD: json_bytes(resource_record)})
+        check_tag(root, version)
+        files.update(inputs.publish_changes(root, before, after))
+    if updated or files:
+        candidate = update_bundle.commit_candidate(root, plan["base"], files)
         operation = "publish"
     else:
-        require(report["status"] == "unchanged", "Dependency update is incomplete")
-        update_bundle.clean(root)
-        if plan["source_changed"]:
-            before = inputs.snapshot(root)
-            declaration, version = bump_version(before["pubspec.yaml"].decode("utf-8"))
-            resource_record = resources.read_release_resources(root)
-            resource_record["application"] = version
-            after = dict(before)
-            after.update({"pubspec.yaml": declaration.encode("utf-8"),
-                          resources.RESOURCE_RECORD: json_bytes(resource_record)})
-            check_tag(root, version)
-            files = inputs.publish_changes(root, before, after)
-            candidate = update_bundle.commit_candidate(root, plan["base"], files)
-            operation = "publish"
-        else:
-            candidate = plan["base"]
-            operation = "promote" if plan["promote"] else "none"
+        candidate = plan["base"]
+        operation = "promote" if plan["promote"] else "none"
     plan.update(commit=candidate, version=version, tag="v" + version, operation=operation)
     save(state, plan)
     if operation == "promote":

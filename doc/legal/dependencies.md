@@ -193,7 +193,7 @@ python3 -I -B tool/main.py dependencies prepare-resource-sources \
 
 #### 发布材料与重跑
 
-`Dependency release`先主动更新依赖与资源，再结合当前源码相对最近公开发布的变化决定候选；源码、依赖或资源任一更新及首次发布都会构建发布。最近公开发布包含pre-release，依赖报告为unchanged不跳过源码更新。流程在同一候选提交上完成正式签名的四APK构建和源码打包。源码包使用候选提交，版本、tag与Release的Source指向同一输入；许可包及`SHA256SUMS`与四包一并上传。发布类型由workflow默认值或本次手动选择决定，两种类型都使用release variant。
+`Dependency release`先主动更新依赖与资源，再结合当前源码相对最近公开发布的变化决定候选；源码、依赖或资源任一更新及首次发布都会构建发布。最近公开发布包含pre-release，依赖报告为unchanged不跳过源码更新。尚无公开发布时，首次仍默认以scope=all升级依赖，但保留声明中的major.minor.patch显示版本，只将versionCode安装版本加一，并同步pubspec.yaml与资源记录；其后实际更新按原规则将patch与versionCode各加一，同轮源码和依赖更新只递增一次。流程在同一候选提交上完成正式签名的四APK构建和源码打包。源码包使用候选提交，版本、tag与Release的Source指向同一输入；许可包及`SHA256SUMS`与四包一并上传。发布类型由workflow默认值或本次手动选择决定，两种类型都使用release variant。
 
 发布 job 失败时重跑失败 job，继续使用原 artifact 中的 Git bundle 和构建材料。tag 已指向本轮候选时继续上传草稿；已公开且资产一致时结束，不改写已公开字节。基准在首次推送前改变时重新准备候选；artifact 过期则按失败报告处理缺失材料，不重建另一批字节替代原产物。
 

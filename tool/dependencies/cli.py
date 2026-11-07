@@ -29,7 +29,7 @@ def register_parser(subparsers):
             parser.add_argument("--report", type=Path, help="Write update results to a JSON file, creating parent directories")
             parser.add_argument("--evidence", type=Path, help="New directory for dependency resolution results and license notices")
             _prepared(parser)
-            parser.add_argument("--reuse-version", action="store_true", help="Keep the current application version for local dependency experiments")
+            parser.add_argument("--reuse-version", action="store_true", help="Keep the current application version while updating dependencies")
         parser.set_defaults(handler=run_update, validate_args=validate_update, apply=name == "apply")
 
     parser = subparsers.add_parser(

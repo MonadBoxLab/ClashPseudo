@@ -67,11 +67,17 @@ jobs:
 
       - name: Prepare dependency updates
         shell: bash
-        run: >-
-          python3 -I -B tool/main.py dependencies apply
-          --scope "$UPDATE_SCOPE" --mihomo-version "$MIHOMO_VERSION"
-          --report "$RUNNER_TEMP/update-report.json"
-          2>&1 | tee "$RUNNER_TEMP/dependency-update.log"
+        env:
+          FIRST_RELEASE: ${{ steps.context.outputs.first_release }}
+        run: |
+          version_args=()
+          if [[ "$FIRST_RELEASE" == 'true' ]]; then
+            version_args+=(--reuse-version)
+          fi
+          python3 -I -B tool/main.py dependencies apply \
+            --scope "$UPDATE_SCOPE" --mihomo-version "$MIHOMO_VERSION" \
+            "${version_args[@]}" --report "$RUNNER_TEMP/update-report.json" \
+            2>&1 | tee "$RUNNER_TEMP/dependency-update.log"
 
       - name: Create candidate commit
         id: commit

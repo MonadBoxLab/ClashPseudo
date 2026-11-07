@@ -1,4 +1,4 @@
-"""Read the application version and increment patch and versionCode after dependency updates."""
+"""Read the application version and increment versionCode with an optional patch bump."""
 
 
 def _declaration(text):
@@ -12,11 +12,13 @@ def application_version(root):
     return _declaration((root / "pubspec.yaml").read_text(encoding="utf-8"))[2]
 
 
-def bump_version(text):
+def bump_version(text, *, bump_patch=True):
     lines, index, previous = _declaration(text)
     name, code = previous.rsplit("+", 1)
-    components = name.split(".")
-    components[-1] = str(int(components[-1]) + 1)
-    value = ".".join(components) + "+" + str(int(code) + 1)
+    if bump_patch:
+        components = name.split(".")
+        components[-1] = str(int(components[-1]) + 1)
+        name = ".".join(components)
+    value = name + "+" + str(int(code) + 1)
     lines[index] = lines[index].replace(previous, value, 1)
     return "".join(lines), value

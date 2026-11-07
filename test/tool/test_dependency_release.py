@@ -76,14 +76,14 @@ class ReleaseTest(unittest.TestCase):
         environment.start()
         self.addCleanup(environment.stop)
         self.git("init", "-b", "main")
-        (self.root / "pubspec.yaml").write_text("name: app\nversion: 1.0.0+1\n", encoding="utf-8")
+        (self.root / "pubspec.yaml").write_text("name: app\nversion: 0.2.0+6\n", encoding="utf-8")
         (self.root / "unchanged.txt").write_text("baseline", encoding="utf-8")
         (self.root / "lib").mkdir()
         (self.root / "lib/main.dart").write_text("void main() {}\n", encoding="utf-8")
         resource_path = self.root / release.resources.RESOURCE_RECORD
         resource_path.parent.mkdir(parents=True)
         release.save(resource_path, {"format": "clash-pseudo-release-resources", "version": 1,
-            "application": "1.0.0+1", "resources": {name: {} for name in release.resources.RESOURCE_ASSETS}})
+            "application": "0.2.0+6", "resources": {name: {} for name in release.resources.RESOURCE_ASSETS}})
         self.git("add", ".")
         self.git("commit", "-m", "基准")
         self.base = self.git("rev-parse", "HEAD")
@@ -96,9 +96,10 @@ class ReleaseTest(unittest.TestCase):
         self.state = self.directory / "state.json"
         self.report = self.directory / "report.json"
         self.materials = self.directory / "materials"
-        self.version = "1.0.1+2"
+        self.version = "0.2.1+7"
         self.plan = {"base": self.base, "branch": "main", "repository": "owner/project", "run_id": "123",
-                     "release_type": "pre-release", "promote": False, "source_changed": False}
+                     "release_type": "pre-release", "promote": False, "source_changed": False,
+                     "first_release": False}
         release.save(self.state, self.plan)
         self.github = GitHub()
         github = mock.patch.object(release, "run", side_effect=self.github.run)
@@ -129,12 +130,12 @@ class ReleaseTest(unittest.TestCase):
         (self.materials / "notes.md").write_text("发布说明", encoding="utf-8")
 
     def published_baseline(self, *, prerelease=True):
-        tag = "v1.0.0+1"
+        tag = "v0.2.0+6"
         self.git("tag", "-a", tag, self.base, "-m", "Published baseline")
         self.git("push", "origin", "refs/tags/" + tag)
         self.github.current = {"tag_name": tag, "draft": False, "prerelease": prerelease,
             "published_at": "2026-11-07T12:00:00Z",
-            "assets": [{"name": name, "state": "uploaded"} for name in release.names("1.0.0+1")]}
+            "assets": [{"name": name, "state": "uploaded"} for name in release.names("0.2.0+6")]}
 
     def source_update(self):
         (self.root / "lib/main.dart").write_text("void main() { print('updated'); }\n", encoding="utf-8")
@@ -192,11 +193,27 @@ class ReleaseTest(unittest.TestCase):
         self.published_baseline()
         result = self.unchanged_dependencies()
         self.assertEqual(result["operation"], "none")
-        self.assertEqual(result["version"], "1.0.0+1")
+        self.assertEqual(result["version"], "0.2.0+6")
         self.assertEqual(self.git("rev-parse", "HEAD"), self.base)
         self.assertFalse(self.materials.exists())
 
+    def test_context_outputs_first_release_until_a_public_release_exists(self):
+        self.github.history.append({"tag_name": "v0.1.0+1", "draft": True})
+        for published in (False, True):
+            with self.subTest(published=published):
+                if published:
+                    self.published_baseline()
+                output = self.directory / ("published-output" if published else "first-output")
+                with mock.patch.dict(os.environ, GITHUB_OUTPUT=str(output)):
+                    plan = release.context(self.root, self.state)
+                self.assertEqual(plan["first_release"], not published)
+                self.assertEqual(release.load(self.state)["first_release"], not published)
+                values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                self.assertEqual(values["first_release"], str(not published).lower())
+                self.assertEqual(values["base"], self.base)
+
     def test_first_release_builds_and_publishes_without_dependency_changes(self):
+        self.version = "0.2.0+7"
         result = self.unchanged_dependencies()
         self.assertEqual(result["operation"], "publish")
         self.assertEqual(result["version"], self.version)
@@ -208,6 +225,58 @@ class ReleaseTest(unittest.TestCase):
         self.assertTrue(self.github.current["prerelease"])
         self.assertEqual(self.unchanged_dependencies()["operation"], "none")
         self.assertEqual(self.git("rev-parse", "HEAD"), result["commit"])
+
+    def test_first_resource_update_adds_both_version_files_to_the_candidate(self):
+        release.context(self.root, self.state)
+        record = release.resources.read_release_resources(self.root)
+        record["resources"]["ca"] = {"version": "2026-11-01"}
+        release.save(self.root / release.resources.RESOURCE_RECORD, record)
+        release.save(self.report, {"status": "updated", "files": [release.resources.RESOURCE_RECORD]})
+        result = release.commit(self.root, self.state, self.report, self.materials)
+        self.assertEqual(result["version"], "0.2.0+7")
+        self.assertEqual(update_bundle.changed_paths(self.root, self.base, result["commit"]),
+                         {"pubspec.yaml", release.resources.RESOURCE_RECORD})
+        self.assertEqual(release.resources.read_release_resources(self.root), dict(record, application="0.2.0+7"))
+        self.assertEqual(self.git("rev-list", "--count", self.base + "..HEAD"), "1")
+
+    def test_first_release_keeps_display_version_with_dependency_changes_and_retries(self):
+        self.version = "0.2.0+7"
+        release.context(self.root, self.state)
+        declaration = "name: app\nversion: '0.2.0+6' # 应用版本\ndependencies:\n  http: ^1.6.0\n"
+        (self.root / "pubspec.yaml").write_text(declaration, encoding="utf-8")
+        resource_path = self.root / release.resources.RESOURCE_RECORD
+        record = release.resources.read_release_resources(self.root)
+        record["dependencies"] = {"pub": {"http": {"selected": "1.6.0"}}}
+        release.save(resource_path, record)
+        release.save(self.report, {"status": "updated", "files": ["pubspec.yaml", release.resources.RESOURCE_RECORD]})
+        self.plan = release.commit(self.root, self.state, self.report, self.materials)
+        candidate = self.plan["commit"]
+        self.assertEqual(self.plan["operation"], "publish")
+        self.assertEqual(self.plan["version"], self.version)
+        self.assertEqual(self.git("rev-list", "--count", self.base + "..HEAD"), "1")
+        self.assertEqual(self.git("rev-parse", "HEAD^"), self.base)
+        self.assertEqual((self.root / "pubspec.yaml").read_text(), declaration.replace("0.2.0+6", self.version))
+        self.assertEqual(release.resources.read_release_resources(self.root), dict(record, application=self.version))
+        self.build_candidate()
+        bundle = self.materials / "candidate.bundle"
+        checksum = release.digest(bundle)
+        with mock.patch.dict(os.environ, GITHUB_RUN_ID="124"), self.assertRaisesRegex(ValueError, "this repository run"):
+            release.publish(self.publisher, self.materials)
+        self.assertFalse(any(call[:2] == ["git", "push"] for call in self.github.calls))
+        self.github.fail_upload = True
+        with self.assertRaisesRegex(ValueError, "原始 stdout"):
+            release.publish(self.publisher, self.materials)
+        self.github.calls.clear()
+        release.publish(self.publisher, self.materials)
+        self.assertFalse(any(call[:2] == ["git", "push"] for call in self.github.calls))
+        self.assertEqual(release.digest(bundle), checksum)
+        self.assertEqual(release.remote_ref(self.publisher, "refs/tags/v" + self.version), candidate)
+        self.github.calls.clear()
+        release.publish(self.publisher, self.materials)
+        self.assertEqual(self.github.mutations(), [])
+        self.assertEqual(self.unchanged_dependencies()["operation"], "none")
+        self.assertEqual(self.git("rev-parse", "HEAD"), candidate)
+        self.assertEqual(release.application_version(self.root), self.version)
 
     def test_source_update_builds_publishes_and_does_not_repeat_on_next_run(self):
         self.published_baseline()
@@ -246,7 +315,7 @@ class ReleaseTest(unittest.TestCase):
         self.assertFalse(self.github.current["prerelease"])
         self.assertTrue(self.github.current["latest"])
         self.assertTrue(previous["prerelease"])
-        self.assertEqual(release.remote_ref(self.root, "refs/tags/v1.0.0+1"), old_target)
+        self.assertEqual(release.remote_ref(self.root, "refs/tags/v0.2.0+6"), old_target)
 
     def test_dependency_only_update_keeps_the_updaters_version(self):
         self.published_baseline()
@@ -286,7 +355,7 @@ class ReleaseTest(unittest.TestCase):
         base = self.git("rev-parse", "HEAD")
         result = self.unchanged_dependencies()
         self.assertEqual(result["operation"], "none")
-        self.assertEqual(result["version"], "1.0.0+1")
+        self.assertEqual(result["version"], "0.2.0+6")
         self.assertEqual(self.git("rev-parse", "HEAD"), base)
 
     def test_unresolvable_last_public_tag_fails_instead_of_treating_it_as_first_release(self):
@@ -446,15 +515,15 @@ class ReleaseTest(unittest.TestCase):
         self.assertFalse(any(call[:2] == ["git", "push"] for call in self.github.calls))
 
     def test_pending_publication_blocks_next_update_and_tells_original_job(self):
-        self.git("push", "origin", self.base + ":refs/tags/v1.0.0+1")
+        self.git("push", "origin", self.base + ":refs/tags/v0.2.0+6")
         with self.assertRaisesRegex(ValueError, "rerun the release job in the original Actions run"):
             release.context(self.root, self.state)
 
     def test_only_explicit_manual_release_prepares_promotion(self):
-        self.git("push", "origin", self.base + ":refs/tags/v1.0.0+1")
-        self.github.current = {"tag_name": "v1.0.0+1", "draft": False, "prerelease": True,
+        self.git("push", "origin", self.base + ":refs/tags/v0.2.0+6")
+        self.github.current = {"tag_name": "v0.2.0+6", "draft": False, "prerelease": True,
             "published_at": "2026-11-07T12:00:00Z",
-            "assets": [{"name": name, "state": "uploaded"} for name in release.names("1.0.0+1")]}
+            "assets": [{"name": name, "state": "uploaded"} for name in release.names("0.2.0+6")]}
         for event, requested, expected in (("schedule", "release", False),
                 ("schedule", "pre-release", False), ("workflow_dispatch", "pre-release", False),
                 ("workflow_dispatch", "release", True)):

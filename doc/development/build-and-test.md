@@ -100,9 +100,11 @@ flutter build apk --debug --no-pub --target-platform android-arm,android-arm64,a
 
 ### 应用版本
 
-[pubspec.yaml](../../pubspec.yaml)是应用版本的唯一声明。更新器先准备依赖与资源候选，有实际变化时将 patch 和 Android versionCode 各加一，一次更新多项依赖也只递增一次。例如 `1.0.0+1` 的候选使用 `1.0.1+2`。发布流程还比较当前源码与最近公开发布的源码；依赖与资源无变化但源码有更新，或首次发布时，同样递增一次并创建候选，同时同步资源记录中的应用版本。依赖更新已经递增版本时不重复递增。全部输入无变化、同一候选再次 apply 和普通构建均不递增。
+[pubspec.yaml](../../pubspec.yaml)是应用版本的唯一声明。更新器先准备依赖与资源候选，有实际变化时将 patch 和 Android versionCode 各加一，一次更新多项依赖也只递增一次。例如 `1.0.0+1` 的候选使用 `1.0.1+2`。发布流程还比较当前源码与最近公开发布的源码；已有公开发布后，依赖与资源无变化但源码有更新，同样递增一次并创建候选，同时同步资源记录中的应用版本。依赖更新已经递增版本时不重复递增。全部输入无变化、同一候选再次 apply 和普通构建均不递增。
 
-CI 每次从默认分支基准准备候选，同一基准重跑得到相同版本；成功发布后，后续实际更新从默认分支的新版本继续递增。本地隔离回退实验使用 `--reuse-version` 保留应用版本，自动发布不使用该选项。
+自动首次发布以尚无公开 Release 为条件，公开 pre-release 也计入已有发布。首次仍默认以 `scope=all` 主动升级依赖，更新步骤通过 `--reuse-version` 保留声明版本；随后无论依赖有无变化，候选步骤保留 major.minor.patch 显示版本，只将 Android versionCode 安装版本加一，并在同一个候选提交中同步 pubspec.yaml 与资源记录。
+
+CI 每次从默认分支基准准备候选，同一基准重跑得到相同版本；成功发布后，后续实际更新从默认分支的新版本继续递增 patch 和 versionCode。本地隔离回退实验也使用 `--reuse-version` 保留应用版本。
 
 应用版本与 GitHub 发布类型独立：`pre-release`／`release` 来自 workflow 配置，不从 `0.x`、版本后缀或 mihomo selector 推断。两种发布类型均使用正式签名的 release APK；选择正式 release 不额外提升 major 或 patch。
 
@@ -139,7 +141,7 @@ python3 -I -B tool/main.py artifacts package-sources --evidence '<核验输入�
 
 | 阶段 | 执行内容与结果 |
 | --- | --- |
-| 准备候选 | 从默认分支基准更新依赖与资源，并比较最近公开发布的源码；任一输入有变化或首次发布时，patch 和 versionCode 各加一，创建本轮候选提交 |
+| 准备候选 | 从默认分支基准更新依赖与资源，并比较最近公开发布的源码；首次保留显示版本、只将 versionCode 加一，其后任一输入有变化时将 patch 和 versionCode 各加一，创建本轮单个候选提交 |
 | 构建 | 仅在 release 构建步骤注入分发签名；一次 split 构建产出通用包和三个 ABI 包，检查签名、对齐、buildinfo 和法律资产 |
 | 保存材料 | 保存候选 Git bundle、四 APK、对应源码、许可包、SHA256SUMS 及本轮发布类型，artifact 保留 7 天 |
 | 发布 | 发布 job 从 bundle 导入同一候选提交，原子推送默认分支与 tag，建立草稿并上传全部资产，完成后公开 |
