@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:clash_pseudo/src/model/application_contract.dart';
+import 'package:clash_pseudo/src/model/tunnel_mode.dart';
 import 'package:clash_pseudo/src/ui/overview/widgets/status_hero.dart';
 
 import 'package:clash_pseudo/src/ui/navigation/task_activity.dart';
@@ -146,6 +147,220 @@ void main() {
       ),
     ),
   );
+
+  for (final failed in [false, true]) {
+    testWidgets(
+      'Overview waits through LOADING and the first READY mode publication failed=$failed',
+      (tester) async {
+        tester.view.physicalSize = const Size(440, 1000);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final fixture = (await tester.runAsync(
+          () => CoreRuntimeFixture.create(fallback: TunnelMode.global),
+        ))!;
+        addTearDown(() => tester.runAsync(fixture.dispose));
+        controller.collection = (await tester.runAsync(fixture.store.read))!;
+        fixture.replaceCore(phase: 'EMPTY');
+        fixture.phase = 'STOPPED';
+        var pendingStart = true;
+        Map<String, dynamic>? publishedMode;
+        Map<String, dynamic> snapshot() => {
+          ...fixture.snapshotMap(),
+          'pendingStart': pendingStart,
+          'pendingSystemStart': pendingStart,
+          'pendingRestore': false,
+          'mode': publishedMode?['actual'],
+          'modeError': publishedMode?['error'],
+        };
+        void publish() {
+          controller.state = AppSnapshot.fromMap(snapshot());
+          controller.changed();
+        }
+
+        fixture.beforePlatformCall = (call) {
+          if (call.method == 'traffic') {
+            return PlatformCallResult({
+              ...fixture.coreMap(),
+              'phase': 'RUNNING',
+              'sessionGeneration': fixture.snapshotMap()['generation'],
+              'elapsedMs': fixture.now,
+              'sampledAt': fixture.now,
+              'fresh': true,
+              'upload': 0,
+              'download': 0,
+              'activeCount': 0,
+              'points': <Object>[],
+            });
+          }
+          if (call.method == 'appMemory' || call.method == 'coreMemory') {
+            return PlatformCallResult(
+              jsonEncode({
+                'valid': true,
+                'processRssBytes': 1024,
+                'sampledAt': DateTime.now().millisecondsSinceEpoch,
+                if (call.method == 'coreMemory')
+                  'processId': fixture.core.processId,
+              }),
+            );
+          }
+          if (call.method == 'snapshot') {
+            return PlatformCallResult(snapshot());
+          }
+          if (call.method == ApplicationContract.coreChannelRuntimeChanged) {
+            final mode = (call.arguments as Map)['mode'];
+            publishedMode = mode is Map
+                ? Map<String, dynamic>.from(mode)
+                : null;
+            publish();
+          }
+          return null;
+        };
+        fixture.script(ApplicationContract.coreOperationPrepare, (request) {
+          fixture.core = CoreSnapshot.fromMap({
+            ...Map<String, dynamic>.from(request.wire['identity'] as Map),
+            'purpose': request.arguments['purpose'],
+            'configId': request.arguments['configId'],
+            'revision': request.arguments['revision'],
+            'phase': 'loading',
+          });
+          fixture.phase = 'STARTING';
+        });
+        fixture.script(ApplicationContract.coreOperationMode, (_) {});
+        late FutureProbe<Object?> started;
+        late CoreTestRequest prepare;
+        await tester.runAsync(() async {
+          await fixture.startAppRuntime();
+          final entered = fixture.next(
+            ApplicationContract.coreOperationPrepare,
+          );
+          started = FutureProbe(
+            fixture.runtime.read('start', {
+              'path': fixture.runInput.path,
+              'id': 'one',
+              'revision': 1,
+            }, operation: fixture.operation),
+          );
+          prepare = await entered;
+          await fixture.flush();
+        });
+        publish();
+        await show(tester);
+        await tester.pump();
+        expect(controller.state.core.phase, 'LOADING');
+        expect(controller.state.mode, isNull);
+        expect(controller.state.modeErrorMessage, isNull);
+        expect(find.byType(SnackBar), findsNothing);
+        await tester.pump(const Duration(seconds: 5));
+        expect(find.byType(SnackBar), findsNothing);
+        expect(started.settled, isFalse);
+        expect(tester.widget<FilledButton>(power).onPressed, isNotNull);
+
+        late CoreTestRequest mode;
+        await tester.runAsync(() async {
+          final entered = fixture.next(ApplicationContract.coreOperationMode);
+          fixture.replaceCore();
+          fixture.phase = 'RUNNING';
+          prepare.complete(fixture.coreMap());
+          mode = await entered;
+          await fixture.flush();
+        });
+        pendingStart = false;
+        publish();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 200));
+        await tester.pump(const Duration(milliseconds: 200));
+        final strings = AppLocalizations.of(
+          tester.element(find.byType(OverviewPage)),
+        );
+        expect(controller.state.pendingStart, isFalse);
+        expect(controller.state.pendingSystemStart, isFalse);
+        expect(controller.state.pendingRestore, isFalse);
+        expect(controller.state.core.ready, isTrue);
+        expect(controller.state.mode, isNull);
+        expect(controller.state.modeErrorMessage, isNull);
+        expect(find.text(strings.modeRunningUnconfirmed), findsWidgets);
+        expect(
+          find.text(strings.modeRunning(strings.modeGlobal)),
+          findsNothing,
+        );
+        expect(
+          find.byType(SnackBar),
+          findsNothing,
+          reason: find
+              .descendant(
+                of: find.byType(SnackBar),
+                matching: find.byType(Text),
+              )
+              .evaluate()
+              .map((element) => (element.widget as Text).data)
+              .join('\n'),
+        );
+        await tester.pump(const Duration(seconds: 5));
+        expect(find.byType(SnackBar), findsNothing);
+        expect(mode.actualExited, isFalse);
+        expect(tester.widget<FilledButton>(power).onPressed, isNotNull);
+
+        final failure = nativeFailure('java.io.IOException');
+        await tester.runAsync(() async {
+          mode.complete(
+            failed ? null : {'mode': 'direct'},
+            terminal: failed ? {'complete': false, 'error': failure} : {},
+          );
+          await started.done;
+          await fixture.flush();
+        });
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(started.error, isNull);
+        expect(fixture.notifications, isNotEmpty);
+        expect(
+          fixture.calls(ApplicationContract.coreOperationMode),
+          hasLength(1),
+        );
+        expect(controller.collection.mode, TunnelMode.global);
+        expect(controller.state.running, isTrue);
+        expect(tester.widget<FilledButton>(power).onPressed, isNotNull);
+        if (failed) {
+          expect(controller.state.mode, isNull);
+          final error = controller.state.modeErrorMessage!;
+          expect(error.detail, contains(failure.toString()));
+          final notice = find.byType(SnackBar);
+          expect(notice, findsOneWidget);
+          await tester.tap(
+            find.descendant(
+              of: notice,
+              matching: find.text(strings.errorDetails),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final technical = find.byKey(
+            const ValueKey('operation-technical-details'),
+          );
+          await tester.ensureVisible(technical);
+          await tester.tap(technical);
+          await tester.pumpAndSettle();
+          expect(find.text(error.detail!), findsOneWidget);
+          await tester.tap(find.widgetWithText(TextButton, strings.close));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 400));
+        } else {
+          expect(controller.state.mode, TunnelMode.direct);
+          expect(controller.state.modeErrorMessage, isNull);
+          expect(
+            find.text(strings.modeRunning(strings.modeDirect)),
+            findsWidgets,
+          );
+          expect(find.text(strings.modeRunningUnconfirmed), findsNothing);
+          expect(find.byType(SnackBar), findsNothing);
+        }
+        await tester.tap(power);
+        await tester.pump();
+        expect(controller.commands.last['action'], 'stop');
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
 
   AppSnapshot recovery({
     String processId = 'process-one',

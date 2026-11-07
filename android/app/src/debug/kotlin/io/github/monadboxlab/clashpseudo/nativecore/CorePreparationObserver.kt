@@ -14,11 +14,11 @@ internal object CorePreparationObserver {
     private fun directory(context: Context) = File(context.noBackupFilesDir, "worker-starting-fixture")
     private fun file(context: Context, name: String) = File(directory(context), name)
 
-    fun armWorkerGate(context: Context) {
+    fun armWorkerGate(context: Context, failAfterCancellation: Boolean = false) {
         val directory = directory(context)
         check(directory.mkdir()) { "Worker STARTING fixture directory already exists or cannot be created" }
         check(OsConstants.S_ISDIR(Os.lstat(directory.path).st_mode))
-        CorePrivateFiles.write(file(context, "armed"), byteArrayOf(1))
+        CorePrivateFiles.write(file(context, "armed"), byteArrayOf(if (failAfterCancellation) 2 else 1))
     }
 
     fun workerGateState(context: Context): JSONObject? =
@@ -48,8 +48,16 @@ internal object CorePreparationObserver {
 
     fun beforeNativePrepare(context: Context, processId: String, inputId: String, configId: String?,
                             revision: Int, requestId: Long, deadline: Long, cancelled: () -> Boolean) {
-        if (configId != CONFIG_ID || revision != 2 ||
-            CorePrivateFiles.read(file(context, "armed"), 1) == null) return
+        if (configId != CONFIG_ID || revision != 2) return
+        val armed = CorePrivateFiles.read(file(context, "armed"), 1) ?: return
+        val failAfterCancellation = armed.single() == 2.toByte()
+        fun cancellationFailure(): Nothing {
+            if (failAfterCancellation) throw IllegalStateException("Preparation failed after Stop",
+                java.io.IOException("Original preparation cause")).apply {
+                addSuppressed(java.io.IOException("Original preparation cleanup failure"))
+            }
+            throw CoreTransportException(Contract.CORE_ERROR_CANCELLED, "Worker PREPARE was cancelled before native preparation")
+        }
         check(CorePrivateFiles.read(file(context, "entered.json"), Contract.CORE_IPC_CONTROL_BYTES) == null) {
             "The fixed STARTING gate can admit only one PREPARE"
         }
@@ -61,7 +69,7 @@ internal object CorePreparationObserver {
             while (true) {
                 if (cancelled()) {
                     CorePrivateFiles.write(file(context, "cancelled"), byteArrayOf(1))
-                    throw CoreTransportException(Contract.CORE_ERROR_CANCELLED, "Worker PREPARE was cancelled before native preparation")
+                    if (!failAfterCancellation || CorePrivateFiles.read(file(context, "released"), 1) != null) cancellationFailure()
                 }
                 check(SystemClock.elapsedRealtime() < deadline) { "Worker STARTING gate exceeded the original admission deadline" }
                 if (CorePrivateFiles.read(file(context, "released"), 1) != null) break
@@ -69,7 +77,7 @@ internal object CorePreparationObserver {
             }
             if (cancelled()) {
                 CorePrivateFiles.write(file(context, "cancelled"), byteArrayOf(1))
-                throw CoreTransportException(Contract.CORE_ERROR_CANCELLED, "Worker PREPARE was cancelled after gate release")
+                cancellationFailure()
             }
         } finally { CorePrivateFiles.write(file(context, "finished"), byteArrayOf(1)) }
     }

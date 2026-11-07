@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:clash_pseudo/src/model/application_contract.dart';
+import 'package:clash_pseudo/src/model/app_snapshot.dart';
 import 'package:clash_pseudo/src/model/config_entry.dart';
 import 'package:clash_pseudo/src/model/tunnel_mode.dart';
 import 'package:flutter/services.dart';
@@ -18,6 +19,116 @@ void main() {
   Future<void> create({bool lanOnly = false}) async {
     fixture = await CoreRuntimeFixture.create(lanOnly: lanOnly);
     addTearDown(fixture.dispose);
+  }
+
+  for (final preparedEarly in [false, true]) {
+    for (final failed in [false, true]) {
+      test(
+        'business reads publish the first mode after ${preparedEarly ? 'PREPARE precedes platform READY' : 'an existing core becomes READY'} failed=$failed',
+        () async {
+          fixture = await CoreRuntimeFixture.create(
+            fallback: TunnelMode.global,
+          );
+          addTearDown(fixture.dispose);
+          fixture.replaceCore(phase: preparedEarly ? 'EMPTY' : 'LOADING');
+          fixture.phase = preparedEarly ? 'STOPPED' : 'STARTING';
+          Map<String, dynamic>? publishedMode;
+          Map<String, dynamic> snapshot() => {
+            ...fixture.snapshotMap(),
+            'mode': publishedMode?['actual'],
+            'modeError': publishedMode?['error'],
+          };
+          fixture.beforePlatformCall = (call) {
+            if (call.method == 'snapshot') {
+              return PlatformCallResult(snapshot());
+            }
+            if (call.method == ApplicationContract.coreChannelRuntimeChanged) {
+              final value = (call.arguments as Map)['mode'];
+              publishedMode = value is Map
+                  ? Map<String, dynamic>.from(value)
+                  : null;
+            }
+            return null;
+          };
+          await fixture.startAppRuntime();
+          fixture.script(ApplicationContract.coreOperationMode, (_) {});
+          if (preparedEarly) {
+            fixture.script(ApplicationContract.coreOperationPrepare, (
+              request,
+            ) async {
+              await fixture.replyDefault(request);
+              fixture.replaceCore(phase: 'LOADING');
+              fixture.phase = 'STARTING';
+            });
+            await fixture.invokeRuntime('start', {
+              'path': fixture.runInput.path,
+              'id': 'one',
+              'revision': 1,
+            });
+            await fixture.flush();
+            expect(fixture.core.phase, 'LOADING');
+            expect(
+              fixture.calls(ApplicationContract.coreOperationPrepare),
+              hasLength(1),
+            );
+          }
+          expect(fixture.calls(ApplicationContract.coreOperationMode), isEmpty);
+          expect(AppSnapshot.fromMap(snapshot()).modeErrorMessage, isNull);
+          fixture.replaceCore();
+          fixture.phase = 'RUNNING';
+          fixture.actualMode = 'direct';
+          final entered = fixture.next(ApplicationContract.coreOperationMode);
+          final read = FutureProbe(
+            fixture.invokeRuntime('strategies', fixture.identity()),
+          );
+          final request = await entered;
+          await fixture.flush();
+          expect(read.settled, isFalse);
+          expect(
+            fixture.calls(ApplicationContract.coreOperationSnapshot),
+            hasLength(1),
+          );
+          expect(fixture.modeProjection, isNull);
+          final waiting = AppSnapshot.fromMap(snapshot());
+          expect(waiting.core.ready, isTrue);
+          expect(waiting.mode, isNull);
+          expect(waiting.modeErrorMessage, isNull);
+          expect(waiting.pendingStart, isFalse);
+          expect(waiting.pendingSystemStart, isFalse);
+          expect(waiting.pendingRestore, isFalse);
+          final failure = nativeFailure('java.io.IOException');
+          request.complete(
+            failed ? null : {'mode': fixture.actualMode},
+            terminal: failed ? {'complete': false, 'error': failure} : {},
+          );
+          await read.done;
+          await fixture.flush();
+          expect(read.error, isNull);
+          expect(
+            fixture.calls(ApplicationContract.coreOperationMode),
+            hasLength(1),
+          );
+          expect(publishedMode, fixture.modeProjection);
+          expect(publishedMode!['fallback'], 'global');
+          expect(publishedMode!['processId'], fixture.core.processId);
+          expect(publishedMode!['inputId'], fixture.core.inputId);
+          final result = AppSnapshot.fromMap(snapshot());
+          expect(result.running, isTrue);
+          if (failed) {
+            expect(result.mode, isNull);
+            expect(
+              result.modeErrorMessage!.detail,
+              contains(failure.toString()),
+            );
+          } else {
+            expect(result.mode, TunnelMode.direct);
+            expect(result.modeErrorMessage, isNull);
+          }
+          expect(fixture.notifications, isNotEmpty);
+          expect(fixture.exits, isEmpty);
+        },
+      );
+    }
   }
 
   for (final confirmed in [false, true]) {

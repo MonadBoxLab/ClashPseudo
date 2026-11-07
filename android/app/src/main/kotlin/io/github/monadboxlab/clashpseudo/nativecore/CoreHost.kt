@@ -179,23 +179,27 @@ class CoreHost internal constructor(
                     }
                 } catch (error: Throwable) {
                     failure = error
-                    lastError = CoreErrors.json(error)
                     receipt = CoreErrors.receipt(error)
                     try { writeFailure(output, error) } catch (close: Throwable) { if (close !== error) error.addSuppressed(close) }
-                    if (preparationStarted) {
-                        val expectedCancellation = error is CoreTransportException &&
-                            error.code == Contract.CORE_ERROR_CANCELLED && stopping.get()
-                        if (!expectedCancellation) {
-                            phase = Contract.CORE_PHASE_RECOVERY_REQUIRED
-                            statusChanged(status())
-                            control.schedule({ selfExit() }, 100, TimeUnit.MILLISECONDS)
+                    synchronized(stopping) {
+                        // Retired work keeps its own failure receipt, not authority over Stop's state.
+                        if (!stopping.get()) {
+                            lastError = CoreErrors.json(error)
+                            if (preparationStarted) {
+                                phase = Contract.CORE_PHASE_RECOVERY_REQUIRED
+                                statusChanged(status())
+                                control.schedule({ selfExit() }, 100, TimeUnit.MILLISECONDS)
+                            }
                         }
                     }
                 } finally {
                     for (descriptor in listOf(input, output)) try { descriptor.close() } catch (error: Throwable) {
                         if (failure == null) failure = error else if (failure !== error) failure!!.addSuppressed(error)
                     }
-                    failure?.let { lastError = CoreErrors.json(it); receipt = CoreErrors.receipt(it) }
+                    failure?.let {
+                        receipt = CoreErrors.receipt(it)
+                        synchronized(stopping) { if (!stopping.get()) lastError = CoreErrors.json(it) }
+                    }
                     try {
                         // Callbacks follow actual invoke, platform call, and FD close returns, not EOF or cancellation intent.
                         requestExited(id, receipt)
@@ -424,9 +428,11 @@ class CoreHost internal constructor(
         require(admittedAt >= 0 && deadline >= admittedAt && deadline - admittedAt <= Contract.OPERATION_BACKUP_TIMEOUT_MS) {
             "Exit request has no valid original admission budget"
         }
-        if (!stopping.compareAndSet(false, true)) return
-        transport.closeAdmission()
-        phase = Contract.CORE_PHASE_STOPPING
+        synchronized(stopping) {
+            if (!stopping.compareAndSet(false, true)) return
+            transport.closeAdmission()
+            phase = Contract.CORE_PHASE_STOPPING
+        }
         val remaining = (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
         control.schedule({ selfExit() }, remaining, TimeUnit.MILLISECONDS)
         try { statusChanged(status()) } catch (error: Throwable) { lastError = CoreErrors.json(error) }

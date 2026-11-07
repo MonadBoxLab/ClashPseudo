@@ -7,6 +7,9 @@ import android.os.Handler
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import io.github.monadboxlab.clashpseudo.app.ApplicationContract as Contract
+import io.github.monadboxlab.clashpseudo.bridge.AppBridge
+import io.github.monadboxlab.clashpseudo.controls.SystemControls
+import io.github.monadboxlab.clashpseudo.nativecore.CorePreparationObserver
 import io.github.monadboxlab.clashpseudo.nativecore.CoreClient
 import io.github.monadboxlab.clashpseudo.nativecore.CoreIpcTestDriver
 import io.github.monadboxlab.clashpseudo.nativecore.CorePlatformTestDriver
@@ -33,6 +36,95 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class StrategyCallsTest {
+    @Test fun stopOwnsTheResultWhileCancelledPreparationKeepsItsFailureReceipt() {
+        val platform = CorePlatformTestDriver()
+        val client = CoreClient.get(platform.context)
+        val startOwner = "cancelled-preparation-owner"
+        platform.await("Existing operation drains") {
+            AppBridge.operationId == null && !AppBridge.logic.busy && AppBridge.runtimeState()["writerBusy"] == false
+        }
+        CorePreparationObserver.armWorkerGate(platform.context, failAfterCancellation = true)
+        try {
+            platform.handshake()
+            ExitControl(platform, Contract.CORE_OPERATION_PREPARE).use { control ->
+                val admittedAt = SystemClock.elapsedRealtime()
+                CoreIpcTestDriver.onMain {
+                    AppBridge.operations.replaceOwner(startOwner, admittedAt, admittedAt + Contract.OPERATION_ORDINARY_TIMEOUT_MS)
+                    AppBridge.operations.command = mapOf("action" to "start")
+                }
+                val work = CompletableFuture.supplyAsync {
+                    platform.prepare(strategyInput("p5-worker-config-p5-load-worker-r7w12", 2),
+                        vpn = true, owner = startOwner, admittedAt = admittedAt)
+                }
+                platform.await("PREPARE reaches its original worker gate") {
+                    CorePreparationObserver.workerGateState(platform.context) != null && client.status()["phase"] == Contract.CORE_PHASE_LOADING
+                }
+                val source = platform.status()
+                // Keep one real host input FD unread so the cancelled PREPARE receipt can be inspected before process exit.
+                control.heldInputOperation = Contract.CORE_OPERATION_LOGS
+                control.holdPreparationInput.set(true)
+                platform.channel(Contract.CORE_CHANNEL_SUBMIT, mapOf("operation" to Contract.CORE_OPERATION_LOGS,
+                    "identity" to source, "arguments" to emptyMap<String, Any?>()))
+                assertFalse(control.heldPreparations.isEmpty())
+                assertEquals(SystemControls.Admission.ACCEPTED, platform.stopFromSystemControl())
+                platform.await("Stop closes native admission while PREPARE is still held") {
+                    client.status()["phase"] == Contract.CORE_PHASE_STOPPING &&
+                        CorePreparationObserver.workerGateState(platform.context)?.optBoolean("cancelObserved") == true
+                }
+                val stopOwner = CoreIpcTestDriver.onMain {
+                    assertEquals("stop", AppBridge.command?.get("action"))
+                    assertEquals(admittedAt, AppBridge.operationAdmittedAt)
+                    assertEquals(admittedAt + Contract.OPERATION_ORDINARY_TIMEOUT_MS, AppBridge.operationDeadline)
+                    checkNotNull(AppBridge.operationId)
+                }
+                assertNotEquals(startOwner, stopOwner)
+                assertFalse(work.isDone)
+                CorePreparationObserver.releaseWorkerGate(platform.context)
+                val actual = work.get(30, TimeUnit.SECONDS)
+                val error = failure(actual)
+                assertEquals("java.lang.IllegalStateException", error.getString("type"))
+                assertEquals("Preparation failed after Stop", error.getString("message"))
+                assertEquals("Original preparation cause", error.getJSONObject("cause").getString("message"))
+                assertEquals("Original preparation cleanup failure", error.getJSONArray("suppressed").getJSONObject(0).getString("message"))
+                assertEquals(error.toString(), actual.terminal.getJSONObject("nativeReceipt").getJSONObject("error").toString())
+                val stopping = platform.handshake()
+                assertEquals(Contract.CORE_PHASE_STOPPING, stopping["phase"])
+                assertNull(stopping["error"])
+                val lateResult = mapOf("success" to false, "message" to mapOf("id" to "operationNotCompletedRetry", "detail" to error.toString()))
+                CoreIpcTestDriver.onMain {
+                    AppBridge.finish(startOwner, lateResult)
+                    assertEquals(stopOwner, AppBridge.operationId)
+                    assertNull(AppBridge.runtimeState()["resultId"])
+                    assertNull(AppBridge.runtimeState()["error"])
+                }
+                assertNull(CoreResourceGate.forApplication(platform.context).tryAcquire())
+                control.releasePreparations()
+                platform.await("Stop completes only after core process and every local FD exit") {
+                    client.status()["phase"] == Contract.CORE_PHASE_EXITED && !client.requestBusy &&
+                        AppBridge.operationId == null && AppBridge.runtimeState()["resultId"] == stopOwner
+                }
+                control.assertExited(source)
+                CoreIpcTestDriver.onMain {
+                    AppBridge.finish(startOwner, lateResult)
+                    val result = AppBridge.runtimeState()
+                    assertEquals(stopOwner, result["resultId"])
+                    assertEquals(true, result["resultSuccess"])
+                    assertEquals("tunnelStopped", (result["resultMessage"] as Map<*, *>)["id"])
+                    assertNull(result["error"])
+                }
+                assertFalse(client.lifecycle.snapshot().recoveryRequired)
+            }
+        } finally {
+            CorePreparationObserver.releaseWorkerGate(platform.context)
+            try { platform.exit() } finally {
+                CorePreparationObserver.removeWorkerGate(platform.context)
+                CoreIpcTestDriver.onMain {
+                    AppBridge.operationId?.let { AppBridge.finish(it, mapOf("success" to false)) }
+                }
+            }
+        }
+    }
+
     @Test fun queuedPreparationCancellationKeepsTheActualInputUntilDrainAndReportsUnstartedWork() {
         for (linkage in listOf(false, true)) {
             val platform = CorePlatformTestDriver()
@@ -420,6 +512,7 @@ class StrategyCallsTest {
         val acceptedExitTasks = AtomicInteger()
         val holdReceipt = AtomicBoolean()
         val holdPreparationInput = AtomicBoolean()
+        var heldInputOperation = Contract.CORE_OPERATION_PREPARE
         val heldPreparations = LinkedBlockingQueue<Pair<Long, Runnable>>()
         val heldReceipts = LinkedBlockingQueue<Runnable>()
         private var heldRequest: Pair<String, Long>? = null
@@ -434,7 +527,7 @@ class StrategyCallsTest {
                     cancellations.incrementAndGet()
                     cancelRejection.get()?.let { throw it }
                 } else businessSubmissions.incrementAndGet()
-                if (request.getInt(Contract.CORE_FIELD_OPERATION) == Contract.CORE_OPERATION_PREPARE && holdPreparationInput.get()) {
+                if (request.getInt(Contract.CORE_FIELD_OPERATION) == heldInputOperation && holdPreparationInput.get()) {
                     val source = ParcelFileDescriptor.dup(input.fileDescriptor)
                     val pipe = ParcelFileDescriptor.createPipe()
                     try {

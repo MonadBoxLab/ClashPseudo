@@ -140,6 +140,113 @@ void main() {
   });
   tearDown(() => controller.dispose());
 
+  Map<String, dynamic> unconfirmedModeSnapshot() => {
+    'phase': 'RUNNING',
+    'storageReady': true,
+    'storageEpoch': 0,
+    'core': {
+      'phase': 'ready',
+      'processId': 'mode-process',
+      'inputId': 'mode-input',
+      'generation': 1,
+      'configId': 'main',
+      'revision': 1,
+      'composition': 'mode-composition',
+      'purpose': 'RUNNING',
+    },
+  };
+
+  testWidgets(
+    'unconfirmed mode refreshes without an error until actual mode arrives',
+    (tester) async {
+      final raw = unconfirmedModeSnapshot();
+      bridge.read = () async => AppSnapshot.fromMap(raw);
+      await controller.refresh();
+      expect(controller.state.modeErrorMessage, isNull);
+      var reads = bridge.reads;
+      for (final seconds in [1, 2, 5]) {
+        await tester.pump(Duration(seconds: seconds));
+        expect(bridge.reads, greaterThan(reads));
+        expect(controller.state.modeErrorMessage, isNull);
+        reads = bridge.reads;
+      }
+      raw['mode'] = 'global';
+      await tester.pump(const Duration(seconds: 10));
+      expect(controller.state.mode, TunnelMode.global);
+      reads = bridge.reads;
+      await tester.pump(const Duration(seconds: 31));
+      expect(bridge.reads, reads);
+    },
+  );
+
+  testWidgets(
+    'unconfirmed mode retains explicit failure and retries its recovery',
+    (tester) async {
+      final raw = unconfirmedModeSnapshot();
+      bridge.read = () async => AppSnapshot.fromMap(raw);
+      await controller.refresh();
+      expect(controller.state.modeErrorMessage, isNull);
+      const failure = AppMessage(
+        'temporaryModeUnknown',
+        detail: 'mode failure 原文',
+      );
+      raw['modeError'] = failure.toMap();
+      await tester.pump(const Duration(seconds: 1));
+      expect(controller.state.modeErrorMessage, failure);
+      expect(controller.canStopBackground, isTrue);
+      raw.remove('modeError');
+      raw['mode'] = 'direct';
+      await tester.pump(const Duration(seconds: 2));
+      expect(controller.state.mode, TunnelMode.direct);
+      expect(controller.state.modeErrorMessage, isNull);
+      final reads = bridge.reads;
+      await tester.pump(const Duration(seconds: 31));
+      expect(bridge.reads, reads);
+    },
+  );
+
+  testWidgets(
+    'unconfirmed mode refresh pauses in background and ends when core exits',
+    (tester) async {
+      final raw = unconfirmedModeSnapshot();
+      bridge.read = () async => AppSnapshot.fromMap(raw);
+      await controller.refresh();
+      expect(controller.state.modeErrorMessage, isNull);
+      controller.setForeground(false);
+      final beforeBackground = bridge.reads;
+      await tester.pump(const Duration(seconds: 31));
+      expect(bridge.reads, beforeBackground);
+      controller.setForeground(true);
+      await tester.pump();
+      expect(bridge.reads, greaterThan(beforeBackground));
+      raw['phase'] = 'STOPPED';
+      (raw['core'] as Map)['phase'] = 'exited';
+      await tester.pump(const Duration(seconds: 31));
+      expect(controller.state.core.phase, 'EMPTY');
+      final stoppedReads = bridge.reads;
+      await tester.pump(const Duration(seconds: 31));
+      expect(bridge.reads, stoppedReads);
+    },
+  );
+
+  testWidgets('disposing an unconfirmed mode reader cancels its refresh', (
+    tester,
+  ) async {
+    final owner = AppController(
+      bridge,
+      store: store,
+      preferencesStore: MemoryPreferencesStore(),
+      overrideStore: _ControlledOverrideStore(),
+    );
+    bridge.read = () async => AppSnapshot.fromMap(unconfirmedModeSnapshot());
+    await owner.refresh();
+    expect(owner.state.modeErrorMessage, isNull);
+    owner.dispose();
+    final reads = bridge.reads;
+    await tester.pump(const Duration(seconds: 31));
+    expect(bridge.reads, reads);
+  });
+
   void seedFiles(String body, {int revision = 1}) {
     store.readResult = () async => ConfigCollection(
       selectedId: 'main',

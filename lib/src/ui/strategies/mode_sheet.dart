@@ -97,7 +97,7 @@ class _ModeSheetState extends State<ModeSheet> {
     if (!_eligible || !controller.canChangeMode || _target != null) return;
     if (_storageEpoch == controller.storageEpoch &&
         controller.collection.mode == mode &&
-        (!controller.state.running || controller.state.mode == mode)) {
+        (!controller.state.usesRuntimeMode || controller.state.mode == mode)) {
       Navigator.of(context).pop();
       return;
     }
@@ -131,8 +131,9 @@ class _ModeSheetState extends State<ModeSheet> {
       controller.acknowledgeLocalFeedback(_feedbackOwner, result: result);
       if (controller.configsCurrent &&
           controller.collection.mode == mode &&
-          (controller.state.phase == 'STOPPED' ||
-              (controller.state.running && controller.state.mode == mode))) {
+          (controller.state.usesRuntimeMode
+              ? controller.state.mode == mode
+              : controller.state.phase == 'STOPPED')) {
         Navigator.of(context).pop();
       }
       return;
@@ -227,7 +228,7 @@ class _ModeSheetState extends State<ModeSheet> {
     final state = controller.state;
     final epoch = controller.storageEpoch;
     final strings = AppLocalizations.of(context);
-    final current = state.running
+    final current = state.usesRuntimeMode
         ? state.mode
         : state.phase == 'STOPPED' && controller.configsCurrent
         ? controller.collection.mode
@@ -237,7 +238,7 @@ class _ModeSheetState extends State<ModeSheet> {
     final palette = ModePalette(theme.brightness == Brightness.dark);
     final enabled = _eligible && controller.canChangeMode && _target == null;
     final differs =
-        state.running &&
+        state.usesRuntimeMode &&
         state.mode != null &&
         controller.configsCurrent &&
         controller.collection.mode != null &&

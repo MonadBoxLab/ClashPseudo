@@ -179,6 +179,12 @@ class AppSnapshot {
   final CoreSnapshot? logSource;
 
   bool get running => phase == 'RUNNING';
+  bool get usesRuntimeMode => _usesRuntimeMode(phase, core);
+
+  static bool _usesRuntimeMode(String phase, CoreSnapshot core) =>
+      phase == 'RUNNING' ||
+      (core.phase != 'EMPTY' && core.purpose == 'RUNNING');
+
   bool get forwarding =>
       core.ready && core.purpose == 'RUNNING' && (running || lanRunning);
   bool get busy =>
@@ -194,6 +200,25 @@ class AppSnapshot {
       core.busy ||
       ['STARTING', 'STOPPING'].contains(phase);
   bool get confirmed => !stale && ['STOPPED', 'RUNNING'].contains(phase);
+  bool get modeUnconfirmed =>
+      !stale &&
+      mode == null &&
+      modeErrorMessage == null &&
+      _canAwaitMode(phase, core, recoveryRequired);
+
+  static bool _canAwaitMode(
+    String phase,
+    CoreSnapshot core,
+    bool recoveryRequired,
+  ) =>
+      !recoveryRequired &&
+      core.errorMessage == null &&
+      core.purpose == 'RUNNING' &&
+      core.hasIdentity &&
+      core.processId?.isNotEmpty == true &&
+      core.inputId?.isNotEmpty == true &&
+      const ['LOADING', 'READY'].contains(core.phase) &&
+      const ['STOPPED', 'STARTING', 'RUNNING'].contains(phase);
 
   AppSnapshot asStale({
     bool? storageReady,
@@ -261,14 +286,19 @@ class AppSnapshot {
         : const CoreSnapshot();
     TunnelMode? mode;
     AppMessage? modeError;
-    if (phase == 'RUNNING' ||
-        (core.phase != 'EMPTY' && core.purpose == 'RUNNING')) {
+    if (_usesRuntimeMode(phase, core)) {
       try {
         mode = TunnelMode.parse(data['mode']);
       } on FormatException {
-        modeError =
-            AppMessage.fromNullable(data['modeError']) ??
-            messages.temporaryModeUnknown;
+        final awaitingMode =
+            data['mode'] == null &&
+            data['modeError'] == null &&
+            _canAwaitMode(phase, core, data['recoveryRequired'] == true);
+        if (!awaitingMode) {
+          modeError =
+              AppMessage.fromNullable(data['modeError']) ??
+              messages.temporaryModeUnknown;
+        }
       }
     }
     return AppSnapshot(

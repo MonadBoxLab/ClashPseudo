@@ -176,7 +176,8 @@ class AppController extends ChangeNotifier {
   bool get canEdit => !_localBusy && configsCurrent;
   bool get canEditOverrides => !_localBusy && overridesCurrent;
   bool get canManageStoredData => !_localBusy;
-  bool get canChangeMode => canEdit && (!state.running || state.mode != null);
+  bool get canChangeMode =>
+      canEdit && (!state.usesRuntimeMode || state.mode != null);
   bool get canStopBackground =>
       !dispatching &&
       (!state.confirmed ||

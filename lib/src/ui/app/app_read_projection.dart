@@ -226,7 +226,8 @@ class AppReadProjection {
           configError != null ||
           preferencesError != null ||
           overrideError != null ||
-          state.modeError != null) {
+          state.modeError != null ||
+          state.modeUnconfirmed) {
         final seconds = _retrySeconds[_retryStep];
         if (_retryStep < _retrySeconds.length - 1) _retryStep++;
         if (_foreground) {

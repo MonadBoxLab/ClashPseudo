@@ -73,6 +73,102 @@ void main() {
     }
   }
 
+  for (final (phase, corePhase) in [
+    ('STARTING', 'loading'),
+    ('STARTING', 'starting'),
+    ('RUNNING', 'ready'),
+    ('STOPPED', 'ready'),
+  ]) {
+    test(
+      'missing mode remains unconfirmed in a healthy context $phase/$corePhase',
+      () {
+        final raw = <String, dynamic>{
+          'phase': phase,
+          'core': source(corePhase),
+          'lanRunning': phase == 'STOPPED',
+        };
+        for (final pending in [true, false]) {
+          final state = AppSnapshot.fromMap({...raw, 'pendingStart': pending});
+          expect(state.mode, isNull);
+          expect(state.modeErrorMessage, isNull);
+          expect(state.modeUnconfirmed, isTrue);
+          expect(state.asStale().modeUnconfirmed, isFalse);
+        }
+        final actual = AppSnapshot.fromMap({...raw, 'mode': 'direct'});
+        expect(actual.mode, TunnelMode.direct);
+        expect(actual.modeErrorMessage, isNull);
+        final failed = AppSnapshot.fromMap({
+          ...raw,
+          'pendingStart': true,
+          'modeError': original.toMap(),
+        });
+        expect(failed.modeErrorMessage, original);
+        for (final value in ['', 'invalid', 7, false, <String, dynamic>{}]) {
+          expect(
+            AppSnapshot.fromMap({...raw, 'mode': value}).modeErrorMessage,
+            messages.temporaryModeUnknown,
+          );
+        }
+        expect(
+          () => AppSnapshot.fromMap({
+            ...raw,
+            'modeError': {'invalid': true},
+          }),
+          throwsFormatException,
+        );
+      },
+    );
+  }
+
+  test(
+    'missing mode remains an issue when context identity or health is lost',
+    () {
+      final core = source('ready');
+      for (final change in <Map<String, dynamic>>[
+        {'processId': null},
+        {'inputId': ''},
+        {'generation': 0},
+        {'configId': null},
+        {'revision': 0},
+        {'composition': ''},
+        {'error': messages.coreContextUnconfirmed.toMap()},
+        {'phase': 'communicationLost'},
+        {'phase': 'recoveryRequired'},
+        {'phase': 'stopping'},
+      ]) {
+        final state = AppSnapshot.fromMap({
+          'phase': 'RUNNING',
+          'core': {...core, ...change},
+          'pendingStart': true,
+          'writerBusy': true,
+          'resourceBusy': true,
+        });
+        expect(
+          state.modeErrorMessage,
+          messages.temporaryModeUnknown,
+          reason: '$change',
+        );
+      }
+      for (final change in <Map<String, dynamic>>[
+        {'phase': 'UNKNOWN'},
+        {'phase': 'STOPPING'},
+        {'recoveryRequired': true},
+      ]) {
+        final state = AppSnapshot.fromMap({
+          'phase': 'RUNNING',
+          'core': core,
+          'pendingStart': true,
+          ...change,
+        });
+        expect(
+          state.modeErrorMessage,
+          messages.temporaryModeUnknown,
+          reason: '$change',
+        );
+      }
+    },
+  );
+
   test('VPN reporting RUNNING still checks mode; missing core identity alone does not remove issues', () {
     final state = AppSnapshot.fromMap({'phase': 'RUNNING'});
     expect(state.running, isTrue);

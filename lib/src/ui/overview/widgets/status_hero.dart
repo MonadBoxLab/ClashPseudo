@@ -476,7 +476,7 @@ class StatusHero extends StatelessWidget {
                           child: StatusText(
                             controller.loading || !state.confirmed
                                 ? strings.modeUnconfirmed
-                                : running
+                                : state.usesRuntimeMode
                                 ? state.mode == null
                                       ? strings.modeRunningUnconfirmed
                                       : strings.modeRunning(

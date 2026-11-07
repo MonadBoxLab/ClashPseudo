@@ -149,6 +149,136 @@ void main() {
     expect(AppTaskActivity.routeIsActive(reader, ownedPopup: dialog), isTrue);
   }
 
+  AppSnapshot lanSnapshot({
+    TunnelMode? mode,
+    String corePhase = 'ready',
+    String? resultId,
+    bool resultSuccess = false,
+  }) => AppSnapshot.fromMap({
+    'phase': 'STOPPED',
+    'storageReady': true,
+    'storageEpoch': 0,
+    'lanRunning': corePhase == 'ready',
+    'mode': mode?.name,
+    'resultId': resultId,
+    'resultSuccess': resultSuccess,
+    'core': {
+      'phase': corePhase,
+      'processId': 'lan-process',
+      'inputId': 'lan-input',
+      'generation': 1,
+      'configId': 'one',
+      'revision': 1,
+      'composition': 'lan-composition',
+      'purpose': 'RUNNING',
+    },
+  });
+
+  testWidgets('LAN mode waits for actual and returns to fallback after exit', (
+    tester,
+  ) async {
+    controller.collection = ConfigCollection(
+      entries: [],
+      mode: TunnelMode.direct,
+    );
+    controller.state = lanSnapshot();
+    await show(tester);
+    await tester.pumpAndSettle();
+    final strings = AppLocalizations.of(
+      tester.element(find.byType(OverviewPage)),
+    );
+    expect(find.text(strings.modeRunningUnconfirmed), findsOneWidget);
+    expect(find.text(strings.modeSavedIdle(strings.modeDirect)), findsNothing);
+    expect(controller.canChangeMode, isFalse);
+    expect(
+      tester
+          .widget<TextButton>(find.byKey(const ValueKey('mode-trigger')))
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester.widget<PowerRipples>(find.byType(PowerRipples)).emitting,
+      isFalse,
+    );
+    expect(find.byType(SnackBar), findsNothing);
+
+    controller.state = lanSnapshot(mode: TunnelMode.global);
+    controller.changed();
+    await tester.pumpAndSettle();
+    expect(find.text(strings.modeRunning(strings.modeGlobal)), findsOneWidget);
+    expect(controller.canChangeMode, isTrue);
+    await open(tester);
+    final global = find.byKey(const ValueKey('mode-global'));
+    Color? background(Finder button) => tester
+        .widget<OutlinedButton>(button)
+        .style!
+        .backgroundColor!
+        .resolve({});
+    expect(background(global), AppTheme.light.colorScheme.surfaceContainer);
+    expect(
+      find.text('${strings.modeDirect} · ${strings.modeFallbackLabel}'),
+      findsOneWidget,
+    );
+
+    controller.state = lanSnapshot();
+    controller.changed();
+    await tester.pumpAndSettle();
+    for (final mode in TunnelMode.values) {
+      final button = find.byKey(ValueKey('mode-${mode.name}'));
+      expect(background(button), AppTheme.light.colorScheme.surface);
+      expect(tester.widget<OutlinedButton>(button).onPressed, isNull);
+    }
+    expect(find.byType(SnackBar), findsNothing);
+
+    controller.state = const AppSnapshot(phase: 'STOPPED');
+    controller.changed();
+    await tester.pumpAndSettle();
+    final direct = find.byKey(const ValueKey('mode-direct'));
+    expect(background(direct), AppTheme.light.colorScheme.surfaceContainer);
+    expect(tester.widget<OutlinedButton>(direct).onPressed, isNotNull);
+    await tester.tap(direct);
+    await tester.pumpAndSettle();
+    expect(find.byType(ModeSheet), findsNothing);
+    expect(controller.commands, isEmpty);
+    expect(
+      find.text(strings.modeSavedIdle(strings.modeDirect)),
+      findsOneWidget,
+    );
+  });
+
+  for (final actual in [TunnelMode.direct, TunnelMode.global, null]) {
+    testWidgets(
+      'LAN fallback selection submits and closes only after actual confirmation $actual',
+      (tester) async {
+        controller.collection = ConfigCollection(
+          entries: [],
+          mode: TunnelMode.direct,
+        );
+        controller.state = lanSnapshot(mode: TunnelMode.global);
+        await show(tester);
+        await open(tester);
+        await tester.tap(find.byKey(const ValueKey('mode-direct')));
+        await tester.pump();
+        expect(controller.commands, [
+          {'action': 'setMode', 'mode': 'direct', 'storageEpoch': 0},
+        ]);
+        expect(find.byType(ModeSheet), findsOneWidget);
+        controller.state = lanSnapshot(
+          mode: actual,
+          resultId: 'operation-1',
+          resultSuccess: true,
+        );
+        controller.changed();
+        await tester.pumpAndSettle();
+        expect(
+          find.byType(ModeSheet),
+          actual == TunnelMode.direct ? findsNothing : findsOneWidget,
+        );
+        expect(controller.collection.mode, TunnelMode.direct);
+      },
+    );
+  }
+
   Future<void> openErrorDetails(
     WidgetTester tester,
     String summary, {
@@ -912,6 +1042,87 @@ void main() {
     );
     await tester.pumpWidget(const SizedBox());
   });
+
+  for (final failed in [false, true]) {
+    testWidgets(
+      'open mode sheet waits for decoded startup mode before actual or failure failed=$failed',
+      (tester) async {
+        controller.collection = ConfigCollection(
+          entries: [],
+          mode: TunnelMode.global,
+        );
+        await show(tester);
+        await open(tester);
+        Map<String, dynamic> snapshot(String phase) => {
+          'phase': phase == 'loading' ? 'STARTING' : 'RUNNING',
+          'storageReady': true,
+          'storageEpoch': 0,
+          'core': {
+            'phase': phase,
+            'purpose': 'RUNNING',
+            'processId': 'mode-process',
+            'inputId': 'mode-input',
+            'generation': 1,
+            'networkRevision': 1,
+            'configId': 'one',
+            'revision': 1,
+            'composition': '["one",1]',
+          },
+          'mode': null,
+          'modeError': null,
+        };
+        for (final phase in ['loading', 'ready']) {
+          controller.state = AppSnapshot.fromMap(snapshot(phase));
+          controller.changed();
+          await tester.pump();
+          expect(controller.state.modeErrorMessage, isNull);
+          expect(find.byType(SnackBar), findsNothing);
+          await tester.pump(const Duration(seconds: 5));
+          expect(find.byType(SnackBar), findsNothing);
+          for (final mode in TunnelMode.values) {
+            final button = tester.widget<OutlinedButton>(
+              find.byKey(ValueKey('mode-${mode.name}')),
+            );
+            expect(
+              button.style!.backgroundColor!.resolve({}),
+              AppTheme.light.colorScheme.surface,
+            );
+          }
+        }
+        controller.state = AppSnapshot.fromMap({
+          ...snapshot('ready'),
+          'mode': failed ? null : 'direct',
+          'modeError': failed
+              ? messages.temporaryModeUnknown
+                    .withDetail(_modeFailureDetail)
+                    .toMap()
+              : null,
+        });
+        controller.changed();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(find.byType(ModeSheet), findsOneWidget);
+        if (failed) {
+          expect(find.byType(SnackBar), findsOneWidget);
+          expect(controller.state.modeErrorMessage!.detail, _modeFailureDetail);
+        } else {
+          expect(find.byType(SnackBar), findsNothing);
+          expect(controller.state.mode, TunnelMode.direct);
+          final direct = tester.widget<OutlinedButton>(
+            find.byKey(const ValueKey('mode-direct')),
+          );
+          expect(
+            direct.style!.backgroundColor!.resolve({}),
+            AppTheme.light.colorScheme.surfaceContainer,
+          );
+          expect(direct.onPressed, isNotNull);
+        }
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
 
   testWidgets(
     'unknown mode does not masquerade as preference or prevent stopping',
