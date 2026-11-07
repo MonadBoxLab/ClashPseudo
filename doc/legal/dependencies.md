@@ -44,7 +44,7 @@ re_editor的本地源码位于[third_party/sources/re_editor](../../third_party/
 
 ## 文件导入与cross_file
 
-cross_file固定为0.3.5+5，声明与归档摘要分别见pubspec.yaml和pubspec.lock。配置及插件导入由自有Android SAF接入负责选择、后台有界读取和FD关闭；Dart仅用XFile.fromData承载已读取的bytes，并复用流式字节检查及严格UTF-8解码。file_selector及其平台实现已移除，cross_file不承担系统选择器或外部文件缓存。cross_file的许可原文随所选Pub源码保留，并由Flutter构建流程合入NOTICES.Z；升级时核对实际使用的XFile接口及随包通知。
+cross_file在pubspec.yaml中使用兼容版本范围，实际版本与归档摘要记录在提交的pubspec.lock中；发布前由更新器检查可解析的新版本，同步更新声明范围和锁文件。配置及插件导入由自有Android SAF接入负责选择、后台有界读取和FD关闭；Dart仅用XFile.fromData承载已读取的bytes，并复用流式字节检查及严格UTF-8解码。file_selector及其平台实现已移除，cross_file不承担系统选择器或外部文件缓存。cross_file的许可原文随所选Pub源码保留，并由Flutter构建流程合入NOTICES.Z；升级时核对实际使用的XFile接口及随包通知。
 
 ## Dart覆盖率开发依赖
 

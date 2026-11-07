@@ -105,7 +105,7 @@ class Updater:
     def update_pub(self, updates):
         if not updates:
             return
-        descriptors = [("dev:" if kind == "dev" else "") + name + "@" + version
+        descriptors = [("dev:" if kind == "dev" else "") + name + "@^" + version
                        for name, (version, kind) in sorted(updates.items())]
         self.run([self.flutter, "pub", "add", "--no-example", *descriptors], self.root)
         resolved = json.loads(self.run([self.flutter, "pub", "deps", "--json"], self.root))

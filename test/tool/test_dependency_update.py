@@ -401,11 +401,12 @@ class UpdateTest(unittest.TestCase):
                                 "resolvable": {"version": "1.0.1"}, "latest": {"version": "2.0.0"}}]}
         dependencies = {"packages": [{"name": "coverage", "source": "hosted", "version": "1.0.0"}]}
         with mock.patch.object(packages, "run", side_effect=["", json.dumps(output), json.dumps(dependencies), "",
-                    json.dumps({"packages": [{"name": "coverage", "version": "1.0.1"}]}), ""]) as process:
+                    json.dumps({"packages": [{"name": "coverage", "version": "1.0.2"}]}), ""]) as process:
             updates = updater.pub_updates(["coverage"])
             updater.update_pub(updates)
-        self.assertEqual(updates, {"coverage": ("1.0.1", "dev")})
-        self.assertIn("dev:coverage@1.0.1", process.call_args_list[3].args[0])
+        self.assertEqual(updates, {"coverage": ("1.0.2", "dev")})
+        self.assertEqual(updater.resolution["pub"]["coverage"]["selected"], "1.0.2")
+        self.assertIn("dev:coverage@^1.0.1", process.call_args_list[3].args[0])
 
     def test_android_library_update_preserves_build_plugins(self):
         path = self.root / "android/app/build.gradle.kts"

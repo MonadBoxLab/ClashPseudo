@@ -22,7 +22,7 @@
 ## 事实来源与开发约定
 
 - 自有工具统一通过[tool/main.py](tool/main.py)调用，每级支持 `-h/--help`。跨语言常量以[contracts/application.json](contracts/application.json)为来源，使用 `python3 -I -B tool/main.py contracts generate` 生成 Dart／Kotlin／Go／C 定义，使用 `contracts check` 检查一致性。
-- 禁止固定版本。发布必须更新依赖，沿用 `scope=all` 的更新流程，不得以已有测试通过、验证输入不变或发布稳定性为由冻结版本、跳过更新或改走固定旧版本的发布路径。
+- Pub依赖在 `pubspec.yaml` 中使用兼容版本范围，提交 `pubspec.lock` 记录实际解析结果；不永久固定旧版，也不统一改成 `any`。发布前沿用 `scope=all` 主动更新依赖，更新器同步调整兼容范围与锁文件，不以已有测试通过为由跳过更新。
 - 依赖版本以声明、锁文件和实际解析为准：Flutter见[pubspec.yaml](pubspec.yaml)／[pubspec.lock](pubspec.lock)，Go见[go.mod](native/mihomo/go.mod)／[go.sum](native/mihomo/go.sum)。Go生产tags为 `cmfa,with_gvisor`。
 - re_editor使用[本地适配](third_party/sources/re_editor/)，来源与修改见[PATCHES](third_party/sources/re_editor/PATCHES.md)。
 - 自有文档使用中文，第三方原文和原始输出保持来源身份。README面向应用用户，doc面向产品与维护者。

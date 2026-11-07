@@ -47,6 +47,8 @@ python3 -I -B tool/main.py android build-core \
 
 ## 依赖更新与应用版本
 
+Pub依赖在pubspec.yaml中使用`^`兼容版本范围，pubspec.lock纳入Git，记录本次解析的精确版本与摘要。发布前主动更新依赖；更新器使用Pub报告的可解析版本调整兼容范围，并同步锁文件。普通构建沿用锁文件，不在构建过程中另选版本。
+
 `dependencies check` 与 `dependencies apply` 共用候选解析。默认 `--scope all` 检查 mihomo、其他直接 Go 依赖、hosted Pub、Maven 和 CA／Geo；CA 或其他依赖单独变化也会生成候选。`check` 输出差异，不写回项目输入；`apply` 在临时副本中完成解析及许可收集后，事务写回声明、锁文件、通知和固定资源记录。
 
 ```sh
