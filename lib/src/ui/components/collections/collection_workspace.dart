@@ -119,11 +119,13 @@ class CollectionWorkspaceState extends State<CollectionWorkspace>
 
   bool get showingDetail => _showDetail && widget.detail != null;
 
-  /// 当前布局是否显示详情；页面是否允许操作需要另行检查。
-  /// 详情中的弹窗还须核对弹窗路由、选中对象及来源页面是否仍与打开时一致。
+  /// Whether the layout shows details; check page interaction eligibility separately.
+  /// Detail popups must also verify their route, selected object, and source page still
+  /// match those at opening.
   bool get detailPresented => widget.detail != null && _historyWanted;
 
-  /// 当前布局是否显示主列表；页面是否允许操作需要另行检查。
+  /// Whether the layout shows the main list; check page interaction eligibility
+  /// separately.
   bool get masterPresented => _to?.masterOpacity == 1;
 
   bool get masterVisible => widget.active && _masterVisible == true;

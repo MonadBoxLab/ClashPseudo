@@ -56,7 +56,7 @@ func TestRulesProjectOnlyPublicDirectGeoReferences(t *testing.T) {
 				t.Fatal(err)
 			}
 			if len(rows) != 1 {
-				t.Fatal("实际规则没有逐条导出")
+				t.Fatal("actual rules were not exported one at a time")
 			}
 			got := strings.Join(rows[0].Resources, ",")
 			if got != fixture.want {
@@ -84,7 +84,7 @@ func (p diagnosticDumpProvider) Behavior() P.RuleBehavior { return p.behavior }
 func (p diagnosticDumpProvider) Count() int               { return p.strategy.Count() }
 func (p diagnosticDumpProvider) Strategy() any            { return p.strategy }
 
-// 每项benchmark在独立process运行benchtime=1x；RSS包括输入构造，查询heap每1ms采样。
+// Each benchmark runs in a separate process with benchtime=1x; RSS includes input construction, and query heap usage is sampled every 1 ms.
 func BenchmarkRulesStream(b *testing.B) {
 	for _, behavior := range []P.RuleBehavior{P.Domain, P.IPCIDR} {
 		b.Run(behavior.String(), func(b *testing.B) {
@@ -101,7 +101,7 @@ func BenchmarkRulesStream(b *testing.B) {
 						if behavior == P.Domain {
 							strategy.Insert(fmt.Sprintf("n%07d.fixture.test", index))
 						} else {
-							// 使用稀疏地址，避免CIDR合并改变输入数量。
+							// Use sparse addresses so CIDR merging does not change the input count.
 							strategy.Insert(fmt.Sprintf("2001:db8::%x:%x/128", index>>15, (index&0x7fff)*2))
 						}
 					}
@@ -156,7 +156,7 @@ func BenchmarkRulesStream(b *testing.B) {
 						b.Fatal(err)
 					}
 					if emitted != count {
-						b.Fatalf("逐条导出数量=%d，期望%d", emitted, count)
+						b.Fatalf("exported record count=%d, want %d", emitted, count)
 					}
 					runtime.KeepAlive(strategy)
 				})

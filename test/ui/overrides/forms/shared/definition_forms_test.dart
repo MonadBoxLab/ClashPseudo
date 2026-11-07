@@ -1612,56 +1612,59 @@ void main() {
     );
   }
 
-  testWidgets('校验不改变字段高度且错误通过 Semantics hint 提供', (tester) async {
-    final semantics = tester.ensureSemantics();
-    try {
-      final form = GlobalKey<FormState>();
-      await tester.pumpWidget(
-        MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          locale: const Locale('en'),
-          home: Scaffold(
-            body: Form(
-              key: form,
-              child: Column(
-                children: [
-                  DefinitionTextField(
-                    id: 'test',
-                    label: 'required-name',
-                    required: true,
-                    onSaved: (_) {},
-                  ),
-                  const Text('anchor', key: ValueKey('anchor')),
-                ],
+  testWidgets(
+    'validation preserves field height and exposes errors through Semantics hints',
+    (tester) async {
+      final semantics = tester.ensureSemantics();
+      try {
+        final form = GlobalKey<FormState>();
+        await tester.pumpWidget(
+          MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('en'),
+            home: Scaffold(
+              body: Form(
+                key: form,
+                child: Column(
+                  children: [
+                    DefinitionTextField(
+                      id: 'test',
+                      label: 'required-name',
+                      required: true,
+                      onSaved: (_) {},
+                    ),
+                    const Text('anchor', key: ValueKey('anchor')),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-      );
-      final before = tester.getRect(keyed('anchor'));
-      expect(find.bySemanticsLabel(RegExp(r'Enter a value\.')), findsNothing);
-      expect(form.currentState!.validate(), isFalse);
-      await tester.pump();
-      expect(tester.getRect(keyed('anchor')), before);
-      expect(
-        tester
-            .getSemantics(keyed('definition-input:test'))
-            .getSemanticsData()
-            .hint,
-        contains('Enter a value.'),
-      );
-      expect(
-        tester
-            .widget<TextField>(keyed('definition-input:test'))
-            .decoration!
-            .errorText,
-        isNull,
-      );
-    } finally {
-      semantics.dispose();
-    }
-  });
+        );
+        final before = tester.getRect(keyed('anchor'));
+        expect(find.bySemanticsLabel(RegExp(r'Enter a value\.')), findsNothing);
+        expect(form.currentState!.validate(), isFalse);
+        await tester.pump();
+        expect(tester.getRect(keyed('anchor')), before);
+        expect(
+          tester
+              .getSemantics(keyed('definition-input:test'))
+              .getSemanticsData()
+              .hint,
+          contains('Enter a value.'),
+        );
+        expect(
+          tester
+              .widget<TextField>(keyed('definition-input:test'))
+              .decoration!
+              .errorText,
+          isNull,
+        );
+      } finally {
+        semantics.dispose();
+      }
+    },
+  );
 
   testWidgets(
     'suggestion arrivals do not change input geometry or composing text',

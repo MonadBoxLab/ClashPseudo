@@ -419,156 +419,163 @@ void main() {
 
   for (final scale in [1.0, 2.0]) {
     for (final change in ['identity', 'text']) {
-      testWidgets('复制失败保留阅读位置和选择，旧来源 action 失效 $scale/$change', (tester) async {
-        final reply = Completer<void>();
-        final failure = PlatformFailure(
-          code: 'fixture',
-          message: 'copy 原文\r\n',
-        );
-        final copies = <String>[];
-        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          SystemChannels.platform,
-          (call) async {
-            if (call.method == 'Clipboard.setData') {
-              copies.add((call.arguments as Map)['text'] as String);
-              if (copies.length == 1) await reply.future;
-              if (copies.length <= 2) throw failure;
-            }
-            return null;
-          },
-        );
-        addTearDown(
-          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      testWidgets(
+        'copy failure preserves reading position and selection while invalidating old-source actions $scale/$change',
+        (tester) async {
+          final reply = Completer<void>();
+          final failure = PlatformFailure(
+            code: 'fixture',
+            message: 'copy 原文\r\n',
+          );
+          final copies = <String>[];
+          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
             SystemChannels.platform,
-            null,
-          ),
-        );
-        final observer = AppTaskNavigatorObserver();
-        Widget host(String text, String identity) => MaterialApp(
-          navigatorObservers: [observer],
-          locale: const Locale('en'),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(context)
-                .copyWith(textScaler: TextScaler.linear(scale)),
-            child: child!,
-          ),
-          home: Scaffold(
-            body: OriginalTextView(text: text, identity: identity),
-          ),
-        );
-        const original = '﻿first 原文🙂\r\nsecond\rthird\n';
-        await tester.pumpWidget(host(original, 'source-a'));
-        final reader = find.byType(OriginalTextView);
-        final body = find.byKey(const ValueKey('original-text-blocks'));
-        final copy = find.byKey(const ValueKey('original-text-copy'));
-        final block = find.byType(SelectableText).first;
-        final editing = tester.widget<EditableText>(
-          find.descendant(of: block, matching: find.byType(EditableText)),
-        );
-        final cachedCopy = tester.widget<IconButton>(copy).onPressed!;
-        await tester.tap(copy);
-        await tester.pump();
-        editing.focusNode.requestFocus();
-        editing.controller.selection = const TextSelection(
-          baseOffset: 1,
-          extentOffset: 7,
-        );
-        await tester.pump();
-        final selection = editing.controller.selection;
-        final readerState = tester.state(reader);
-        final blockState = tester.state(block);
-        final position = tester
-            .state<ScrollableState>(
-              find
-                  .descendant(of: body, matching: find.byType(Scrollable))
-                  .first,
-            )
-            .position;
-        final offset = position.pixels;
-        final targets = [reader, body, copy, block];
-        final rectangles = targets.map(tester.getRect).toList();
-        expect(editing.focusNode.hasFocus, isTrue);
-        expect(tester.getSize(copy).height, greaterThanOrEqualTo(48));
-        reply.complete();
-        for (final milliseconds in [0, 16, 100, 200]) {
-          await tester.pump(Duration(milliseconds: milliseconds));
-          expect(targets.map(tester.getRect).toList(), rectangles);
-          expect(tester.state(reader), same(readerState));
-          expect(tester.state(block), same(blockState));
-          expect(editing.controller.selection, selection);
+            (call) async {
+              if (call.method == 'Clipboard.setData') {
+                copies.add((call.arguments as Map)['text'] as String);
+                if (copies.length == 1) await reply.future;
+                if (copies.length <= 2) throw failure;
+              }
+              return null;
+            },
+          );
+          addTearDown(
+            () => tester.binding.defaultBinaryMessenger
+                .setMockMethodCallHandler(SystemChannels.platform, null),
+          );
+          final observer = AppTaskNavigatorObserver();
+          Widget host(String text, String identity) => MaterialApp(
+            navigatorObservers: [observer],
+            locale: const Locale('en'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: TextScaler.linear(scale)),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: OriginalTextView(text: text, identity: identity),
+            ),
+          );
+          const original = '﻿first 原文🙂\r\nsecond\rthird\n';
+          await tester.pumpWidget(host(original, 'source-a'));
+          final reader = find.byType(OriginalTextView);
+          final body = find.byKey(const ValueKey('original-text-blocks'));
+          final copy = find.byKey(const ValueKey('original-text-copy'));
+          final block = find.byType(SelectableText).first;
+          final editing = tester.widget<EditableText>(
+            find.descendant(of: block, matching: find.byType(EditableText)),
+          );
+          final cachedCopy = tester.widget<IconButton>(copy).onPressed!;
+          await tester.tap(copy);
+          await tester.pump();
+          editing.focusNode.requestFocus();
+          editing.controller.selection = const TextSelection(
+            baseOffset: 1,
+            extentOffset: 7,
+          );
+          await tester.pump();
+          final selection = editing.controller.selection;
+          final readerState = tester.state(reader);
+          final blockState = tester.state(block);
+          final position = tester
+              .state<ScrollableState>(
+                find
+                    .descendant(of: body, matching: find.byType(Scrollable))
+                    .first,
+              )
+              .position;
+          final offset = position.pixels;
+          final targets = [reader, body, copy, block];
+          final rectangles = targets.map(tester.getRect).toList();
           expect(editing.focusNode.hasFocus, isTrue);
-          expect(position.pixels, offset);
-          expect(find.byType(AlertDialog), findsNothing);
-          expect(tester.takeException(), isNull);
-        }
-        await tester.pumpAndSettle();
-        final notice = find.byType(SnackBar);
-        expect(notice, findsOneWidget);
-        final close = tester
-            .widget<IconButton>(
-              find.descendant(of: notice, matching: find.byType(IconButton)),
-            )
-            .onPressed!;
-        final details = tester
-            .widget<TextButton>(
-              find.descendant(of: notice, matching: find.byType(TextButton)),
-            )
-            .onPressed!;
-        close();
-        for (final milliseconds in [0, 16, 100, 200]) {
-          await tester.pump(Duration(milliseconds: milliseconds));
-          expect(targets.map(tester.getRect).toList(), rectangles);
-          expect(editing.controller.selection, selection);
-          expect(editing.focusNode.hasFocus, isTrue);
-          expect(position.pixels, offset);
-        }
-        await tester.pumpAndSettle();
-        cachedCopy();
-        await tester.pumpAndSettle();
-        expect(notice, findsOneWidget);
-        final current = tester.element(notice);
-        for (final action in [close, details]) {
-          action();
+          expect(tester.getSize(copy).height, greaterThanOrEqualTo(48));
+          reply.complete();
+          for (final milliseconds in [0, 16, 100, 200]) {
+            await tester.pump(Duration(milliseconds: milliseconds));
+            expect(targets.map(tester.getRect).toList(), rectangles);
+            expect(tester.state(reader), same(readerState));
+            expect(tester.state(block), same(blockState));
+            expect(editing.controller.selection, selection);
+            expect(editing.focusNode.hasFocus, isTrue);
+            expect(position.pixels, offset);
+            expect(find.byType(AlertDialog), findsNothing);
+            expect(tester.takeException(), isNull);
+          }
           await tester.pumpAndSettle();
-          expect(tester.element(notice), same(current));
-          expect(find.byType(AlertDialog), findsNothing);
-          expect(editing.controller.selection, selection);
-          expect(editing.focusNode.hasFocus, isTrue);
-        }
-        final oldActions = [
-          tester
+          final notice = find.byType(SnackBar);
+          expect(notice, findsOneWidget);
+          final close = tester
               .widget<IconButton>(
                 find.descendant(of: notice, matching: find.byType(IconButton)),
               )
-              .onPressed!,
-          tester
+              .onPressed!;
+          final details = tester
               .widget<TextButton>(
                 find.descendant(of: notice, matching: find.byType(TextButton)),
               )
-              .onPressed!,
-          cachedCopy,
-        ];
-        final nextText = change == 'text' ? '﻿next 原文\r\n' : original;
-        await tester.pumpWidget(
-          host(nextText, change == 'identity' ? 'source-b' : 'source-a'),
-        );
-        await tester.pumpAndSettle();
-        for (final action in oldActions) {
-          action();
+              .onPressed!;
+          close();
+          for (final milliseconds in [0, 16, 100, 200]) {
+            await tester.pump(Duration(milliseconds: milliseconds));
+            expect(targets.map(tester.getRect).toList(), rectangles);
+            expect(editing.controller.selection, selection);
+            expect(editing.focusNode.hasFocus, isTrue);
+            expect(position.pixels, offset);
+          }
           await tester.pumpAndSettle();
-          expect(find.byType(AlertDialog), findsNothing);
-          expect(find.byType(SnackBar), findsNothing);
-          expect(copies, [original, original]);
-        }
-        await tester.tap(copy);
-        await tester.pumpAndSettle();
-        expect(copies, [original, original, nextText]);
-        expect(tester.state(reader), same(readerState));
-        expect(tester.takeException(), isNull);
-        await tester.pumpWidget(const SizedBox());
-      });
+          cachedCopy();
+          await tester.pumpAndSettle();
+          expect(notice, findsOneWidget);
+          final current = tester.element(notice);
+          for (final action in [close, details]) {
+            action();
+            await tester.pumpAndSettle();
+            expect(tester.element(notice), same(current));
+            expect(find.byType(AlertDialog), findsNothing);
+            expect(editing.controller.selection, selection);
+            expect(editing.focusNode.hasFocus, isTrue);
+          }
+          final oldActions = [
+            tester
+                .widget<IconButton>(
+                  find.descendant(
+                    of: notice,
+                    matching: find.byType(IconButton),
+                  ),
+                )
+                .onPressed!,
+            tester
+                .widget<TextButton>(
+                  find.descendant(
+                    of: notice,
+                    matching: find.byType(TextButton),
+                  ),
+                )
+                .onPressed!,
+            cachedCopy,
+          ];
+          final nextText = change == 'text' ? '﻿next 原文\r\n' : original;
+          await tester.pumpWidget(
+            host(nextText, change == 'identity' ? 'source-b' : 'source-a'),
+          );
+          await tester.pumpAndSettle();
+          for (final action in oldActions) {
+            action();
+            await tester.pumpAndSettle();
+            expect(find.byType(AlertDialog), findsNothing);
+            expect(find.byType(SnackBar), findsNothing);
+            expect(copies, [original, original]);
+          }
+          await tester.tap(copy);
+          await tester.pumpAndSettle();
+          expect(copies, [original, original, nextText]);
+          expect(tester.state(reader), same(readerState));
+          expect(tester.takeException(), isNull);
+          await tester.pumpWidget(const SizedBox());
+        },
+      );
     }
   }
 

@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// 用户从 SnackBar 打开完整错误；确认 Dialog 不经过此入口。
+/// Opens complete errors from SnackBar; confirmation Dialogs do not use this entry.
 Future<void> openNoticeDetails(WidgetTester tester) async {
   if (find.byType(AlertDialog).evaluate().isNotEmpty) return;
   await settleLocalDefinitions(tester);
@@ -26,7 +26,7 @@ Future<void> dismissNotice(WidgetTester tester) async {
   await settleLocalDefinitions(tester);
 }
 
-/// 等待实际 compute 解析及分类动画结束。
+/// Waits for actual compute parsing and category animations to finish.
 Future<void> settleLocalDefinitions(WidgetTester tester) async {
   bool parsing() =>
       tester.stateList<State>(find.byType(LocalDefinitions)).any((state) {

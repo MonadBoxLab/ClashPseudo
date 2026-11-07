@@ -396,80 +396,83 @@ void main() {
     );
   }
 
-  testWidgets('同名运行项只在精确provenance关联时共享编辑入口', (tester) async {
-    SourceContribution origin({
-      String id = 'custom',
-      int revision = 4,
-      String path = '/proxies/0',
-    }) => SourceContribution.fromMap({
-      'kind': 'plugin',
-      'id': id,
-      'revision': revision,
-      'name': _entry.name,
-      'role': 'localCustom',
-      'path': path,
-    });
-    final sources = ValueNotifier<List<SourceContribution>>([origin()]);
-    addTearDown(sources.dispose);
-    await show(
-      tester,
-      Scaffold(
-        body: ValueListenableBuilder<List<SourceContribution>>(
-          valueListenable: sources,
-          builder: (context, value, _) => LocalDefinitions(
-            app: app,
-            sections: const {LocalYamlSection.proxies},
-            builder: (context, definitions) {
-              final rows = DefinitionRows.merge([
-                {
-                  'name': 'local-node',
-                  'type': 'Direct',
-                  'provenance': {
-                    'contributors': [
-                      for (final source in value) source.toJson(),
-                    ],
+  testWidgets(
+    'same-name runtime items share edit entries only with exact provenance association',
+    (tester) async {
+      SourceContribution origin({
+        String id = 'custom',
+        int revision = 4,
+        String path = '/proxies/0',
+      }) => SourceContribution.fromMap({
+        'kind': 'plugin',
+        'id': id,
+        'revision': revision,
+        'name': _entry.name,
+        'role': 'localCustom',
+        'path': path,
+      });
+      final sources = ValueNotifier<List<SourceContribution>>([origin()]);
+      addTearDown(sources.dispose);
+      await show(
+        tester,
+        Scaffold(
+          body: ValueListenableBuilder<List<SourceContribution>>(
+            valueListenable: sources,
+            builder: (context, value, _) => LocalDefinitions(
+              app: app,
+              sections: const {LocalYamlSection.proxies},
+              builder: (context, definitions) {
+                final rows = DefinitionRows.merge([
+                  {
+                    'name': 'local-node',
+                    'type': 'Direct',
+                    'provenance': {
+                      'contributors': [
+                        for (final source in value) source.toJson(),
+                      ],
+                    },
                   },
-                },
-              ], definitions.rows);
-              return ReadingList(
-                identity: app.storageEpoch,
-                header: const SizedBox.shrink(),
-                items: [
-                  for (final row in rows)
-                    ReadingListItem(
-                      id: row['localDefinition'] ?? 'runtime',
-                      builder: (context) => ListTile(
-                        title: Text(row['name'] as String),
-                        trailing: definitions.actions(context, row),
+                ], definitions.rows);
+                return ReadingList(
+                  identity: app.storageEpoch,
+                  header: const SizedBox.shrink(),
+                  items: [
+                    for (final row in rows)
+                      ReadingListItem(
+                        id: row['localDefinition'] ?? 'runtime',
+                        builder: (context) => ListTile(
+                          title: Text(row['name'] as String),
+                          trailing: definitions.actions(context, row),
+                        ),
                       ),
-                    ),
-                ],
-              );
-            },
+                  ],
+                );
+              },
+            ),
           ),
         ),
-      ),
-    );
-    expect(find.text('local-node'), findsOneWidget);
-    expect(find.byTooltip(en.editLocalDefinition), findsOneWidget);
-    for (final value in [
-      [origin(revision: 3)],
-      [origin(id: 'another')],
-      [origin(path: '/proxies/1')],
-      <SourceContribution>[],
-    ]) {
-      sources.value = value;
-      await settleLocalDefinitions(tester);
-      await tester.drag(find.byType(CustomScrollView), const Offset(0, 200));
-      await settleLocalDefinitions(tester);
-      expect(find.text('local-node'), findsNWidgets(2));
+      );
+      expect(find.text('local-node'), findsOneWidget);
       expect(find.byTooltip(en.editLocalDefinition), findsOneWidget);
-      expect(find.text(en.localCustomTitle), findsNothing);
-    }
-    expect(store.entries.single, _entry);
-    expect(bridge.commands, isEmpty);
-    await tester.pumpWidget(const SizedBox());
-  });
+      for (final value in [
+        [origin(revision: 3)],
+        [origin(id: 'another')],
+        [origin(path: '/proxies/1')],
+        <SourceContribution>[],
+      ]) {
+        sources.value = value;
+        await settleLocalDefinitions(tester);
+        await tester.drag(find.byType(CustomScrollView), const Offset(0, 200));
+        await settleLocalDefinitions(tester);
+        expect(find.text('local-node'), findsNWidgets(2));
+        expect(find.byTooltip(en.editLocalDefinition), findsOneWidget);
+        expect(find.text(en.localCustomTitle), findsNothing);
+      }
+      expect(store.entries.single, _entry);
+      expect(bridge.commands, isEmpty);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   testWidgets(
     'editing a disabled local rule offers every actual group and local rule provider',

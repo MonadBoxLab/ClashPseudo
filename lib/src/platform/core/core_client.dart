@@ -83,7 +83,8 @@ class CoreResult {
   bool get complete => terminal['complete'] == true;
 }
 
-/// 默认进程的一条内核连接。这里只处理身份、传输及真实退出，不保存业务状态。
+/// A core connection in the default process, handling identity, transport, and actual
+/// exit without storing business state.
 class CoreClient {
   CoreClient(this.channel);
   final PlatformPort channel;
@@ -247,7 +248,8 @@ class CoreClient {
     'reason': reason,
   });
 
-  /// 通信中断不能终结请求；只有对应调用退出或远端死亡才解除执行占用。
+  /// Transport failure does not end a request; release its slot only when the call
+  /// exits or the remote process dies.
   void event(Map<String, dynamic> event) {
     final process = event['processId'];
     if (process is! String) return;
@@ -340,7 +342,9 @@ class CoreCall {
   }
 
   Stream<CoreFrame> frames() async* {
-    if (_reading || _terminal) throw StateError('内核请求只能读取一次');
+    if (_reading || _terminal) {
+      throw StateError('Core request can only be read once');
+    }
     _reading = true;
     while (!_terminal) {
       if (_death != null) {
@@ -428,7 +432,8 @@ class CoreCall {
     });
   }
 
-  /// FD 读取失败后仍等待真实退出，并保留独立 native receipt 和取消错误。
+  /// Waits for actual exit after an FD read failure, preserving the separate native
+  /// receipt and cancellation error.
   Future<Never> fail(Object failure, StackTrace stack) async {
     final previousCancelFailure = _cancelFailure;
     Object? cancelFailure;

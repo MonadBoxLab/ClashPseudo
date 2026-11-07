@@ -1,4 +1,4 @@
-"""为交付工具测试准备完整的五项固定资源，不使用网络或源码 payload。"""
+"""Prepare five complete frozen resources for delivery tool tests without network access or source payloads."""
 
 import gzip
 import hashlib

@@ -23,7 +23,7 @@ void main() {
   for (final corePhase in ['exited', 'disconnected', 'revoked', 'EMPTY']) {
     for (final mode in [null, 'rule', 'invalid']) {
       test(
-        '已停止的 core 保留历史 purpose 时不生成 mode 问题 phase=$corePhase mode=$mode',
+        'stopped core with historical purpose does not create mode issues phase=$corePhase mode=$mode',
         () {
           final raw = {
             'phase': 'STOPPED',
@@ -55,7 +55,7 @@ void main() {
   ]) {
     for (final mode in [null, 'global']) {
       test(
-        '未确认退出的 RUNNING core 仍投影实际 mode 或原错误 phase=$corePhase mode=$mode',
+        'RUNNING core without confirmed exit still projects actual mode or original error phase=$corePhase mode=$mode',
         () {
           final state = AppSnapshot.fromMap({
             'phase': 'STOPPED',
@@ -73,13 +73,13 @@ void main() {
     }
   }
 
-  test('VPN 仍报告 RUNNING 时继续检查 mode，不能仅因 core 暂无身份而移除问题', () {
+  test('VPN reporting RUNNING still checks mode; missing core identity alone does not remove issues', () {
     final state = AppSnapshot.fromMap({'phase': 'RUNNING'});
     expect(state.running, isTrue);
     expect(state.modeErrorMessage, messages.temporaryModeUnknown);
   });
 
-  test('PREVIEW core 不生成运行模式问题', () {
+  test('PREVIEW core does not create runtime mode issues', () {
     final state = AppSnapshot.fromMap({
       'phase': 'STOPPED',
       'core': source('ready', purpose: 'PREVIEW'),

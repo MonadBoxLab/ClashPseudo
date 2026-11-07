@@ -232,7 +232,7 @@ void _layoutTests(ThemeData theme) {
       final power = find.byKey(const ValueKey('power-button'));
       final before = tester.getRect(trigger);
       final powerBefore = tester.getRect(power);
-      expect(tester.getTopLeft(surface).dy - before.bottom, closeTo(32, .01));
+      expect(tester.getTopLeft(surface).dy - before.bottom, closeTo(24, .01));
       expect(before.left, 24);
       for (final state in const [
         AppSnapshot(phase: 'RUNNING', configId: 'one'),
@@ -248,7 +248,7 @@ void _layoutTests(ThemeData theme) {
           expect(tester.getRect(power), powerBefore);
           expect(
             tester.getTopLeft(surface).dy - tester.getRect(trigger).bottom,
-            closeTo(32, .01),
+            closeTo(24, .01),
           );
         }
       }

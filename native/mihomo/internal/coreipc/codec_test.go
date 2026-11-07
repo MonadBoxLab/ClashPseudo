@@ -26,11 +26,11 @@ func TestFrameFixedVectors(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !bytes.Equal(output.Bytes(), tc.wire) {
-			t.Fatalf("帧编码不匹配：%x", output.Bytes())
+			t.Fatalf("frame encoding mismatch: %x", output.Bytes())
 		}
 		frame, err := ReadFrame(bytes.NewReader(tc.wire))
 		if err != nil || frame.Kind != tc.kind || !bytes.Equal(frame.Payload, tc.body) {
-			t.Fatalf("帧解码不匹配：%v %v", frame, err)
+			t.Fatalf("frame decoding mismatch: %v %v", frame, err)
 		}
 	}
 }
@@ -40,7 +40,7 @@ func TestFrameBoundariesAndMalformedInput(t *testing.T) {
 		w := Writer{Output: &out}
 		err := w.Write(1, make([]byte, size))
 		if (err != nil) != (size > A.CoreIpcFrameBytes) {
-			t.Fatalf("大小%d：%v", size, err)
+			t.Fatalf("size %d: %v", size, err)
 		}
 		if err == nil {
 			if _, err = ReadFrame(&out); err != nil {
@@ -50,14 +50,14 @@ func TestFrameBoundariesAndMalformedInput(t *testing.T) {
 	}
 	for _, body := range [][]byte{{}, {0}, {0, 0, 0, 1}, {0, 0, 0, 1, 1}, {0, 0, 0, 0, 99}} {
 		if _, err := ReadFrame(bytes.NewReader(body)); err == nil {
-			t.Fatalf("接受了中断帧：%x", body)
+			t.Fatalf("accepted an interrupted frame: %x", body)
 		}
 	}
 	var header [5]byte
 	binary.BigEndian.PutUint32(header[:4], A.CoreIpcFrameBytes+1)
 	header[4] = 1
 	if _, err := ReadFrame(bytes.NewReader(header[:])); err == nil {
-		t.Fatal("接受了超限头")
+		t.Fatal("accepted an oversized header")
 	}
 }
 func partStream(t *testing.T, name string, declared int, body []byte, terminal bool) []byte {
@@ -86,12 +86,12 @@ func TestPartsRequireCompleteTerminalAndExactBudgets(t *testing.T) {
 			parts, err := ReadParts(bytes.NewReader(stream))
 			if size > limit {
 				if err == nil {
-					t.Fatalf("接受超限段%s", name)
+					t.Fatalf("accepted oversized part %s", name)
 				}
 				continue
 			}
 			if err != nil || !bytes.Equal(parts[name], body) {
-				t.Fatalf("段%s大小%d：%v", name, size, err)
+				t.Fatalf("part %s size %d: %v", name, size, err)
 			}
 		}
 	}
@@ -101,7 +101,7 @@ func TestPartsRequireCompleteTerminalAndExactBudgets(t *testing.T) {
 		partStream(t, "other", 0, nil, true), partStream(t, "choices", 2, []byte("{}"), true),
 	} {
 		if _, err := ReadParts(bytes.NewReader(stream)); err == nil {
-			t.Fatal("接受了不完整或无效输入")
+			t.Fatal("accepted incomplete or invalid input")
 		}
 	}
 	var out bytes.Buffer
@@ -110,7 +110,7 @@ func TestPartsRequireCompleteTerminalAndExactBudgets(t *testing.T) {
 	_ = w.JSON(4, map[string]any{"part": "request", "bytes": 0})
 	_ = w.JSON(3, map[string]bool{"complete": true})
 	if _, err := ReadParts(&out); err == nil {
-		t.Fatal("接受了重复段")
+		t.Fatal("accepted a duplicate part")
 	}
 }
 func TestRecordStreamExceedsSingleFrameBudgetAndBackpressures(t *testing.T) {
@@ -130,18 +130,18 @@ func TestRecordStreamExceedsSingleFrameBudgetAndBackpressures(t *testing.T) {
 	}()
 	select {
 	case err := <-done:
-		t.Fatalf("无消费者时未背压：%v", err)
+		t.Fatalf("no backpressure without a consumer: %v", err)
 	case <-time.After(20 * time.Millisecond):
 	}
 	for i := 0; i < 17; i++ {
 		frame, err := ReadFrame(r)
 		if err != nil || frame.Kind != 2 || len(frame.Payload) != 1<<20 {
-			t.Fatalf("记录%d：%v", i, err)
+			t.Fatalf("record %d: %v", i, err)
 		}
 	}
 	frame, err := ReadFrame(r)
 	if err != nil || frame.Kind != 3 {
-		t.Fatalf("终态：%v", err)
+		t.Fatalf("terminal: %v", err)
 	}
 	if err := <-done; err != nil {
 		t.Fatal(err)
@@ -155,7 +155,7 @@ func TestWriterRejectsFramesAfterTerminalAndRetainsIOError(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := w.Write(1, nil); err == nil {
-		t.Fatal("终态后仍能写入")
+		t.Fatal("writes were still accepted after the terminal")
 	}
 	r, p := io.Pipe()
 	_ = r.Close()
@@ -164,7 +164,7 @@ func TestWriterRejectsFramesAfterTerminalAndRetainsIOError(t *testing.T) {
 	if !errors.Is(err, io.ErrClosedPipe) {
 		var failure *Error
 		if !errors.As(err, &failure) || failure.Message != io.ErrClosedPipe.Error() {
-			t.Fatalf("写入错误丢失：%v", err)
+			t.Fatalf("write error was lost: %v", err)
 		}
 	}
 	_ = p.Close()

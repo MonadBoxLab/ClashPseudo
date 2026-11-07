@@ -1,81 +1,81 @@
-"""依赖检查、更新和固定构建输入的命令参数。"""
+"""Command arguments for dependency checks, updates, and frozen build inputs."""
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def _project(parser):
-    parser.add_argument("--project", type=Path, default=ROOT, help="应用项目目录")
+    parser.add_argument("--project", type=Path, default=ROOT, help="Application project directory")
 
 
 def _prepared(parser):
-    parser.add_argument("--prepared-resources", type=Path, help="已核验的五项资源根目录，包含 ca、geoip、geosite、mmdb、asn")
+    parser.add_argument("--prepared-resources", type=Path, help="Verified resource root containing ca, geoip, geosite, mmdb, and asn")
 
 
 def register_parser(subparsers):
     for name in ("check", "apply"):
         parser = subparsers.add_parser(
-            name, help="检查全部依赖和资源更新" if name == "check" else "应用已核验的依赖和资源更新",
-            description="解析候选并输出 JSON；check 不写回项目输入，apply 事务写回声明、锁文件、许可和版本。无真实变化不递增版本。",
-            epilog=f"示例：dependencies {name} --scope mihomo --mihomo-version v1.0.0")
+            name, help="Check all dependency and resource updates" if name == "check" else "Apply verified dependency and resource updates",
+            description="Resolve a candidate and output JSON; check leaves project inputs unchanged, while apply transactionally updates declarations, lockfiles, licenses, and versions. Unchanged inputs do not increment the version.",
+            epilog=f"Example: dependencies {name} --scope mihomo --mihomo-version v1.0.0")
         _project(parser)
-        parser.add_argument("--scope", choices=("all", "mihomo"), default="all", help="all 检查应用依赖和资源，工具链固定；mihomo 仅检查内核")
-        parser.add_argument("--mihomo-version", help="Go selector，例如 tag、commit、branch 或 latest；仅适用于 --scope mihomo")
-        parser.add_argument("--toolchain-cache", type=Path, help="固定工具链缓存目录；默认 ~/.cache/clash-pseudo/toolchains")
-        parser.add_argument("--go-module", action="append", default=[], help="选择现有直接 Go 模块，可重复")
-        parser.add_argument("--pub", action="append", default=[], help="选择现有 hosted 直接 Pub 依赖，可重复")
-        parser.add_argument("--android", action="append", default=[], help="选择现有 group:artifact，可重复")
+        parser.add_argument("--scope", choices=("all", "mihomo"), default="all", help="all checks application dependencies and resources with fixed toolchains; mihomo checks only the core")
+        parser.add_argument("--mihomo-version", help="Go selector such as a tag, commit, branch, or latest; requires --scope mihomo")
+        parser.add_argument("--toolchain-cache", type=Path, help="Fixed toolchain cache directory; defaults to ~/.cache/clash-pseudo/toolchains")
+        parser.add_argument("--go-module", action="append", default=[], help="Select an existing direct Go module; repeat for multiple modules")
+        parser.add_argument("--pub", action="append", default=[], help="Select an existing direct hosted Pub dependency; repeat for multiple dependencies")
+        parser.add_argument("--android", action="append", default=[], help="Select an existing group:artifact; repeat for multiple artifacts")
         if name == "apply":
-            parser.add_argument("--report", type=Path, help="将更新结果写入 JSON 文件，自动创建父目录")
-            parser.add_argument("--evidence", type=Path, help="保存依赖解析结果及许可通知的新目录")
+            parser.add_argument("--report", type=Path, help="Write update results to a JSON file, creating parent directories")
+            parser.add_argument("--evidence", type=Path, help="New directory for dependency resolution results and license notices")
             _prepared(parser)
-            parser.add_argument("--reuse-version", action="store_true", help="本地依赖实验沿用当前应用版本")
+            parser.add_argument("--reuse-version", action="store_true", help="Keep the current application version for local dependency experiments")
         parser.set_defaults(handler=run_update, validate_args=validate_update, apply=name == "apply")
 
     parser = subparsers.add_parser(
-        "validate", help="运行候选的测试和静态检查",
-        description="使用固定工具链执行测试与静态检查；日志和验证报告写入 output。APK 构建使用 dependencies release build。",
-        epilog="示例：dependencies validate --project /tmp/candidate --output /tmp/validation")
+        "validate", help="Run tests and static checks for the candidate",
+        description="Run tests and static checks with fixed toolchains; write logs and verification reports to output. Use dependencies release build for APK builds.",
+        epilog="Example: dependencies validate --project /tmp/candidate --output /tmp/validation")
     _project(parser)
-    parser.add_argument("--output", type=Path, required=True, help="本次验证的新输出目录")
-    parser.add_argument("--toolchain-cache", type=Path, help="固定工具链缓存目录；默认 ~/.cache/clash-pseudo/toolchains")
+    parser.add_argument("--output", type=Path, required=True, help="New output directory for this verification run")
+    parser.add_argument("--toolchain-cache", type=Path, help="Fixed toolchain cache directory; defaults to ~/.cache/clash-pseudo/toolchains")
     parser.set_defaults(handler=run_validate)
 
     parser = subparsers.add_parser(
-        "prepare-build", help="根据固定资源记录生成构建输入",
-        description="只读取固定记录；默认输出 build/generated/bundled，不更新项目依赖声明。",
-        epilog="示例：dependencies prepare-build --offline --payload-directory /tmp/assets")
+        "prepare-build", help="Generate build inputs from frozen resource records",
+        description="Read frozen records only; default output is build/generated/bundled, leaving project dependency declarations unchanged.",
+        epilog="Example: dependencies prepare-build --offline --payload-directory /tmp/assets")
     _project(parser)
     _prepared(parser)
-    parser.add_argument("--payload-directory", type=Path, help="固定 payload 根目录，例如源码包的 build-inputs/bundled/assets")
-    parser.add_argument("--output", type=Path, help="生成的 assets 和 Kotlin 文件目录；默认项目 build/generated/bundled")
-    parser.add_argument("--offline", action="store_true", help="只使用现有 payload，不下载")
+    parser.add_argument("--payload-directory", type=Path, help="Frozen payload root, such as build-inputs/bundled/assets in a source package")
+    parser.add_argument("--output", type=Path, help="Directory for generated assets and Kotlin files; defaults to build/generated/bundled in the project")
+    parser.add_argument("--offline", action="store_true", help="Use existing payloads only, without downloads")
     parser.set_defaults(handler=run_build)
 
     parser = subparsers.add_parser(
-        "prepare-toolchains", help="安装固定工具链并输出执行环境",
-        description="读取固定工具链记录，写入缓存及项目 android/local.properties，不查询最新版本。",
-        epilog="示例：dependencies prepare-toolchains --environment /tmp/toolchain-environment.json")
+        "prepare-toolchains", help="Install fixed toolchains and output the execution environment",
+        description="Read fixed toolchain records and write the cache and project android/local.properties without querying latest versions.",
+        epilog="Example: dependencies prepare-toolchains --environment /tmp/toolchain-environment.json")
     _project(parser)
-    parser.add_argument("--record", type=Path, help="固定工具链 JSON；默认读取项目 resources.json 的 toolchains")
-    parser.add_argument("--cache", type=Path, default=Path.home() / ".cache/clash-pseudo/toolchains", help="工具链缓存目录")
-    parser.add_argument("--environment", type=Path, help="环境及 archive 摘要的 JSON 输出文件；同时在 stdout 输出 JSON")
+    parser.add_argument("--record", type=Path, help="Fixed toolchain JSON; defaults to toolchains in the project resources.json")
+    parser.add_argument("--cache", type=Path, default=Path.home() / ".cache/clash-pseudo/toolchains", help="Toolchain cache directory")
+    parser.add_argument("--environment", type=Path, help="JSON output file for environment and archive digests; also emit JSON on stdout")
     parser.set_defaults(handler=run_toolchains)
 
     for name, description in (
-            ("prepare-resource", "准备单项固定资源"),
-            ("prepare-resources", "准备五项固定资源"),
-            ("prepare-resource-sources", "准备固定资源的对应源码归档")):
+            ("prepare-resource", "Prepare one frozen resource"),
+            ("prepare-resources", "Prepare five frozen resources"),
+            ("prepare-resource-sources", "Prepare corresponding source archives for frozen resources")):
         parser = subparsers.add_parser(
-            name, help=description, description=description + "；输出到独立目录，不修改依赖输入。",
-            epilog=f"示例：dependencies {name} --spec /tmp/resource-spec.json --destination /tmp/prepared")
+            name, help=description, description=description + "; output to a separate directory without changing dependency inputs.",
+            epilog=f"Example: dependencies {name} --spec /tmp/resource-spec.json --destination /tmp/prepared")
         parser.add_argument("--spec", type=Path, required=True,
-                            help="固定来源 JSON；单项为对象、五项为数组、源码准备为以 kind 为键的对象")
-        parser.add_argument("--destination", type=Path, required=True, help="尚不存在的独立输出目录")
+                            help="Frozen source JSON: an object for one resource, an array for five, or an object keyed by kind for source preparation")
+        parser.add_argument("--destination", type=Path, required=True, help="Separate output directory that does not yet exist")
         if name == "prepare-resource":
-            parser.add_argument("--resource-source", type=Path, help="已经下载的原始资源文件")
+            parser.add_argument("--resource-source", type=Path, help="Previously downloaded original resource file")
         elif name == "prepare-resources":
-            parser.add_argument("--resource-sources", type=Path, help="以 kind 为键、原始文件绝对路径为值的 JSON")
+            parser.add_argument("--resource-sources", type=Path, help="JSON mapping kinds to absolute paths of original files")
         else:
             _project(parser)
         parser.set_defaults(handler=run_resources, preparation=name)
@@ -85,9 +85,9 @@ def validate_update(args, parser):
     args.mihomo_version = args.mihomo_version or None
     if args.mihomo_version is not None:
         if args.scope != "mihomo":
-            parser.error("--mihomo-version 需要 --scope mihomo")
+            parser.error("--mihomo-version requires --scope mihomo")
     if args.scope == "mihomo" and (args.go_module or args.pub or args.android):
-        parser.error("--scope mihomo 不接受其他 Go、Pub 或 Android 更新选择")
+        parser.error("--scope mihomo does not accept other Go, Pub, or Android update selections")
 
 
 def run_update(args):
@@ -159,13 +159,13 @@ def run_resources(args):
     specs = _read_json(args.spec)
     if args.preparation == "prepare-resource-sources":
         if not isinstance(specs, dict):
-            raise ValueError("固定源码的资源参数必须是以 kind 为键的 JSON 对象")
+            raise ValueError("Frozen source resource arguments must be a JSON object keyed by kind")
         current = resources.read_release_resources(args.project)["resources"]
         for kind in sources.GEO_SOURCE_REPOSITORIES:
             if any(specs[kind][field] != current[kind][field] for field in ("sourceCommit", "sourceUrl", "version")):
-                raise ValueError("固定源码的资源参数与应用资源清单不一致：" + kind)
+                raise ValueError("Frozen source resource arguments differ from the application resource manifest: " + kind)
         if args.destination.resolve().is_relative_to(args.project.resolve()):
-            raise ValueError("固定源码目录须在项目之外")
+            raise ValueError("Frozen source directory must be outside the project")
         manifest = sources.prepare_resource_sources(specs, args.destination)
         resources.check_resource_source_selection(args.project.resolve(), resources.read_resource_sources(manifest.parent))
         return {"status": "prepared", "sources": str(manifest)}
@@ -173,10 +173,10 @@ def run_resources(args):
         paths = [resources.prepare_resource(specs, args.destination, args.resource_source)]
     else:
         if not isinstance(specs, list):
-            raise ValueError("五项资源的参数必须是 JSON 数组")
+            raise ValueError("Arguments for the five resources must be a JSON array")
         original = _read_json(args.resource_sources, 64 * 1024) if args.resource_sources else None
         if original is not None and not isinstance(original, dict):
-            raise ValueError("原件路径映射必须是 JSON 对象")
+            raise ValueError("Original file path mapping must be a JSON object")
         paths = resources.prepare_resources(specs, args.destination, original)
     return {"status": "prepared", "prepared": [str(path) for path in paths],
             "resources": [str(path / "resource.json") for path in paths]}

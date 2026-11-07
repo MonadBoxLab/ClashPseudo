@@ -151,7 +151,7 @@ class BundledGeoTest {
 
     @Test fun formalFourAssetsMatchTheInstallersFixedStoredAndExpandedFingerprints() {
         val assets = File(checkNotNull(System.getProperty("geodata.assets")))
-        assertTrue("固定 release 的 generated Geo 资源必须存在", assets.isDirectory)
+        assertTrue("Generated Geo assets for the pinned release must exist", assets.isDirectory)
         assertEquals(4, BundledGeo.Kind.entries.size)
         var expectedExpanded = 0L
         var expectedStored = 0L

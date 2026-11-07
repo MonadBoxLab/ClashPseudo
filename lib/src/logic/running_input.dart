@@ -9,7 +9,8 @@ import '../model/messages.dart';
 import '../model/app_platform.dart';
 import '../platform/core/core_input.dart';
 
-/// AppRuntime 确认的实际装载输入，定向更新只替换本次涉及的部分。
+/// The actual loaded input confirmed by AppRuntime; targeted updates replace only the
+/// affected parts.
 class RunningInput {
   const RunningInput._(
     this.state,

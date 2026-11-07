@@ -109,49 +109,56 @@ void main() {
   }
 
   for (final succeeds in [true, false]) {
-    testWidgets('About 超时重试等待实际读取结束 success=$succeeds', (tester) async {
-      final bridge = InfoBridge();
-      await tester.pumpWidget(
-        MaterialApp(
-          navigatorObservers: [AppTaskNavigatorObserver()],
-          locale: const Locale('en'),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: AboutPage(platform: bridge),
-        ),
-      );
-      await tester.pump(const Duration(seconds: 5));
-      await tester.pumpAndSettle();
-      final strings = lookupAppLocalizations(const Locale('en'));
-      expect(find.byType(SnackBar), findsOneWidget);
-      await tester.tap(
-        find.descendant(
-          of: find.byType(SnackBar),
-          matching: find.widgetWithText(TextButton, strings.retry),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(bridge.replies, hasLength(1));
-      if (succeeds) {
-        bridge.replies.first.complete(applicationInfo);
-      } else {
-        bridge.replies.first.completeError(StateError('previous read failed'));
-        await tester.pump();
-        expect(bridge.replies, hasLength(2));
-        bridge.replies.last.complete(applicationInfo);
-      }
-      await tester.pumpAndSettle();
-      expect(find.byType(SnackBar), findsNothing);
-      expect(
-        find.text(applicationInfo['coreVersion'] as String),
-        findsOneWidget,
-      );
-      expect(bridge.replies, hasLength(succeeds ? 1 : 2));
-      expect(tester.takeException(), isNull);
-    });
+    testWidgets(
+      'About timeout retry waits for the actual read to finish success=$succeeds',
+      (tester) async {
+        final bridge = InfoBridge();
+        await tester.pumpWidget(
+          MaterialApp(
+            navigatorObservers: [AppTaskNavigatorObserver()],
+            locale: const Locale('en'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: AboutPage(platform: bridge),
+          ),
+        );
+        await tester.pump(const Duration(seconds: 5));
+        await tester.pumpAndSettle();
+        final strings = lookupAppLocalizations(const Locale('en'));
+        expect(find.byType(SnackBar), findsOneWidget);
+        await tester.tap(
+          find.descendant(
+            of: find.byType(SnackBar),
+            matching: find.widgetWithText(TextButton, strings.retry),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(bridge.replies, hasLength(1));
+        if (succeeds) {
+          bridge.replies.first.complete(applicationInfo);
+        } else {
+          bridge.replies.first.completeError(
+            StateError('previous read failed'),
+          );
+          await tester.pump();
+          expect(bridge.replies, hasLength(2));
+          bridge.replies.last.complete(applicationInfo);
+        }
+        await tester.pumpAndSettle();
+        expect(find.byType(SnackBar), findsNothing);
+        expect(
+          find.text(applicationInfo['coreVersion'] as String),
+          findsOneWidget,
+        );
+        expect(bridge.replies, hasLength(succeeds ? 1 : 2));
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
-  testWidgets('About 健康状态不保留错误详情区域', (tester) async {
+  testWidgets('healthy About state does not retain an error details area', (
+    tester,
+  ) async {
     final bridge = InfoBridge();
     await tester.pumpWidget(
       MaterialApp(

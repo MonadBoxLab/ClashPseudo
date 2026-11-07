@@ -546,7 +546,9 @@ void main() {
       expect(controller.cleanupFailure, isNull);
     });
 
-    testWidgets('来源过期时保留实际测速结果', (tester) async {
+    testWidgets('actual delay results remain when the source expires', (
+      tester,
+    ) async {
       final bridge = DelayBridge()
         ..state = 'expired'
         ..members = [

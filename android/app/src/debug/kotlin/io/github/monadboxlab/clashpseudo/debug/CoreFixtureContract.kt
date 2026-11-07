@@ -1,6 +1,6 @@
 package io.github.monadboxlab.clashpseudo.debug
 
-/** 固定回归场景，不接受代码、反射目标或调用方路径。 */
+/** Fixed regression scenarios; do not accept code, reflection targets, or caller-supplied paths. */
 object CoreFixtureContract {
     const val TRUST = 1
     const val BAD_REVISION = 2

@@ -1,4 +1,4 @@
-"""依赖候选解析、范围选择、差异判定与事务写回。"""
+"""Dependency candidate resolution, scope selection, change detection, and transactional writeback."""
 import copy
 import json
 import logging
@@ -48,15 +48,15 @@ def changes_between(before, after):
 def execute(project, *, apply=False, scope="all", mihomo_version=None,
             toolchain_cache=None, go_module=(), pub=(), android=(), evidence=None,
             prepared_resources=None, reuse_version=False):
-    """check 与 apply 解析同一候选；只有 apply 写回项目输入。"""
-    require(scope in ("all", "mihomo"), "依赖更新 scope 必须为 all 或 mihomo")
-    require(mihomo_version is None or scope == "mihomo", "--mihomo-version 需要 --scope mihomo")
+    """check and apply resolve the same candidate; only apply writes project inputs."""
+    require(scope in ("all", "mihomo"), "Dependency update scope must be all or mihomo")
+    require(mihomo_version is None or scope == "mihomo", "--mihomo-version requires --scope mihomo")
     require(not (scope == "mihomo" and (go_module or pub or android or prepared_resources)),
-            "mihomo 范围不接受其他依赖或资源选择")
+            "The mihomo scope does not accept other dependency or resource selections")
     require(apply or not (evidence or reuse_version or prepared_resources),
-            "版本操作、证据和已准备资源需要 apply")
+            "Version operations, evidence, and prepared resources require apply")
     started = time.monotonic()
-    logging.info("开始依赖%s，范围：%s", "更新" if apply else "检查", scope)
+    logging.info("Starting dependency %s, scope: %s", "update" if apply else "check", scope)
     root = Path(project).resolve()
     previous_version = application_version(root)
     before = snapshot(root)
@@ -68,7 +68,7 @@ def execute(project, *, apply=False, scope="all", mihomo_version=None,
         work = base / "project"
         work.mkdir()
         copy_workspace(root, work)
-        require(snapshot(work) == before, "复制期间输入文件发生变化")
+        require(snapshot(work) == before, "Input files changed during copying")
         selected_tools = original_record["toolchains"]
         environment, _ = toolchains.prepare(
             selected_tools, Path(toolchain_cache or Path.home() / ".cache/clash-pseudo/toolchains"), work)
@@ -79,18 +79,18 @@ def execute(project, *, apply=False, scope="all", mihomo_version=None,
         current = old_modules[MIHOMO]
         go_names = ([MIHOMO] if scope == "mihomo" else list(go_module) or
                     [row["Path"] for row in manifest["Require"] if not row.get("Indirect")])
-        logging.info("查询 Go 依赖更新，mihomo 目标：%s", target)
+        logging.info("Checking Go dependency updates, mihomo target: %s", target)
         go_updates = updater.go_updates(go_names, target)
         pub_updates, android_updates = {}, {}
         if scope == "all":
-            # hosted、SDK 与 path 来源由 Pub 的依赖图区分。
+            # The Pub dependency graph distinguishes hosted, SDK, and path sources.
             pub_names = list(pub)
             android_names = list(android) or sorted({m["name"] for m in MAVEN_DECLARATION.finditer(
                 (work / "android/app/build.gradle.kts").read_text(encoding="utf-8"))})
-            logging.info("解析 Pub 依赖更新")
+            logging.info("Resolving Pub dependency updates")
             pub_updates = updater.pub_updates(pub_names)
             updater.update_pub(pub_updates)
-            logging.info("解析 Maven 依赖更新")
+            logging.info("Resolving Maven dependency updates")
             android_updates = updater.android_updates(android_names)
             if android_updates:
                 updater.update_android(android_updates)
@@ -103,19 +103,19 @@ def execute(project, *, apply=False, scope="all", mihomo_version=None,
         go_changes = changes_between(old_modules, new_modules)
         legal = updater.legal(base)
         if scope == "all" or go_changes:
-            logging.info("更新 Go 依赖许可")
+            logging.info("Updating Go dependency licenses")
             legal.go_notices()
         if scope == "all":
-            logging.info("检查 Pub 依赖许可")
+            logging.info("Checking Pub dependency licenses")
             legal.pub_licenses()
-            logging.info("更新 Maven 依赖许可")
+            logging.info("Updating Maven dependency licenses")
             legal.android_notices()
         version = application_version(work)
         candidate = copy.deepcopy(original_record)
         prepared = prepared_resources
         if scope == "all":
             if prepared is None:
-                logging.info("准备 CA、Geo 资源及对应源码")
+                logging.info("Preparing CA and Geo resources and corresponding sources")
                 delivery = sources.delivery_resources(work, base / "delivery", prepare=True)
                 prepared, source_manifest = delivery["prepared"], delivery["sources"]
             else:
@@ -127,7 +127,7 @@ def execute(project, *, apply=False, scope="all", mihomo_version=None,
                 dependencies=selected_dependencies(original_record.get("dependencies", {}), updater.resolution)
             )[resources.RESOURCE_RECORD])
         elif go_changes:
-            # 只同步本次 Go 求解的实际变化，Pub／Maven／工具链／资源字段保持原值。
+            # Apply only actual Go resolution changes; preserve Pub, Maven, toolchain, and resource fields.
             selected_go = candidate.setdefault("dependencies", {}).setdefault("go", {})
             for name, change in go_changes.items():
                 if change["selected"] is None:
@@ -154,7 +154,7 @@ def execute(project, *, apply=False, scope="all", mihomo_version=None,
         files = sorted(name for name in INPUTS if before[name] != after[name])
         check_working_tree(root, identity)
         if apply and files:
-            logging.info("写回 %d 个依赖输入文件，应用版本：%s", len(files), version)
+            logging.info("Writing %d dependency input files, application version: %s", len(files), version)
             publish_changes(root, before, after)
         report = {
             "status": ("updated" if apply else "available") if files else "unchanged",
@@ -167,5 +167,5 @@ def execute(project, *, apply=False, scope="all", mihomo_version=None,
             "toolchains": {},
             "resources": changes_between(original_record["resources"], candidate["resources"]),
         }
-    logging.info("依赖处理完成：%s，变化文件 %d 个，耗时 %.1f 秒", report["status"], len(files), time.monotonic() - started)
+    logging.info("Dependency processing completed: %s, %d changed files in %.1f seconds", report["status"], len(files), time.monotonic() - started)
     return report

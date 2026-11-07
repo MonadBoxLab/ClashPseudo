@@ -103,7 +103,7 @@ func (e *Engine) SetStrategy(name string, choice Choice, restore bool) error {
 	if !confirmed || !e.available() {
 		return errors.New("strategy application was not confirmed")
 	}
-	// 只有已确认的显式操作写入上游cache；AppRuntime恢复不冒充用户选择。
+	// Only confirmed explicit operations write to the upstream cache; AppRuntime restoration is not a user selection.
 	if !restore && e.cfg.Profile.StoreSelected {
 		cachefile.Cache().SetSelected(name, wanted)
 	}

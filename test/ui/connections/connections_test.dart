@@ -442,7 +442,7 @@ void main() {
   for (final interrupted in ['cancel', 'timeout']) {
     for (final outcome in ['closed', 'absent', 'failed', 'unconfirmed']) {
       testWidgets(
-        '排队 close 的 $interrupted 提前显示未确认并保持 owner，真实 $outcome receipt 覆盖等待消息',
+        'queued close $interrupted shows unconfirmed early while retaining owner and actual $outcome receipt replaces the waiting message',
         (tester) async {
           controller.setVisible(true);
           await tester.pump();
@@ -471,7 +471,8 @@ void main() {
             operation: operation,
           );
 
-          // 尚有预算、旧 owner 和 stale snapshot 都不能产生本次提前反馈。
+          // Remaining budget, an old owner, and a stale snapshot must not produce this
+          // early feedback.
           for (final ignored in [
             waiting(remaining: 1),
             waiting(owner: 'old-owner'),
@@ -539,41 +540,44 @@ void main() {
     }
   }
 
-  testWidgets('旧 close 的取消消息及 receipt 不影响新 owner 的 close', (tester) async {
-    bridge.data = snapshot([row('one'), row('two')]);
-    controller.setVisible(true);
-    await tester.pump();
-    controller.openDetail(controller.data!.records.first);
-    await controller.disconnect();
-    controller.closeDetail();
-    controller.openDetail(controller.data!.records.last);
-    await controller.disconnect();
-    expect(app.commands, hasLength(2));
-    app.state = AppSnapshot(
-      phase: 'RUNNING',
-      core: core,
-      operationId: 'close-1',
-      operationRemainingMs: 0,
-      operation: messages.androidErrorOperationInterrupted,
-      resultId: 'close-1',
-      connectionStatus: 'closed',
-    );
-    app.changed();
-    expect(controller.detail!.id, 'two');
-    expect(controller.closing, isTrue);
-    expect(controller.closeMessageDescription, isNull);
-    app.state = const AppSnapshot(
-      phase: 'RUNNING',
-      core: core,
-      resultId: 'close-2',
-      connectionStatus: 'absent',
-    );
-    app.changed();
-    expect(controller.closing, isFalse);
-    expect(controller.closeResult, 'absent');
-    controller.setVisible(false);
-    await tester.pump();
-  });
+  testWidgets(
+    'old close cancellation messages and receipts do not affect the new owner close',
+    (tester) async {
+      bridge.data = snapshot([row('one'), row('two')]);
+      controller.setVisible(true);
+      await tester.pump();
+      controller.openDetail(controller.data!.records.first);
+      await controller.disconnect();
+      controller.closeDetail();
+      controller.openDetail(controller.data!.records.last);
+      await controller.disconnect();
+      expect(app.commands, hasLength(2));
+      app.state = AppSnapshot(
+        phase: 'RUNNING',
+        core: core,
+        operationId: 'close-1',
+        operationRemainingMs: 0,
+        operation: messages.androidErrorOperationInterrupted,
+        resultId: 'close-1',
+        connectionStatus: 'closed',
+      );
+      app.changed();
+      expect(controller.detail!.id, 'two');
+      expect(controller.closing, isTrue);
+      expect(controller.closeMessageDescription, isNull);
+      app.state = const AppSnapshot(
+        phase: 'RUNNING',
+        core: core,
+        resultId: 'close-2',
+        connectionStatus: 'absent',
+      );
+      app.changed();
+      expect(controller.closing, isFalse);
+      expect(controller.closeResult, 'absent');
+      controller.setVisible(false);
+      await tester.pump();
+    },
+  );
 
   testWidgets(
     'unconfirmed close keeps original cause and suppressed diagnostic for presentation',
@@ -749,7 +753,7 @@ void main() {
 
   for (final clear in [false, true]) {
     testWidgets(
-      'Controller 标注 ${clear ? 'clearInactive' : 'read'} deadline，不把等待结束当成恢复',
+      'Controller marks ${clear ? 'clearInactive' : 'read'} deadline without treating the end of waiting as recovery',
       (tester) async {
         controller.setVisible(true);
         await tester.pump();
@@ -871,120 +875,124 @@ void main() {
 
   for (final interrupted in ['cancel', 'timeout']) {
     for (final outcome in ['closed', 'absent', 'failed']) {
-      testWidgets('详情在 $interrupted 后先显示未确认，实际 $outcome 随后更新界面', (
-        tester,
-      ) async {
-        await show(tester);
-        await tester.tap(find.text('one.fixture.test'));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 300));
-        await tester.pump();
-        await openActions(tester, detail: true);
-        await tester.tap(find.byKey(const ValueKey('connection-disconnect')));
-        await tester.pump();
-        final operation = interrupted == 'cancel'
-            ? messages.androidErrorOperationInterrupted
-            : messages.androidErrorOperationWaitTimeout;
-        app.state = AppSnapshot(
-          phase: 'RUNNING',
-          core: core,
-          writerBusy: true,
-          operationId: 'close-1',
-          operationAdmittedAt: 100,
-          operationDeadline: 120100,
-          operationRemainingMs: 0,
-          operation: operation,
-        );
-        app.changed();
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 300));
-        await tester.pump();
-        expect(find.text('断开结果未确认'), findsOneWidget);
-        await noticeDetails(tester);
-        expect(find.byType(AlertDialog), findsOneWidget);
-        expect(app.state.resultId, isNull);
-        expect(app.state.writerBusy, isTrue);
-        expect(app.commands, hasLength(1));
-        final menu = find.byKey(const ValueKey('connection-detail-actions'));
-        expect(find.byType(CircularProgressIndicator), findsOneWidget);
-        await tester.tap(find.text('关闭'));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 300));
-        expect(find.byType(AlertDialog), findsNothing);
-        await openActions(tester, detail: true);
-        expect(
-          tester
-              .widget<MenuItemButton>(
-                find.byKey(const ValueKey('connection-disconnect')),
-              )
-              .onPressed,
-          isNull,
-        );
-        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 300));
-        await tester.pump();
-        expect(menu.hitTestable(), findsOneWidget);
-        expect(app.commands, hasLength(1));
-
-        app.state = AppSnapshot(
-          phase: 'RUNNING',
-          core: core,
-          resultId: 'close-1',
-          connectionStatus: outcome,
-          resultMessage: outcome == 'failed'
-              ? messages.disconnectFailedShort.withDetail('原始 native failure')
-              : null,
-        );
-        app.changed();
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 300));
-        expect(find.text('断开结果未确认'), findsNothing);
-        if (outcome == 'failed') {
+      testWidgets(
+        'details show unconfirmed after $interrupted before actual $outcome updates the UI',
+        (tester) async {
+          await show(tester);
+          await tester.tap(find.text('one.fixture.test'));
           await tester.pump();
-          expect(find.text('断开失败'), findsOneWidget);
+          await tester.pump(const Duration(milliseconds: 300));
+          await tester.pump();
+          await openActions(tester, detail: true);
+          await tester.tap(find.byKey(const ValueKey('connection-disconnect')));
+          await tester.pump();
+          final operation = interrupted == 'cancel'
+              ? messages.androidErrorOperationInterrupted
+              : messages.androidErrorOperationWaitTimeout;
+          app.state = AppSnapshot(
+            phase: 'RUNNING',
+            core: core,
+            writerBusy: true,
+            operationId: 'close-1',
+            operationAdmittedAt: 100,
+            operationDeadline: 120100,
+            operationRemainingMs: 0,
+            operation: operation,
+          );
+          app.changed();
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
+          await tester.pump();
+          expect(find.text('断开结果未确认'), findsOneWidget);
           await noticeDetails(tester);
           expect(find.byType(AlertDialog), findsOneWidget);
-        } else {
-          expect(
-            find.text(outcome == 'closed' ? '已断开' : '已不活跃'),
-            findsOneWidget,
-          );
+          expect(app.state.resultId, isNull);
+          expect(app.state.writerBusy, isTrue);
+          expect(app.commands, hasLength(1));
+          final menu = find.byKey(const ValueKey('connection-detail-actions'));
+          expect(find.byType(CircularProgressIndicator), findsOneWidget);
+          await tester.tap(find.text('关闭'));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
           expect(find.byType(AlertDialog), findsNothing);
-        }
-        expect(app.commands, hasLength(1));
-        await tester.pumpWidget(const SizedBox());
-        await tester.pump();
-      });
+          await openActions(tester, detail: true);
+          expect(
+            tester
+                .widget<MenuItemButton>(
+                  find.byKey(const ValueKey('connection-disconnect')),
+                )
+                .onPressed,
+            isNull,
+          );
+          await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
+          await tester.pump();
+          expect(menu.hitTestable(), findsOneWidget);
+          expect(app.commands, hasLength(1));
+
+          app.state = AppSnapshot(
+            phase: 'RUNNING',
+            core: core,
+            resultId: 'close-1',
+            connectionStatus: outcome,
+            resultMessage: outcome == 'failed'
+                ? messages.disconnectFailedShort.withDetail('原始 native failure')
+                : null,
+          );
+          app.changed();
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
+          expect(find.text('断开结果未确认'), findsNothing);
+          if (outcome == 'failed') {
+            await tester.pump();
+            expect(find.text('断开失败'), findsOneWidget);
+            await noticeDetails(tester);
+            expect(find.byType(AlertDialog), findsOneWidget);
+          } else {
+            expect(
+              find.text(outcome == 'closed' ? '已断开' : '已不活跃'),
+              findsOneWidget,
+            );
+            expect(find.byType(AlertDialog), findsNothing);
+          }
+          expect(app.commands, hasLength(1));
+          await tester.pumpWidget(const SizedBox());
+          await tester.pump();
+        },
+      );
     }
   }
 
   for (final language in ['zh', 'en']) {
     for (final scale in [1.0, 2.0]) {
-      testWidgets('正常连接列表不为隐藏错误入口预留高度 $language scale=$scale', (tester) async {
-        tester.view.devicePixelRatio = 1;
-        tester.view.physicalSize = const Size(320, 900);
-        addTearDown(tester.view.reset);
-        await show(tester, locale: Locale(language), scale: scale);
-        final strings = AppLocalizations.of(
-          tester.element(find.byType(ConnectionsPage)),
-        );
-        final filter = find.ancestor(
-          of: find.text(strings.allConnections),
-          matching: find.byType(TextButton),
-        );
-        final list = find.byKey(const ValueKey('connection-reading-list'));
-        expect(
-          tester.getTopLeft(list).dy - tester.getBottomLeft(filter).dy,
-          12,
-        );
-        expect(
-          find.byKey(const ValueKey('connection-list-error')),
-          findsNothing,
-        );
-        expect(tester.takeException(), isNull);
-        await tester.pumpWidget(const SizedBox());
-      });
+      testWidgets(
+        'healthy connection list reserves no height for hidden error entries $language scale=$scale',
+        (tester) async {
+          tester.view.devicePixelRatio = 1;
+          tester.view.physicalSize = const Size(320, 900);
+          addTearDown(tester.view.reset);
+          await show(tester, locale: Locale(language), scale: scale);
+          final strings = AppLocalizations.of(
+            tester.element(find.byType(ConnectionsPage)),
+          );
+          final filter = find.ancestor(
+            of: find.text(strings.allConnections),
+            matching: find.byType(TextButton),
+          );
+          final list = find.byKey(const ValueKey('connection-reading-list'));
+          expect(
+            tester.getTopLeft(list).dy - tester.getBottomLeft(filter).dy,
+            12,
+          );
+          expect(
+            find.byKey(const ValueKey('connection-list-error')),
+            findsNothing,
+          );
+          expect(tester.takeException(), isNull);
+          await tester.pumpWidget(const SizedBox());
+        },
+      );
     }
     for (final withRows in [false, true]) {
       testWidgets(
@@ -1113,111 +1121,124 @@ void main() {
   }
 
   for (final dark in [false, true]) {
-    testWidgets('缺少新样本保留实际记录，不生成状态说明或错误入口 $dark', (tester) async {
-      await show(tester, dark: dark);
-      await tester.tap(find.text('one.fixture.test'));
-      await tester.pumpAndSettle();
-      final status = find.byKey(const ValueKey('connection-detail-status'));
-      final strings = AppLocalizations.of(tester.element(status));
-      final statusRect = tester.getRect(status);
-      final routingRect = tester.getRect(find.text(strings.routingResult));
-      final details = find.byKey(const ValueKey('connection-detail-error'));
-      expect(details, findsNothing);
-      bridge.data = snapshot([]);
-      await tester.pump(const Duration(seconds: 1));
-      await tester.pump();
-      expect(tester.getRect(status), statusRect);
-      expect(tester.getRect(find.text(strings.routingResult)), routingRect);
-      expect(details, findsNothing);
-      final label = find.descendant(
-        of: status,
-        matching: find.text(strings.connectionActive),
-      );
-      expect(label, findsOneWidget);
-      expect(
-        tester.widget<Text>(label).style!.color,
-        ConnectionPalette(dark).active,
-      );
-      expect(find.byIcon(Icons.pending_outlined), findsNothing);
-      expect(find.byType(AlertDialog), findsNothing);
-      expect(
-        find.descendant(
+    testWidgets(
+      'missing fresh samples preserve actual records without status explanations or error entries $dark',
+      (tester) async {
+        await show(tester, dark: dark);
+        await tester.tap(find.text('one.fixture.test'));
+        await tester.pumpAndSettle();
+        final status = find.byKey(const ValueKey('connection-detail-status'));
+        final strings = AppLocalizations.of(tester.element(status));
+        final statusRect = tester.getRect(status);
+        final routingRect = tester.getRect(find.text(strings.routingResult));
+        final details = find.byKey(const ValueKey('connection-detail-error'));
+        expect(details, findsNothing);
+        bridge.data = snapshot([]);
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pump();
+        expect(tester.getRect(status), statusRect);
+        expect(tester.getRect(find.text(strings.routingResult)), routingRect);
+        expect(details, findsNothing);
+        final label = find.descendant(
           of: status,
-          matching: find.byIcon(Icons.help_outline_rounded),
-        ),
-        findsNothing,
-      );
-      expect(
-        find.ancestor(of: status, matching: find.byType(InkWell)),
-        findsNothing,
-      );
-      expect(
-        find.byKey(const ValueKey('connection-detail-status-text')),
-        findsOneWidget,
-      );
-      await tester.pumpWidget(const SizedBox());
-    });
+          matching: find.text(strings.connectionActive),
+        );
+        expect(label, findsOneWidget);
+        expect(
+          tester.widget<Text>(label).style!.color,
+          ConnectionPalette(dark).active,
+        );
+        expect(find.byIcon(Icons.pending_outlined), findsNothing);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(
+          find.descendant(
+            of: status,
+            matching: find.byIcon(Icons.help_outline_rounded),
+          ),
+          findsNothing,
+        );
+        expect(
+          find.ancestor(of: status, matching: find.byType(InkWell)),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const ValueKey('connection-detail-status-text')),
+          findsOneWidget,
+        );
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
   }
 
-  testWidgets('读取和规则错误分别通过 SnackBar 保留真实原因', (tester) async {
-    const readError = 'read 原文\nCaused by: transport\nSuppressed: release';
-    const ruleError = 'rule 原文\nhttps://fixture.test/?token=fixture🙂';
-    bridge.data = ConnectionSnapshot.fromMap({
-      'generation': 7,
-      'configId': 'one',
-      'revision': 1,
-      'composition': 'one',
-      'purpose': 'RUNNING',
-      'sessionGeneration': 0,
-      'sampleAgeMs': 0,
-      'error': readError,
-      'connections': [
-        {...row('one'), 'ruleError': ruleError},
-      ],
-    });
-    String? copied;
-    final messenger = tester.binding.defaultBinaryMessenger;
-    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
-      if (call.method == 'Clipboard.setData') {
-        copied = call.arguments['text'] as String;
-      }
-      return null;
-    });
-    addTearDown(
-      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
-    );
-    await show(tester, taskActivity: true);
-    await noticeDetails(tester);
-    await tester.tap(find.byKey(const ValueKey('operation-technical-details')));
-    await tester.pumpAndSettle();
-    var text = find.byKey(const ValueKey('operation-technical-text'));
-    expect(tester.widget<SelectableText>(text).data, readError);
-    Navigator.of(tester.element(text)).pop();
-    await tester.pumpAndSettle();
+  testWidgets(
+    'read and rule errors retain actual causes in separate SnackBars',
+    (tester) async {
+      const readError = 'read 原文\nCaused by: transport\nSuppressed: release';
+      const ruleError = 'rule 原文\nhttps://fixture.test/?token=fixture🙂';
+      bridge.data = ConnectionSnapshot.fromMap({
+        'generation': 7,
+        'configId': 'one',
+        'revision': 1,
+        'composition': 'one',
+        'purpose': 'RUNNING',
+        'sessionGeneration': 0,
+        'sampleAgeMs': 0,
+        'error': readError,
+        'connections': [
+          {...row('one'), 'ruleError': ruleError},
+        ],
+      });
+      String? copied;
+      final messenger = tester.binding.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = call.arguments['text'] as String;
+        }
+        return null;
+      });
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+      );
+      await show(tester, taskActivity: true);
+      await noticeDetails(tester);
+      await tester.tap(
+        find.byKey(const ValueKey('operation-technical-details')),
+      );
+      await tester.pumpAndSettle();
+      var text = find.byKey(const ValueKey('operation-technical-text'));
+      expect(tester.widget<SelectableText>(text).data, readError);
+      Navigator.of(tester.element(text)).pop();
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.text('one.fixture.test'));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('connection-detail-error')), findsNothing);
-    expect(find.textContaining(ruleError), findsNothing);
-    expect(find.byTooltip(ruleError), findsNothing);
-    await noticeDetails(tester);
-    expect(find.byType(AlertDialog), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('operation-technical-text')),
-      findsNothing,
-    );
-    await tester.tap(find.byKey(const ValueKey('operation-technical-details')));
-    await tester.pumpAndSettle();
-    text = find.byKey(const ValueKey('operation-technical-text'));
-    expect(tester.widget<SelectableText>(text).data, ruleError);
-    final copy = find.byKey(const ValueKey('operation-technical-copy'));
-    await tester.ensureVisible(copy);
-    await tester.tap(copy);
-    await tester.pump();
-    expect(copied, ruleError);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox());
-  });
+      await tester.tap(find.text('one.fixture.test'));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('connection-detail-error')),
+        findsNothing,
+      );
+      expect(find.textContaining(ruleError), findsNothing);
+      expect(find.byTooltip(ruleError), findsNothing);
+      await noticeDetails(tester);
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('operation-technical-text')),
+        findsNothing,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('operation-technical-details')),
+      );
+      await tester.pumpAndSettle();
+      text = find.byKey(const ValueKey('operation-technical-text'));
+      expect(tester.widget<SelectableText>(text).data, ruleError);
+      final copy = find.byKey(const ValueKey('operation-technical-copy'));
+      await tester.ensureVisible(copy);
+      await tester.tap(copy);
+      await tester.pump();
+      expect(copied, ruleError);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   testWidgets(
     'page clears ended records without disconnecting active trackers',
@@ -1240,74 +1261,91 @@ void main() {
     },
   );
 
-  testWidgets('连接详情展示业务字段并在来源释放时关闭', (tester) async {
-    final original = {
-      ...row('one'),
-      'start': '2026-10-16T10:00:00.123456+05:30',
-      'chains': List.generate(100, (index) => '原始节点-$index'),
-      'futureField': {
-        'url':
-            'https://fixture-user:fixture-password@fixture.test/?token=fixture',
-        'nested': ['原文🌐' * 3000, '\u0000'],
-      },
-      'metadata': {...row('one')['metadata'] as Map, 'unknown': '完整 metadata'},
-    };
-    bridge.data = snapshot([original]);
-    final record = bridge.data.records.single;
-    expect(record.chains, hasLength(100));
-    expect(record.toMap().containsKey('futureField'), isFalse);
-    expect((record.toMap()['metadata'] as Map).containsKey('unknown'), isFalse);
-    await show(tester);
-    await tester.tap(find.text('one.fixture.test'));
-    await tester.pumpAndSettle();
-    expect(find.text('原始数据'), findsNothing);
-    expect(find.byKey(const ValueKey('original-text-copy')), findsNothing);
-    bridge.data = snapshot([], releasedDetailId: 'one');
-    await tester.pump(const Duration(seconds: 1));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('original-text-copy')), findsNothing);
-    expect(
-      find.byKey(const ValueKey('connection-detail-scroll')),
-      findsNothing,
-    );
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
+  testWidgets(
+    'connection details show business fields and close when the source is released',
+    (tester) async {
+      final original = {
+        ...row('one'),
+        'start': '2026-10-16T10:00:00.123456+05:30',
+        'chains': List.generate(100, (index) => '原始节点-$index'),
+        'futureField': {
+          'url': 'https://fixture-user:fixture-password@fixture.test/?token=fixture',
+          'nested': ['原文🌐' * 3000, '\u0000'],
+        },
+        'metadata': {
+          ...row('one')['metadata'] as Map,
+          'unknown': '完整 metadata',
+        },
+      };
+      bridge.data = snapshot([original]);
+      final record = bridge.data.records.single;
+      expect(record.chains, hasLength(100));
+      expect(record.toMap().containsKey('futureField'), isFalse);
+      expect(
+        (record.toMap()['metadata'] as Map).containsKey('unknown'),
+        isFalse,
+      );
+      await show(tester);
+      await tester.tap(find.text('one.fixture.test'));
+      await tester.pumpAndSettle();
+      expect(find.text('原始数据'), findsNothing);
+      expect(find.byKey(const ValueKey('original-text-copy')), findsNothing);
+      bridge.data = snapshot([], releasedDetailId: 'one');
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('original-text-copy')), findsNothing);
+      expect(
+        find.byKey(const ValueKey('connection-detail-scroll')),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 
   for (final dark in [false, true]) {
-    testWidgets('读取失败保留记录状态与正文位置 (dark=$dark)', (tester) async {
-      bridge.data = snapshot([
-        row('one'),
-        {...row('inactive'), 'active': false},
-      ]);
-      await show(tester, dark: dark);
-      final target = find.text('one.fixture.test');
-      final before = tester.getRect(target);
-      final list = find.byKey(const ValueKey('connection-reading-list'));
-      final listBefore = tester.getRect(list);
-      bridge.fail = true;
-      await tester.pump(const Duration(seconds: 1));
-      await tester.pump();
-      expect(find.text('待确认'), findsNothing);
-      expect(find.text('活跃'), findsOneWidget);
-      expect(find.text('已不活跃'), findsOneWidget);
-      expect(
-        tester.widget<Text>(find.text('活跃')).style!.color,
-        ConnectionPalette(dark).active,
-      );
-      expect(find.byKey(const ValueKey('connection-list-error')), findsNothing);
-      expect(tester.getRect(list), listBefore);
-      expect(tester.getRect(target), before);
-      bridge.fail = false;
-      bridge.data = snapshot([row('new')]);
-      await tester.pump(const Duration(seconds: 1));
-      await tester.pump();
-      expect(find.text('待确认'), findsNothing);
-      expect(find.text('new.fixture.test'), findsOneWidget);
-      expect(tester.getRect(list), listBefore);
-      expect(find.byKey(const ValueKey('connection-list-error')), findsNothing);
-      await tester.pumpWidget(const SizedBox());
-    });
+    testWidgets(
+      'read failure preserves record state and content position (dark=$dark)',
+      (tester) async {
+        bridge.data = snapshot([
+          row('one'),
+          {...row('inactive'), 'active': false},
+        ]);
+        await show(tester, dark: dark);
+        final target = find.text('one.fixture.test');
+        final before = tester.getRect(target);
+        final list = find.byKey(const ValueKey('connection-reading-list'));
+        final listBefore = tester.getRect(list);
+        bridge.fail = true;
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pump();
+        expect(find.text('待确认'), findsNothing);
+        expect(find.text('活跃'), findsOneWidget);
+        expect(find.text('已不活跃'), findsOneWidget);
+        expect(
+          tester.widget<Text>(find.text('活跃')).style!.color,
+          ConnectionPalette(dark).active,
+        );
+        expect(
+          find.byKey(const ValueKey('connection-list-error')),
+          findsNothing,
+        );
+        expect(tester.getRect(list), listBefore);
+        expect(tester.getRect(target), before);
+        bridge.fail = false;
+        bridge.data = snapshot([row('new')]);
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pump();
+        expect(find.text('待确认'), findsNothing);
+        expect(find.text('new.fixture.test'), findsOneWidget);
+        expect(tester.getRect(list), listBefore);
+        expect(
+          find.byKey(const ValueKey('connection-list-error')),
+          findsNothing,
+        );
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
   }
 
   testWidgets(
@@ -1555,50 +1593,56 @@ void main() {
     },
   );
 
-  testWidgets('读取失败与来源替换保持断开资格及错误来源', (tester) async {
-    controller.setVisible(true);
-    await tester.pump();
-    controller.openDetail(controller.data!.records.single);
-    expect(controller.detailActive, isTrue);
-    bridge.fail = true;
-    await tester.pump(const Duration(seconds: 1));
-    expect(controller.error, isNotNull);
-    app.setForeground(false);
-    expect(controller.current, isFalse);
-    app.state = const AppSnapshot(
-      phase: 'RUNNING',
-      generation: 1,
-      core: CoreSnapshot(
-        generation: 8,
-        phase: 'READY',
-        purpose: 'RUNNING',
-        configId: 'one',
-        revision: 1,
-      ),
-    );
-    app.changed();
-    expect(controller.canClose, isFalse);
-    app.state = const AppSnapshot(phase: 'UNKNOWN');
-    app.changed();
-    expect(controller.detailActive, isFalse);
-    expect(controller.data, isNull);
-    controller.setVisible(false);
-  });
+  testWidgets(
+    'read failure and source replacement preserve disconnect eligibility and error source',
+    (tester) async {
+      controller.setVisible(true);
+      await tester.pump();
+      controller.openDetail(controller.data!.records.single);
+      expect(controller.detailActive, isTrue);
+      bridge.fail = true;
+      await tester.pump(const Duration(seconds: 1));
+      expect(controller.error, isNotNull);
+      app.setForeground(false);
+      expect(controller.current, isFalse);
+      app.state = const AppSnapshot(
+        phase: 'RUNNING',
+        generation: 1,
+        core: CoreSnapshot(
+          generation: 8,
+          phase: 'READY',
+          purpose: 'RUNNING',
+          configId: 'one',
+          revision: 1,
+        ),
+      );
+      app.changed();
+      expect(controller.canClose, isFalse);
+      app.state = const AppSnapshot(phase: 'UNKNOWN');
+      app.changed();
+      expect(controller.detailActive, isFalse);
+      expect(controller.data, isNull);
+      controller.setVisible(false);
+    },
+  );
 
-  testWidgets('空集合读取失败使用 SnackBar 和错误入口，不插入状态说明', (tester) async {
-    bridge.fail = true;
-    await show(tester);
-    expect(find.text('刷新失败，正在重试'), findsNothing);
-    expect(find.byType(SnackBar), findsOneWidget);
-    await openActions(tester);
-    expect(
-      find.byKey(const ValueKey('connection-list-error-details')),
-      findsNothing,
-    );
-    expect(find.text('数据来源'), findsNothing);
-    expect(find.byType(ExpansionTile), findsNothing);
-    await tester.pumpWidget(const SizedBox());
-  });
+  testWidgets(
+    'empty collection read failure uses SnackBar and error entry without inserting status explanations',
+    (tester) async {
+      bridge.fail = true;
+      await show(tester);
+      expect(find.text('刷新失败，正在重试'), findsNothing);
+      expect(find.byType(SnackBar), findsOneWidget);
+      await openActions(tester);
+      expect(
+        find.byKey(const ValueKey('connection-list-error-details')),
+        findsNothing,
+      );
+      expect(find.text('数据来源'), findsNothing);
+      expect(find.byType(ExpansionTile), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   testWidgets(
     'missing fields omit optional rows and do not invent zero traffic',

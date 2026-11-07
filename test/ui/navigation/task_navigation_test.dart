@@ -170,243 +170,269 @@ void main() {
         }
 
         for (final scale in [1.0, 2.0]) {
-          testWidgets('表单保存栏避开系统栏并保留IME中的草稿 ${scene.name} $scale', (
-            tester,
-          ) async {
-            await mount(tester, size: scene.size, scale: scale);
+          testWidgets(
+            'form save bar avoids system bars and retains the IME draft ${scene.name} $scale',
+            (tester) async {
+              await mount(tester, size: scene.size, scale: scale);
+              insets(tester);
+              await tester.pumpAndSettle();
+              final overview = tester.state(page(OverviewPage));
+              final navigator = Navigator.of(
+                tester.element(page(OverviewPage)),
+              );
+              final route = FocusedPageRoute<void>(
+                builder: (_) => ProviderFormPage(
+                  ruleProvider: false,
+                  initialName: 'inset provider',
+                  initialDefinition: const {'type': 'inline', 'payload': []},
+                  onSave: (_, _) async =>
+                      fail('This regression must not submit a save'),
+                ),
+              );
+              unawaited(navigator.push(route));
+              await tester.pumpAndSettle();
+              final form = find.byType(ProviderFormPage);
+              final state = tester.state(form);
+              final save = find.byKey(
+                const ValueKey('definition-save:provider'),
+              );
+              final before = tester.getRect(save);
+              inside(tester, save);
+              expect(before.bottom, available(tester).bottom - 12);
+              final field = find
+                  .descendant(of: form, matching: find.byType(TextField))
+                  .first;
+              final controller = tester.widget<TextField>(field).controller!;
+              expect(controller.text, 'inset provider');
+              await tester.showKeyboard(field);
+              const draft = TextEditingValue(
+                text: 'inset provider draft',
+                selection: TextSelection(baseOffset: 2, extentOffset: 8),
+                composing: TextRange(start: 2, end: 8),
+              );
+              tester.testTextInput.updateEditingValue(draft);
+              await tester.pump();
+              final editor = tester.state(
+                find.descendant(of: field, matching: find.byType(EditableText)),
+              );
+              for (final keyboard in [180.0, 260.0, 0.0]) {
+                insets(tester, keyboard: keyboard);
+                await tester.pumpAndSettle();
+                inside(tester, save);
+                expect(
+                  tester.getRect(save).bottom,
+                  available(tester).bottom - 12,
+                );
+                expect(tester.state(form), same(state));
+                expect(
+                  tester.state(
+                    find.descendant(
+                      of: field,
+                      matching: find.byType(EditableText),
+                    ),
+                  ),
+                  same(editor),
+                );
+                expect(controller.value, draft);
+                expect(ModalRoute.of(tester.element(form)), same(route));
+                expect(Navigator.of(tester.element(form)), same(navigator));
+                expect(tester.state(page(OverviewPage)), same(overview));
+                expect(tester.takeException(), isNull);
+              }
+              expect(tester.getRect(save), before);
+              expect(app.commands, isEmpty);
+            },
+          );
+        }
+
+        testWidgets(
+          'final resource item sits fully above the system bar ${scene.name}',
+          (tester) async {
+            await mount(tester, size: scene.size, bridge: _InsetsBridge());
             insets(tester);
             await tester.pumpAndSettle();
-            final overview = tester.state(page(OverviewPage));
             final navigator = Navigator.of(tester.element(page(OverviewPage)));
             final route = FocusedPageRoute<void>(
-              builder: (_) => ProviderFormPage(
-                ruleProvider: false,
-                initialName: 'inset provider',
-                initialDefinition: const {'type': 'inline', 'payload': []},
-                onSave: (_, _) async => fail('此回归不提交保存'),
+              builder: (_) => ResourcesPage(app: app),
+            );
+            unawaited(navigator.push(route));
+            await tester.pumpAndSettle();
+            final resources = find.byType(ResourcesPage);
+            final state = tester.state(resources);
+            final last = find.widgetWithText(ListTile, 'inset-resource-39');
+            final scrollable = find
+                .descendant(
+                  of: find.descendant(
+                    of: resources,
+                    matching: find.byType(CustomScrollView),
+                  ),
+                  matching: find.byWidgetPredicate(
+                    (widget) =>
+                        widget is Scrollable &&
+                        widget.axisDirection == AxisDirection.down,
+                  ),
+                )
+                .first;
+            await tester.scrollUntilVisible(last, 600, scrollable: scrollable);
+            await tester.pumpAndSettle();
+            inside(tester, last);
+            final position = tester.state<ScrollableState>(scrollable).position;
+            final before = tester.getRect(last);
+            app.changed();
+            await tester.pumpAndSettle();
+            expect(tester.getRect(last), before);
+            expect(
+              tester.state<ScrollableState>(scrollable).position,
+              same(position),
+            );
+            expect(tester.state(resources), same(state));
+            expect(ModalRoute.of(tester.element(resources)), same(route));
+            expect(app.commands, isEmpty);
+            expect(tester.takeException(), isNull);
+          },
+        );
+
+        testWidgets(
+          'rule pagination controls sit fully above the system bar ${scene.name}',
+          (tester) async {
+            await mount(tester, size: scene.size, bridge: _InsetsBridge());
+            insets(tester);
+            await tester.pumpAndSettle();
+            final navigator = Navigator.of(tester.element(page(OverviewPage)));
+            final route = FocusedPageRoute<void>(
+              builder: (_) => RulesPage(app: app),
+            );
+            unawaited(navigator.push(route));
+            await tester.pumpAndSettle();
+            final rules = find.byType(RulesPage);
+            final state = tester.state(rules);
+            final strings = AppLocalizations.of(tester.element(rules));
+            final previous = find.byTooltip(strings.previousPage);
+            final next = find.byTooltip(strings.nextPage);
+            final label = find.byKey(const ValueKey('result-page-range'));
+            expect(find.byType(ResultPageBar), findsOneWidget);
+            expect(
+              tester.widget<Text>(label).data,
+              strings.resultRange(1, 2, 2),
+            );
+            for (final target in [previous, label, next]) {
+              inside(tester, target);
+            }
+            final footer = find.descendant(
+              of: find.byType(ResultPageBar),
+              matching: find.byType(Row),
+            );
+            expect(tester.getRect(footer).bottom, available(tester).bottom);
+            final before = [previous, label, next].map(tester.getRect).toList();
+            app.changed();
+            await tester.pumpAndSettle();
+            expect(
+              [previous, label, next].map(tester.getRect).toList(),
+              before,
+            );
+            expect(tester.state(rules), same(state));
+            expect(ModalRoute.of(tester.element(rules)), same(route));
+            expect(app.commands, isEmpty);
+            expect(tester.takeException(), isNull);
+          },
+        );
+
+        testWidgets(
+          'final technical text line sits fully above the system bar ${scene.name}',
+          (tester) async {
+            await mount(tester, size: scene.size);
+            insets(tester);
+            await tester.pumpAndSettle();
+            final navigator = Navigator.of(tester.element(page(OverviewPage)));
+            final original = '${'technical\n' * 1638}last technical row';
+            final route = FocusedPageRoute<void>(
+              builder: (_) => Scaffold(
+                appBar: AppBar(title: const Text('Technical original')),
+                body: OriginalTextView(text: original),
               ),
             );
             unawaited(navigator.push(route));
             await tester.pumpAndSettle();
-            final form = find.byType(ProviderFormPage);
-            final state = tester.state(form);
-            final save = find.byKey(const ValueKey('definition-save:provider'));
-            final before = tester.getRect(save);
-            inside(tester, save);
-            expect(before.bottom, available(tester).bottom - 12);
-            final field = find
-                .descendant(of: form, matching: find.byType(TextField))
+            final reader = find.byType(OriginalTextView);
+            final state = tester.state(reader);
+            final list = find.byKey(const ValueKey('original-text-blocks'));
+            final scrollable = find
+                .descendant(
+                  of: list,
+                  matching: find.byWidgetPredicate(
+                    (widget) =>
+                        widget is Scrollable &&
+                        widget.axisDirection == AxisDirection.down,
+                  ),
+                )
                 .first;
-            final controller = tester.widget<TextField>(field).controller!;
-            expect(controller.text, 'inset provider');
-            await tester.showKeyboard(field);
-            const draft = TextEditingValue(
-              text: 'inset provider draft',
-              selection: TextSelection(baseOffset: 2, extentOffset: 8),
-              composing: TextRange(start: 2, end: 8),
+            final last = find.text('last technical row');
+            await tester.scrollUntilVisible(
+              last,
+              600,
+              scrollable: scrollable,
+              maxScrolls: 100,
             );
-            tester.testTextInput.updateEditingValue(draft);
-            await tester.pump();
-            final editor = tester.state(
-              find.descendant(of: field, matching: find.byType(EditableText)),
+            await tester.pumpAndSettle();
+            inside(tester, last);
+            expect(tester.getRect(list).bottom, available(tester).bottom);
+            final before = tester.getRect(last);
+            final position = tester.state<ScrollableState>(scrollable).position;
+            app.changed();
+            await tester.pumpAndSettle();
+            expect(tester.getRect(last), before);
+            expect(
+              tester.state<ScrollableState>(scrollable).position,
+              same(position),
             );
-            for (final keyboard in [180.0, 260.0, 0.0]) {
-              insets(tester, keyboard: keyboard);
-              await tester.pumpAndSettle();
-              inside(tester, save);
-              expect(
-                tester.getRect(save).bottom,
-                available(tester).bottom - 12,
-              );
-              expect(tester.state(form), same(state));
-              expect(
-                tester.state(
-                  find.descendant(
-                    of: field,
-                    matching: find.byType(EditableText),
+            expect(tester.state(reader), same(state));
+            expect(tester.widget<OriginalTextView>(reader).text, original);
+            expect(ModalRoute.of(tester.element(reader)), same(route));
+            expect(app.commands, isEmpty);
+            expect(tester.takeException(), isNull);
+          },
+        );
+
+        testWidgets(
+          'ordinary pages consume bottom system insets once ${scene.name}',
+          (tester) async {
+            await mount(tester, size: scene.size);
+            insets(tester);
+            await tester.pumpAndSettle();
+            final navigator = Navigator.of(tester.element(page(OverviewPage)));
+            final route = MaterialPageRoute<void>(
+              builder: (_) => const Scaffold(
+                body: SafeArea(
+                  child: SizedBox.expand(
+                    key: ValueKey('ordinary-safe-content'),
                   ),
                 ),
-                same(editor),
-              );
-              expect(controller.value, draft);
-              expect(ModalRoute.of(tester.element(form)), same(route));
-              expect(Navigator.of(tester.element(form)), same(navigator));
-              expect(tester.state(page(OverviewPage)), same(overview));
-              expect(tester.takeException(), isNull);
-            }
-            expect(tester.getRect(save), before);
-            expect(app.commands, isEmpty);
-          });
-        }
-
-        testWidgets('资源末项完整停在系统栏上方 ${scene.name}', (tester) async {
-          await mount(tester, size: scene.size, bridge: _InsetsBridge());
-          insets(tester);
-          await tester.pumpAndSettle();
-          final navigator = Navigator.of(tester.element(page(OverviewPage)));
-          final route = FocusedPageRoute<void>(
-            builder: (_) => ResourcesPage(app: app),
-          );
-          unawaited(navigator.push(route));
-          await tester.pumpAndSettle();
-          final resources = find.byType(ResourcesPage);
-          final state = tester.state(resources);
-          final last = find.widgetWithText(ListTile, 'inset-resource-39');
-          final scrollable = find
-              .descendant(
-                of: find.descendant(
-                  of: resources,
-                  matching: find.byType(CustomScrollView),
-                ),
-                matching: find.byWidgetPredicate(
-                  (widget) =>
-                      widget is Scrollable &&
-                      widget.axisDirection == AxisDirection.down,
-                ),
-              )
-              .first;
-          await tester.scrollUntilVisible(last, 600, scrollable: scrollable);
-          await tester.pumpAndSettle();
-          inside(tester, last);
-          final position = tester.state<ScrollableState>(scrollable).position;
-          final before = tester.getRect(last);
-          app.changed();
-          await tester.pumpAndSettle();
-          expect(tester.getRect(last), before);
-          expect(
-            tester.state<ScrollableState>(scrollable).position,
-            same(position),
-          );
-          expect(tester.state(resources), same(state));
-          expect(ModalRoute.of(tester.element(resources)), same(route));
-          expect(app.commands, isEmpty);
-          expect(tester.takeException(), isNull);
-        });
-
-        testWidgets('规则分页控件完整停在系统栏上方 ${scene.name}', (tester) async {
-          await mount(tester, size: scene.size, bridge: _InsetsBridge());
-          insets(tester);
-          await tester.pumpAndSettle();
-          final navigator = Navigator.of(tester.element(page(OverviewPage)));
-          final route = FocusedPageRoute<void>(
-            builder: (_) => RulesPage(app: app),
-          );
-          unawaited(navigator.push(route));
-          await tester.pumpAndSettle();
-          final rules = find.byType(RulesPage);
-          final state = tester.state(rules);
-          final strings = AppLocalizations.of(tester.element(rules));
-          final previous = find.byTooltip(strings.previousPage);
-          final next = find.byTooltip(strings.nextPage);
-          final label = find.byKey(const ValueKey('result-page-range'));
-          expect(find.byType(ResultPageBar), findsOneWidget);
-          expect(tester.widget<Text>(label).data, strings.resultRange(1, 2, 2));
-          for (final target in [previous, label, next]) {
-            inside(tester, target);
-          }
-          final footer = find.descendant(
-            of: find.byType(ResultPageBar),
-            matching: find.byType(Row),
-          );
-          expect(tester.getRect(footer).bottom, available(tester).bottom);
-          final before = [previous, label, next].map(tester.getRect).toList();
-          app.changed();
-          await tester.pumpAndSettle();
-          expect([previous, label, next].map(tester.getRect).toList(), before);
-          expect(tester.state(rules), same(state));
-          expect(ModalRoute.of(tester.element(rules)), same(route));
-          expect(app.commands, isEmpty);
-          expect(tester.takeException(), isNull);
-        });
-
-        testWidgets('技术原文末行完整停在系统栏上方 ${scene.name}', (tester) async {
-          await mount(tester, size: scene.size);
-          insets(tester);
-          await tester.pumpAndSettle();
-          final navigator = Navigator.of(tester.element(page(OverviewPage)));
-          final original = '${'technical\n' * 1638}last technical row';
-          final route = FocusedPageRoute<void>(
-            builder: (_) => Scaffold(
-              appBar: AppBar(title: const Text('Technical original')),
-              body: OriginalTextView(text: original),
-            ),
-          );
-          unawaited(navigator.push(route));
-          await tester.pumpAndSettle();
-          final reader = find.byType(OriginalTextView);
-          final state = tester.state(reader);
-          final list = find.byKey(const ValueKey('original-text-blocks'));
-          final scrollable = find
-              .descendant(
-                of: list,
-                matching: find.byWidgetPredicate(
-                  (widget) =>
-                      widget is Scrollable &&
-                      widget.axisDirection == AxisDirection.down,
-                ),
-              )
-              .first;
-          final last = find.text('last technical row');
-          await tester.scrollUntilVisible(
-            last,
-            600,
-            scrollable: scrollable,
-            maxScrolls: 100,
-          );
-          await tester.pumpAndSettle();
-          inside(tester, last);
-          expect(tester.getRect(list).bottom, available(tester).bottom);
-          final before = tester.getRect(last);
-          final position = tester.state<ScrollableState>(scrollable).position;
-          app.changed();
-          await tester.pumpAndSettle();
-          expect(tester.getRect(last), before);
-          expect(
-            tester.state<ScrollableState>(scrollable).position,
-            same(position),
-          );
-          expect(tester.state(reader), same(state));
-          expect(tester.widget<OriginalTextView>(reader).text, original);
-          expect(ModalRoute.of(tester.element(reader)), same(route));
-          expect(app.commands, isEmpty);
-          expect(tester.takeException(), isNull);
-        });
-
-        testWidgets('普通页面只消费一次底部系统insets ${scene.name}', (tester) async {
-          await mount(tester, size: scene.size);
-          insets(tester);
-          await tester.pumpAndSettle();
-          final navigator = Navigator.of(tester.element(page(OverviewPage)));
-          final route = MaterialPageRoute<void>(
-            builder: (_) => const Scaffold(
-              body: SafeArea(
-                child: SizedBox.expand(key: ValueKey('ordinary-safe-content')),
               ),
-            ),
-          );
-          unawaited(navigator.push(route));
-          await tester.pumpAndSettle();
-          final content = find.byKey(const ValueKey('ordinary-safe-content'));
-          inside(tester, content);
-          final navigation = find.byType(NavigationBar);
-          if (navigation.evaluate().isNotEmpty) {
-            expect(
-              tester.getRect(content).bottom,
-              tester.getRect(navigation).top,
             );
-            expect(MediaQuery.paddingOf(tester.element(content)).bottom, 0);
-            expect(tester.getRect(content).left, available(tester).left);
-          } else {
-            final rail = find.byType(NavigationRail);
-            expect(rail, findsOneWidget);
-            expect(tester.getRect(content).left, tester.getRect(rail).right);
-            expect(tester.getRect(rail).left, available(tester).left);
-            expect(tester.getRect(content).bottom, available(tester).bottom);
-          }
-          expect(tester.getRect(content).right, available(tester).right);
-          expect(ModalRoute.of(tester.element(content)), same(route));
-          expect(tester.takeException(), isNull);
-        });
+            unawaited(navigator.push(route));
+            await tester.pumpAndSettle();
+            final content = find.byKey(const ValueKey('ordinary-safe-content'));
+            inside(tester, content);
+            final navigation = find.byType(NavigationBar);
+            if (navigation.evaluate().isNotEmpty) {
+              expect(
+                tester.getRect(content).bottom,
+                tester.getRect(navigation).top,
+              );
+              expect(MediaQuery.paddingOf(tester.element(content)).bottom, 0);
+              expect(tester.getRect(content).left, available(tester).left);
+            } else {
+              final rail = find.byType(NavigationRail);
+              expect(rail, findsOneWidget);
+              expect(tester.getRect(content).left, tester.getRect(rail).right);
+              expect(tester.getRect(rail).left, available(tester).left);
+              expect(tester.getRect(content).bottom, available(tester).bottom);
+            }
+            expect(tester.getRect(content).right, available(tester).right);
+            expect(ModalRoute.of(tester.element(content)), same(route));
+            expect(tester.takeException(), isNull);
+          },
+        );
       }
     });
 
@@ -415,68 +441,75 @@ void main() {
       const Size(700, 900),
       const Size(1200, 900),
     ]) {
-      testWidgets('设置二级页返回时分组直接使用当前列坐标 $size', (tester) async {
-        await mount(tester, size: size);
-        await open(tester, AppTask.settings);
-        await tester.pumpAndSettle();
-        final settings = page(SettingsPage);
-        final state = tester.state(settings);
-        final strings = AppLocalizations.of(tester.element(settings));
-        final list = find.descendant(
-          of: settings,
-          matching: find.byType(CustomScrollView, skipOffstage: false),
-          skipOffstage: false,
-        );
-        final scrollable = find
-            .descendant(
-              of: settings,
-              matching: find.byType(Scrollable, skipOffstage: false),
-              skipOffstage: false,
-            )
-            .first;
-        final position = tester.state<ScrollableState>(scrollable).position;
-        for (final (target, group) in [
-          (find.byKey(const ValueKey('settings-lan-proxy')), 1),
-          (find.text(strings.overridePlugins), 2),
-          (find.byKey(const ValueKey('settings-lan-proxy')), 1),
-        ]) {
-          await tester.scrollUntilVisible(target, 200, scrollable: scrollable);
+      testWidgets(
+        'settings groups use current column coordinates directly when returning from a subpage $size',
+        (tester) async {
+          await mount(tester, size: size);
+          await open(tester, AppTask.settings);
           await tester.pumpAndSettle();
-          final pixels = position.pixels;
-          await tester.tap(target);
-          await tester.pump();
-          await tester.pump(const Duration(milliseconds: 300));
-          expect(active(tester, SettingsPage), isFalse);
-          await tester.binding.handlePopRoute();
-          for (final ms in [0, 16, 40, 80, 180, 300]) {
-            await tester.pump(Duration(milliseconds: ms));
-            final section = find.byKey(
-              ValueKey('settings-section:$group'),
-              skipOffstage: false,
+          final settings = page(SettingsPage);
+          final state = tester.state(settings);
+          final strings = AppLocalizations.of(tester.element(settings));
+          final list = find.descendant(
+            of: settings,
+            matching: find.byType(CustomScrollView, skipOffstage: false),
+            skipOffstage: false,
+          );
+          final scrollable = find
+              .descendant(
+                of: settings,
+                matching: find.byType(Scrollable, skipOffstage: false),
+                skipOffstage: false,
+              )
+              .first;
+          final position = tester.state<ScrollableState>(scrollable).position;
+          for (final (target, group) in [
+            (find.byKey(const ValueKey('settings-lan-proxy')), 1),
+            (find.text(strings.overridePlugins), 2),
+            (find.byKey(const ValueKey('settings-lan-proxy')), 1),
+          ]) {
+            await tester.scrollUntilVisible(
+              target,
+              200,
+              scrollable: scrollable,
             );
-            final viewport = tester.renderObject<RenderBox>(list);
-            final box = tester.renderObject<RenderBox>(section);
-            final width = viewport.size.width;
-            final columns = width >= 840 ? 2 : 1;
-            final columnWidth = (width - (columns - 1) * 24) / columns;
-            expect(box.size.width, closeTo(columnWidth, .01));
-            expect(
-              box.localToGlobal(Offset.zero, ancestor: viewport).dx,
-              closeTo((group % columns) * (columnWidth + 24), .01),
-            );
-            expect(tester.state(settings), same(state));
-            expect(
-              tester.state<ScrollableState>(scrollable).position,
-              same(position),
-            );
-            expect(position.pixels, pixels);
-            expect(tester.takeException(), isNull);
+            await tester.pumpAndSettle();
+            final pixels = position.pixels;
+            await tester.tap(target);
+            await tester.pump();
+            await tester.pump(const Duration(milliseconds: 300));
+            expect(active(tester, SettingsPage), isFalse);
+            await tester.binding.handlePopRoute();
+            for (final ms in [0, 16, 40, 80, 180, 300]) {
+              await tester.pump(Duration(milliseconds: ms));
+              final section = find.byKey(
+                ValueKey('settings-section:$group'),
+                skipOffstage: false,
+              );
+              final viewport = tester.renderObject<RenderBox>(list);
+              final box = tester.renderObject<RenderBox>(section);
+              final width = viewport.size.width;
+              final columns = width >= 840 ? 2 : 1;
+              final columnWidth = (width - (columns - 1) * 24) / columns;
+              expect(box.size.width, closeTo(columnWidth, .01));
+              expect(
+                box.localToGlobal(Offset.zero, ancestor: viewport).dx,
+                closeTo((group % columns) * (columnWidth + 24), .01),
+              );
+              expect(tester.state(settings), same(state));
+              expect(
+                tester.state<ScrollableState>(scrollable).position,
+                same(position),
+              );
+              expect(position.pixels, pixels);
+              expect(tester.takeException(), isNull);
+            }
+            expect(active(tester, SettingsPage), isTrue);
+            expect(target.hitTestable(), findsOneWidget);
           }
-          expect(active(tester, SettingsPage), isTrue);
-          expect(target.hitTestable(), findsOneWidget);
-        }
-        expect(app.commands, isEmpty);
-      });
+          expect(app.commands, isEmpty);
+        },
+      );
     }
 
     testWidgets(

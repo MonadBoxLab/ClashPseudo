@@ -19,7 +19,7 @@ void main() {
   for (final purpose in ['RUNNING', 'PREVIEW']) {
     for (final stale in [false, true]) {
       testWidgets(
-        '裸 RuntimeConfig FD 正文经 CoreRuntime 到 Controller 保留配置 $purpose stale=$stale',
+        'raw RuntimeConfig FD body retains configuration through CoreRuntime to Controller $purpose stale=$stale',
         (tester) async {
           final app = await runtimeDnsUiApp(tester);
           final native = app.native;
@@ -84,47 +84,48 @@ void main() {
     }
   }
 
-  testWidgets('RuntimeConfig FD 原错误与未知字段在 drain 后完整到达 Controller', (
-    tester,
-  ) async {
-    final app = await runtimeDnsUiApp(tester);
-    final native = app.native;
-    final runtime = RuntimeConfigController(app)..setVisible(true);
-    addTearDown(() {
-      runtime.dispose();
-      app.dispose();
-    });
-    const original = {
-      'code': 'callFailed',
-      'message': 'RuntimeConfig 原错误',
-      'cause': {'message': '原始 cause'},
-      'stack': '原始 stack',
-      'suppressed': [
-        {'message': '原始 suppressed'},
-      ],
-      'future': [false, null],
-    };
-    await tester.pump();
-    final request = native
-        .calls(ApplicationContract.coreOperationRuntimeConfig)
-        .single;
-    request.complete('mode: rule\n', terminal: {'error': original});
-    await tester.pump();
-    expect(runtime.loading, isTrue);
-    expect(runtime.readError, isNull);
-    request.signalExit();
-    await tester.pump();
-    expect(runtime.status, RuntimeConfigStatus.failed);
-    expect(runtime.loading, isFalse);
-    expect(runtime.source, isNull);
-    expect(runtime.text, isEmpty);
-    expect(runtime.readError!.detail, contains(original.toString()));
-    expect(
-      runtime.status,
-      isNot(anyOf(RuntimeConfigStatus.live, RuntimeConfigStatus.preview)),
-    );
-    runtime.setVisible(false);
-  });
+  testWidgets(
+    'RuntimeConfig FD original errors and unknown fields reach Controller intact after drain',
+    (tester) async {
+      final app = await runtimeDnsUiApp(tester);
+      final native = app.native;
+      final runtime = RuntimeConfigController(app)..setVisible(true);
+      addTearDown(() {
+        runtime.dispose();
+        app.dispose();
+      });
+      const original = {
+        'code': 'callFailed',
+        'message': 'RuntimeConfig 原错误',
+        'cause': {'message': '原始 cause'},
+        'stack': '原始 stack',
+        'suppressed': [
+          {'message': '原始 suppressed'},
+        ],
+        'future': [false, null],
+      };
+      await tester.pump();
+      final request = native
+          .calls(ApplicationContract.coreOperationRuntimeConfig)
+          .single;
+      request.complete('mode: rule\n', terminal: {'error': original});
+      await tester.pump();
+      expect(runtime.loading, isTrue);
+      expect(runtime.readError, isNull);
+      request.signalExit();
+      await tester.pump();
+      expect(runtime.status, RuntimeConfigStatus.failed);
+      expect(runtime.loading, isFalse);
+      expect(runtime.source, isNull);
+      expect(runtime.text, isEmpty);
+      expect(runtime.readError!.detail, contains(original.toString()));
+      expect(
+        runtime.status,
+        isNot(anyOf(RuntimeConfigStatus.live, RuntimeConfigStatus.preview)),
+      );
+      runtime.setVisible(false);
+    },
+  );
 
   group('cross-object read ownership', () {
     testWidgets(

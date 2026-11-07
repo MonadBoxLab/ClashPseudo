@@ -192,8 +192,10 @@ class _LabelPaintingContext extends PaintingContext {
   void finishRecording() => stopRecordingIfNeeded();
 }
 
-// 单独绘制标签字形，与隐藏标签前后的图像差值比较。
-// ClipRect 裁掉的字形像素会在差值图中缺失，但标签仍可能存在于无障碍语义树中。
+// Paint label glyphs separately and compare them with the image difference before and
+// after hiding the label.
+// Glyph pixels clipped by ClipRect are absent from the difference image even if the
+// label remains in the accessibility tree.
 Future<void> expectNameLabelPainted(WidgetTester tester, String label) async {
   final paragraph = tester.renderObject<RenderParagraph>(
     find.descendant(of: keyed('dns-name'), matching: find.text(label)).first,
@@ -201,7 +203,8 @@ Future<void> expectNameLabelPainted(WidgetTester tester, String label) async {
   final boundary = tester.renderObject<RenderRepaintBoundary>(
     keyed('dns-paint-boundary'),
   );
-  // 处理当前帧中需要重新布局和绘制的渲染对象，组件与标签动画保持当前状态。
+  // Flush pending layout and paint in the current frame without advancing widget or
+  // label animations.
   void flushPaint() => tester.binding.rootPipelineOwner
     ..flushLayout()
     ..flushCompositingBits()
@@ -221,7 +224,8 @@ Future<void> expectNameLabelPainted(WidgetTester tester, String label) async {
     (context, offset) => paragraph.paint(context, offset),
   );
   painting.finishRecording();
-  // 每张图的捕获与像素读取在同一次异步操作中完成，三张图对应同一个动画帧。
+  // Capture and read pixels in one async operation per image so all three images
+  // represent the same animation frame.
   Future<ByteData?> pixels(Future<ui.Image> Function() render) =>
       tester.runAsync<ByteData?>(() async {
         final image = await render();
@@ -277,63 +281,68 @@ Future<void> expectNameLabelPainted(WidgetTester tester, String label) async {
 
 void main() {
   for (final language in ['en', 'zh']) {
-    testWidgets('裸 DNS FD 的实际成功答案在界面显示，不打开读取错误弹窗 $language', (tester) async {
-      final app = await runtimeDnsUiApp(tester);
-      addTearDown(app.dispose);
-      final native = app.native;
-      final controller = await openTool(tester, app, language: language);
-      await tester.enterText(keyed('dns-name'), 'example.com');
-      await tapKey(tester, 'dns-query');
-      final request = native
-          .calls(ApplicationContract.coreOperationDnsQuery)
-          .single;
-      request.complete(nativeDnsResult);
-      await tester.pump();
-      expect(controller.queryBusy, isTrue);
-      expect(controller.response, isNull);
-      expect(find.byType(AlertDialog), findsNothing);
-      request.signalExit();
-      await tester.pumpAndSettle();
-      final strings = AppLocalizations.of(tester.element(find.byType(DnsTool)));
-      expect(controller.status, DnsStatus.ready);
-      expect(controller.response!.answer.map((record) => record.data), [
-        '172.66.147.243',
-        '104.20.23.154',
-      ]);
-      expect(selectable(strings.dnsRcode('NOERROR', 0)), findsOneWidget);
-      expect(selectable('172.66.147.243'), findsOneWidget);
-      expect(find.text(strings.dnsElapsed(48.4008)), findsOneWidget);
-      expect(keyed('dns-edit'), findsOneWidget);
-      expect(find.byType(AlertDialog), findsNothing);
-      final scrollable = find
-          .descendant(
-            of: find.byKey(const PageStorageKey('dns-tool-scroll')),
-            matching: find.byType(Scrollable),
-          )
-          .first;
-      final secondAnswer = selectable('104.20.23.154');
-      await tester.scrollUntilVisible(
-        secondAnswer,
-        100,
-        scrollable: scrollable,
-      );
-      await tester.pumpAndSettle();
-      expect(secondAnswer, findsOneWidget);
-      expect(secondAnswer.hitTestable(), findsOneWidget);
-      expect(keyed('dns-raw-data'), findsNothing);
-      expect(find.byType(OriginalTextView), findsNothing);
-      for (final label in ['Original data', '原始数据']) {
-        expect(find.widgetWithText(TextButton, label), findsNothing);
-      }
-      await tapKey(tester, 'dns-edit');
-      expect(keyed('dns-status'), findsNothing);
-      expect(find.text(strings.runtimeConfigPreview), findsNothing);
-      expect(native.calls(ApplicationContract.coreOperationDnsQuery), [
-        request,
-      ]);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    });
+    testWidgets(
+      'actual successful answers from raw DNS FD display without a read-error popup $language',
+      (tester) async {
+        final app = await runtimeDnsUiApp(tester);
+        addTearDown(app.dispose);
+        final native = app.native;
+        final controller = await openTool(tester, app, language: language);
+        await tester.enterText(keyed('dns-name'), 'example.com');
+        await tapKey(tester, 'dns-query');
+        final request = native
+            .calls(ApplicationContract.coreOperationDnsQuery)
+            .single;
+        request.complete(nativeDnsResult);
+        await tester.pump();
+        expect(controller.queryBusy, isTrue);
+        expect(controller.response, isNull);
+        expect(find.byType(AlertDialog), findsNothing);
+        request.signalExit();
+        await tester.pumpAndSettle();
+        final strings = AppLocalizations.of(
+          tester.element(find.byType(DnsTool)),
+        );
+        expect(controller.status, DnsStatus.ready);
+        expect(controller.response!.answer.map((record) => record.data), [
+          '172.66.147.243',
+          '104.20.23.154',
+        ]);
+        expect(selectable(strings.dnsRcode('NOERROR', 0)), findsOneWidget);
+        expect(selectable('172.66.147.243'), findsOneWidget);
+        expect(find.text(strings.dnsElapsed(48.4008)), findsOneWidget);
+        expect(keyed('dns-edit'), findsOneWidget);
+        expect(find.byType(AlertDialog), findsNothing);
+        final scrollable = find
+            .descendant(
+              of: find.byKey(const PageStorageKey('dns-tool-scroll')),
+              matching: find.byType(Scrollable),
+            )
+            .first;
+        final secondAnswer = selectable('104.20.23.154');
+        await tester.scrollUntilVisible(
+          secondAnswer,
+          100,
+          scrollable: scrollable,
+        );
+        await tester.pumpAndSettle();
+        expect(secondAnswer, findsOneWidget);
+        expect(secondAnswer.hitTestable(), findsOneWidget);
+        expect(keyed('dns-raw-data'), findsNothing);
+        expect(find.byType(OriginalTextView), findsNothing);
+        for (final label in ['Original data', '原始数据']) {
+          expect(find.widgetWithText(TextButton, label), findsNothing);
+        }
+        await tapKey(tester, 'dns-edit');
+        expect(keyed('dns-status'), findsNothing);
+        expect(find.text(strings.runtimeConfigPreview), findsNothing);
+        expect(native.calls(ApplicationContract.coreOperationDnsQuery), [
+          request,
+        ]);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
   }
 
   group(
@@ -845,7 +854,8 @@ void main() {
           ),
         ),
       );
-      // 此处尚未绘制新帧，控制器可见状态和旧组件仍对应 DNS 工具。
+      // No new frame has been painted; controller visibility and the old widget still
+      // refer to the DNS tool.
       expect(controller.active, isTrue);
       oldQuery();
       oldMenu.onSelected('clear');
@@ -1440,54 +1450,70 @@ void main() {
     );
   }
 
-  testWidgets('DNS 输入错误通过 SnackBar 显示，查询进度与表单位置保持稳定', (tester) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(700, 900);
-    addTearDown(tester.view.reset);
-    final presentation = ValueNotifier((1.0, false));
-    addTearDown(presentation.dispose);
-    final bridge = DnsTestBridge();
-    final app = DnsTestApp(bridge);
-    addTearDown(app.dispose);
-    final controller = await openTool(tester, app, presentation: presentation);
-    final strings = AppLocalizations.of(tester.element(find.byType(DnsTool)));
-    final state = tester.state(find.byType(DnsTool));
-    final queryRect = tester.getRect(keyed('dns-query'));
-    final field = tester.widget<TextField>(keyed('dns-name')).controller!;
-    expect(find.widgetWithIcon(IconButton, Icons.error_outline), findsNothing);
-    await tester.enterText(keyed('dns-name'), 'controlled.example');
-    await tapKey(tester, 'dns-query');
-    expect(controller.queryBusy, isTrue);
-    final progress = find.descendant(
-      of: keyed('dns-query'),
-      matching: find.byType(CircularProgressIndicator),
-    );
-    await tester.pump(const Duration(milliseconds: 40));
-    expect(progress, findsOneWidget);
-    final failure = dnsError('invalidRequest');
-    (failure['dns'] as Map)['detail'] = '原始输入错误';
-    bridge.replies.single.complete(failure);
-    await tester.pumpAndSettle();
-    expect(controller.queryBusy, isFalse);
-    expect(controller.errorCode, 'invalidRequest');
-    expect(find.byType(SnackBar), findsOneWidget);
-    expect(find.text(strings.dnsInvalidRequest), findsOneWidget);
-    expect(find.widgetWithIcon(IconButton, Icons.error_outline), findsNothing);
-    expect(tester.getRect(keyed('dns-query')), queryRect);
-    expect(tester.state(find.byType(DnsTool)), same(state));
-    expect(tester.widget<TextField>(keyed('dns-name')).controller, same(field));
-    await openDnsNoticeDetails(tester);
-    expect(selectable('原始输入错误'), findsOneWidget);
-    await closeTopDialog(tester, strings.close);
-    await tapKey(tester, 'dns-query');
-    expect(bridge.queries, hasLength(2));
-    bridge.replies.last.complete(dnsReply());
-    await tester.pumpAndSettle();
-    expect(controller.response!.answer.single.data, '192.0.2.1');
-    expect(bridge.cancellations, isEmpty);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox());
-  });
+  testWidgets(
+    'DNS input errors show through SnackBar while query progress and form positions remain stable',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(700, 900);
+      addTearDown(tester.view.reset);
+      final presentation = ValueNotifier((1.0, false));
+      addTearDown(presentation.dispose);
+      final bridge = DnsTestBridge();
+      final app = DnsTestApp(bridge);
+      addTearDown(app.dispose);
+      final controller = await openTool(
+        tester,
+        app,
+        presentation: presentation,
+      );
+      final strings = AppLocalizations.of(tester.element(find.byType(DnsTool)));
+      final state = tester.state(find.byType(DnsTool));
+      final queryRect = tester.getRect(keyed('dns-query'));
+      final field = tester.widget<TextField>(keyed('dns-name')).controller!;
+      expect(
+        find.widgetWithIcon(IconButton, Icons.error_outline),
+        findsNothing,
+      );
+      await tester.enterText(keyed('dns-name'), 'controlled.example');
+      await tapKey(tester, 'dns-query');
+      expect(controller.queryBusy, isTrue);
+      final progress = find.descendant(
+        of: keyed('dns-query'),
+        matching: find.byType(CircularProgressIndicator),
+      );
+      await tester.pump(const Duration(milliseconds: 40));
+      expect(progress, findsOneWidget);
+      final failure = dnsError('invalidRequest');
+      (failure['dns'] as Map)['detail'] = '原始输入错误';
+      bridge.replies.single.complete(failure);
+      await tester.pumpAndSettle();
+      expect(controller.queryBusy, isFalse);
+      expect(controller.errorCode, 'invalidRequest');
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.text(strings.dnsInvalidRequest), findsOneWidget);
+      expect(
+        find.widgetWithIcon(IconButton, Icons.error_outline),
+        findsNothing,
+      );
+      expect(tester.getRect(keyed('dns-query')), queryRect);
+      expect(tester.state(find.byType(DnsTool)), same(state));
+      expect(
+        tester.widget<TextField>(keyed('dns-name')).controller,
+        same(field),
+      );
+      await openDnsNoticeDetails(tester);
+      expect(selectable('原始输入错误'), findsOneWidget);
+      await closeTopDialog(tester, strings.close);
+      await tapKey(tester, 'dns-query');
+      expect(bridge.queries, hasLength(2));
+      bridge.replies.last.complete(dnsReply());
+      await tester.pumpAndSettle();
+      expect(controller.response!.answer.single.data, '192.0.2.1');
+      expect(bridge.cancellations, isEmpty);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   for (final close in ['button', 'back', 'escape', 'barrier']) {
     testWidgets(
@@ -2010,86 +2036,91 @@ void main() {
   );
 
   for (final language in ['en', 'zh']) {
-    testWidgets('DNS 记录可阅读和复制，不展示完整响应：$language', (tester) async {
-      tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = const Size(320, 700);
-      addTearDown(tester.view.reset);
-      const original =
-          'https://user:pass@fixture.test/?token=原文🙂\nAuthorization: Bearer fixture';
-      String? copied;
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        SystemChannels.platform,
-        (call) async {
-          if (call.method == 'Clipboard.setData') {
-            copied = (call.arguments as Map)['text'] as String;
-          }
-          return null;
-        },
-      );
-      addTearDown(
-        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+    testWidgets(
+      'DNS records are readable and copyable without displaying the full response: $language',
+      (tester) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(320, 700);
+        addTearDown(tester.view.reset);
+        const original =
+            'https://user:pass@fixture.test/?token=原文🙂\nAuthorization: Bearer fixture';
+        String? copied;
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
           SystemChannels.platform,
-          null,
-        ),
-      );
-      final bridge = DnsTestBridge();
-      final app = DnsTestApp(bridge);
-      addTearDown(app.dispose);
-      final controller = await openTool(
-        tester,
-        app,
-        language: language,
-        scale: 2,
-      );
-      await tester.enterText(keyed('dns-name'), 'MiXeD.fixture.test');
-      await tapKey(tester, 'dns-query');
-      final value = dnsReply(
-        type: 'TXT',
-        answer: [dnsRecord(type: 'TXT', data: original)],
-      )..['futureEnvelope'] = {'boolean': false, 'absent': null};
-      final data = value['dns'] as Map;
-      data['message'] = {
-        'Id': 0xbeef,
-        'AuthenticatedData': true,
-        'future': [original, false, null],
-      };
-      (data['answer'] as List).single['futureRecord'] = original;
-      bridge.replies.single.complete(value);
-      await tester.pumpAndSettle();
-      final record = selectable(original);
-      final scrollable = find
-          .descendant(
-            of: find.byKey(const PageStorageKey('dns-tool-scroll')),
-            matching: find.byType(Scrollable),
-          )
-          .first;
-      await tester.scrollUntilVisible(record, 100, scrollable: scrollable);
-      final editable = tester.state<EditableTextState>(
-        find.descendant(of: record, matching: find.byType(EditableText)),
-      );
-      editable.widget.controller.selection = TextSelection(
-        baseOffset: 0,
-        extentOffset: original.length,
-      );
-      editable.copySelection(SelectionChangedCause.toolbar);
-      await tester.pump();
-      expect(copied, original);
-      expect(controller.active, isTrue);
-      expect(controller.stale, isFalse);
-      expect(find.byType(OriginalTextView), findsNothing);
-      expect(keyed('dns-raw-data'), findsNothing);
-      app.publish(network: 2);
-      await tester.pump();
-      expect(controller.stale, isTrue);
-      expect(selectable(original), findsOneWidget);
-      expect(controller.response!.answer.single.data, original);
-      expect(keyed('dns-edit'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    });
+          (call) async {
+            if (call.method == 'Clipboard.setData') {
+              copied = (call.arguments as Map)['text'] as String;
+            }
+            return null;
+          },
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            SystemChannels.platform,
+            null,
+          ),
+        );
+        final bridge = DnsTestBridge();
+        final app = DnsTestApp(bridge);
+        addTearDown(app.dispose);
+        final controller = await openTool(
+          tester,
+          app,
+          language: language,
+          scale: 2,
+        );
+        await tester.enterText(keyed('dns-name'), 'MiXeD.fixture.test');
+        await tapKey(tester, 'dns-query');
+        final value = dnsReply(
+          type: 'TXT',
+          answer: [dnsRecord(type: 'TXT', data: original)],
+        )..['futureEnvelope'] = {'boolean': false, 'absent': null};
+        final data = value['dns'] as Map;
+        data['message'] = {
+          'Id': 0xbeef,
+          'AuthenticatedData': true,
+          'future': [original, false, null],
+        };
+        (data['answer'] as List).single['futureRecord'] = original;
+        bridge.replies.single.complete(value);
+        await tester.pumpAndSettle();
+        final record = selectable(original);
+        final scrollable = find
+            .descendant(
+              of: find.byKey(const PageStorageKey('dns-tool-scroll')),
+              matching: find.byType(Scrollable),
+            )
+            .first;
+        await tester.scrollUntilVisible(record, 100, scrollable: scrollable);
+        final editable = tester.state<EditableTextState>(
+          find.descendant(of: record, matching: find.byType(EditableText)),
+        );
+        editable.widget.controller.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: original.length,
+        );
+        editable.copySelection(SelectionChangedCause.toolbar);
+        await tester.pump();
+        expect(copied, original);
+        expect(controller.active, isTrue);
+        expect(controller.stale, isFalse);
+        expect(find.byType(OriginalTextView), findsNothing);
+        expect(keyed('dns-raw-data'), findsNothing);
+        app.publish(network: 2);
+        await tester.pump();
+        expect(controller.stale, isTrue);
+        expect(selectable(original), findsOneWidget);
+        expect(controller.response!.answer.single.data, original);
+        expect(keyed('dns-edit'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
   }
 
-  testWidgets('查询错误只通过 SnackBar 展示真实原因', (tester) async {
+  testWidgets('query errors show actual causes only through SnackBar', (
+    tester,
+  ) async {
     const original =
         'https://user:pass@fixture.test/?token=原文🙂\nAuthorization: Bearer fixture';
     final bridge = DnsTestBridge();
@@ -2129,82 +2160,92 @@ void main() {
   });
 
   for (final fakeIp in [false, true]) {
-    testWidgets('来源变化后不展示旧缓存操作详情：fakeIp=$fakeIp', (tester) async {
-      const original =
-          'https://user:pass@fixture.test/?token=原文🙂\nAuthorization: Bearer fixture';
-      final value = dnsCacheReply(
-        fakeIp: fakeIp,
-        status: fakeIp ? 'partialOrFailed' : 'completed',
-      );
-      (value['cache'] as Map)
-        ..['detail'] = original
-        ..['future'] = [original, false, null];
-      final bridge = DnsTestBridge()
-        ..clearPending = Completer<Map<String, dynamic>>();
-      final app = DnsTestApp(bridge);
-      addTearDown(app.dispose);
-      await openTool(tester, app);
-      await clear(tester, fakeIp: fakeIp);
-      final strings = AppLocalizations.of(tester.element(find.byType(DnsTool)));
-      if (fakeIp) {
-        await tester.tap(
-          find.widgetWithText(TextButton, strings.dnsClearFakeIp),
+    testWidgets(
+      'source changes prevent old cache operation details from displaying: fakeIp=$fakeIp',
+      (tester) async {
+        const original =
+            'https://user:pass@fixture.test/?token=原文🙂\nAuthorization: Bearer fixture';
+        final value = dnsCacheReply(
+          fakeIp: fakeIp,
+          status: fakeIp ? 'partialOrFailed' : 'completed',
         );
-        await tester.pump();
-      }
-      app.publish(network: 2);
-      bridge.clearPending!.complete(value);
-      await tester.pumpAndSettle();
-      expect(find.byType(AlertDialog), findsNothing);
-      expect(find.byType(SnackBar), findsNothing);
-      await tapKey(tester, 'dns-actions');
-      await tester.pumpAndSettle();
-      expect(
-        find.widgetWithText(MenuItemButton, strings.dnsCacheOperationDetails),
-        findsNothing,
-      );
-      expect(bridge.clears, [fakeIp]);
-      expect(bridge.queries, isEmpty);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    });
+        (value['cache'] as Map)
+          ..['detail'] = original
+          ..['future'] = [original, false, null];
+        final bridge = DnsTestBridge()
+          ..clearPending = Completer<Map<String, dynamic>>();
+        final app = DnsTestApp(bridge);
+        addTearDown(app.dispose);
+        await openTool(tester, app);
+        await clear(tester, fakeIp: fakeIp);
+        final strings = AppLocalizations.of(
+          tester.element(find.byType(DnsTool)),
+        );
+        if (fakeIp) {
+          await tester.tap(
+            find.widgetWithText(TextButton, strings.dnsClearFakeIp),
+          );
+          await tester.pump();
+        }
+        app.publish(network: 2);
+        bridge.clearPending!.complete(value);
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(find.byType(SnackBar), findsNothing);
+        await tapKey(tester, 'dns-actions');
+        await tester.pumpAndSettle();
+        expect(
+          find.widgetWithText(MenuItemButton, strings.dnsCacheOperationDetails),
+          findsNothing,
+        );
+        expect(bridge.clears, [fakeIp]);
+        expect(bridge.queries, isEmpty);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
 
-    testWidgets('后台且来源变化后的缓存错误不作用于新来源：fakeIp=$fakeIp', (tester) async {
-      final failure = PlatformFailure(
-        code: 'cache',
-        message: 'https://user:pass@fixture.test/?token=原文🙂\nAuthorization: Bearer fixture',
-      );
-      final bridge = DnsTestBridge()
-        ..clearPending = Completer<Map<String, dynamic>>();
-      final app = DnsTestApp(bridge);
-      addTearDown(app.dispose);
-      await openTool(tester, app);
-      await clear(tester, fakeIp: fakeIp);
-      final strings = AppLocalizations.of(tester.element(find.byType(DnsTool)));
-      if (fakeIp) {
-        await tester.tap(
-          find.widgetWithText(TextButton, strings.dnsClearFakeIp),
+    testWidgets(
+      'cache errors after backgrounding and source changes do not affect the new source: fakeIp=$fakeIp',
+      (tester) async {
+        final failure = PlatformFailure(
+          code: 'cache',
+          message: 'https://user:pass@fixture.test/?token=原文🙂\nAuthorization: Bearer fixture',
         );
-        await tester.pump();
-      }
-      app.setInteractive(false);
-      app.publish(network: 2);
-      bridge.clearPending!.completeError(failure);
-      await tester.pumpAndSettle();
-      expect(find.byType(AlertDialog), findsNothing);
-      app.setInteractive(true);
-      await tester.pumpAndSettle();
-      expect(find.byType(SnackBar), findsNothing);
-      await tapKey(tester, 'dns-actions');
-      await tester.pumpAndSettle();
-      expect(
-        find.widgetWithText(MenuItemButton, strings.dnsCacheOperationDetails),
-        findsNothing,
-      );
-      expect(bridge.clears, [fakeIp]);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    });
+        final bridge = DnsTestBridge()
+          ..clearPending = Completer<Map<String, dynamic>>();
+        final app = DnsTestApp(bridge);
+        addTearDown(app.dispose);
+        await openTool(tester, app);
+        await clear(tester, fakeIp: fakeIp);
+        final strings = AppLocalizations.of(
+          tester.element(find.byType(DnsTool)),
+        );
+        if (fakeIp) {
+          await tester.tap(
+            find.widgetWithText(TextButton, strings.dnsClearFakeIp),
+          );
+          await tester.pump();
+        }
+        app.setInteractive(false);
+        app.publish(network: 2);
+        bridge.clearPending!.completeError(failure);
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsNothing);
+        app.setInteractive(true);
+        await tester.pumpAndSettle();
+        expect(find.byType(SnackBar), findsNothing);
+        await tapKey(tester, 'dns-actions');
+        await tester.pumpAndSettle();
+        expect(
+          find.widgetWithText(MenuItemButton, strings.dnsCacheOperationDetails),
+          findsNothing,
+        );
+        expect(bridge.clears, [fakeIp]);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
   }
 
   for (final dark in [false, true]) {
@@ -2341,59 +2382,71 @@ void main() {
   );
 
   for (final language in ['en', 'zh']) {
-    testWidgets('fake-IP 映射池结果通过 SnackBar 查看 $language', (tester) async {
-      tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = const Size(320, 900);
-      addTearDown(tester.view.reset);
-      final value = dnsCacheReply(
-        fakeIp: true,
-        status: 'partialOrFailed',
-        persistent: true,
-      );
-      (value['cache'] as Map)['ipv4'] = {'active': true, 'outcome': 'cleared'};
-      (value['cache'] as Map)['ipv6'] = {
-        'active': true,
-        'outcome': 'unconfirmed',
-      };
-      final bridge = DnsTestBridge()..clearValue = value;
-      final app = DnsTestApp(bridge);
-      addTearDown(app.dispose);
-      await openTool(tester, app, language: language, scale: 2);
-      final strings = AppLocalizations.of(tester.element(find.byType(DnsTool)));
-      await clear(tester, fakeIp: true);
-      await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(TextButton, strings.dnsClearFakeIp));
-      await tester.pumpAndSettle();
-      final expected = [
-        strings.dnsCachePartialOrFailed,
-        'IPv4 · ${strings.dnsPoolCleared}',
-        'IPv6 · ${strings.dnsPoolUnconfirmed}',
-        strings.dnsPersistentPoolEnabled,
-      ].join('\n');
-      await openDnsNoticeDetails(tester);
-      expect(selectable(expected), findsOneWidget);
-      await tester.tap(find.widgetWithText(TextButton, strings.close));
-      await tester.pumpAndSettle();
-      expect(find.byType(SnackBar), findsNothing);
-      await tapKey(tester, 'dns-actions');
-      await tester.pumpAndSettle();
-      expect(
-        find.widgetWithText(MenuItemButton, strings.dnsCacheOperationDetails),
-        findsNothing,
-      );
-      expect(bridge.clears, [true]);
-      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-      await tester.pumpAndSettle();
-      app.publish(network: 2);
-      await tester.pump();
-      expect(keyed('dns-cache-details'), findsNothing);
-      expect(
-        find.text('${strings.dnsCachePartialOrFailed} · ${strings.dnsExpired}'),
-        findsNothing,
-      );
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    });
+    testWidgets(
+      'fake-IP mapping pool results are available through SnackBar $language',
+      (tester) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(320, 900);
+        addTearDown(tester.view.reset);
+        final value = dnsCacheReply(
+          fakeIp: true,
+          status: 'partialOrFailed',
+          persistent: true,
+        );
+        (value['cache'] as Map)['ipv4'] = {
+          'active': true,
+          'outcome': 'cleared',
+        };
+        (value['cache'] as Map)['ipv6'] = {
+          'active': true,
+          'outcome': 'unconfirmed',
+        };
+        final bridge = DnsTestBridge()..clearValue = value;
+        final app = DnsTestApp(bridge);
+        addTearDown(app.dispose);
+        await openTool(tester, app, language: language, scale: 2);
+        final strings = AppLocalizations.of(
+          tester.element(find.byType(DnsTool)),
+        );
+        await clear(tester, fakeIp: true);
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.widgetWithText(TextButton, strings.dnsClearFakeIp),
+        );
+        await tester.pumpAndSettle();
+        final expected = [
+          strings.dnsCachePartialOrFailed,
+          'IPv4 · ${strings.dnsPoolCleared}',
+          'IPv6 · ${strings.dnsPoolUnconfirmed}',
+          strings.dnsPersistentPoolEnabled,
+        ].join('\n');
+        await openDnsNoticeDetails(tester);
+        expect(selectable(expected), findsOneWidget);
+        await tester.tap(find.widgetWithText(TextButton, strings.close));
+        await tester.pumpAndSettle();
+        expect(find.byType(SnackBar), findsNothing);
+        await tapKey(tester, 'dns-actions');
+        await tester.pumpAndSettle();
+        expect(
+          find.widgetWithText(MenuItemButton, strings.dnsCacheOperationDetails),
+          findsNothing,
+        );
+        expect(bridge.clears, [true]);
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pumpAndSettle();
+        app.publish(network: 2);
+        await tester.pump();
+        expect(keyed('dns-cache-details'), findsNothing);
+        expect(
+          find.text(
+            '${strings.dnsCachePartialOrFailed} · ${strings.dnsExpired}',
+          ),
+          findsNothing,
+        );
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
   }
 
   for (final reason in ['background', 'network', 'cover']) {
@@ -2527,7 +2580,9 @@ void dnsVisualInteractionTests() {
   for (final language in ['en', 'zh']) {
     for (final width in [320.0, 700.0]) {
       for (final scale in [1.0, 2.0]) {
-        testWidgets('DNS 查询与结果布局 $language/$width/$scale', (tester) async {
+        testWidgets('DNS query and result layout $language/$width/$scale', (
+          tester,
+        ) async {
           tester.view.devicePixelRatio = 1;
           tester.view.physicalSize = Size(width, 1200);
           addTearDown(tester.view.reset);
@@ -2691,100 +2746,103 @@ void dnsVisualInteractionTests() {
     },
   );
 
-  testWidgets('查询和缓存失败通过 SnackBar 提供可复制的实际原因', (tester) async {
-    final bridge = DnsTestBridge();
-    final app = DnsTestApp(bridge);
-    addTearDown(app.dispose);
-    await openTool(tester, app);
-    final strings = AppLocalizations.of(tester.element(find.byType(DnsTool)));
-    await tester.enterText(keyed('dns-name'), 'controlled.example');
-    await tapKey(tester, 'dns-query');
-    final failure = dnsError('unknown-wire-code');
-    (failure['dns'] as Map)['detail'] =
-        'original cause\nCaused by: resolver\nSuppressed: close';
-    failure['unknown'] = [
-      false,
-      0,
-      null,
-      {'future': 'full'},
-    ];
-    bridge.replies.single.complete(failure);
-    await tester.pumpAndSettle();
-    await openDnsNoticeDetails(tester);
-    expect(dialogText(strings.errorDetails), findsOneWidget);
-    expect(selectable(strings.dnsQueryFailed), findsOneWidget);
-    const cause = 'original cause\nCaused by: resolver\nSuppressed: close';
-    expect(selectable(cause), findsOneWidget);
-    expect(find.byType(OriginalTextView), findsNothing);
-    String? copied;
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      SystemChannels.platform,
-      (call) async {
-        if (call.method == 'Clipboard.setData') {
-          copied = (call.arguments as Map)['text'] as String;
-        }
-        return null;
-      },
-    );
-    addTearDown(
-      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        SystemChannels.platform,
+  testWidgets(
+    'query and cache failures provide copyable actual causes through SnackBar',
+    (tester) async {
+      final bridge = DnsTestBridge();
+      final app = DnsTestApp(bridge);
+      addTearDown(app.dispose);
+      await openTool(tester, app);
+      final strings = AppLocalizations.of(tester.element(find.byType(DnsTool)));
+      await tester.enterText(keyed('dns-name'), 'controlled.example');
+      await tapKey(tester, 'dns-query');
+      final failure = dnsError('unknown-wire-code');
+      (failure['dns'] as Map)['detail'] =
+          'original cause\nCaused by: resolver\nSuppressed: close';
+      failure['unknown'] = [
+        false,
+        0,
         null,
-      ),
-    );
-    final editable = tester.state<EditableTextState>(
-      find.descendant(
-        of: selectable(cause),
-        matching: find.byType(EditableText),
-      ),
-    );
-    editable.widget.controller.selection = TextSelection(
-      baseOffset: 0,
-      extentOffset: cause.length,
-    );
-    editable.copySelection(SelectionChangedCause.toolbar);
-    await tester.pump();
-    expect(copied, cause);
-    await closeTopDialog(tester, strings.close);
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(find.byType(SnackBar), findsNothing);
-    await tapKey(tester, 'dns-actions');
-    await tester.pumpAndSettle();
-    expect(
-      find.widgetWithText(MenuItemButton, strings.errorDetails),
-      findsNothing,
-    );
-    final value = dnsCacheReply(
-      fakeIp: true,
-      status: 'partialOrFailed',
-      persistent: true,
-    );
-    (value['cache'] as Map)
-      ..['unknown'] = [false, null, 0]
-      ..['detail'] = '原始缓存错误';
-    bridge.clearValue = value;
-    await clear(tester, fakeIp: true);
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(TextButton, strings.dnsClearFakeIp));
-    await tester.pumpAndSettle();
-    await openDnsNoticeDetails(tester);
-    expect(dialogText(strings.dnsCacheOperationDetails), findsOneWidget);
-    expect(dialogText(strings.dnsClearFakeIp), findsOneWidget);
-    expect(find.byType(OriginalTextView), findsNothing);
-    expect(selectable('原始缓存错误'), findsOneWidget);
-    for (final label in [
-      'Cache operation raw data',
-      '缓存操作原始数据',
-      'DNS query raw data',
-      'DNS 查询原始数据',
-    ]) {
-      expect(find.text(label), findsNothing);
-    }
-    expect(bridge.clears, [true]);
-    expect(bridge.queries, hasLength(1));
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox());
-  });
+        {'future': 'full'},
+      ];
+      bridge.replies.single.complete(failure);
+      await tester.pumpAndSettle();
+      await openDnsNoticeDetails(tester);
+      expect(dialogText(strings.errorDetails), findsOneWidget);
+      expect(selectable(strings.dnsQueryFailed), findsOneWidget);
+      const cause = 'original cause\nCaused by: resolver\nSuppressed: close';
+      expect(selectable(cause), findsOneWidget);
+      expect(find.byType(OriginalTextView), findsNothing);
+      String? copied;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied = (call.arguments as Map)['text'] as String;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      final editable = tester.state<EditableTextState>(
+        find.descendant(
+          of: selectable(cause),
+          matching: find.byType(EditableText),
+        ),
+      );
+      editable.widget.controller.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: cause.length,
+      );
+      editable.copySelection(SelectionChangedCause.toolbar);
+      await tester.pump();
+      expect(copied, cause);
+      await closeTopDialog(tester, strings.close);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(SnackBar), findsNothing);
+      await tapKey(tester, 'dns-actions');
+      await tester.pumpAndSettle();
+      expect(
+        find.widgetWithText(MenuItemButton, strings.errorDetails),
+        findsNothing,
+      );
+      final value = dnsCacheReply(
+        fakeIp: true,
+        status: 'partialOrFailed',
+        persistent: true,
+      );
+      (value['cache'] as Map)
+        ..['unknown'] = [false, null, 0]
+        ..['detail'] = '原始缓存错误';
+      bridge.clearValue = value;
+      await clear(tester, fakeIp: true);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, strings.dnsClearFakeIp));
+      await tester.pumpAndSettle();
+      await openDnsNoticeDetails(tester);
+      expect(dialogText(strings.dnsCacheOperationDetails), findsOneWidget);
+      expect(dialogText(strings.dnsClearFakeIp), findsOneWidget);
+      expect(find.byType(OriginalTextView), findsNothing);
+      expect(selectable('原始缓存错误'), findsOneWidget);
+      for (final label in [
+        'Cache operation raw data',
+        '缓存操作原始数据',
+        'DNS query raw data',
+        'DNS 查询原始数据',
+      ]) {
+        expect(find.text(label), findsNothing);
+      }
+      expect(bridge.clears, [true]);
+      expect(bridge.queries, hasLength(1));
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
   testWidgets(
     'real Tab order and responsive reflow preserve the focused query group',
     (tester) async {

@@ -31,7 +31,8 @@ typedef _StrategyGridMetrics = ({
   double height,
 });
 
-/// 同类卡片可读取运行对象或保存的直接定义；运行属性不从原文补造。
+/// Cards can read runtime objects or saved direct definitions; runtime properties are
+/// not synthesized from source text.
 class StrategyDefinition {
   const StrategyDefinition({this.runtime, this.original = const {}});
   final StrategyGroup? runtime;

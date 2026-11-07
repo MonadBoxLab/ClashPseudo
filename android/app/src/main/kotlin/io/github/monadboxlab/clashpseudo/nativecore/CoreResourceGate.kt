@@ -12,7 +12,7 @@ import java.io.IOException
 import java.nio.channels.FileLock
 import java.nio.channels.OverlappingFileLockException
 
-/** 内核与逐项清理共用文件锁；锁文件不在 mihomo 数据目录内。 */
+/** The core and per-file cleanup share a file lock outside the mihomo data directory. */
 class CoreResourceGate(private val file: File) {
     class Held internal constructor(
         private val stream: FileOutputStream,
@@ -45,7 +45,7 @@ class CoreResourceGate(private val file: File) {
         val stream = try {
             val info = Os.fstat(descriptor)
             if (!OsConstants.S_ISREG(info.st_mode) || info.st_nlink != 1L) {
-                throw IOException("内核资源锁不是私有普通文件")
+                throw IOException("Core resource lock is not a private regular file")
             }
             val duplicate = ParcelFileDescriptor.dup(descriptor)
             try { ParcelFileDescriptor.AutoCloseOutputStream(duplicate) }
@@ -64,7 +64,7 @@ class CoreResourceGate(private val file: File) {
     }
 
     fun <T> exclusive(action: () -> T): T =
-        (tryAcquire() ?: throw IOException("内核进程仍持有数据目录，退出尚未确认")).use { action() }
+        (tryAcquire() ?: throw IOException("Core process still holds the data directory; exit is unconfirmed")).use { action() }
 
     companion object {
         private val localOwners = mutableSetOf<String>()
@@ -72,7 +72,7 @@ class CoreResourceGate(private val file: File) {
     }
 }
 
-/** 不在 Service 销毁或原生 Shutdown 返回时释放，只随 :core 进程结束。 */
+/** Release only when the :core process ends, not when the Service is destroyed or native Shutdown returns. */
 internal object CoreProcessResources {
     private var held: CoreResourceGate.Held? = null
 
@@ -80,6 +80,6 @@ internal object CoreProcessResources {
         AppProcess.requireCore(context)
         if (held != null) return
         held = CoreResourceGate.forApplication(context).tryAcquire()
-            ?: throw IOException("另一个内核或清理操作仍持有数据目录")
+            ?: throw IOException("Another core or cleanup operation still holds the data directory")
     }
 }

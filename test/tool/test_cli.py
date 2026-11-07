@@ -1,4 +1,4 @@
-"""验证统一入口、各级帮助、参数边界及隔离模式。"""
+"""Verify the unified entry point, nested help, argument boundaries, and isolated mode."""
 import argparse
 import contextlib
 import importlib

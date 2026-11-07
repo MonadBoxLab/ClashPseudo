@@ -27,7 +27,7 @@ import java.io.IOException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
-/** 只取得和关闭 VPN 系统资源，不读取配置商店或执行业务恢复。 */
+/** Only acquire and close VPN system resources; do not read configuration stores or run application recovery. */
 class PseudoVpnService : VpnService() {
     private val main = Handler(Looper.getMainLooper())
     @Volatile private var descriptor: ParcelFileDescriptor? = null
@@ -52,7 +52,7 @@ class PseudoVpnService : VpnService() {
                 if (descriptor != null || waitingForRuntime || destroyed) return START_NOT_STICKY
                 waitingForRuntime = true
                 showNotification(R.string.notify_restoring)
-                // 系统事件只请求默认进程的同一 AppRuntime 生成完整输入。
+                // System events only request complete input from the same AppRuntime in the default process.
                 fun dispatch() {
                     CoreService.instance?.dispatchRuntime("systemStart") { accepted ->
                         if (destroyed || instance !== this || !waitingForRuntime) return@dispatchRuntime
@@ -71,7 +71,7 @@ class PseudoVpnService : VpnService() {
                     coreBinding = connection
                     if (!bindService(Intent(this, CoreService::class.java), connection, Context.BIND_AUTO_CREATE)) {
                         coreBinding = null
-                        throw IOException("Android 未建立 core 系统资源宿主连接")
+                        throw IOException("Android did not establish the core system resource host connection")
                     }
                 }
             }
@@ -82,9 +82,9 @@ class PseudoVpnService : VpnService() {
 
     internal fun establish(specification: VpnSpecification, access: String, packages: List<String>,
                            underlying: UnderlyingSnapshot): Pair<ParcelFileDescriptor, Map<String, Any?>> {
-        check(Looper.myLooper() != Looper.getMainLooper()) { "VPN 建立不能占用主线程" }
-        check(descriptor == null) { "本进程已经持有 TUN 描述符" }
-        check(prepare(this) == null) { "VPN 授权已失效" }
+        check(Looper.myLooper() != Looper.getMainLooper()) { "VPN establishment must run off the main thread" }
+        check(descriptor == null) { "This process already holds a TUN descriptor" }
+        check(prepare(this) == null) { "VPN authorization is no longer valid" }
         val builder = Builder().setSession("Clash Pseudo").setMtu(specification.mtu).setBlocking(false)
         specification.addresses.forEach { (address, prefix) -> builder.addAddress(address, prefix) }
         specification.routes.forEach { (address, prefix) -> builder.addRoute(address, prefix) }
@@ -99,10 +99,10 @@ class PseudoVpnService : VpnService() {
                 true
             } catch (_: PackageManager.NameNotFoundException) { false }
         }
-        val acquired = builder.establish() ?: throw IOException("Android 拒绝建立 VPN")
+        val acquired = builder.establish() ?: throw IOException("Android refused to establish the VPN")
         try {
             synchronized(this) {
-                check(!destroyed && instance === this && descriptor == null) { "VPN 系统资源宿主已结束或已经持有 TUN" }
+                check(!destroyed && instance === this && descriptor == null) { "VPN system resource host has ended or already holds a TUN" }
                 descriptor = acquired
             }
         } catch (error: Throwable) {
@@ -146,7 +146,7 @@ class PseudoVpnService : VpnService() {
         var failure: Throwable? = null
         try { held?.close() } catch (error: Throwable) { failure = error }
         finally {
-            if (held != null) CoreService.instance?.vpnRevoked(failure ?: IOException("VPN 系统资源宿主已销毁"))
+            if (held != null) CoreService.instance?.vpnRevoked(failure ?: IOException("VPN system resource host was destroyed"))
             coreBinding?.let { connection ->
                 try { unbindService(connection) } catch (error: Throwable) {
                     if (failure == null) failure = error else if (failure !== error) failure!!.addSuppressed(error)
@@ -191,7 +191,7 @@ class PseudoVpnService : VpnService() {
             val intent = Intent(context, PseudoVpnService::class.java).setAction(ACTION_RESOURCE_HOST)
             if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
             val remaining = (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
-            check(hostReady.await(remaining, TimeUnit.MILLISECONDS) && instance != null) { "原受理期限内未取得 VPN 系统资源宿主" }
+            check(hostReady.await(remaining, TimeUnit.MILLISECONDS) && instance != null) { "VPN system resource host was not acquired within the original admission deadline" }
         }
         val session get() = CoreClient.session
         val core get() = CoreClient.installed().view

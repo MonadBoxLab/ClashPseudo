@@ -365,7 +365,7 @@ Future<void> _verifyResultPaging(
     }
 
     Future<void> pumpReply({bool empty = false}) async {
-      // 检查异步结果与 SnackBar 分别重建的每一帧。
+      // Check each frame as the async result and SnackBar rebuild separately.
       for (var frame = 0; frame < 3; frame++) {
         await tester.pump();
         if (!empty) expect(tester.widget<Text>(label).data, isNot(zero));
@@ -656,7 +656,9 @@ void main() {
 
   for (final width in [320.0, 1000.0]) {
     for (final brightness in Brightness.values) {
-      testWidgets('About 是独立页尾 surface $width $brightness', (tester) async {
+      testWidgets('About uses a separate footer surface $width $brightness', (
+        tester,
+      ) async {
         final app = TestApp(TestBridge())..preferencesLoaded = true;
         try {
           await _showPage(
@@ -1094,7 +1096,7 @@ void main() {
               final count = bridge.requests.length;
               final source = app.state.logSource!;
               await tester.pump(const Duration(milliseconds: 400));
-              check('$phase 提示进入');
+              check('$phase notice entrance');
               final action = find.descendant(
                 of: find.byType(SnackBar),
                 matching: find.widgetWithText(TextButton, strings.retry),
@@ -1105,7 +1107,7 @@ void main() {
               await tester.tap(action);
               for (var frame = 0; frame < 4; frame++) {
                 await tester.pump();
-                check('$phase 重试后的frame $frame');
+                check('$phase frame $frame after retry');
               }
               expect(bridge.requests, hasLength(count + 1));
               expect(app.state.logSource!.identity, source.identity);
@@ -1128,7 +1130,7 @@ void main() {
               findsOneWidget,
             );
             expect(find.byType(AlertDialog), findsNothing);
-            await retryFromNotice('首次重试');
+            await retryFromNotice('first retry');
             check('retry loading');
             bridge.replies.last.complete(
               logResponse(
@@ -1160,10 +1162,10 @@ void main() {
                 await tester.pump(
                   const Duration(milliseconds: 400, microseconds: 1),
                 );
-                check('日志级别菜单动画结束');
+                check('log level menu animation completed');
                 for (var frame = 0; frame < 4; frame++) {
                   await tester.pump();
-                  check('日志级别菜单动画后frame $frame');
+                  check('frame $frame after log level menu animation');
                 }
               },
             );
@@ -1174,8 +1176,8 @@ void main() {
             check('poll waiting');
             bridge.replies.last.completeError(StateError('poll failed'));
             await pumpReply('poll failure retains the reading area');
-            await retryFromNotice('poll失败后重试');
-            check('重试保留日志阅读区域');
+            await retryFromNotice('retry after poll failure');
+            check('retry preserves log reading area');
             bridge.replies.last.complete(
               logResponse(
                 core(1),
@@ -1219,11 +1221,11 @@ void main() {
             bridge.replies.last.completeError(
               StateError('清空日志失败\n$originalLines'),
             );
-            await pumpReply('清空失败保留日志与阅读区域');
+            await pumpReply('clear failure preserves logs and reading area');
             await tester.pump(
               const Duration(milliseconds: 400, microseconds: 1),
             );
-            check('清空失败提示进入');
+            check('clear failure notice entrance');
             expect(find.text(strings.logTotal(21)), findsOneWidget);
             expect(find.byType(AlertDialog), findsNothing);
             final notice = find.byType(SnackBar);
@@ -1302,7 +1304,7 @@ void main() {
             expect(find.byType(AlertDialog), findsNothing);
             expect(app.state.logSource!.identity, clearSource.identity);
             expect(app.state.logSource!.logWindow, clearSource.logWindow);
-            check('主动详情关闭后保留正文几何');
+            check('closing user-opened details preserves content geometry');
           } finally {
             app.setForeground(false);
             await tester.pumpWidget(const SizedBox.shrink());

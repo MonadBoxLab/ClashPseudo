@@ -868,83 +868,84 @@ void main() {
     for (final width in [280.0, 320.0, 700.0]) {
       for (final scale in [1.0, 1.3, 2.0]) {
         for (final dark in [false, true]) {
-          testWidgets('来源变化不添加徽标且保持策略卡片位置 $language/$width/$scale/$dark', (
-            tester,
-          ) async {
-            StrategyGroup group(String name, bool plugins) => StrategyGroup(
-              name: name,
-              rawType: 'select',
-              hidden: name == 'GLOBAL',
-              now: 'DIRECT',
-              fixed: '',
-              members: const [StrategyMember(name: 'DIRECT', type: 'Direct')],
-              provenance: DefinitionProvenance.fromValue({
-                'contributors': [
-                  if (plugins) ...[
-                    {
-                      'kind': 'plugin',
-                      'id': 'remote',
-                      'revision': 4,
-                      'name': 'A very long plugin name 不显示在卡片',
-                      'path': '/proxy-groups/0',
-                    },
-                    {
-                      'kind': 'plugin',
-                      'id': 'custom',
-                      'revision': 2,
-                      'name': 'Saved custom',
-                      'role': 'localCustom',
-                      'path': '/proxy-groups/1',
-                    },
+          testWidgets(
+            'source changes add no badges and preserve strategy card positions $language/$width/$scale/$dark',
+            (tester) async {
+              StrategyGroup group(String name, bool plugins) => StrategyGroup(
+                name: name,
+                rawType: 'select',
+                hidden: name == 'GLOBAL',
+                now: 'DIRECT',
+                fixed: '',
+                members: const [StrategyMember(name: 'DIRECT', type: 'Direct')],
+                provenance: DefinitionProvenance.fromValue({
+                  'contributors': [
+                    if (plugins) ...[
+                      {
+                        'kind': 'plugin',
+                        'id': 'remote',
+                        'revision': 4,
+                        'name': 'A very long plugin name 不显示在卡片',
+                        'path': '/proxy-groups/0',
+                      },
+                      {
+                        'kind': 'plugin',
+                        'id': 'custom',
+                        'revision': 2,
+                        'name': 'Saved custom',
+                        'role': 'localCustom',
+                        'path': '/proxy-groups/1',
+                      },
+                    ],
+                    {'kind': 'config', 'path': '/proxy-groups/0'},
                   ],
-                  {'kind': 'config', 'path': '/proxy-groups/0'},
-                ],
-              }),
-            );
-            bridge.data = _groups(groups: [group('GLOBAL', false)]);
-            // Use loaded composition provenance separately from saved local
-            // definitions.
-            app.overridesLoaded = true;
-            app.overrides = [_DraftApp._entry('GLOBAL')];
-            await showOverview(
-              tester,
-              scale: scale,
-              width: width,
-              dark: dark,
-              language: language,
-            );
-            final anchors = [
-              card('GLOBAL'),
-              find.byKey(const ValueKey('strategy-current-GLOBAL')),
-            ];
-            final before = anchors.map(tester.getRect).toList();
-            expect(source('GLOBAL'), findsNothing);
-            for (final contributed in [true, false, true]) {
-              bridge.data = _groups(groups: [group('GLOBAL', contributed)]);
-              await tester.pump(const Duration(seconds: 5));
-              for (final ms in [0, 16, 80, 250]) {
-                await tester.pump(Duration(milliseconds: ms));
-                expect(anchors.map(tester.getRect).toList(), before);
-                expect(source('GLOBAL'), findsNothing);
-                expect(
-                  find.descendant(
-                    of: card('GLOBAL'),
-                    matching: find.byIcon(Icons.extension_outlined),
-                  ),
-                  findsNothing,
-                );
-                expect(
-                  find.descendant(
-                    of: card('GLOBAL'),
-                    matching: find.byType(Tooltip),
-                  ),
-                  findsNothing,
-                );
-                expect(tester.takeException(), isNull);
+                }),
+              );
+              bridge.data = _groups(groups: [group('GLOBAL', false)]);
+              // Use loaded composition provenance separately from saved local
+              // definitions.
+              app.overridesLoaded = true;
+              app.overrides = [_DraftApp._entry('GLOBAL')];
+              await showOverview(
+                tester,
+                scale: scale,
+                width: width,
+                dark: dark,
+                language: language,
+              );
+              final anchors = [
+                card('GLOBAL'),
+                find.byKey(const ValueKey('strategy-current-GLOBAL')),
+              ];
+              final before = anchors.map(tester.getRect).toList();
+              expect(source('GLOBAL'), findsNothing);
+              for (final contributed in [true, false, true]) {
+                bridge.data = _groups(groups: [group('GLOBAL', contributed)]);
+                await tester.pump(const Duration(seconds: 5));
+                for (final ms in [0, 16, 80, 250]) {
+                  await tester.pump(Duration(milliseconds: ms));
+                  expect(anchors.map(tester.getRect).toList(), before);
+                  expect(source('GLOBAL'), findsNothing);
+                  expect(
+                    find.descendant(
+                      of: card('GLOBAL'),
+                      matching: find.byIcon(Icons.extension_outlined),
+                    ),
+                    findsNothing,
+                  );
+                  expect(
+                    find.descendant(
+                      of: card('GLOBAL'),
+                      matching: find.byType(Tooltip),
+                    ),
+                    findsNothing,
+                  );
+                  expect(tester.takeException(), isNull);
+                }
               }
-            }
-            await tester.pumpWidget(const SizedBox.shrink());
-          });
+              await tester.pumpWidget(const SizedBox.shrink());
+            },
+          );
         }
       }
     }

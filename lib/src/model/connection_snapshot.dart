@@ -43,7 +43,8 @@ class ConnectionRecord {
       ruleMetadata = null;
       final original = value['ruleError'] as String?;
       final diagnostic = failure.toString();
-      // 保留原始错误文本及其中的重复行，仅追加新产生的解析错误。
+      // Preserve the original error text, including duplicate lines; append only new
+      // parsing errors.
       ruleError = original == null
           ? diagnostic
           : original == diagnostic || original.endsWith('\n$diagnostic')
@@ -190,7 +191,8 @@ class ConnectionRecord {
 
 typedef ConnectionRuleCandidate = ({String type, String value});
 
-/// 根据原生连接信息生成可添加的规则，连接结束后随连接记录保留。
+/// Builds addable rules from native connection data and retains them with the record
+/// after the connection ends.
 class ConnectionRuleSuggestions {
   ConnectionRuleSuggestions._({
     required this.source,
@@ -370,7 +372,7 @@ class ConnectionSnapshot {
   final int? sampleAgeMs;
   final bool limited;
 
-  /// 原生接口返回的活跃连接总数。
+  /// Total active connection count returned by the native interface.
   final int? activeCount;
   final int omitted;
   final String? error;
@@ -385,7 +387,6 @@ class ConnectionSnapshot {
       records.where((record) => record.id == id).firstOrNull;
 }
 
-// 将通道传入的 IP 地址字面量解析为字节。
 List<int>? _addressBytes(String value) {
   if (value.contains('%')) return null;
   try {

@@ -22,7 +22,7 @@ void main() {
 
   for (final abandon in [false, true]) {
     test(
-      'ConnectionsCallsTest.queuedCloseCanExpireOrBeAbandonedButKeepsItsSlotUntilWorkerDrain：AppRuntime 排队 close 在${abandon ? '取消' : '到期'}后先返回一次错误，writer 与 slot 等真实 drain 后才释放',
+      'ConnectionsCallsTest.queuedCloseCanExpireOrBeAbandonedButKeepsItsSlotUntilWorkerDrain: queued AppRuntime close returns one error after ${abandon ? 'cancellation' : 'expiry'} and retains writer and slot until actual drain',
       () async {
         fixture.deadline = fixture.admittedAt + 100;
         await fixture.startAppRuntime();
@@ -66,7 +66,8 @@ void main() {
           fixture.expire();
         }
 
-        // 原 first.await/error 必须先于 validation drain；operation 反馈不能替代业务 Reply。
+        // The original first.await/error must precede validation drain; operation
+        // feedback cannot replace the business Reply.
         await pending.done;
         expect(pending.error, isNull);
         expect(pending.value!['success'], isFalse);
@@ -130,7 +131,7 @@ void main() {
 
   for (final outcome in ['closed', 'absent', 'failed', 'nativeError']) {
     test(
-      'AppRuntime close 在取消及原 deadline 后仍读回实际 $outcome，FD drain 前维持 writer 与 slot',
+      'AppRuntime close reads actual $outcome after cancellation and the original deadline, retaining writer and slot until FD drain',
       () async {
         await fixture.startAppRuntime();
         final command = <String, dynamic>{
@@ -222,7 +223,7 @@ void main() {
 
   for (final abandon in [false, true]) {
     test(
-      '排队 close 在${abandon ? 'owner 取消' : 'deadline 到期'}后不进入 native，实际受理结束前不重复排队，随后可重试',
+      'queued close does not enter native after ${abandon ? 'owner cancellation' : 'deadline expiry'}, cannot requeue until admission ends, and can then retry',
       () async {
         fixture.deadline = fixture.admittedAt + 100;
         fixture.operation = fixture.bootstrap.runtime.platform.forOperation(
@@ -314,7 +315,7 @@ void main() {
 
   for (final beforeAdmission in [true, false]) {
     test(
-      'resource owner 在${beforeAdmission ? '受理前' : '提交 native 前'}取消，不替换上下文也不执行更新，并释放实际 slot',
+      'resource owner cancellation ${beforeAdmission ? 'before admission' : 'before native submission'} skips context replacement and update, then releases the slot',
       () async {
         final captured = fixture.core;
         final gate = _ValidationGate(fixture, beforeAdmission ? 1 : 3);
@@ -383,7 +384,7 @@ void main() {
 
   for (final beforeAdmission in [true, false]) {
     test(
-      'AppRuntime resource owner 在${beforeAdmission ? '业务受理前' : '实际提交前'}取消，writer 到受理结束前不放行且失败后可重试',
+      'AppRuntime resource owner cancellation ${beforeAdmission ? 'before business admission' : 'before actual submission'} retains the writer until admission ends and permits retry after failure',
       () async {
         await fixture.startAppRuntime();
         final captured = fixture.core;
@@ -440,7 +441,7 @@ void main() {
     );
   }
 
-  test('已排队 resource 在上下文替换后不得进入 replacement native，原受理结束后可在新来源重试', () async {
+  test('queued resource cannot enter replacement native after a context change and can retry on the new source after admission ends', () async {
     final captured = fixture.core;
     final gate = _ValidationGate(fixture, 1);
     addTearDown(gate.close);
@@ -506,103 +507,95 @@ void main() {
     expect(fixture.exits, isEmpty);
   });
 
-  test(
-    '执行中的 resource 在 deadline 和 owner 取消后保留原结果，实际 receipt 返回前维持更新占用且诊断可读取',
-    () async {
-      final captured = fixture.core;
-      fixture.script(ApplicationContract.coreOperationResourceUpdate, (
-        request,
-      ) {
-        request.complete(
-          {
-            'status': 'ok',
-            'future': [false, null],
-          },
-          terminal: {'exited': false},
-        );
-      });
-      final entered = fixture.next(
-        ApplicationContract.coreOperationResourceUpdate,
-      );
-      final pending = FutureProbe(
-        fixture.operation.updateResource(captured, kind: 'geo', name: 'GeoIP'),
-      );
-      final request = await entered;
-      fixture.expire();
-      fixture.operation.cancel();
-      await fixture.flush();
-      expect(pending.settled, isFalse);
-      expect(request.actualExited, isFalse);
-      final busy = jsonDecode(
-        await fixture.runtime.read('updateResource', {
-          ...fixture.identity(),
-          'query': {'kind': 'geo', 'name': 'GeoIP'},
-        }) as String,
-      ) as Map;
-      expect(busy['readPending'], isTrue);
-      expect(
-        fixture.calls(ApplicationContract.coreOperationResourceUpdate),
-        hasLength(1),
-      );
-
-      fixture.script(ApplicationContract.coreOperationRuntimeConfig, (request) {
-        request.complete('mode: rule\n');
-      });
-      final diagnostic = jsonDecode(
-        await fixture.runtime.read('runtimeConfig', fixture.identity())
-            as String,
-      ) as Map;
-      expect(diagnostic['configuration'], 'mode: rule\n');
-      expect(pending.settled, isFalse);
-      expect(fixture.core, same(captured));
-      fixture.replaceCore(phase: 'RELEASING');
-      expect(pending.settled, isFalse);
-
-      request.signalExit(
-        receipt: {
-          'exited': true,
+  test('running resource retains its result after deadline and owner cancellation, holds the update slot until the actual receipt, and allows diagnostic reads', () async {
+    final captured = fixture.core;
+    fixture.script(ApplicationContract.coreOperationResourceUpdate, (request) {
+      request.complete(
+        {
+          'status': 'ok',
           'future': [false, null],
         },
+        terminal: {'exited': false},
       );
-      await pending.done;
-      expect(pending.error, isNull);
-      expect((pending.value!['update'] as Map)['status'], 'ok');
-      expect((pending.value!['update'] as Map).containsKey('future'), isFalse);
-      expect(pending.value!['generation'], captured.generation);
-      expect(pending.value!['composition'], captured.composition);
-      expect(pending.value!['stale'], isTrue);
-      expect(pending.replies, 1);
-      expect(request.actualExited, isTrue);
+    });
+    final entered = fixture.next(
+      ApplicationContract.coreOperationResourceUpdate,
+    );
+    final pending = FutureProbe(
+      fixture.operation.updateResource(captured, kind: 'geo', name: 'GeoIP'),
+    );
+    final request = await entered;
+    fixture.expire();
+    fixture.operation.cancel();
+    await fixture.flush();
+    expect(pending.settled, isFalse);
+    expect(request.actualExited, isFalse);
+    final busy = jsonDecode(
+      await fixture.runtime.read('updateResource', {
+        ...fixture.identity(),
+        'query': {'kind': 'geo', 'name': 'GeoIP'},
+      }) as String,
+    ) as Map;
+    expect(busy['readPending'], isTrue);
+    expect(
+      fixture.calls(ApplicationContract.coreOperationResourceUpdate),
+      hasLength(1),
+    );
 
-      _renewOperation(fixture);
-      fixture.replaceCore(
-        processId: 'process-replacement',
-        inputId: 'input-replacement',
-        generation: 1,
-        composition: 'replacement',
-      );
-      final replacement = fixture.core;
-      fixture.script(ApplicationContract.coreOperationResourceUpdate, (
-        request,
-      ) {
-        request.complete({'status': 'ok'});
-      });
-      expect(
-        (await fixture.operation.updateResource(
-          replacement,
-          kind: 'geo',
-          name: 'GeoIP',
-        ))['update'],
-        {'status': 'ok'},
-      );
-      expect(
-        fixture.calls(ApplicationContract.coreOperationResourceUpdate),
-        hasLength(2),
-      );
-      expect(pending.replies, 1);
-      expect(fixture.exits, isEmpty);
-    },
-  );
+    fixture.script(ApplicationContract.coreOperationRuntimeConfig, (request) {
+      request.complete('mode: rule\n');
+    });
+    final diagnostic = jsonDecode(
+      await fixture.runtime.read('runtimeConfig', fixture.identity()) as String,
+    ) as Map;
+    expect(diagnostic['configuration'], 'mode: rule\n');
+    expect(pending.settled, isFalse);
+    expect(fixture.core, same(captured));
+    fixture.replaceCore(phase: 'RELEASING');
+    expect(pending.settled, isFalse);
+
+    request.signalExit(
+      receipt: {
+        'exited': true,
+        'future': [false, null],
+      },
+    );
+    await pending.done;
+    expect(pending.error, isNull);
+    expect((pending.value!['update'] as Map)['status'], 'ok');
+    expect((pending.value!['update'] as Map).containsKey('future'), isFalse);
+    expect(pending.value!['generation'], captured.generation);
+    expect(pending.value!['composition'], captured.composition);
+    expect(pending.value!['stale'], isTrue);
+    expect(pending.replies, 1);
+    expect(request.actualExited, isTrue);
+
+    _renewOperation(fixture);
+    fixture.replaceCore(
+      processId: 'process-replacement',
+      inputId: 'input-replacement',
+      generation: 1,
+      composition: 'replacement',
+    );
+    final replacement = fixture.core;
+    fixture.script(ApplicationContract.coreOperationResourceUpdate, (request) {
+      request.complete({'status': 'ok'});
+    });
+    expect(
+      (await fixture.operation.updateResource(
+        replacement,
+        kind: 'geo',
+        name: 'GeoIP',
+      ))['update'],
+      {'status': 'ok'},
+    );
+    expect(
+      fixture.calls(ApplicationContract.coreOperationResourceUpdate),
+      hasLength(2),
+    );
+    expect(pending.replies, 1);
+    expect(fixture.exits, isEmpty);
+  });
 }
 
 void _renewOperation(CoreRuntimeFixture fixture) {

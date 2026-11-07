@@ -198,96 +198,103 @@ void main() {
     },
   );
 
-  testWidgets('设置分组即时重排并保留组件和阅读位置', (tester) async {
-    final bridge = DnsTestBridge();
-    final app = DnsTestApp(bridge);
-    addTearDown(app.dispose);
-    final presentation = ValueNotifier(('en', 1.0, false));
-    addTearDown(presentation.dispose);
-    await show(
-      tester,
-      app,
-      size: const Size(1200, 900),
-      presentation: presentation,
-    );
-    Finder section(int index) =>
-        find.byKey(ValueKey('settings-section:$index'));
-    Rect rect(int index) => tester.getRect(section(index));
-    double height(int index) => tester
-        .getSize(
-          find
-              .ancestor(
-                of: section(index),
-                matching: find.byType(IndexedSemantics),
-              )
-              .first,
-        )
-        .height;
-    final settings = tester.state(find.byType(SettingsPage));
-    final language = find.ancestor(
-      of: find.byIcon(Icons.translate_rounded),
-      matching: find.byType(ChoiceMenuButton<String>),
-    );
-    final choice = tester.state(language);
-    final scroll = tester.state<ScrollableState>(find.byType(Scrollable).first);
-    final controller = tester
-        .widget<CustomScrollView>(find.byType(CustomScrollView))
-        .controller!;
-    final pixels = scroll.position.pixels;
-    final wide = [rect(0), rect(1)];
-    expect(wide[1].left, greaterThan(wide[0].right));
-    expect(wide[1].top, wide[0].top);
-    tester.view.physicalSize = const Size(700, 900);
-    await tester.pump();
-    expect(rect(0).width, 700);
-    expect(rect(1).left, rect(0).left);
-    expect(rect(1).top, greaterThanOrEqualTo(rect(0).bottom));
-    final narrow = [rect(0), rect(1)];
-    await tester.pump(const Duration(milliseconds: 60));
-    expect([rect(0), rect(1)], narrow);
-    expect(language.hitTestable(), findsOneWidget);
-    tester.view.physicalSize = const Size(1200, 900);
-    await tester.pump();
-    expect([rect(0), rect(1)], wide);
-    await tester.pump(const Duration(milliseconds: 40));
-    expect([rect(0), rect(1)], wide);
-    tester.view.physicalSize = const Size(700, 900);
-    await tester.pump();
-    expect([rect(0), rect(1)], narrow);
-    final beforeText = height(0);
-    presentation.value = ('zh', 2.0, false);
-    await tester.pump();
-    final scaledHeight = height(0);
-    expect(scaledHeight, greaterThan(beforeText));
-    await tester.pump(const Duration(milliseconds: 60));
-    expect(height(0), scaledHeight);
-    await tester.pumpAndSettle();
-    expect(height(0), scaledHeight);
-    presentation.value = ('en', 1.0, true);
-    tester.view.physicalSize = const Size(1200, 900);
-    tester.view.padding = const FakeViewPadding(left: 12, right: 20);
-    await tester.pump();
-    expect(rect(0).width, 572);
-    expect(rect(1).left, greaterThan(rect(0).right));
-    expect(height(0), closeTo(wide[0].height, .01));
-    expect(tester.state(find.byType(SettingsPage)), same(settings));
-    expect(tester.state(language), same(choice));
-    expect(language.hitTestable(), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('settings-mode')).hitTestable(),
-      findsOneWidget,
-    );
-    expect(
-      tester.widget<CustomScrollView>(find.byType(CustomScrollView)).controller,
-      same(controller),
-    );
-    expect(scroll.position.pixels, pixels);
-    expect(find.byType(CollectionWorkspace), findsNothing);
-    expect(app.commands, isEmpty);
-    expect(bridge.queries, isEmpty);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox());
-  });
+  testWidgets(
+    'settings groups reflow immediately while preserving widgets and reading position',
+    (tester) async {
+      final bridge = DnsTestBridge();
+      final app = DnsTestApp(bridge);
+      addTearDown(app.dispose);
+      final presentation = ValueNotifier(('en', 1.0, false));
+      addTearDown(presentation.dispose);
+      await show(
+        tester,
+        app,
+        size: const Size(1200, 900),
+        presentation: presentation,
+      );
+      Finder section(int index) =>
+          find.byKey(ValueKey('settings-section:$index'));
+      Rect rect(int index) => tester.getRect(section(index));
+      double height(int index) => tester
+          .getSize(
+            find
+                .ancestor(
+                  of: section(index),
+                  matching: find.byType(IndexedSemantics),
+                )
+                .first,
+          )
+          .height;
+      final settings = tester.state(find.byType(SettingsPage));
+      final language = find.ancestor(
+        of: find.byIcon(Icons.translate_rounded),
+        matching: find.byType(ChoiceMenuButton<String>),
+      );
+      final choice = tester.state(language);
+      final scroll = tester.state<ScrollableState>(
+        find.byType(Scrollable).first,
+      );
+      final controller = tester
+          .widget<CustomScrollView>(find.byType(CustomScrollView))
+          .controller!;
+      final pixels = scroll.position.pixels;
+      final wide = [rect(0), rect(1)];
+      expect(wide[1].left, greaterThan(wide[0].right));
+      expect(wide[1].top, wide[0].top);
+      tester.view.physicalSize = const Size(700, 900);
+      await tester.pump();
+      expect(rect(0).width, 700);
+      expect(rect(1).left, rect(0).left);
+      expect(rect(1).top, greaterThanOrEqualTo(rect(0).bottom));
+      final narrow = [rect(0), rect(1)];
+      await tester.pump(const Duration(milliseconds: 60));
+      expect([rect(0), rect(1)], narrow);
+      expect(language.hitTestable(), findsOneWidget);
+      tester.view.physicalSize = const Size(1200, 900);
+      await tester.pump();
+      expect([rect(0), rect(1)], wide);
+      await tester.pump(const Duration(milliseconds: 40));
+      expect([rect(0), rect(1)], wide);
+      tester.view.physicalSize = const Size(700, 900);
+      await tester.pump();
+      expect([rect(0), rect(1)], narrow);
+      final beforeText = height(0);
+      presentation.value = ('zh', 2.0, false);
+      await tester.pump();
+      final scaledHeight = height(0);
+      expect(scaledHeight, greaterThan(beforeText));
+      await tester.pump(const Duration(milliseconds: 60));
+      expect(height(0), scaledHeight);
+      await tester.pumpAndSettle();
+      expect(height(0), scaledHeight);
+      presentation.value = ('en', 1.0, true);
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.padding = const FakeViewPadding(left: 12, right: 20);
+      await tester.pump();
+      expect(rect(0).width, 572);
+      expect(rect(1).left, greaterThan(rect(0).right));
+      expect(height(0), closeTo(wide[0].height, .01));
+      expect(tester.state(find.byType(SettingsPage)), same(settings));
+      expect(tester.state(language), same(choice));
+      expect(language.hitTestable(), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('settings-mode')).hitTestable(),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<CustomScrollView>(find.byType(CustomScrollView))
+            .controller,
+        same(controller),
+      );
+      expect(scroll.position.pixels, pixels);
+      expect(find.byType(CollectionWorkspace), findsNothing);
+      expect(app.commands, isEmpty);
+      expect(bridge.queries, isEmpty);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   testWidgets('settings scrolling stays direct while groups are relocating', (
     tester,

@@ -799,68 +799,77 @@ void main() {
     return app;
   }
 
-  testWidgets('实际提交拒绝由模式浮板显示原始原因', (tester) async {
-    final bridge = SnapshotBridge()
-      ..submitResult = () async => throw StateError('mode admission rejected');
-    final app = receiptApp(bridge);
-    await app.refresh();
-    await show(tester, workspaceNavigator: true, owner: app);
-    await open(tester);
-    await tester.tap(find.byKey(const ValueKey('mode-global')));
-    final strings = AppLocalizations.of(tester.element(find.byType(ModeSheet)));
-    await openErrorDetails(
-      tester,
-      messages.requestNotAccepted.summary(strings),
-      detail: 'Bad state: mode admission rejected',
-    );
-    expect(bridge.commands, hasLength(1));
-    expect(find.byType(ModeSheet), findsOneWidget);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox());
-  });
+  testWidgets(
+    'mode sheet displays original causes of actual submission rejection',
+    (tester) async {
+      final bridge = SnapshotBridge()
+        ..submitResult = () async =>
+            throw StateError('mode admission rejected');
+      final app = receiptApp(bridge);
+      await app.refresh();
+      await show(tester, workspaceNavigator: true, owner: app);
+      await open(tester);
+      await tester.tap(find.byKey(const ValueKey('mode-global')));
+      final strings = AppLocalizations.of(
+        tester.element(find.byType(ModeSheet)),
+      );
+      await openErrorDetails(
+        tester,
+        messages.requestNotAccepted.summary(strings),
+        detail: 'Bad state: mode admission rejected',
+      );
+      expect(bridge.commands, hasLength(1));
+      expect(find.byType(ModeSheet), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
-  testWidgets('实际失败结果没有消息时显示通用失败提示', (tester) async {
-    var snapshot = const AppSnapshot(phase: 'STOPPED');
-    final bridge = SnapshotBridge()..read = () async => snapshot;
-    final app = receiptApp(bridge);
-    await app.refresh();
-    await show(tester, workspaceNavigator: true, owner: app);
-    await open(tester);
-    await tester.tap(find.byKey(const ValueKey('mode-global')));
-    await tester.pump();
-    expect(bridge.commands, hasLength(1));
-    expect(app.hasLocalFeedbackOwner, isTrue);
-    snapshot = const AppSnapshot(phase: 'STOPPED', resultId: 'operation-1');
-    await app.refresh();
-    await tester.pumpAndSettle();
-    final notice = find.descendant(
-      of: find.byType(ModeSheet),
-      matching: find.byType(SnackBar),
-    );
-    expect(notice, findsOneWidget);
-    expect(
-      find.descendant(
-        of: notice,
-        matching: find.text(
-          messages.operationFailed.summary(
-            AppLocalizations.of(tester.element(find.byType(ModeSheet))),
+  testWidgets(
+    'actual failure without a message shows a generic failure notice',
+    (tester) async {
+      var snapshot = const AppSnapshot(phase: 'STOPPED');
+      final bridge = SnapshotBridge()..read = () async => snapshot;
+      final app = receiptApp(bridge);
+      await app.refresh();
+      await show(tester, workspaceNavigator: true, owner: app);
+      await open(tester);
+      await tester.tap(find.byKey(const ValueKey('mode-global')));
+      await tester.pump();
+      expect(bridge.commands, hasLength(1));
+      expect(app.hasLocalFeedbackOwner, isTrue);
+      snapshot = const AppSnapshot(phase: 'STOPPED', resultId: 'operation-1');
+      await app.refresh();
+      await tester.pumpAndSettle();
+      final notice = find.descendant(
+        of: find.byType(ModeSheet),
+        matching: find.byType(SnackBar),
+      );
+      expect(notice, findsOneWidget);
+      expect(
+        find.descendant(
+          of: notice,
+          matching: find.text(
+            messages.operationFailed.summary(
+              AppLocalizations.of(tester.element(find.byType(ModeSheet))),
+            ),
           ),
         ),
-      ),
-      findsOneWidget,
-    );
-    expect(
-      app.feedbackHandledLocally(
-        app.lastCommand!,
-        submissionFailed: false,
-        resultId: 'operation-1',
-      ),
-      isTrue,
-    );
-    expect(find.byType(ModeSheet), findsOneWidget);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox());
-  });
+        findsOneWidget,
+      );
+      expect(
+        app.feedbackHandledLocally(
+          app.lastCommand!,
+          submissionFailed: false,
+          resultId: 'operation-1',
+        ),
+        isTrue,
+      );
+      expect(find.byType(ModeSheet), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   testWidgets('failed apply keeps sheet open and actual selection unchanged', (
     tester,

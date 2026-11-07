@@ -16,7 +16,8 @@ import '../../model/override_entry.dart';
 import '../locale/message_text.dart';
 import '../locale/model_text.dart';
 
-/// 读取配置、插件、偏好及平台快照，在存储版本一致时更新界面，不提交业务操作。
+/// Reads configurations, plugins, preferences, and platform snapshots; updates the UI
+/// at matching storage revisions without submitting business operations.
 class AppReadProjection {
   AppReadProjection(
     this.platform, {
@@ -80,7 +81,7 @@ class AppReadProjection {
     if (value) {
       _retryStep = 0;
     } else {
-      // 停止更新界面；已经开始的平台调用和文件读取继续执行。
+      // Stop UI updates; platform calls and file reads already in progress continue.
       _runner++;
       _readRevision++;
       _refreshing = false;

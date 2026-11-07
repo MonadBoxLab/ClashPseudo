@@ -10,7 +10,8 @@ AppLanguage _language = AppLanguage.system;
 Locale? _locale;
 AppLocalizations? _strings;
 
-/// 显示消息时按当前界面语言翻译；后台生成和持久化的消息保留标识及参数。
+/// Resolves messages in the current UI language at display time; background and
+/// persisted messages retain IDs and arguments.
 AppLocalizations get localizedMessages =>
     messageLocalizationsFor(PlatformDispatcher.instance.locales);
 
@@ -35,7 +36,7 @@ extension AppMessageText on AppMessage {
       resolveAppMessageSummary(this, strings);
   String resolve(AppLocalizations strings) => resolveAppMessage(this, strings);
 
-  /// 从当前消息及嵌套消息中提取技术详情。
+  /// Extracts technical details from this message and nested messages.
   String? technicalDetail(AppLocalizations strings) {
     final parts = <String>[];
     if (detail != null && detail!.isNotEmpty) parts.add(detail!);
@@ -78,7 +79,8 @@ String _textArg(
   throw const FormatException('Invalid message argument');
 }
 
-/// 按消息标识调用 Flutter 本地化 API，并附上原始技术详情。
+/// Resolves the message ID through Flutter localization and appends the original
+/// technical details.
 String resolveAppMessage(AppMessage message, AppLocalizations strings) {
   final summary = _resolveAppMessageSummary(
     message,
@@ -88,7 +90,7 @@ String resolveAppMessage(AppMessage message, AppLocalizations strings) {
   return message.detail == null ? summary : '$summary\n${message.detail}';
 }
 
-/// 返回当前消息的摘要，省略当前消息及嵌套消息中的技术详情。
+/// Returns the message summary without technical details from this or nested messages.
 String resolveAppMessageSummary(AppMessage message, AppLocalizations strings) =>
     _resolveAppMessageSummary(message, strings, includeDetail: false);
 

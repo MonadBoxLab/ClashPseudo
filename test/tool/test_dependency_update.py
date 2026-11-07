@@ -1,4 +1,4 @@
-"""测试依赖更新、应用版本递增及许可材料收集。"""
+"""Test dependency updates, application version increments, and license collection."""
 
 import argparse
 from contextlib import redirect_stdout, redirect_stderr
@@ -258,7 +258,7 @@ class UpdateTest(unittest.TestCase):
         result = self.execute(scope="mihomo", mihomo_version=self.target, reuse_version=True)
         self.assertEqual(result["mihomo"], {"previous": "v1.0.0", "selected": self.target})
         self.updater.go_updates.assert_called_once_with([packages.MIHOMO], self.target)
-        with self.assertRaisesRegex(ValueError, "需要 --scope mihomo"):
+        with self.assertRaisesRegex(ValueError, "requires --scope mihomo"):
             update.execute(self.root, mihomo_version=self.target)
 
     def test_invalid_scope_combination_fails_before_release_lookup(self):
@@ -318,7 +318,7 @@ class UpdateTest(unittest.TestCase):
             source.write_text("concurrent")
             return {}
         self.updater.pub_updates.side_effect = change
-        with self.assertRaisesRegex(ValueError, "工作树发生变化"):
+        with self.assertRaisesRegex(ValueError, "Working tree changed"):
             self.execute()
         self.assertEqual(inputs.snapshot(self.root), before)
         self.assertEqual(source.read_text(), "concurrent")
@@ -327,7 +327,7 @@ class UpdateTest(unittest.TestCase):
         before = inputs.snapshot(self.root)
         after = dict(before, **{"pubspec.yaml": b"version: 1.0.1+2\n"})
         (self.root / "pubspec.yaml").write_text("version: 7.0.0+12\n")
-        with self.assertRaisesRegex(ValueError, "更新期间文件发生变化"):
+        with self.assertRaisesRegex(ValueError, "File changed during update"):
             inputs.publish_changes(self.root, before, after)
         self.assertEqual((self.root / "pubspec.yaml").read_text(), "version: 7.0.0+12\n")
 
@@ -377,7 +377,7 @@ class UpdateTest(unittest.TestCase):
             after = dict(before, Replace=replacement)
             with self.subTest(replacement=replacement), mock.patch.object(
                     updater, "go_run", side_effect=[json.dumps(before), "", "", "", json.dumps(after)]):
-                with self.assertRaisesRegex(ValueError, "Go replace 发生变化"):
+                with self.assertRaisesRegex(ValueError, "Go replace changed"):
                     updater.update_go({packages.MIHOMO: "v1.0.1"})
             self.assertEqual(inputs.snapshot(self.root), snapshot)
 
@@ -388,7 +388,7 @@ class UpdateTest(unittest.TestCase):
             after = dict(self.manifest, Require=[
                 dict(row, Version="v1.0.1" if row["Path"] == packages.MIHOMO else row["Version"])
                 for row in self.manifest["Require"] if row["Path"] != missing])
-            message = "许可版本约束丢失：" + missing
+            message = "License version constraint is missing: " + missing
             with self.subTest(missing=missing), mock.patch.object(
                     updater, "go_run", side_effect=[json.dumps(self.manifest), "", "", "", json.dumps(after)]):
                 with self.assertRaisesRegex(ValueError, message):
@@ -497,7 +497,7 @@ class UpdateTest(unittest.TestCase):
             dependencies = {"packages": [{"name": name, "source": source}]}
             with self.subTest(name=name), mock.patch.object(
                     packages, "run", side_effect=["", json.dumps(outdated), json.dumps(dependencies)]):
-                with self.assertRaisesRegex(ValueError, "hosted 直接依赖"):
+                with self.assertRaisesRegex(ValueError, "direct hosted dependencies"):
                     packages.Updater(self.root).pub_updates([name])
 
     def test_evidence_build_failure_is_reported(self):
@@ -512,7 +512,7 @@ class UpdateTest(unittest.TestCase):
 
 
 class SourceNoticeTest(unittest.TestCase):
-    """核对锁定 Go 解析结果、生产依赖和本地 PSL 原字节。"""
+    """Verify locked Go resolution, production dependencies, and original local PSL bytes."""
 
     @classmethod
     def setUpClass(cls):
@@ -595,11 +595,11 @@ class LegalTest(unittest.TestCase):
         self.assertIn(legal.CLASSIFIER, self.process.call_args.args[0])
 
     def test_missing_unknown_and_conflicting_licenses_fail(self):
-        with self.assertRaisesRegex(ValueError, "缺少许可授权正文"):
+        with self.assertRaisesRegex(ValueError, "License grant text is missing"):
             self.legal.check({"AUTHORS": b"name"})
         for names in ([], ["Copyright"], ["GPL-2.0"], ["proprietary"]):
             self.classifier(names)
-            with self.subTest(names=names), self.assertRaisesRegex(ValueError, "许可需要技术复核"):
+            with self.subTest(names=names), self.assertRaisesRegex(ValueError, "License requires technical review"):
                 self.legal.check({"LICENSE": b"source license"})
 
     def test_lzo_or_later_authorization_allows_gplv3_combination(self):

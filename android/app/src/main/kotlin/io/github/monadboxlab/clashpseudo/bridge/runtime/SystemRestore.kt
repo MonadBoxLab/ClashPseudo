@@ -41,7 +41,7 @@ internal class SystemRestore(
     fun cancelSystemRestore(): Boolean {
         val owner = systemRestoreOwner ?: return false
         systemRestoreOwner = null
-        // 已受理的恢复持有输入，实际执行结束后再清理。
+        // An admitted restore retains its input until execution finishes.
         if (operations.operationId == owner) {
             discardedSystemInput = owner
             operations.replaceOwner(null)
@@ -103,7 +103,7 @@ internal class SystemRestore(
             }
             val storage = BackupFiles.get(context).transaction.snapshot()
             if (cleanup["ready"] != true || !storage.ready || storage.restoring || !canAdmit()) {
-                // 沿原 deadline 等待 writer；Stop 立即撤销 owner。
+                // Wait for the writer within the original deadline; Stop revokes the owner immediately.
                 main.postDelayed({ attempt() }, 100L)
                 return
             }

@@ -145,7 +145,8 @@ class _ChoiceMenuButtonState<T> extends State<ChoiceMenuButton<T>>
 
   @override
   void didChangeMetrics() {
-    // Scaffold 可能已调整页面的键盘避让区域；根 Overlay 仍按原始窗口计算可用区域。
+    // Scaffold may already account for the keyboard; the root Overlay still uses the
+    // original window bounds.
     if (_controller.isOpen) setState(() {});
   }
 
@@ -368,10 +369,12 @@ class _ChoiceMenuButtonState<T> extends State<ChoiceMenuButton<T>>
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop && _controller.isOpen && !_closing) _cancel();
       },
-      // 菜单使用所属 Overlay 的有效区域，按钮保持页面原有的 MediaQuery。
+      // Use the owning Overlay bounds for the menu and retain the page MediaQuery for
+      // the button.
       child: MediaQuery(
         data: workspace.media,
-        // 菜单与触发控件保持原有的语义和焦点遍历关系。
+        // Preserve the semantic and focus traversal relationship between the menu and
+        // its trigger.
         child: Semantics(
           container: true,
           explicitChildNodes: true,

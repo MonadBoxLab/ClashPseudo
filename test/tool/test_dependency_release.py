@@ -1,4 +1,4 @@
-"""直接发布使用临时 Git 仓库和 GitHub API mock，不连接项目远端。"""
+"""Test direct releases with temporary Git repositories and mocked GitHub APIs without connecting to project remotes."""
 import json
 import os
 from pathlib import Path
@@ -129,7 +129,7 @@ class ReleaseTest(unittest.TestCase):
             release.context(self.root, self.state, "default")
 
     def test_context_rejects_non_default_branch_without_query(self):
-        with mock.patch.dict(os.environ, GITHUB_REF="refs/heads/feature"), self.assertRaisesRegex(ValueError, "默认分支"):
+        with mock.patch.dict(os.environ, GITHUB_REF="refs/heads/feature"), self.assertRaisesRegex(ValueError, "default branch"):
             release.context(self.root, self.state)
         self.assertEqual(self.github.calls, [])
 
@@ -158,7 +158,7 @@ class ReleaseTest(unittest.TestCase):
 
     def test_unexpected_file_cannot_enter_candidate(self):
         (self.root / "unchanged.txt").write_text("changed", encoding="utf-8")
-        with self.assertRaisesRegex(ValueError, "白名单"):
+        with self.assertRaisesRegex(ValueError, "allowlist"):
             self.candidate()
         self.assertEqual(self.git("rev-parse", "HEAD"), self.base)
 
@@ -166,7 +166,7 @@ class ReleaseTest(unittest.TestCase):
         (self.root / "unchanged.txt").write_text("changed", encoding="utf-8")
         self.git("add", ".")
         self.git("commit", "-m", update_bundle.COMMIT_MESSAGE)
-        with self.assertRaisesRegex(ValueError, "白名单"):
+        with self.assertRaisesRegex(ValueError, "allowlist"):
             update_bundle.export_bundle(self.root, self.directory / "bad.bundle", self.base, self.git("rev-parse", "HEAD"))
 
     def test_publish_pushes_candidate_and_tag_atomically_then_all_assets(self):
@@ -202,7 +202,7 @@ class ReleaseTest(unittest.TestCase):
         run(["git", "commit", "--allow-empty", "-m", "并发提交"], self.publisher)
         run(["git", "push", "origin", "main"], self.publisher)
         run(["git", "checkout", "--detach", self.base], self.publisher)
-        with self.assertRaisesRegex(ValueError, "默认分支已前进"):
+        with self.assertRaisesRegex(ValueError, "Default branch has advanced"):
             release.publish(self.publisher, self.materials)
         self.assertIsNone(release.remote_ref(self.publisher, "refs/tags/" + self.plan["tag"]))
         self.assertEqual(self.github.mutations(), [])
@@ -236,7 +236,7 @@ class ReleaseTest(unittest.TestCase):
         release.publish(self.publisher, self.materials)
         self.github.files[release.names(self.version)[0]] = b"different bytes"
         self.github.calls.clear()
-        with self.assertRaisesRegex(ValueError, "资产冲突"):
+        with self.assertRaisesRegex(ValueError, "asset conflict"):
             release.publish(self.publisher, self.materials)
         self.assertEqual(self.github.mutations(), [])
 
@@ -261,22 +261,22 @@ class ReleaseTest(unittest.TestCase):
     def test_existing_tag_at_another_commit_fails(self):
         self.bundle()
         self.git("push", "origin", self.base + ":refs/tags/" + self.plan["tag"])
-        with self.assertRaisesRegex(ValueError, "其他提交"):
+        with self.assertRaisesRegex(ValueError, "another commit"):
             release.publish(self.publisher, self.materials)
         self.assertEqual(self.github.mutations(), [])
 
     def test_artifact_run_identity_and_byte_integrity_are_required_before_push(self):
         self.bundle()
-        with mock.patch.dict(os.environ, GITHUB_RUN_ID="124"), self.assertRaisesRegex(ValueError, "本次仓库运行"):
+        with mock.patch.dict(os.environ, GITHUB_RUN_ID="124"), self.assertRaisesRegex(ValueError, "this repository run"):
             release.publish(self.publisher, self.materials)
         (self.materials / "assets" / release.names(self.version)[0]).write_bytes(b"corrupt")
-        with self.assertRaisesRegex(ValueError, "字节不同"):
+        with self.assertRaisesRegex(ValueError, "different bytes"):
             release.publish(self.publisher, self.materials)
         self.assertFalse(any(call[:2] == ["git", "push"] for call in self.github.calls))
 
     def test_pending_publication_blocks_next_update_and_tells_original_job(self):
         self.git("push", "origin", self.base + ":refs/tags/v1.0.0+1")
-        with self.assertRaisesRegex(ValueError, "原 Actions 运行中重跑"):
+        with self.assertRaisesRegex(ValueError, "rerun the release job in the original Actions run"):
             release.context(self.root, self.state)
 
     def test_only_explicit_manual_release_prepares_promotion(self):
@@ -312,7 +312,7 @@ class ReleaseTest(unittest.TestCase):
         release.save(self.materials / "release.json", self.plan)
         self.github.files[release.names(self.version)[0]] = b"corrupt"
         self.github.calls.clear()
-        with self.assertRaisesRegex(ValueError, "摘要不同"):
+        with self.assertRaisesRegex(ValueError, "digest differs"):
             release.publish(self.root, self.materials)
         self.assertEqual(self.github.mutations(), [])
 

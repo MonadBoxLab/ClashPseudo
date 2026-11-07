@@ -5,7 +5,7 @@ import '../../model/platform_failure.dart';
 import '../../model/definition_provenance.dart';
 import '../../platform/core/core_client.dart';
 
-/// 分类中的原文定义与运行记录只通过精确 provenance 关联。
+/// Associates source definitions with runtime records only through exact provenance.
 class DefinitionRows {
   DefinitionRows(Iterable<Map<String, dynamic>> definitions)
     : _definitions = {
@@ -16,7 +16,7 @@ class DefinitionRows {
   final Set<String> _matched = {};
 
   Map<String, dynamic> associate(Map<String, dynamic> record) {
-    // provider 的下载内容没有直接定义的编辑权。
+    // Downloaded provider content cannot be edited as a direct definition.
     if (record['sourceKind'] == 'proxyProvider') return record;
     final provenance = DefinitionProvenance.tryFromValue(record['provenance']);
     if (provenance == null) return record;
@@ -84,7 +84,8 @@ class DefinitionRows {
       local.isEmpty ? native : jsonEncode([native, local]);
 }
 
-/// 对完整公开导出逐条搜索，只保留当前页和计数。
+/// Searches every record in the full public export, retaining only the current page and
+/// counts.
 class CoreCollectionPage {
   const CoreCollectionPage({
     required this.rows,
@@ -130,7 +131,7 @@ class CoreCollectionPage {
 
     try {
       if (offset < 0 || limit < 1 || limit > 1000) {
-        throw const FormatException('分页范围无效');
+        throw const FormatException('Invalid page range');
       }
       await for (final frame in call.frames()) {
         switch (frame.kind) {
@@ -143,7 +144,9 @@ class CoreCollectionPage {
           case ApplicationContract.coreIpcFrameTerminal:
             terminal = frame.object;
           default:
-            throw const FormatException('集合导出包含无效帧');
+            throw const FormatException(
+              'Collection export contains an invalid frame',
+            );
         }
       }
       if (terminal != null) terminal = await call.finish(terminal);
@@ -170,12 +173,12 @@ class CoreCollectionPage {
           token.isNotEmpty &&
               token != DefinitionRows.pageToken(source, localIdentity)) {
         final reason =
-            '集合来源变化或未完整返回：'
-            'complete=${terminal?["complete"] is bool ? terminal!["complete"] : "invalid"}，'
-            'recordCount=${terminal?["recordCount"] is int ? terminal!["recordCount"] : "invalid"}，'
-            '已读取=$seen，stale=${terminal?["stale"] == true}，'
-            'metadataSource=${metadata["source"] is String ? metadata["source"] : "invalid"}，'
-            'source=${source is String ? source : "invalid"}，'
+            'Collection source changed or export is incomplete: '
+            'complete=${terminal?["complete"] is bool ? terminal!["complete"] : "invalid"}, '
+            'recordCount=${terminal?["recordCount"] is int ? terminal!["recordCount"] : "invalid"}, '
+            'read=$seen, stale=${terminal?["stale"] == true}, '
+            'metadataSource=${metadata["source"] is String ? metadata["source"] : "invalid"}, '
+            'source=${source is String ? source : "invalid"}, '
             'tokenMismatch=${token.isNotEmpty && source is String && token != DefinitionRows.pageToken(source, localIdentity)}';
         final receipt = terminal?['nativeReceipt'];
         if (terminal?['cancelError'] != null ||

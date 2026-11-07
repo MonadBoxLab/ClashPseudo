@@ -133,7 +133,9 @@ class CoreInput {
         (record['inputId'] as String).isEmpty ||
         body is! String ||
         record['overrides'] is! List) {
-      throw const FormatException('装载记录缺少输入身份或正文');
+      throw const FormatException(
+        'Loaded input record is missing its identity or text',
+      );
     }
     checkConfigText(body);
     for (final part in record['overrides'] as List) {

@@ -4,7 +4,8 @@ import 'package:flutter/foundation.dart';
 
 import '../../model/app_snapshot.dart';
 
-/// 记录负责显示命令反馈的界面及其已处理的结果，不结束业务操作。
+/// Tracks the UI that owns command feedback and the results it has handled without
+/// ending business operations.
 class AppFeedbackOwnership {
   AppFeedbackOwnership(this._changed);
 
@@ -82,7 +83,8 @@ class AppFeedbackOwnership {
   }
 
   void changed() {
-    // 页面可能在 build/dispose 中清除反馈归属标记，树更新结束后再发送通知。
+    // Pages may clear feedback ownership during build/dispose; notify after the tree
+    // update completes.
     scheduleMicrotask(() {
       if (!_disposed) _changed();
     });

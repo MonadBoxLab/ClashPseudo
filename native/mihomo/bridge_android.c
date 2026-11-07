@@ -36,7 +36,7 @@ static jbyteArray bytes(JNIEnv *env, const char *data, jsize size) {
     return value;
 }
 
-/* 标准UTF-8不经过JNI modified UTF-8。 */
+/* Standard UTF-8 bypasses JNI modified UTF-8. */
 static jstring utf8_string(JNIEnv *env, const char *data) {
     jbyteArray value = bytes(env, data, (jsize)strlen(data));
     if (!value || (*env)->ExceptionCheck(env)) return NULL;
@@ -88,7 +88,7 @@ static char *json_error(const char *message) {
     memcpy(p, suffix, strlen(suffix) + 1); return out;
 }
 
-/* 原始Java异常的堆栈保留cause及suppressed文字。 */
+/* Preserve cause and suppressed exception text in the original Java stack trace. */
 static char *exception_result(JNIEnv *env) {
     jthrowable failure = (*env)->ExceptionOccurred(env);
     if (!failure) return NULL;
@@ -299,6 +299,6 @@ JNIEXPORT jbyteArray JNICALL Java_io_github_monadboxlab_clashpseudo_nativecore_N
     device = tun ? (*env)->CallIntMethod(env, tun, detach) : -1;
     if ((*env)->ExceptionCheck(env) || (tun && device <= 0)) { (*env)->DeleteLocalRef(env, pfd); return reject_handoff(env, "TUN descriptor handoff failed", in, out, (*env)->ExceptionCheck(env) ? -1 : device); }
     (*env)->DeleteLocalRef(env, pfd);
-    /* 交给Go后，C不再按这些整数关闭任何描述符。 */
+    /* After transfer to Go, C must not close any descriptors using these integers. */
     return take_result(env, CoreInvoke(operation, request_id, in, out, device));
 }

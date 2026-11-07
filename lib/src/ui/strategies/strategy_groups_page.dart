@@ -193,7 +193,7 @@ class _StrategyGroupsPageState extends State<StrategyGroupsPage> {
   );
 }
 
-/// 详情读取捕获的运行属性，编辑仍指向原文定义。
+/// Details read captured runtime properties; edits still target the source definition.
 class _GroupPropertiesPage extends StatefulWidget {
   const _GroupPropertiesPage({
     required this.app,

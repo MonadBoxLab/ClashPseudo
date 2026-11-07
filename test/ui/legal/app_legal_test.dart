@@ -17,7 +17,7 @@ void main() {
     () => WidgetController.hitTestWarningShouldBeFatal = previousHitTestPolicy,
   );
 
-  test('应用及原生许可完整注册', () async {
+  test('application and native licenses are fully registered', () async {
     LicenseRegistry.reset();
     registerAppLicenses();
     final entries = await LicenseRegistry.licenses.toList();
@@ -60,7 +60,7 @@ void main() {
     );
   });
 
-  test('每项声明的许可资产与来源原字节一致', () async {
+  test('each declared license asset matches its source bytes', () async {
     const assets = [
       'LICENSE',
       'third_party/notices/mihomo.txt',
@@ -94,7 +94,7 @@ void main() {
     }
   });
 
-  test('YAML 包使用锁定的 hosted 版本与原许可，只有编辑器使用 path 来源', () {
+  test('YAML package uses the locked hosted version and original license; only the editor uses a path source', () {
     final lock =
         loadYaml(File('pubspec.lock').readAsStringSync())['packages'] as Map;
     final configFile = File('.dart_tool/package_config.json').absolute;
@@ -147,7 +147,7 @@ void main() {
     );
   });
 
-  test('Geo 通知保留数据版权和许可', () {
+  test('Geo notices retain data copyright and license', () {
     final geo = File('build/generated/bundled/legal/geodata/NOTICE.txt')
         .readAsStringSync();
     for (final attribution in [
@@ -160,10 +160,13 @@ void main() {
     }
   });
 
-  testWidgets('SDK 页面展示实际数据及编辑器许可', (tester) async {
+  testWidgets('SDK page displays actual data and editor licenses', (
+    tester,
+  ) async {
     LicenseRegistry.reset();
     registerAppLicenses();
-    // 大型通知的解码涉及实际 I/O 和 isolate；先在模拟时钟之外加载，再展示原注册内容。
+    // Large notice decoding uses actual I/O and isolates; load outside the fake clock
+    // before displaying registered content.
     late List<LicenseEntry> actualEntries;
     await tester.runAsync(() async {
       actualEntries = await LicenseRegistry.licenses.toList();

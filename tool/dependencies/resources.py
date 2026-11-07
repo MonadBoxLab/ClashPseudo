@@ -1,4 +1,4 @@
-"""固定资源记录、payload 校验与构建资源。"""
+"""Frozen resource records, payload validation, and build assets."""
 import gzip
 import hashlib
 import io
@@ -51,26 +51,26 @@ GEO_SOURCE_REPOSITORIES = {"geoip": "geoip", "geosite": "domain-list-community"}
 
 
 def resource_spec(spec):
-    """补齐资源安装所用的编码方式。"""
+    """Fill in the encoding used for resource installation."""
     return {"encoding": "gzip" if spec["kind"] in ("mmdb", "asn") else "identity", **spec}
 
 
 def validate_resource(data, spec):
-    """核对下载字节，限制解压大小并记录实际安装数据。"""
+    """Verify downloaded bytes, bound decompression, and record installed data."""
     stored = {"storedBytes": len(data), "storedSha256": hashlib.sha256(data).hexdigest()}
     require(0 < len(data) <= FETCH_LIMIT
             and all(spec.get(key, value) == value for key, value in stored.items()),
-            "下载文件的字节数或 SHA-256 与记录值不一致，或大小超过上限")
+            "Downloaded file size or SHA-256 differs from the record, or size exceeds the limit")
     if spec["encoding"] == "gzip":
         with gzip.GzipFile(fileobj=io.BytesIO(data)) as stream:
             installed = read_bounded(stream, RESOURCE_LIMIT)
     else:
         installed = data
-    require(0 < len(installed) <= RESOURCE_LIMIT, "安装用文件为空或大小超过上限")
+    require(0 < len(installed) <= RESOURCE_LIMIT, "Installation file is empty or exceeds the size limit")
     measured = {"installedBytes": len(installed), "installedSha256": hashlib.sha256(installed).hexdigest()}
     if spec["kind"] == "ca":
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        # cafile 保留 PEM 注释中的 UTF-8 字节，由 TLS 库解析整份文件。
+        # Preserve UTF-8 bytes in PEM comments in cafile; the TLS library parses the entire file.
         with tempfile.TemporaryDirectory(prefix="clash-ca-") as temporary:
             pem = Path(temporary) / "cacert.pem"
             pem.write_bytes(installed)
@@ -80,36 +80,36 @@ def validate_resource(data, spec):
 
 
 def read_prepared_resource(directory):
-    """读取固定资源记录并核对实际 payload。"""
+    """Read frozen resource records and verify payloads."""
     directory = Path(directory).absolute()
     require(directory.resolve() == directory
             and (not directory.is_relative_to(ROOT) or directory.is_relative_to(ROOT / "build/generated")),
-            "资源准备目录不能包含符号链接或写入源码目录")
+            "Resource preparation directory must not contain symbolic links or write into the source directory")
     spec = json.loads(read_resource(directory / "resource.json", 128 * 1024), object_pairs_hook=unique_object)
     data = read_resource(directory / "payload", min(spec["storedBytes"], FETCH_LIMIT))
     return validate_resource(data, spec), data
 
 
 def prepare_resource(spec, destination, source=None, *, fetch=None):
-    """在独立目录下载资源，成功后保存固定记录和 payload。"""
+    """Download resources in a separate directory and save frozen records and payloads on success."""
     fetch = _resolver(fetch)
     spec = resource_spec(spec)
     destination = Path(destination).absolute()
     require(destination.resolve() == destination
             and (not destination.is_relative_to(ROOT) or destination.is_relative_to(ROOT / "build/generated")),
-            "资源准备目录不能包含符号链接或写入源码目录")
+            "Resource preparation directory must not contain symbolic links or write into the source directory")
     destination.mkdir(parents=True, exist_ok=True)
     if any(destination.iterdir()):
         resolved, _ = read_prepared_resource(destination)
         require(all(resolved.get(key) == value for key, value in spec.items()
                     if key not in ("installedBytes", "installedSha256", "certificateRoots")),
-                "重新运行时资源来源或固定输入不同")
+                "Resource source or frozen inputs differ on rerun")
         return destination
     expected = dict(spec)
     if "storedSha256" not in spec and spec.get("checksumUrl"):
         checksum = fetch(spec["checksumUrl"], limit=4096).decode("ascii").strip()
         match = re.fullmatch(r"(?:SHA256\([^\r\n]+\)\s*=\s*)?([0-9a-fA-F]{64})(?:[ \t]+\*?[^\r\n]+)?", checksum)
-        require(match is not None, "官方校验文件格式无效")
+        require(match is not None, "Invalid official checksum file format")
         expected["storedSha256"] = match[1].lower()
     limit = min(spec.get("storedBytes", FETCH_LIMIT), FETCH_LIMIT)
     with tempfile.TemporaryDirectory(prefix=".resource-", dir=destination.parent) as temporary:
@@ -129,12 +129,12 @@ def prepare_resource(spec, destination, source=None, *, fetch=None):
 def prepare_resources(specs, destination, sources=None):
     specs = [resource_spec(spec) for spec in specs]
     require(len(specs) == len(RESOURCE_ASSETS) and {spec["kind"] for spec in specs} == set(RESOURCE_ASSETS),
-            "交付资源必须完整且没有重复种类")
+            "Delivery resources must be complete with no duplicate kinds")
     paths = [prepare_resource(spec, Path(destination) / spec["kind"], (sources or {}).get(spec["kind"]))
              for spec in specs]
     resolved = [read_prepared_resource(path)[0] for path in paths]
     require(all(sum(spec[prefix + "Bytes"] for spec in resolved) <= RESOURCE_TOTAL_LIMIT
-                for prefix in ("stored", "installed")), "资源总量超过上限")
+                for prefix in ("stored", "installed")), "Total resource size exceeds the limit")
     return paths
 
 
@@ -146,12 +146,12 @@ def prepared_specs(prepared):
     specs = {}
     for directory in prepared:
         directory = Path(directory)
-        require(directory.is_dir() and not directory.is_symlink(), "准备资源目录无效：" + str(directory))
+        require(directory.is_dir() and not directory.is_symlink(), "Invalid prepared resource directory: " + str(directory))
         spec, _ = read_prepared_resource(directory)
-        require(directory.name == spec["kind"], "资源准备目录名与 kind 指定的种类不一致：" + str(directory))
-        require(spec["kind"] not in specs, "准备资源包含重复种类")
+        require(directory.name == spec["kind"], "Resource preparation directory name differs from kind: " + str(directory))
+        require(spec["kind"] not in specs, "Prepared resources contain duplicate kinds")
         specs[spec["kind"]] = spec
-    require(set(specs) == set(RESOURCE_ASSETS), "交付资源不完整")
+    require(set(specs) == set(RESOURCE_ASSETS), "Delivery resources are incomplete")
     return specs
 
 
@@ -163,53 +163,53 @@ def _source_expected(kind, commit):
 
 
 def resource_source_entries(metadata):
-    """读取源码清单，检查归档路径和大小上限，返回登记的 (kind, source)。"""
+    """Read the source manifest, check archive paths and size limits, and return registered (kind, source) pairs."""
     require(isinstance(metadata, dict) and metadata.get("format") == "clash-pseudo-resource-sources"
             and type(metadata.get("version")) is int and metadata["version"] == 1,
-            "资源对应源码清单格式无效")
+            "Invalid resource source manifest format")
     rows, kinds, total, result, filenames = metadata.get("sources"), set(), 0, [], set()
     require(isinstance(rows, list) and len(rows) == len(GEO_SOURCE_REPOSITORIES)
-            and all(isinstance(row, dict) for row in rows), "资源对应源码清单条目无效")
+            and all(isinstance(row, dict) for row in rows), "Invalid resource source manifest entry")
     for row in rows:
         kind = row.get("kind")
         require(isinstance(kind, str) and kind in GEO_SOURCE_REPOSITORIES and kind not in kinds,
-                "资源对应源码种类无效：" + repr(kind))
+                "Invalid resource source kind: " + repr(kind))
         kinds.add(kind)
         entries = row.get("inputs", [])
         require(isinstance(entries, list) and all(isinstance(item, dict) for item in entries),
-                "资源补充输入清单无效：" + kind)
+                "Invalid supplemental resource input manifest: " + kind)
         if kind == "geoip" or entries:
             require(entries and all(isinstance(item.get("description"), str) and item["description"].strip()
                                     for item in entries)
                     and isinstance(row.get("processing"), str) and row["processing"].strip(),
-                    "缺少资源可编辑补充输入或处理说明：" + kind)
+                    "Missing editable supplemental resource inputs or processing description: " + kind)
         commits = set()
         for source in [row, *entries]:
             commit, name = source.get("sourceCommit"), source.get("file")
             require(isinstance(name, str) and name not in ("", ".", "..", "resource-sources.json")
                     and "/" not in name and "\\" not in name and "\0" not in name,
-                    "资源对应源码文件路径无效")
-            require(name not in filenames and commit not in commits, "重复资源源码文件或提交：" + kind)
+                    "Invalid resource source file path")
+            require(name not in filenames and commit not in commits, "Duplicate resource source file or commit: " + kind)
             filenames.add(name)
             commits.add(commit)
             size = source.get("bytes")
-            require(type(size) is int and 0 < size <= FETCH_LIMIT, "资源对应源码大小无效：" + kind)
+            require(type(size) is int and 0 < size <= FETCH_LIMIT, "Invalid resource source size: " + kind)
             total += size
-            require(total <= RESOURCE_TOTAL_LIMIT, "资源对应源码总量超过上限")
+            require(total <= RESOURCE_TOTAL_LIMIT, "Total resource source size exceeds the limit")
             result.append((kind, source))
     return result
 
 
 def read_release_resources(root, record_path=None):
-    """读取 release 保存的来源和摘要，不查询官方 latest。"""
+    """Read sources and digests saved for the release without querying official latest versions."""
     root = Path(root).resolve()
     path = Path(record_path) if record_path else root / RESOURCE_RECORD
     record = json.loads(read_resource(path, 1024 * 1024), object_pairs_hook=unique_object)
     require(isinstance(record, dict) and record.get("format") == "clash-pseudo-release-resources"
             and type(record.get("version")) is int and record["version"] == 1,
-            "release 资源来源记录格式无效")
+            "Invalid release resource source record format")
     specs = record.get("resources")
-    require(isinstance(specs, dict) and set(specs) == set(RESOURCE_ASSETS), "release 资源记录必须包含五项资源")
+    require(isinstance(specs, dict) and set(specs) == set(RESOURCE_ASSETS), "Release resource records must contain five resources")
     return record
 
 
@@ -231,7 +231,7 @@ def bundled_materials(root, record):
         relative = name.removeprefix("third_party/data/")
         data = read_resource(Path(root) / name, 32 * 1024 * 1024)
         require(record["licenses"][name] == {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()},
-                "release 资源许可正文发生变化：" + name)
+                "Release resource license text changed: " + name)
         result["legal/" + relative] = data
         if relative.startswith("geodata/"):
             result["assets/geodata/licenses/" + Path(name).name] = data
@@ -245,7 +245,7 @@ def bundled_materials(root, record):
 
 def _replace_directory(staging, destination):
     previous = destination.with_name(destination.name + ".previous")
-    require(not previous.exists() and not previous.is_symlink(), "存在尚未恢复的资源目录：" + str(previous))
+    require(not previous.exists() and not previous.is_symlink(), "Unrestored resource directory exists: " + str(previous))
     if destination.exists():
         os.replace(destination, previous)
     try:
@@ -255,19 +255,19 @@ def _replace_directory(staging, destination):
             try:
                 os.replace(previous, destination)
             except BaseException as rollback:
-                error.add_note("恢复旧资源失败，原文件保留于 " + str(previous) + "：" + str(rollback))
+                error.add_note("Failed to restore old resources; original files remain at " + str(previous) + ": " + str(rollback))
         raise
     if previous.exists():
         shutil.rmtree(previous)
 
 
 def prepare_bundled_assets(root, *, prepared=None, payloads=None, output=None, fetch=None, offline=False):
-    """普通构建只读取固定记录；缺失 payload 时按记录的 URL 和摘要补齐。"""
+    """Normal builds read only frozen records; fetch missing payloads using recorded URLs and digests."""
     root = Path(root).resolve()
     record = read_release_resources(root)
     output = Path(output).absolute() if output else root / GENERATED_BUNDLED
     require(output.resolve() == output and output.is_relative_to(root / "build/generated"),
-            "bundled assets 必须写入 build/generated 且不能包含符号链接")
+            "Bundled assets must be written under build/generated without symbolic links")
     output.parent.mkdir(parents=True, exist_ok=True)
     import fcntl
     with (output.parent / ".bundled.lock").open("a+b") as lock:
@@ -279,17 +279,17 @@ def prepare_bundled_assets(root, *, prepared=None, payloads=None, output=None, f
                 payload = read_resource(Path(prepared) / kind / "payload", min(spec["storedBytes"], FETCH_LIMIT))
                 validate_resource(payload, spec)
             else:
-                # 摘要只作为单个目录名，记录不参与路径拼接。
+                # Use the digest as a single directory name; do not build paths from the record.
                 digest_name = spec["storedSha256"]
                 require(isinstance(digest_name, str) and digest_name not in ("", ".", "..")
                         and "/" not in digest_name and "\\" not in digest_name and "\0" not in digest_name,
-                        "资源缓存路径无效")
+                        "Invalid resource cache path")
                 directory = cache / digest_name
-                require(directory.resolve() == directory, "资源缓存目录不能包含符号链接")
+                require(directory.resolve() == directory, "Resource cache directory must not contain symbolic links")
                 cached_payload = directory / "payload"
                 if not cached_payload.exists():
                     source = (payloads or {}).get(kind)
-                    require(not offline or source is not None, "离线构建缺少固定资源：" + kind)
+                    require(not offline or source is not None, "Offline build is missing a frozen resource: " + kind)
                     cache.mkdir(parents=True, exist_ok=True)
                     with tempfile.TemporaryDirectory(prefix=".download-", dir=cache) as temporary:
                         incoming = Path(temporary) / "payload"
@@ -307,7 +307,7 @@ def prepare_bundled_assets(root, *, prepared=None, payloads=None, output=None, f
                     validate_resource(payload, spec)
             data["assets/" + RESOURCE_ASSETS[kind]] = payload
         data.update(bundled_materials(root, record))
-        # 输出先写入新目录；任何校验失败都不替换上一份完整输出。
+        # Stage output in a new directory; preserve the previous complete output if any validation fails.
         with tempfile.TemporaryDirectory(prefix=".bundled-", dir=output.parent) as temporary:
             staging = Path(temporary) / "complete"
             staging.mkdir()
@@ -315,35 +315,35 @@ def prepare_bundled_assets(root, *, prepared=None, payloads=None, output=None, f
                 target = staging / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(value)
-            require(read_release_resources(root) == record, "生成期间 release 资源记录发生变化")
+            require(read_release_resources(root) == record, "Release resource records changed during generation")
             _replace_directory(staging, output)
     return output
 
 
 def check_resource_source_selection(root, metadata):
-    """比较可编辑资源源码与本次 release 固定记录中的提交。"""
+    """Compare editable resource sources against commits in this release's frozen records."""
     record = read_release_resources(root)
     for row in metadata["sources"]:
         require(row["sourceCommit"] == record["resources"][row["kind"]]["sourceCommit"],
-                "资源源码提交与 release 记录不同：" + row["kind"])
+                "Resource source commit differs from the release record: " + row["kind"])
     if "sourceInputs" in record:
-        require(metadata == record["sourceInputs"], "资源源码来源、大小或摘要与 release 记录不同")
+        require(metadata == record["sourceInputs"], "Resource source origin, size, or digest differs from the release record")
 
 
 def read_resource_sources(directory):
-    """读取resource-sources.json，逐个校验同目录归档的大小和SHA-256。"""
+    """Read resource-sources.json and verify the size and SHA-256 of each archive in the same directory."""
     directory = Path(directory).absolute()
-    require(directory.resolve() == directory, "资源对应源码目录不能包含符号链接")
+    require(directory.resolve() == directory, "Resource source directory must not contain symbolic links")
     manifest = directory / "resource-sources.json"
-    require(not manifest.is_symlink(), "资源对应源码清单不能是符号链接")
+    require(not manifest.is_symlink(), "Resource source manifest must not be a symbolic link")
     metadata = json.loads(read_resource(manifest, 128 * 1024), object_pairs_hook=unique_object)
     for kind, source in resource_source_entries(metadata):
         path = directory / source["file"]
-        require(not path.is_symlink() and path.is_file(), "资源对应源码要求普通文件：" + kind)
+        require(not path.is_symlink() and path.is_file(), "Resource sources must be regular files: " + kind)
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         with os.fdopen(descriptor, "rb") as stream:
-            require(stat.S_ISREG(os.fstat(stream.fileno()).st_mode), "资源对应源码要求普通文件：" + kind)
-            require(os.fstat(stream.fileno()).st_size == source["bytes"], "资源对应源码大小不同：" + kind)
+            require(stat.S_ISREG(os.fstat(stream.fileno()).st_mode), "Resource sources must be regular files: " + kind)
+            require(os.fstat(stream.fileno()).st_size == source["bytes"], "Resource source size differs: " + kind)
             require(hashlib.file_digest(stream, "sha256").hexdigest() == source["sha256"],
-                    "资源对应源码摘要不同：" + kind)
+                    "Resource source digest differs: " + kind)
     return metadata

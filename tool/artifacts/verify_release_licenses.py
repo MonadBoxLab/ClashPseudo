@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""比较APK中的许可、数据资产和原生依赖与本次构建材料。
+"""Compare APK licenses, data assets, and native dependencies against current build inputs.
 
-使用python3 -I运行，--output-dir指定已有空目录，接收原生库和buildinfo。
---notices填写依赖源码生成并解码的NOTICES文件，--go-modules和
---android-dependencies分别填写本次Go模块图与Gradle依赖报告。
+Run with python3 -I; --output-dir specifies an existing empty directory for native libraries and buildinfo.
+--notices specifies the decoded NOTICES file generated from dependency sources; --go-modules and
+--android-dependencies specify the current Go module graph and Gradle dependency report, respectively.
 """
 
 import gzip
@@ -34,7 +34,7 @@ ASSETS = (
     "build/generated/bundled/legal/geodata/CC-BY-4.0.txt",
 )
 ABIS = {"armeabi-v7a": "arm", "arm64-v8a": "arm64", "x86_64": "amd64"}
-# 限制归档成员的读取大小，包括gzip解压后的内容。
+# Bound archive member reads, including decompressed gzip content.
 TEXT_LIMIT = 32 * 1024 * 1024
 LIBRARY_LIMIT = 256 * 1024 * 1024
 
@@ -53,7 +53,7 @@ def emit(label, **details):
 
 
 def go_modules(path):
-    """读取go list -m -json all依次输出的多个JSON对象。"""
+    """Read consecutive JSON objects emitted by go list -m -json all."""
     text = path.read_text(encoding="utf-8").strip()
     decoder = json.JSONDecoder()
     modules = {}
@@ -76,7 +76,7 @@ def go_modules(path):
 
 
 def android_coordinates(text):
-    """读取依赖报告中最终选择的Maven坐标。"""
+    """Read the selected Maven coordinates from a dependency report."""
     require(re.search(r"^releaseRuntimeClasspath(?:\s|$)", text, re.M),
             "Expected a releaseRuntimeClasspath dependency report")
     selected = set()
@@ -90,8 +90,8 @@ def android_coordinates(text):
             continue
         requested, chosen = match.groups()
         if requested == "project" and re.search(r"project\s+(?::[\w:.-]+|':[^'\s]+')(?:\s+\(\*\))?\s*$", line):
-            # Flutter插件作为本地Gradle项目参与构建；下方核对其Maven依赖，
-            # 插件许可则从NOTICES.Z中核对。
+            # Flutter plugins build as local Gradle projects; check their Maven dependencies below
+            # and verify plugin licenses in NOTICES.Z.
             continue
         parts = requested.split(":")
         require(len(parts) in (2, 3), "Unsupported Android dependency: " + requested)
@@ -176,24 +176,24 @@ def read_entry(archive, name, limit):
 
 
 def check_public_suffix(root, module, source):
-    """比较所选 x/net 编译表记录的提交、来源通知和可编辑 PSL 列表。"""
+    """Compare the selected x/net compiled table revision, source notice, and editable PSL list."""
     effective = module.get("Replace") or module
     name, version = effective["Path"], effective["Version"]
     prefix = name + "@" + version + "/"
     with zipfile.ZipFile(source) as archive:
         names = archive.namelist()
-        require(len(names) == len(set(names)), "x/net 源码归档含重复成员")
+        require(len(names) == len(set(names)), "x/net source archive contains duplicate members")
         require(all(path.startswith(prefix) and ".." not in path.split("/") for path in names),
-                "x/net 源码归档路径越界")
+                "x/net source archive path escapes the archive root")
         table = read_entry(archive, prefix + "publicsuffix/table.go", TEXT_LIMIT)
     revision = re.search(rb"git revision ([0-9a-f]{40})", table[:6000])
-    require(revision, "编译的 publicsuffix 表缺少来源提交")
+    require(revision, "Compiled publicsuffix table lacks a source commit")
     revision = revision[1].decode()
     notice = (root / "third_party/notices/publicsuffix.txt").read_text(encoding="utf-8")
     data = (root / "third_party/data/publicsuffix/public_suffix_list.dat").read_bytes()
     require(revision in notice and version in notice and digest(data) in notice,
-            "PSL 通知与所选 x/net 的来源提交或可编辑源码不同")
-    require(b"Mozilla Public" in data[:4096] and b"2.0" in data[:4096], "PSL 可编辑源码缺少许可")
+            "PSL notice differs from the selected x/net source commit or editable sources")
+    require(b"Mozilla Public" in data[:4096] and b"2.0" in data[:4096], "Editable PSL source lacks a license")
     result = {"verified": True, "module": name, "version": version, "revision": revision,
               "bytes": len(data), "sha256": digest(data), "table_sha256": digest(table)}
     emit("PUBLIC_SUFFIX", **result)
@@ -210,10 +210,10 @@ def check_platform_assets(archive, root):
                 expected["assets/" + path.relative_to(source).as_posix()] = path
     actual_names = {name for name in archive.namelist()
                     if name.startswith(("assets/certificates/", "assets/geodata/")) and not name.endswith("/")}
-    require(expected and actual_names == expected.keys(), "APK 资源文件集合与本轮生成材料不同")
+    require(expected and actual_names == expected.keys(), "APK resource file set differs from the current generated inputs")
     for name, path in expected.items():
         actual = read_entry(archive, name, TEXT_LIMIT)
-        require(actual == path.read_bytes(), "APK 资源字节与本轮生成材料不同：" + name)
+        require(actual == path.read_bytes(), "APK resource bytes differ from the current generated inputs: " + name)
         emit("PLATFORM_ASSET", entry=name, bytes=len(actual), sha256=digest(actual))
 
 
@@ -227,7 +227,7 @@ def verify(args):
         require("golang.org/x/net" in modules, "Selected graph has no x/net module")
         check_public_suffix(root, modules["golang.org/x/net"], xnet_source)
     else:
-        emit("PUBLIC_SUFFIX", verified=False, reason="填写--xnet-source参数，指定实际所选x/net模块的原始zip路径，然后重新运行PSL来源核验")
+        emit("PUBLIC_SUFFIX", verified=False, reason="Set --xnet-source to the original ZIP for the selected x/net module, then rerun PSL source verification")
     abis = tuple(getattr(args, "abis", None) or ABIS)
     require(len(set(abis)) == len(abis) and set(abis) <= ABIS.keys(), "Invalid target ABI selection")
     selected = android_coordinates(args.android_dependencies.read_text(encoding="utf-8"))
@@ -241,7 +241,7 @@ def verify(args):
     notice_modules = set(re.findall(r"^([\w.-]+(?:/[\w.+~-]+)+) (v[^\s]+)$", go_notice, re.M))
     expected_notices = args.notices.read_bytes()
     require(expected_notices and len(expected_notices) <= TEXT_LIMIT,
-            "作为比较依据的NOTICES文件须为非空文本，且大小在上限以内")
+            "Reference NOTICES must be nonempty text within the size limit")
     expected_notices.decode("utf-8")
     with args.apk.open("rb") as stream:
         apk_hash = hashlib.file_digest(stream, "sha256").hexdigest()
@@ -255,10 +255,10 @@ def verify(args):
             require(actual == (root / relative).read_bytes(), "License asset bytes differ: " + relative)
             emit("LICENSE_ASSET", entry=name, bytes=len(actual), sha256=digest(actual))
         compressed = read_entry(archive, "assets/flutter_assets/NOTICES.Z", TEXT_LIMIT)
-        # 通过GzipFile.read分段解压，并限制解压后内容的大小。
+        # Decompress in chunks with GzipFile.read and bound the expanded size.
         with gzip.GzipFile(fileobj=io.BytesIO(compressed)) as stream:
             notices = stream.read(TEXT_LIMIT + 1)
-        require(notices == expected_notices, "NOTICES.Z解压后的内容与指定的NOTICES文件不同")
+        require(notices == expected_notices, "Decompressed NOTICES.Z differs from the specified NOTICES file")
         emit("NOTICES", bytes=len(notices), sha256=digest(notices))
         check_platform_assets(archive, root)
         libraries = sorted(n for n in names if n.startswith("lib/") and n.endswith("/libmihomo_bridge.so"))
@@ -285,22 +285,22 @@ def verify(args):
             graphs.append(dependencies)
         require(all(graph == graphs[0] for graph in graphs[1:]),
                 "Native ABIs link different Go dependency graphs")
-    emit("FINAL", exit_code=0, scope="许可与数据资产字节、各ABI的Go buildinfo及所选依赖图")
+    emit("FINAL", exit_code=0, scope="License and data asset bytes, per-ABI Go buildinfo, and selected dependency graphs")
 
 
 def register_parser(subparsers):
-    parser = subparsers.add_parser("verify-release-licenses", help="核验 APK 许可、资源及 Go buildinfo", description=__doc__)
-    parser.add_argument("--project", required=True, type=Path, help="本次构建的项目根目录")
-    parser.add_argument("--apk", required=True, type=Path, help="待核验APK路径")
-    parser.add_argument("--notices", required=True, type=Path, help="从依赖源码生成并解码的NOTICES文件")
+    parser = subparsers.add_parser("verify-release-licenses", help="Verify APK licenses, resources, and Go buildinfo", description=__doc__)
+    parser.add_argument("--project", required=True, type=Path, help="Project root for the current build")
+    parser.add_argument("--apk", required=True, type=Path, help="Path to the APK to verify")
+    parser.add_argument("--notices", required=True, type=Path, help="Decoded NOTICES file generated from dependency sources")
     parser.add_argument("--abi", dest="abis", action="append", choices=tuple(ABIS),
-                        help="APK应含的ABI；通用版可重复指定，默认核对三个ABI")
-    parser.add_argument("--go-modules", required=True, type=Path, help="本次go list -m -json all输出文件")
+                        help="Expected APK ABI; repeat for universal APKs, defaulting to all three ABIs")
+    parser.add_argument("--go-modules", required=True, type=Path, help="Current go list -m -json all output file")
     parser.add_argument("--xnet-source", type=Path,
-                        help="实际所选x/net模块原始zip，用于核对PSL提交及可编辑列表")
+                        help="Original ZIP for the selected x/net module to verify the PSL commit and editable list")
     parser.add_argument("--android-dependencies", required=True, type=Path,
-                        help="本次Gradle releaseRuntimeClasspath依赖报告")
-    parser.add_argument("--output-dir", required=True, type=Path, help="已有空目录，保存各ABI原生库和buildinfo.txt")
-    parser.add_argument("--go", default="go", help="已安装Go可执行文件的名称或路径")
+                        help="Current Gradle releaseRuntimeClasspath dependency report")
+    parser.add_argument("--output-dir", required=True, type=Path, help="Existing empty directory for per-ABI native libraries and buildinfo.txt")
+    parser.add_argument("--go", default="go", help="Name or path of the installed Go executable")
     parser.set_defaults(handler=verify, command_parser=parser)
     return parser

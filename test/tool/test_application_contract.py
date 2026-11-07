@@ -1,4 +1,4 @@
-"""检查跨语言常量的生成结果，以及生成文件是否需要更新。"""
+"""Check generated cross-language constants and detect stale generated files."""
 
 import tool_test_support
 from tool.contracts import generate as GENERATOR

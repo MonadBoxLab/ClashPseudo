@@ -62,7 +62,7 @@ object AppStrings {
     @Synchronized
     fun applyLanguage(context: Context, language: String): Boolean {
         io.github.monadboxlab.clashpseudo.app.AppProcess.requireCore(context)
-        require(language in setOf("system", "zh", "en")) { "通知 language 无效" }
+        require(language in setOf("system", "zh", "en")) { "Invalid notification language" }
         if (this.language == language) return false
         val locale = when (language) { "zh" -> Locale.SIMPLIFIED_CHINESE; "en" -> Locale.ENGLISH; else -> null }
         display = Display(wrap(context.applicationContext, locale, null), locale, null, "cinnabar")

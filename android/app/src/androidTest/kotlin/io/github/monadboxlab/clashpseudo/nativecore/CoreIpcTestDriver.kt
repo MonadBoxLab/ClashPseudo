@@ -30,7 +30,7 @@ import java.util.concurrent.Future
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
 
-/** 真实 Binder/FD 测试客户端；默认进程不加载 native library。 */
+/** Actual Binder/FD test client; the default process does not load the native library. */
 class CoreIpcTestDriver private constructor(private val fixture: Boolean) : Closeable {
     val instrumentation = InstrumentationRegistry.getInstrumentation()
     val context: Context = instrumentation.targetContext
@@ -94,12 +94,12 @@ class CoreIpcTestDriver private constructor(private val fixture: Boolean) : Clos
         assertNoGoInApplication()
         bound = onMain { context.bindService(Intent(context, if (fixture) CoreFixtureService::class.java else CoreService::class.java),
             connection, Context.BIND_AUTO_CREATE) }
-        check(bound) { "Android 未受理测试 Service 绑定" }
-        check(connected.await(10, TimeUnit.SECONDS)) { "真实 Service 绑定未完成" }
+        check(bound) { "Android did not accept the test Service binding" }
+        check(connected.await(10, TimeUnit.SECONDS)) { "Actual Service binding did not finish" }
         identity = readStatusDetails(if (fixture) debug.handshake(Contract.CORE_IPC_VERSION) else service.handshake(Contract.CORE_IPC_VERSION, callback))
         assertEquals(Contract.CORE_IPC_VERSION, identity.getInt("protocol"))
         assertTrue(processId.isNotEmpty())
-        assertNotEquals("core 必须位于独立进程", Process.myPid(), pid)
+        assertNotEquals("Core must run in a separate process", Process.myPid(), pid)
         assertTrue(binder.isBinderAlive)
         assertNoGoInApplication()
     }
@@ -150,7 +150,7 @@ class CoreIpcTestDriver private constructor(private val fixture: Boolean) : Clos
             assertTrue(id > 0)
             request.put("requestId", id)
             metadata(request)
-            // 先接收远端分配的 requestId，再写 metadata 和启动 writer。
+            // Receive the remotely allocated requestId before writing metadata and starting the writer.
             writer(parts + (Contract.CORE_PART_REQUEST to request.toString().toByteArray(Charsets.UTF_8)))
             id
         }
@@ -170,7 +170,7 @@ class CoreIpcTestDriver private constructor(private val fixture: Boolean) : Clos
                 while (true) {
                     val frame = reader.read()
                     total += frame.payload.size
-                    check(total <= Contract.CORE_IPC_QUEUE_BYTES) { "此固定场景的结果超过 16 MiB" }
+                    check(total <= Contract.CORE_IPC_QUEUE_BYTES) { "Result for this fixed scenario exceeds 16 MiB" }
                     if (frame.kind == Contract.CORE_IPC_FRAME_DATA) {
                         data.write(frame.payload)
                     } else if (frame.kind == Contract.CORE_IPC_FRAME_RECORD) {
@@ -181,9 +181,9 @@ class CoreIpcTestDriver private constructor(private val fixture: Boolean) : Clos
                         val bytes = data.toByteArray()
                         return@submit Reply(if (bytes.isEmpty()) JSONObject() else JSONObject(CoreFrames.utf8(bytes)),
                             JSONObject(CoreFrames.utf8(frame.payload)), records.toList(), metadata.toList())
-                    } else error("未知 frame kind：${frame.kind}")
+                    } else error("Unknown frame kind: ${frame.kind}")
                 }
-                @Suppress("UNREACHABLE_CODE") error("结果缺少 terminal")
+                @Suppress("UNREACHABLE_CODE") error("Result is missing a terminal frame")
             }
         }
         tasks.add(result)
@@ -213,7 +213,7 @@ class CoreIpcTestDriver private constructor(private val fixture: Boolean) : Clos
             parts = mapOf(Contract.CORE_PART_CONFIG to body, Contract.CORE_PART_OVERRIDES to overrides.toByteArray(Charsets.UTF_8),
                 Contract.CORE_PART_OPTIONS to nativeOptions.toString().toByteArray(Charsets.UTF_8)))
         val reply = pending.await(120)
-        assertTrue("平台调用必须实际退出", receipt(pending.id).getBoolean("exited"))
+        assertTrue("Platform call must actually exit", receipt(pending.id).getBoolean("exited"))
         identity = status()
         return reply
     }
@@ -239,9 +239,9 @@ class CoreIpcTestDriver private constructor(private val fixture: Boolean) : Clos
                 putLong("admittedAt", admittedAt); putLong("deadline", deadline); putString("reason", "stop")
             })
         } catch (error: android.os.DeadObjectException) {
-            android.util.Log.i("CoreIpcTestDriver", "退出请求返回前 Binder 已死亡：processId=$processId", error)
+            android.util.Log.i("CoreIpcTestDriver", "Binder died before the exit request returned: processId=$processId", error)
         }
-        assertTrue("必须收到对应 Binder 的 DeathRecipient callback", died.await(
+        assertTrue("The matching Binder DeathRecipient callback must be received", died.await(
             (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0) + 10_000, TimeUnit.MILLISECONDS))
         assertFalse(binder.isBinderAlive)
         onMain { releaseBinding() }
@@ -249,7 +249,7 @@ class CoreIpcTestDriver private constructor(private val fixture: Boolean) : Clos
     }
 
     fun awaitDeath(seconds: Long = 30) {
-        assertTrue("等待真实 core process death", died.await(seconds, TimeUnit.SECONDS))
+        assertTrue("Wait for actual core process death", died.await(seconds, TimeUnit.SECONDS))
         assertFalse(binder.isBinderAlive)
         onMain { releaseBinding() }
     }
@@ -262,12 +262,12 @@ class CoreIpcTestDriver private constructor(private val fixture: Boolean) : Clos
             for (task in tasks) {
                 try { task.get(10, TimeUnit.SECONDS) }
                 catch (error: java.util.concurrent.ExecutionException) {
-                    // 进程死亡可使未完成管道以真实 EOF 结束；调用者仍须检查其结果。
+                    // Process death may end unfinished pipes with actual EOF; callers must still check their results.
                     if (!deathConfirmed) throw error.cause ?: error
                 }
             }
             io.shutdown()
-            check(io.awaitTermination(10, TimeUnit.SECONDS)) { "本地 FD I/O 未退出" }
+            check(io.awaitTermination(10, TimeUnit.SECONDS)) { "Local FD I/O has not exited" }
         } catch (error: Throwable) { if (failure == null) failure = error else if (failure !== error) failure.addSuppressed(error) }
         finally { onMain { releaseBinding() } }
         failure?.let { throw it }
@@ -286,10 +286,10 @@ class CoreIpcTestDriver private constructor(private val fixture: Boolean) : Clos
                             assertTrue(JSONObject(CoreFrames.utf8(frame.payload)).getBoolean("complete"))
                             return@use JSONObject(CoreFrames.utf8(bytes.toByteArray()))
                         }
-                        else -> error("文档包含未知 frame kind：${frame.kind}")
+                        else -> error("Document contains an unknown frame kind: ${frame.kind}")
                     }
                 }
-                @Suppress("UNREACHABLE_CODE") error("文档缺少 terminal")
+                @Suppress("UNREACHABLE_CODE") error("Document is missing a terminal frame")
             }
 
         @Suppress("DEPRECATION")
@@ -351,7 +351,7 @@ class CoreIpcTestDriver private constructor(private val fixture: Boolean) : Clos
         fun production() = CoreIpcTestDriver(false)
         fun fixture() = CoreIpcTestDriver(true)
         fun assertNoGoInApplication() {
-            assertFalse("默认进程不能加载 libmihomo_bridge", File("/proc/self/maps").useLines { lines ->
+            assertFalse("The default process must not load libmihomo_bridge", File("/proc/self/maps").useLines { lines ->
                 lines.any { it.contains("libmihomo_bridge.so") }
             })
         }
@@ -370,7 +370,7 @@ class CoreIpcTestDriver private constructor(private val fixture: Boolean) : Clos
             assertEquals(context.cacheDir.canonicalFile, home.parentFile!!.canonicalFile)
             assertTrue(home.name.startsWith("core-fixture-"))
             assertEquals(File(context.cacheDir.canonicalFile, home.name), home.canonicalFile)
-            assertTrue("无法删除本次 fixture 目录", home.deleteRecursively())
+            assertTrue("Cannot delete this run's fixture directory", home.deleteRecursively())
         }
     }
 }

@@ -167,7 +167,7 @@ func TestAttachRegistersOnlySuccessfulPublicConstructionAndKeepsItsDescriptorOwn
 			}
 			resource.onStart = func() {
 				if e.tun != nil {
-					t.Fatal("公开构造器返回前登记了未完成的resource")
+					t.Fatal("unfinished resource was registered before the public constructor returned")
 				}
 			}
 			if err := e.attach(fd, 1, testTunConstructor(resource)); fails {
@@ -242,7 +242,7 @@ func TestInvalidTunDNSModeIsRejectedBeforeNativeAllocation(t *testing.T) {
 		t.Fatal("invalid DNS mode allocated a native session")
 	}
 	if retry := e.PrepareWithOptions(t.TempDir(), []byte(validConfig), "rule", func(int) bool { return true }, PrepareOptions{Purpose: "RUNNING", VPNIntent: true, Generation: 7, Composition: "test"}); retry == nil {
-		t.Fatal("同一Engine在失败后再次装载")
+		t.Fatal("same Engine loaded again after failure")
 	}
 	requireFreshEngineProcess(t, t.TempDir())
 }
@@ -279,7 +279,7 @@ func TestIngressFailureDrainsAcceptedGeoWriteBeforeReleasingItsHome(t *testing.T
 				if err := e.PrepareWithOptions(t.TempDir(), []byte(body), "rule", func(int) bool { return true }, PrepareOptions{Purpose: "RUNNING", VPNIntent: true, Generation: 7, Composition: "test"}); err != nil {
 					t.Fatal(err)
 				}
-				// cleanup失败时Stop继续返回原错误。
+				// Stop continues to return the original error when cleanup fails.
 				t.Cleanup(func() {
 					once.Do(func() { close(release) })
 					if err := e.Stop(); err != nil && !cleanupFails {
@@ -305,7 +305,7 @@ func TestIngressFailureDrainsAcceptedGeoWriteBeforeReleasingItsHome(t *testing.T
 					probe, bindErr := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", port))
 					if bindErr == nil {
 						_ = probe.Close()
-						t.Fatal("占用端口未返回实际bind错误")
+						t.Fatal("occupied port did not return the actual bind error")
 					}
 					resource.startErr = bindErr
 				}
@@ -379,7 +379,7 @@ func TestIngressFailureDrainsAcceptedGeoWriteBeforeReleasingItsHome(t *testing.T
 				}
 				probe, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", port))
 				if err != nil {
-					t.Fatalf("原socket错误影响了端口释放: %v", err)
+					t.Fatalf("original socket error affected port release: %v", err)
 				}
 				if err := probe.Close(); err != nil {
 					t.Fatal(err)

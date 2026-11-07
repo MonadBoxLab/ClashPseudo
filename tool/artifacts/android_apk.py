@@ -1,4 +1,4 @@
-"""检查 APK 的签名、原生库对齐及实际法律资产。"""
+"""Check APK signatures, native library alignment, and bundled legal assets."""
 
 import argparse
 import hashlib
@@ -46,11 +46,11 @@ def verify_apk(updater, apk, evidence, output, abis):
         library = output / abi / "libmihomo_bridge.so"
         programs = command(["readelf", "-lW", library])
         loads = [line.split() for line in programs.splitlines() if line.lstrip().startswith("LOAD ")]
-        require(loads and all(int(line[-1], 0) >= 16384 for line in loads), "ELF LOAD 对齐小于 16 KiB")
+        require(loads and all(int(line[-1], 0) >= 16384 for line in loads), "ELF LOAD alignment is less than 16 KiB")
         sections = command(["readelf", "-SW", library])
-        require(not any(name in sections for name in ("__llvm_prf", "__llvm_cov")), "原生库包含覆盖率插桩")
+        require(not any(name in sections for name in ("__llvm_prf", "__llvm_cov")), "Native library contains coverage instrumentation")
         _, _, settings = licenses.parse_buildinfo((output / abi / "buildinfo.txt").read_text(encoding="utf-8"))
-        require("-cover" not in settings, "Go 库包含覆盖率插桩")
+        require("-cover" not in settings, "Go library contains coverage instrumentation")
         with library.open("rb") as stream:
             fingerprints[abi] = hashlib.file_digest(stream, "sha256").hexdigest()
     return fingerprints

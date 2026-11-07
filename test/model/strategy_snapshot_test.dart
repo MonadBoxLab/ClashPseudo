@@ -74,20 +74,23 @@ void main() {
     ('load-balance', StrategyType.loadBalance),
     ('UnknownGroup', null),
   ]) {
-    test('runtime 类型 $rawType 保留原值并决定选择能力', () {
-      final raw = _wire();
-      (raw['groups'] as List).single['type'] = rawType;
-      final snapshot = StrategySnapshot.fromMap(raw);
-      final group = snapshot.find('出口')!;
-      expect(group.rawType, rawType);
-      expect(group.type, type);
-      expect(group.selectable, type?.selectable ?? false);
-      expect(group.automatic, type?.automatic ?? false);
-      if (group.selectable) {
-        final choice = StrategyChoice(type: group.type!, member: group.now);
-        expect(choice.toJson(), {'type': type!.value, 'member': 'A'});
-      }
-    });
+    test(
+      'runtime type $rawType retains its original value and determines selection capability',
+      () {
+        final raw = _wire();
+        (raw['groups'] as List).single['type'] = rawType;
+        final snapshot = StrategySnapshot.fromMap(raw);
+        final group = snapshot.find('出口')!;
+        expect(group.rawType, rawType);
+        expect(group.type, type);
+        expect(group.selectable, type?.selectable ?? false);
+        expect(group.automatic, type?.automatic ?? false);
+        if (group.selectable) {
+          final choice = StrategyChoice(type: group.type!, member: group.now);
+          expect(choice.toJson(), {'type': type!.value, 'member': 'A'});
+        }
+      },
+    );
   }
 
   test('strategy real wire preserves provenance and full query identity', () {

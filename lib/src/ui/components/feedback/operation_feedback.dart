@@ -37,14 +37,22 @@ Future<void> showAppMessage(
   onRetry: onRetry,
 );
 
-/// [isCurrent] 检查是否允许打开结果弹窗，在等待界面恢复交互前后各检查一次。
-/// 回调应读取当前页面和选中对象的状态，不能返回事先保存的布尔值。
-/// 弹窗打开后，[isCurrentWithPopup] 接收该弹窗的实际 Route，检查来源页面、
-/// 分栏及选中对象；允许自己的弹窗覆盖来源页，但不允许任务退出、来源页关闭或被其他页面覆盖。
-/// [onRoute] 在 push 前传入当前所属结果弹窗的实际 Route；主动打开复制错误详情时
-/// 传入详情 Route，详情关闭后恢复原结果 Route，全部关闭后传入 null。
-/// [eligibilityChanges] 提供来源页面的状态变更通知，供未继承控制器的宿主使用。
-/// 每次通知都同步检查是否仍允许操作；结果一旦失效，即使状态在同一帧内恢复也不再启用。
+/// [isCurrent] checks whether the result popup may open, both before and after waiting
+/// for UI interaction to resume.
+/// Read the current page and selection state in the callback rather than returning a
+/// cached boolean.
+/// After opening, [isCurrentWithPopup] receives the actual popup Route and checks the
+/// source page,
+/// pane, and selection. Its own popup may cover the source, but task exit, source
+/// closure, or another page invalidates it.
+/// [onRoute] receives the owned result popup Route before push. Opening copy-error
+/// details passes
+/// the details Route; closing details restores the result Route, and closing all popups
+/// passes null.
+/// [eligibilityChanges] supplies source-page state notifications for hosts without an
+/// inherited controller.
+/// Each notification synchronously checks eligibility; once invalidated, the result
+/// stays disabled even if state recovers in the same frame.
 Future<void> showLocalizedOperationMessage(
   BuildContext context,
   String Function(AppLocalizations) summary, {
@@ -125,7 +133,8 @@ Future<void> showLocalizedOperationMessage(
               animation.status == AnimationStatus.reverse) {
             return;
           }
-          // 失效的结果保持不可操作；仅关闭所属弹窗，不关闭覆盖它的页面或其他弹窗。
+          // Keep invalidated results disabled; close only the owned popup, not a page
+          // or popup covering it.
           if (route.isCurrent) {
             navigator.pop();
           } else {
@@ -281,7 +290,8 @@ Future<void> showLocalizedOperationMessage(
     if (check != null) {
       check();
     } else if (!eligible(ownedPopup: dialog.isActive ? dialog : null)) {
-      // push 的同步 observer 回调也可能使结果失效；首帧仍须保持不可操作。
+      // Synchronous push observers can invalidate the result; keep it disabled from the
+      // first frame.
       retired = true;
     }
   }
@@ -291,8 +301,9 @@ Future<void> showLocalizedOperationMessage(
   try {
     onRoute?.call(dialog);
     final presentation = navigator.push<void>(dialog);
-    // 继承的控制器在 push 返回后开始监听，使同步 observer 先收到已绑定的实际 Route。
-    // 调用者传入的 eligibilityChanges 则在 push 前开始监听。
+    // Listen to inherited controllers after push returns so synchronous observers first
+    // receive the bound Route.
+    // Listen to caller-supplied eligibilityChanges before push.
     if (owner is AppController && !identical(eligibilityChanges, owner)) {
       owner.addListener(eligibilityChanged);
       listeningToOwner = true;
@@ -309,7 +320,8 @@ Future<void> showLocalizedOperationMessage(
   if (retryRequested && context.mounted && eligible()) await onRetry!();
 }
 
-/// 在结果弹窗中展开技术原文；复制时检查该弹窗及来源页面是否仍允许操作。
+/// Expands technical text in the result popup; copying checks both popup and
+/// source-page eligibility.
 class _OperationTechnicalDetails extends StatefulWidget {
   const _OperationTechnicalDetails({
     required this.text,

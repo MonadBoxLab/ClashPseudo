@@ -71,51 +71,54 @@ void main() {
   }
 
   for (final lanOnly in [false, true]) {
-    test('UTF-8 策略选择保存并应用，保留${lanOnly ? 'LAN-only' : 'VPN'}运行状态', () async {
-      await create(lanOnly: lanOnly);
-      await fixture.warmUp();
-      final identity = fixture.core.identity;
-      fixture.script(ApplicationContract.coreOperationStrategySelect, (
-        request,
-      ) async {
-        final saved = (await fixture.store.read()).selected!;
-        expect(saved.choices['出口🌐']!.member, '节点🌐');
-        expect(saved.revision, 1);
-        expect(saved.body, '');
-        expect(request.arguments['group'], '出口🌐');
-        expect(request.arguments['choice'], {
-          'type': 'select',
-          'member': '节点🌐',
+    test(
+      'UTF-8 strategy selection saves and applies while preserving ${lanOnly ? 'LAN-only' : 'VPN'} runtime state',
+      () async {
+        await create(lanOnly: lanOnly);
+        await fixture.warmUp();
+        final identity = fixture.core.identity;
+        fixture.script(ApplicationContract.coreOperationStrategySelect, (
+          request,
+        ) async {
+          final saved = (await fixture.store.read()).selected!;
+          expect(saved.choices['出口🌐']!.member, '节点🌐');
+          expect(saved.revision, 1);
+          expect(saved.body, '');
+          expect(request.arguments['group'], '出口🌐');
+          expect(request.arguments['choice'], {
+            'type': 'select',
+            'member': '节点🌐',
+          });
+          fixture.nativeStrategyChanges++;
+          fixture.actualMember = '节点🌐';
+          request.complete(<String, dynamic>{});
         });
-        fixture.nativeStrategyChanges++;
-        fixture.actualMember = '节点🌐';
-        request.complete(<String, dynamic>{});
-      });
-      expect(
-        await fixture.strategyActions.execute(fixture.strategyCommand()),
-        isNull,
-      );
-      await fixture.flush();
-      expect(fixture.nativeStrategyChanges, 1);
-      expect(fixture.changes, 1);
-      expect(fixture.exits, isEmpty);
-      expect(fixture.core.identity, identity);
-      expect(fixture.snapshot.forwarding, isTrue);
-      expect(fixture.snapshot.running, !lanOnly);
-      expect(fixture.snapshot.lanRunning, lanOnly);
-      final retained = await fixture.runtime.inputFor(fixture.core);
-      expect(retained!['choices'], isEmpty);
-      final actual = await RunningInput.read(
-        fixture.operation,
-        fixture.snapshot,
-      );
-      expect(actual!.entry.choices['出口🌐']!.member, '节点🌐');
-      expect(actual.vpnIntent, !lanOnly);
-      expect(actual.lanIntent, lanOnly);
-    });
+        expect(
+          await fixture.strategyActions.execute(fixture.strategyCommand()),
+          isNull,
+        );
+        await fixture.flush();
+        expect(fixture.nativeStrategyChanges, 1);
+        expect(fixture.changes, 1);
+        expect(fixture.exits, isEmpty);
+        expect(fixture.core.identity, identity);
+        expect(fixture.snapshot.forwarding, isTrue);
+        expect(fixture.snapshot.running, !lanOnly);
+        expect(fixture.snapshot.lanRunning, lanOnly);
+        final retained = await fixture.runtime.inputFor(fixture.core);
+        expect(retained!['choices'], isEmpty);
+        final actual = await RunningInput.read(
+          fixture.operation,
+          fixture.snapshot,
+        );
+        expect(actual!.entry.choices['出口🌐']!.member, '节点🌐');
+        expect(actual.vpnIntent, !lanOnly);
+        expect(actual.lanIntent, lanOnly);
+      },
+    );
   }
 
-  test('native 拒绝的策略不进入实际运行选择，保存意图仍保留', () async {
+  test('native-rejected strategy does not enter actual runtime choices and saved intent remains', () async {
     await create();
     await fixture.warmUp();
     fixture.script(ApplicationContract.coreOperationStrategySelect, (request) {
@@ -143,43 +146,46 @@ void main() {
   });
 
   for (final timeout in [true, false]) {
-    test('排队中的策略${timeout ? '到期' : '取消'}不应用且不停止 VPN', () async {
-      await create();
-      await fixture.startAppRuntime();
-      final entered = Completer<void>();
-      final release = Completer<void>();
-      fixture.beforePlatformCall = (call) async {
-        if (call.method == 'checkOperation' && !entered.isCompleted) {
-          entered.complete();
-          await release.future;
+    test(
+      'queued strategy ${timeout ? 'expiry' : 'cancellation'} does not apply or stop VPN',
+      () async {
+        await create();
+        await fixture.startAppRuntime();
+        final entered = Completer<void>();
+        final release = Completer<void>();
+        fixture.beforePlatformCall = (call) async {
+          if (call.method == 'checkOperation' && !entered.isCompleted) {
+            entered.complete();
+            await release.future;
+          }
+          return null;
+        };
+        final result = FutureProbe(fixture.execute(fixture.strategyCommand()));
+        await entered.future;
+        if (timeout) {
+          fixture.expire();
+        } else {
+          await fixture.abandon();
         }
-        return null;
-      };
-      final result = FutureProbe(fixture.execute(fixture.strategyCommand()));
-      await entered.future;
-      if (timeout) {
-        fixture.expire();
-      } else {
-        await fixture.abandon();
-      }
-      release.complete();
-      await result.done;
-      await fixture.flush();
-      expect(result.replies, 1);
-      expect(result.value!['success'], isFalse);
-      expect(result.value!['message'], isNotNull);
-      expect(fixture.nativeStrategyChanges, 0);
-      expect(
-        fixture.calls(ApplicationContract.coreOperationStrategySelect),
-        isEmpty,
-      );
-      expect(fixture.snapshot.running, isTrue);
-      expect(fixture.core.ready, isTrue);
-      expect(fixture.exits, isEmpty);
-    });
+        release.complete();
+        await result.done;
+        await fixture.flush();
+        expect(result.replies, 1);
+        expect(result.value!['success'], isFalse);
+        expect(result.value!['message'], isNotNull);
+        expect(fixture.nativeStrategyChanges, 0);
+        expect(
+          fixture.calls(ApplicationContract.coreOperationStrategySelect),
+          isEmpty,
+        );
+        expect(fixture.snapshot.running, isTrue);
+        expect(fixture.core.ready, isTrue);
+        expect(fixture.exits, isEmpty);
+      },
+    );
   }
 
-  test('执行中的策略到期等待实际成功和 actual exited，只通知一次', () async {
+  test('expired running strategy awaits actual success and actual exit, notifying once', () async {
     await create();
     await fixture.startAppRuntime();
     fixture.script(ApplicationContract.coreOperationStrategySelect, (request) {
@@ -215,87 +221,96 @@ void main() {
     expect(fixture.core.ready, isTrue);
   });
 
-  test('PREVIEW 仅复用完整 composition 相同的输入', () async {
-    await create(preview: true, fallback: TunnelMode.rule);
-    await fixture.warmUp();
-    final first = fixture.core;
-    await fixture.writeRecord({'inputId': 'same-input', 'mode': 'rule'});
-    await fixture.runtime.read('prepareStrategies', {
-      'owner': 'same',
-      'id': 'one',
-      'revision': 1,
-      'mode': 'rule',
-      'admittedAt': fixture.admittedAt,
-      'deadline': fixture.deadline,
-    });
-    expect(fixture.core.identity, first.identity);
-    expect(fixture.calls(ApplicationContract.coreOperationPrepare), isEmpty);
-    expect(fixture.exits, isEmpty);
-    const composition = '["one",1,["part",2,"replace"]]';
-    await fixture.writeRecord({
-      'inputId': 'changed-input',
-      'mode': 'rule',
-      'composition': composition,
-      'overrides': [
-        {
-          'id': 'part',
-          'name': 'part',
-          'revision': 2,
-          'mode': 'replace',
-          'body': '{}',
-          'role': null,
-          'source': null,
-        },
-      ],
-    });
-    await fixture.runtime.read('prepareStrategies', {
-      'owner': 'next',
-      'id': 'one',
-      'revision': 1,
-      'mode': 'rule',
-      'admittedAt': fixture.admittedAt,
-      'deadline': fixture.deadline,
-    });
-    expect(fixture.core.identity, isNot(first.identity));
-    expect(fixture.core.processId, isNot(first.processId));
-    expect(fixture.core.composition, composition);
-    expect(fixture.core.purpose, 'PREVIEW');
-    expect(fixture.core.ready, isTrue);
-    expect(fixture.exits, hasLength(1));
-    expect(fixture.exits.single['processId'], first.processId);
-    expect(
-      fixture.calls(ApplicationContract.coreOperationPrepare),
-      hasLength(1),
-    );
-    await fixture.runtime.read('releasePreview', {});
-    expect(fixture.core.ready, isFalse);
-    expect(fixture.exits, hasLength(2));
-  });
+  test(
+    'PREVIEW reuses only inputs with identical complete composition',
+    () async {
+      await create(preview: true, fallback: TunnelMode.rule);
+      await fixture.warmUp();
+      final first = fixture.core;
+      await fixture.writeRecord({'inputId': 'same-input', 'mode': 'rule'});
+      await fixture.runtime.read('prepareStrategies', {
+        'owner': 'same',
+        'id': 'one',
+        'revision': 1,
+        'mode': 'rule',
+        'admittedAt': fixture.admittedAt,
+        'deadline': fixture.deadline,
+      });
+      expect(fixture.core.identity, first.identity);
+      expect(fixture.calls(ApplicationContract.coreOperationPrepare), isEmpty);
+      expect(fixture.exits, isEmpty);
+      const composition = '["one",1,["part",2,"replace"]]';
+      await fixture.writeRecord({
+        'inputId': 'changed-input',
+        'mode': 'rule',
+        'composition': composition,
+        'overrides': [
+          {
+            'id': 'part',
+            'name': 'part',
+            'revision': 2,
+            'mode': 'replace',
+            'body': '{}',
+            'role': null,
+            'source': null,
+          },
+        ],
+      });
+      await fixture.runtime.read('prepareStrategies', {
+        'owner': 'next',
+        'id': 'one',
+        'revision': 1,
+        'mode': 'rule',
+        'admittedAt': fixture.admittedAt,
+        'deadline': fixture.deadline,
+      });
+      expect(fixture.core.identity, isNot(first.identity));
+      expect(fixture.core.processId, isNot(first.processId));
+      expect(fixture.core.composition, composition);
+      expect(fixture.core.purpose, 'PREVIEW');
+      expect(fixture.core.ready, isTrue);
+      expect(fixture.exits, hasLength(1));
+      expect(fixture.exits.single['processId'], first.processId);
+      expect(
+        fixture.calls(ApplicationContract.coreOperationPrepare),
+        hasLength(1),
+      );
+      await fixture.runtime.read('releasePreview', {});
+      expect(fixture.core.ready, isFalse);
+      expect(fixture.exits, hasLength(2));
+    },
+  );
 
-  test('排队的旧策略读取不能确认 replacement context', () async {
-    await create(preview: true);
-    await fixture.warmUp();
-    final old = fixture.identity();
-    fixture.replaceCore(
-      processId: 'replacement-process',
-      inputId: 'replacement-input',
-      generation: 2,
-    );
-    final replacement = fixture.core.identity;
-    final result = FutureProbe(fixture.runtime.read('strategies', old));
-    await result.done;
-    expect(result.value, isNull);
-    expect(result.error, isA<PlatformFailure>());
-    expect(fixture.calls(ApplicationContract.coreOperationStrategies), isEmpty);
-    expect(fixture.core.identity, replacement);
-    expect(fixture.core.ready, isTrue);
-    await fixture.runtime.read('releasePreview', {});
-    expect(fixture.core.ready, isFalse);
-  });
+  test(
+    'queued old strategy reads cannot confirm replacement context',
+    () async {
+      await create(preview: true);
+      await fixture.warmUp();
+      final old = fixture.identity();
+      fixture.replaceCore(
+        processId: 'replacement-process',
+        inputId: 'replacement-input',
+        generation: 2,
+      );
+      final replacement = fixture.core.identity;
+      final result = FutureProbe(fixture.runtime.read('strategies', old));
+      await result.done;
+      expect(result.value, isNull);
+      expect(result.error, isA<PlatformFailure>());
+      expect(
+        fixture.calls(ApplicationContract.coreOperationStrategies),
+        isEmpty,
+      );
+      expect(fixture.core.identity, replacement);
+      expect(fixture.core.ready, isTrue);
+      await fixture.runtime.read('releasePreview', {});
+      expect(fixture.core.ready, isFalse);
+    },
+  );
 
   for (final producer in [false, true]) {
     test(
-      'null fallback 进入 PREPARE 并保留${producer ? '真实 typed cause' : '原 JSON 字符串'}',
+      'null fallback enters PREPARE and preserves ${producer ? 'the actual typed cause' : 'the original JSON string'}',
       () async {
         await create(body: 'tun: {mtu: 0}');
         fixture.core = const CoreSnapshot(phase: 'EMPTY');
@@ -370,7 +385,7 @@ void main() {
     );
   }
 
-  test('空模式不是 null fallback，受理前拒绝且不提交 PREPARE', () async {
+  test('empty mode is not null fallback and is rejected before admission without submitting PREPARE', () async {
     await create(preview: true);
     final result = FutureProbe(
       fixture.runtime.read('prepareStrategies', {
@@ -390,7 +405,7 @@ void main() {
     expect(fixture.exits, isEmpty);
   });
 
-  test('PREPARE 实际成功在到期后保留结果并清理，沿用原 admittedAt 和 deadline', () async {
+  test('actual PREPARE success after expiry retains its result and cleans up with the original admittedAt and deadline', () async {
     await create(fallback: TunnelMode.rule);
     fixture.core = const CoreSnapshot(phase: 'EMPTY');
     fixture.phase = 'STOPPED';
@@ -439,7 +454,7 @@ void main() {
     'java.io.IOException',
     'java.lang.UnsatisfiedLinkError',
   ]) {
-    test('策略读取保留 $kind 的完整原错误', () async {
+    test('strategy read retains the complete original $kind error', () async {
       await create(preview: true);
       await fixture.warmUp();
       final source = fixture.core.identity;
@@ -461,7 +476,7 @@ void main() {
     });
   }
 
-  test('策略导出保留实际错误，不把 terminal 的其他字段作为错误', () async {
+  test('strategy export retains actual errors without treating other terminal fields as errors', () async {
     await create(preview: true);
     await fixture.warmUp();
     final wire = jsonEncode({
@@ -493,7 +508,7 @@ void main() {
     await fixture.runtime.read('releasePreview', {});
   });
 
-  test('策略变更保留完整 UTF-8 请求和实际 native 拒绝', () async {
+  test('strategy changes retain the complete UTF-8 request and actual native rejection', () async {
     await create(preview: true);
     await fixture.warmUp();
     final failure = nativeFailure('java.lang.IllegalStateException');
@@ -526,36 +541,42 @@ void main() {
     await fixture.runtime.read('releasePreview', {});
   });
 
-  test('显式释放 PREVIEW 保留实际 stop failure 和 FAILED 状态', () async {
-    await create(preview: true);
-    await fixture.warmUp();
-    const failure = AppMessage('coreStopFailed', detail: modeStrategyOriginal);
-    fixture.onExit = (arguments) {
-      fixture.core = CoreSnapshot(
-        processId: fixture.core.processId,
-        inputId: fixture.core.inputId,
-        generation: fixture.core.generation,
-        networkRevision: fixture.core.networkRevision,
-        phase: 'FAILED',
-        purpose: 'PREVIEW',
-        configId: fixture.core.configId,
-        revision: fixture.core.revision,
-        composition: fixture.core.composition,
-        error: failure,
+  test(
+    'explicit PREVIEW release retains actual stop failure and FAILED state',
+    () async {
+      await create(preview: true);
+      await fixture.warmUp();
+      const failure = AppMessage(
+        'coreStopFailed',
+        detail: modeStrategyOriginal,
       );
-      throw PlatformException(code: 'stop', details: failure.toMap());
-    };
-    final result = FutureProbe(fixture.runtime.read('releasePreview', {}));
-    await result.done;
-    expect(result.value, isNull);
-    expect(errorText(result.error), contains(modeStrategyOriginal));
-    expect(fixture.snapshot.core.errorMessage, failure);
-    expect(fixture.snapshot.core.phase, 'FAILED');
-    expect(fixture.snapshot.core.blocked, isTrue);
-    expect(fixture.exits, hasLength(1));
-  });
+      fixture.onExit = (arguments) {
+        fixture.core = CoreSnapshot(
+          processId: fixture.core.processId,
+          inputId: fixture.core.inputId,
+          generation: fixture.core.generation,
+          networkRevision: fixture.core.networkRevision,
+          phase: 'FAILED',
+          purpose: 'PREVIEW',
+          configId: fixture.core.configId,
+          revision: fixture.core.revision,
+          composition: fixture.core.composition,
+          error: failure,
+        );
+        throw PlatformException(code: 'stop', details: failure.toMap());
+      };
+      final result = FutureProbe(fixture.runtime.read('releasePreview', {}));
+      await result.done;
+      expect(result.value, isNull);
+      expect(errorText(result.error), contains(modeStrategyOriginal));
+      expect(fixture.snapshot.core.errorMessage, failure);
+      expect(fixture.snapshot.core.phase, 'FAILED');
+      expect(fixture.snapshot.core.blocked, isTrue);
+      expect(fixture.exits, hasLength(1));
+    },
+  );
 
-  test('context 变化不抹去实际读取的策略错误', () async {
+  test('context changes do not erase actual strategy read errors', () async {
     await create(preview: true);
     await fixture.warmUp();
     final captured = fixture.identity();
@@ -577,7 +598,7 @@ void main() {
     expect(fixture.exits, isEmpty);
   });
 
-  test('context 变化保留策略业务字段和 captured identity 并标 stale', () async {
+  test('context changes retain strategy fields and captured identity while marking stale', () async {
     await create(preview: true);
     await fixture.warmUp();
     final captured = fixture.core;
@@ -634,7 +655,7 @@ void main() {
   for (final timeout in [false, true]) {
     for (final failing in [false, true]) {
       test(
-        '执行中的策略读取${timeout ? '到期' : '取消'}等待实际${failing ? '失败' : '成功'}',
+        'running strategy read ${timeout ? 'expiry' : 'cancellation'} awaits actual ${failing ? 'failure' : 'success'}',
         () async {
           await create(preview: true);
           await fixture.warmUp();
@@ -690,7 +711,7 @@ void main() {
     }
   }
 
-  test('非法策略 JSON 保留 parser 错误且不包含原值，仍等实际退出', () async {
+  test('invalid strategy JSON retains the parser error without the original value and still awaits actual exit', () async {
     await create(preview: true);
     await fixture.warmUp();
     fixture.script(ApplicationContract.coreOperationStrategies, (request) {
@@ -728,51 +749,54 @@ void main() {
   });
 
   for (final failing in [false, true]) {
-    test('context 变化不替换实际策略变更${failing ? '失败' : '成功'}结果', () async {
-      await create(preview: true);
-      await fixture.warmUp();
-      final captured = fixture.identity();
-      final failure = nativeFailure('java.lang.IllegalStateException');
-      fixture.script(ApplicationContract.coreOperationStrategySelect, (
-        request,
-      ) {
-        fixture.replaceCore(
-          processId: 'replacement-process',
-          inputId: 'replacement-input',
-          generation: 2,
+    test(
+      'context changes do not replace actual strategy change ${failing ? 'failure' : 'success'}',
+      () async {
+        await create(preview: true);
+        await fixture.warmUp();
+        final captured = fixture.identity();
+        final failure = nativeFailure('java.lang.IllegalStateException');
+        fixture.script(ApplicationContract.coreOperationStrategySelect, (
+          request,
+        ) {
+          fixture.replaceCore(
+            processId: 'replacement-process',
+            inputId: 'replacement-input',
+            generation: 2,
+          );
+          request.complete(
+            <String, dynamic>{},
+            terminal: {'complete': !failing, if (failing) 'error': failure},
+          );
+        });
+        final result = FutureProbe(
+          fixture.runtime.read('setStrategy', {
+            ...captured,
+            'name': modeStrategyOriginal,
+            'choice': {'type': 'select', 'member': modeStrategyOriginal},
+          }),
         );
-        request.complete(
-          <String, dynamic>{},
-          terminal: {'complete': !failing, if (failing) 'error': failure},
-        );
-      });
-      final result = FutureProbe(
-        fixture.runtime.read('setStrategy', {
-          ...captured,
-          'name': modeStrategyOriginal,
-          'choice': {'type': 'select', 'member': modeStrategyOriginal},
-        }),
-      );
-      await result.done;
-      expect(result.replies, 1);
-      if (failing) {
-        expect(result.value, isNull);
-        expectOriginalError(result.error, failure);
-      } else {
-        expect(result.value, isNull);
-        expect(result.error, isNull);
-      }
-      expect(fixture.core.processId, 'replacement-process');
-      expect(fixture.core.inputId, 'replacement-input');
-      expect(fixture.core.generation, 2);
-      expect(fixture.exits, isEmpty);
-    });
+        await result.done;
+        expect(result.replies, 1);
+        if (failing) {
+          expect(result.value, isNull);
+          expectOriginalError(result.error, failure);
+        } else {
+          expect(result.value, isNull);
+          expect(result.error, isNull);
+        }
+        expect(fixture.core.processId, 'replacement-process');
+        expect(fixture.core.inputId, 'replacement-input');
+        expect(fixture.core.generation, 2);
+        expect(fixture.exits, isEmpty);
+      },
+    );
   }
 
   for (final timeout in [false, true]) {
     for (final failing in [false, true]) {
       test(
-        '执行中的策略变更${timeout ? '到期' : '取消'}等待实际${failing ? '拒绝' : '成功'}',
+        'running strategy change ${timeout ? 'expiry' : 'cancellation'} awaits actual ${failing ? 'rejection' : 'success'}',
         () async {
           await create();
           fixture.groupName = modeStrategyOriginal;
@@ -854,7 +878,7 @@ void main() {
     }
   }
 
-  test('PREPARE 未取消时同一成功结果形成 READY，且不请求 cleanup', () async {
+  test('uncancelled PREPARE reaches READY from the same successful result without requesting cleanup', () async {
     await create();
     fixture.core = const CoreSnapshot(phase: 'EMPTY');
     fixture.phase = 'STOPPED';
@@ -901,7 +925,7 @@ void main() {
     for (final timeout in [false, true]) {
       for (final workFails in [false, true]) {
         test(
-          'PREPARE ${timeout ? '到期' : '取消'}清理的 $kind 保留实际工作${workFails ? '失败' : '成功'}',
+          'PREPARE ${timeout ? 'expiry' : 'cancellation'} cleanup $kind retains actual work ${workFails ? 'failure' : 'success'}',
           () async {
             await create();
             if (timeout) fixture.deadline = fixture.now + 100;
@@ -1078,7 +1102,7 @@ void main() {
     for (final timeout in [false, true]) {
       for (final workFails in [false, true]) {
         test(
-          '已受理排队的 PREPARE ${timeout ? '到期' : '取消'}保留 $kind，业务应答先于 drain 且原工作${workFails ? '失败' : '成功'}分支不执行',
+          'admitted queued PREPARE ${timeout ? 'expiry' : 'cancellation'} retains $kind, replies before drain, and does not execute the original work ${workFails ? 'failure' : 'success'} branch',
           () async {
             await create();
             if (timeout) fixture.deadline = fixture.now + 100;
@@ -1100,7 +1124,8 @@ void main() {
             var workCalls = 0;
             late void Function() drain;
             fixture.script(ApplicationContract.coreOperationPrepare, (request) {
-              // submit 立即返回 accepted；work 只由下面的 drain 放行。
+              // submit returns accepted immediately; only the drain below releases
+              // work.
               drain = () {
                 if (cancelled) {
                   request.terminal({
@@ -1234,7 +1259,7 @@ void main() {
     for (final started in <bool?>[null, false, true]) {
       for (final workFails in started == false ? [false] : [false, true]) {
         test(
-          'PREPARE 的 CANCEL 原错误保留 $kind，started=$started，工作失败=$workFails',
+          'PREPARE CANCEL retains the original $kind error with started=$started and workFails=$workFails',
           () async {
             await create();
             fixture.core = const CoreSnapshot(phase: 'EMPTY');
@@ -1340,51 +1365,54 @@ void main() {
     }
   }
 
-  test('其他 owner 的取消不影响已受理 PREPARE', () async {
-    await create();
-    fixture.core = const CoreSnapshot(phase: 'EMPTY');
-    fixture.phase = 'STOPPED';
-    fixture.vpnIntent = false;
-    await fixture.startAppRuntime();
-    fixture.script(ApplicationContract.coreOperationPrepare, (request) {
-      request.complete(<String, dynamic>{}, terminal: {'exited': false});
-    });
-    final entered = fixture.next(ApplicationContract.coreOperationPrepare);
-    final result = FutureProbe(
-      fixture.execute({
-        'action': 'prepareStrategies',
-        'id': 'one',
-        'revision': 1,
-      }),
-    );
-    final request = await entered;
-    await fixture.invokeRuntime('cancel', 'other');
-    await fixture.flush();
-    expect(request.cancellations, 0);
-    expect(result.settled, isFalse);
-    expect(fixture.exits, isEmpty);
-    final captured = request.wire['identity'] as Map;
-    fixture.core = CoreSnapshot(
-      processId: request.processId,
-      inputId: request.wire['inputId'] as String,
-      generation: captured['generation'] as int,
-      networkRevision: captured['networkRevision'] as int,
-      phase: 'READY',
-      purpose: 'PREVIEW',
-      configId: 'one',
-      revision: 1,
-      composition: '["one",1]',
-    );
-    request.signalExit();
-    await result.done;
-    expect(result.replies, 1);
-    expect(result.value!['success'], isTrue);
-    expect(fixture.core.ready, isTrue);
-    expect(fixture.core.purpose, 'PREVIEW');
-    expect(fixture.exits, isEmpty);
-  });
+  test(
+    'cancellation by another owner does not affect admitted PREPARE',
+    () async {
+      await create();
+      fixture.core = const CoreSnapshot(phase: 'EMPTY');
+      fixture.phase = 'STOPPED';
+      fixture.vpnIntent = false;
+      await fixture.startAppRuntime();
+      fixture.script(ApplicationContract.coreOperationPrepare, (request) {
+        request.complete(<String, dynamic>{}, terminal: {'exited': false});
+      });
+      final entered = fixture.next(ApplicationContract.coreOperationPrepare);
+      final result = FutureProbe(
+        fixture.execute({
+          'action': 'prepareStrategies',
+          'id': 'one',
+          'revision': 1,
+        }),
+      );
+      final request = await entered;
+      await fixture.invokeRuntime('cancel', 'other');
+      await fixture.flush();
+      expect(request.cancellations, 0);
+      expect(result.settled, isFalse);
+      expect(fixture.exits, isEmpty);
+      final captured = request.wire['identity'] as Map;
+      fixture.core = CoreSnapshot(
+        processId: request.processId,
+        inputId: request.wire['inputId'] as String,
+        generation: captured['generation'] as int,
+        networkRevision: captured['networkRevision'] as int,
+        phase: 'READY',
+        purpose: 'PREVIEW',
+        configId: 'one',
+        revision: 1,
+        composition: '["one",1]',
+      );
+      request.signalExit();
+      await result.done;
+      expect(result.replies, 1);
+      expect(result.value!['success'], isTrue);
+      expect(fixture.core.ready, isTrue);
+      expect(fixture.core.purpose, 'PREVIEW');
+      expect(fixture.exits, isEmpty);
+    },
+  );
 
-  test('PREPARE owner 取消后拒绝旧 context，延迟 cleanup 不影响 replacement', () async {
+  test('PREPARE rejects the old context after owner cancellation and delayed cleanup does not affect the replacement', () async {
     await create();
     fixture.core = const CoreSnapshot(phase: 'EMPTY');
     fixture.phase = 'STOPPED';
@@ -1489,7 +1517,7 @@ void main() {
     expect(
       afterCancellation.error,
       isA<PlatformFailure>(),
-      reason: 'owner 取消已生效、cleanup 尚未执行时，旧 context 必须不可继续使用',
+      reason: 'The old context must be unusable after owner cancellation takes effect and before cleanup executes',
     );
     expect(
       (afterCancellation.error as PlatformFailure).code,
@@ -1497,51 +1525,54 @@ void main() {
     );
   });
 
-  test('旧 PREVIEW 退出结果晚到不能释放 replacement process', () async {
-    await create(preview: true);
-    await fixture.warmUp();
-    final old = fixture.core;
-    final entered = Completer<void>();
-    final release = Completer<Map<String, dynamic>>();
-    fixture.onExit = (arguments) {
-      expect(arguments['processId'], old.processId);
-      entered.complete();
-      return release.future;
-    };
-    final result = FutureProbe(
-      fixture.runtime.read('releasePreview', {
-        'owner': 'fixture',
-        'admittedAt': fixture.admittedAt,
-        'deadline': fixture.deadline,
-      }),
-    );
-    await entered.future;
-    fixture.replaceCore(
-      processId: 'replacement-process',
-      inputId: 'replacement-input',
-      generation: 2,
-      configId: 'replacement',
-      revision: 2,
-      composition: '["replacement",2]',
-    );
-    final replacement = fixture.core.identity;
-    expect(result.settled, isFalse);
-    release.complete({'exited': true});
-    await result.done;
-    fixture.emit({
-      'processId': old.processId,
-      'phase': 'exited',
-      'exited': true,
-    });
-    expect(result.error, isNull);
-    expect(result.replies, 1);
-    expect(fixture.core.identity, replacement);
-    expect(fixture.core.ready, isTrue);
-    expect(fixture.exits, hasLength(1));
-    expect(fixture.exits.single['processId'], old.processId);
-  });
+  test(
+    'late old PREVIEW exit results cannot release the replacement process',
+    () async {
+      await create(preview: true);
+      await fixture.warmUp();
+      final old = fixture.core;
+      final entered = Completer<void>();
+      final release = Completer<Map<String, dynamic>>();
+      fixture.onExit = (arguments) {
+        expect(arguments['processId'], old.processId);
+        entered.complete();
+        return release.future;
+      };
+      final result = FutureProbe(
+        fixture.runtime.read('releasePreview', {
+          'owner': 'fixture',
+          'admittedAt': fixture.admittedAt,
+          'deadline': fixture.deadline,
+        }),
+      );
+      await entered.future;
+      fixture.replaceCore(
+        processId: 'replacement-process',
+        inputId: 'replacement-input',
+        generation: 2,
+        configId: 'replacement',
+        revision: 2,
+        composition: '["replacement",2]',
+      );
+      final replacement = fixture.core.identity;
+      expect(result.settled, isFalse);
+      release.complete({'exited': true});
+      await result.done;
+      fixture.emit({
+        'processId': old.processId,
+        'phase': 'exited',
+        'exited': true,
+      });
+      expect(result.error, isNull);
+      expect(result.replies, 1);
+      expect(fixture.core.identity, replacement);
+      expect(fixture.core.ready, isTrue);
+      expect(fixture.exits, hasLength(1));
+      expect(fixture.exits.single['processId'], old.processId);
+    },
+  );
 
-  test('策略 worker 拒绝立即回复一次，不等 timeout 且不泄漏请求', () async {
+  test('strategy worker rejection replies once immediately without waiting for timeout or leaking requests', () async {
     await create(preview: true);
     await fixture.warmUp();
     final failure = nativeFailure(
@@ -1574,7 +1605,7 @@ void main() {
     await fixture.runtime.read('releasePreview', {});
   });
 
-  test('策略 RECORD 分别遵守 8 MiB，集合总量可以超过 8 MiB', () async {
+  test('each strategy RECORD respects 8 MiB while the total collection may exceed 8 MiB', () async {
     await create(preview: true);
     await fixture.warmUp();
     final padding = 'x' * (ApplicationContract.coreIpcFrameBytes ~/ 2);
@@ -1614,34 +1645,37 @@ void main() {
     'composition',
     'purpose',
   ]) {
-    test('策略读取拒绝不匹配的 $field，尚未受理就不提交 FD 请求', () async {
-      await create(preview: true);
-      await fixture.warmUp();
-      final arguments = fixture.identity();
-      arguments[field] = switch (field) {
-        'generation' => fixture.core.generation + 1,
-        'networkRevision' => fixture.core.networkRevision + 1,
-        'revision' => fixture.core.revision! + 1,
-        'purpose' => 'RUNNING',
-        _ => 'other-$field',
-      };
-      await expectLater(
-        fixture.runtime.read('strategies', arguments),
-        throwsA(
-          isA<PlatformFailure>().having(
-            (error) => error.code,
-            'code',
-            ApplicationContract.coreErrorIdentityMismatch,
+    test(
+      'strategy read rejects mismatched $field without submitting an FD request before admission',
+      () async {
+        await create(preview: true);
+        await fixture.warmUp();
+        final arguments = fixture.identity();
+        arguments[field] = switch (field) {
+          'generation' => fixture.core.generation + 1,
+          'networkRevision' => fixture.core.networkRevision + 1,
+          'revision' => fixture.core.revision! + 1,
+          'purpose' => 'RUNNING',
+          _ => 'other-$field',
+        };
+        await expectLater(
+          fixture.runtime.read('strategies', arguments),
+          throwsA(
+            isA<PlatformFailure>().having(
+              (error) => error.code,
+              'code',
+              ApplicationContract.coreErrorIdentityMismatch,
+            ),
           ),
-        ),
-      );
-      expect(
-        fixture.calls(ApplicationContract.coreOperationStrategies),
-        isEmpty,
-      );
-      expect(fixture.core.ready, isTrue);
-      expect(fixture.exits, isEmpty);
-    });
+        );
+        expect(
+          fixture.calls(ApplicationContract.coreOperationStrategies),
+          isEmpty,
+        );
+        expect(fixture.core.ready, isTrue);
+        expect(fixture.exits, isEmpty);
+      },
+    );
   }
 
   for (final terminal in [
@@ -1649,25 +1683,28 @@ void main() {
     {'source': 'other-source'},
     {'complete': false},
   ]) {
-    test('策略流终态 $terminal 不发布完整结果', () async {
-      await create(preview: true);
-      await fixture.warmUp();
-      fixture.script(ApplicationContract.coreOperationStrategies, (request) {
-        request.strategies([fixture.strategyRecord()], terminal: terminal);
-      });
-      final result = FutureProbe(fixture.operation.strategies(fixture.core));
-      await result.done;
-      expect(result.value, isNull);
-      expect(result.error, isNotNull);
-      expect(fixture.core.ready, isTrue);
-      expect(fixture.exits, isEmpty);
-    });
+    test(
+      'strategy stream terminal $terminal does not publish a complete result',
+      () async {
+        await create(preview: true);
+        await fixture.warmUp();
+        fixture.script(ApplicationContract.coreOperationStrategies, (request) {
+          request.strategies([fixture.strategyRecord()], terminal: terminal);
+        });
+        final result = FutureProbe(fixture.operation.strategies(fixture.core));
+        await result.done;
+        expect(result.value, isNull);
+        expect(result.error, isNotNull);
+        expect(fixture.core.ready, isTrue);
+        expect(fixture.exits, isEmpty);
+      },
+    );
   }
 
   for (final lanOnly in [false, true]) {
     for (final modeChange in [false, true]) {
       test(
-        '${lanOnly ? 'LAN-only' : 'VPN'} ${modeChange ? '模式' : '策略'}完整重连保留原 VPN/LAN 意图',
+        'full ${lanOnly ? 'LAN-only' : 'VPN'} ${modeChange ? 'mode' : 'strategy'} reconnect preserves original VPN/LAN intent',
         () async {
           await create(lanOnly: lanOnly);
           await fixture.warmUp();
@@ -1712,7 +1749,7 @@ void main() {
       );
     }
   }
-  test('profile 装载后恢复应用 choices，保留 missing group/type/member 三项并清理显式 GLOBAL warning', () async {
+  test('profile load restores app choices, retains missing group/type/member entries, and clears explicit GLOBAL warnings', () async {
     await create();
     Map<String, dynamic> group(
       String name,
@@ -1839,31 +1876,37 @@ void main() {
       'manual': {'type': 'select', 'member': ''},
     },
   ]) {
-    test('无效 saved choices $invalid 不发布输入、不认领新 context', () async {
-      await create();
-      final original = fixture.core.identity;
-      await fixture.writeRecord({
-        'inputId': 'invalid-choice-input',
-        'choices': invalid,
-      });
-      await expectLater(
-        fixture.runtime.read('start', {
-          'owner': 'one',
-          'id': 'one',
-          'revision': 1,
-          'admittedAt': fixture.admittedAt,
-          'deadline': fixture.deadline,
-        }),
-        throwsFormatException,
-      );
-      expect(fixture.core.identity, original);
-      expect(fixture.publications, isEmpty);
-      expect(fixture.exits, isEmpty);
-      expect(fixture.calls(ApplicationContract.coreOperationPrepare), isEmpty);
-    });
+    test(
+      'invalid saved choices $invalid neither publish input nor claim a new context',
+      () async {
+        await create();
+        final original = fixture.core.identity;
+        await fixture.writeRecord({
+          'inputId': 'invalid-choice-input',
+          'choices': invalid,
+        });
+        await expectLater(
+          fixture.runtime.read('start', {
+            'owner': 'one',
+            'id': 'one',
+            'revision': 1,
+            'admittedAt': fixture.admittedAt,
+            'deadline': fixture.deadline,
+          }),
+          throwsFormatException,
+        );
+        expect(fixture.core.identity, original);
+        expect(fixture.publications, isEmpty);
+        expect(fixture.exits, isEmpty);
+        expect(
+          fixture.calls(ApplicationContract.coreOperationPrepare),
+          isEmpty,
+        );
+      },
+    );
   }
 
-  test('应用 choice 覆盖 profile selected cache，恢复不写 cache，显式选择才写', () async {
+  test('app choice overrides profile selected cache; restoration does not write cache but explicit selection does', () async {
     await create();
     fixture.actualMember = 'DIRECT';
     await fixture.writeRecord({
@@ -1902,72 +1945,66 @@ void main() {
     );
   });
 
-  test(
-    'systemRevoked 沿独占 execute 等旧进程真实退出，再按 immutable record 仅恢复 LAN',
-    () async {
-      await create(lanOnly: true);
-      fixture.vpnIntent = true;
-      fixture.phase = 'RUNNING';
-      await fixture.writeRecord({
-        'vpnIntent': true,
-        'choices': {
-          '出口🌐': {'type': 'select', 'member': '节点🌐'},
-        },
-      });
-      await fixture.startAppRuntime();
-      final source = fixture.core;
-      final gate = Completer<void>();
-      final entered = Completer<void>();
-      fixture.onExit = (arguments) async {
-        expect(arguments['processId'], source.processId);
-        expect(arguments['reason'], 'revoked');
-        expect(arguments['admittedAt'], fixture.admittedAt);
-        expect(arguments['deadline'], fixture.deadline);
-        entered.complete();
-        await gate.future;
-        fixture.replaceCore(phase: 'EMPTY');
-        fixture.phase = 'STOPPED';
-        fixture.lanRunning = false;
-        return {'exited': true};
-      };
-      final result = FutureProbe(
-        fixture.execute({
-          'action': 'systemRevoked',
-          ...fixture.identity(source),
-        }),
-      );
-      await entered.future;
-      expect(result.settled, isFalse);
-      expect(fixture.publications, isEmpty);
-      expect(fixture.calls(ApplicationContract.coreOperationPrepare), isEmpty);
-      gate.complete();
-      await result.done;
-      expect(result.value!['success'], isTrue);
-      expect(result.value!['lanRestored'], isTrue);
-      final prepare = fixture
-          .calls(ApplicationContract.coreOperationPrepare)
-          .single;
-      expect(prepare.arguments['vpnIntent'], isFalse);
-      expect(prepare.arguments['lanIntent'], isTrue);
-      expect(prepare.arguments['explicitStart'], isFalse);
-      expect(prepare.arguments['admittedAt'], fixture.admittedAt);
-      expect(prepare.arguments['deadline'], fixture.deadline);
-      expect(fixture.authorizations, 0);
-      expect(fixture.exits, hasLength(1));
-      expect(fixture.snapshot.lanRunning, isTrue);
-      expect(fixture.snapshot.running, isFalse);
-      final restored = await fixture.runtime.inputFor(fixture.core);
-      expect(restored!['inputId'], isNot(source.inputId));
-      expect(restored['choices'], {
+  test('systemRevoked awaits old process exit through exclusive execute and restores only LAN from the immutable record', () async {
+    await create(lanOnly: true);
+    fixture.vpnIntent = true;
+    fixture.phase = 'RUNNING';
+    await fixture.writeRecord({
+      'vpnIntent': true,
+      'choices': {
         '出口🌐': {'type': 'select', 'member': '节点🌐'},
-      });
-      expect(restored['vpnIntent'], isFalse);
-      expect(restored['lanIntent'], isTrue);
-      expect(await fixture.runInput.exists(), isFalse);
-    },
-  );
+      },
+    });
+    await fixture.startAppRuntime();
+    final source = fixture.core;
+    final gate = Completer<void>();
+    final entered = Completer<void>();
+    fixture.onExit = (arguments) async {
+      expect(arguments['processId'], source.processId);
+      expect(arguments['reason'], 'revoked');
+      expect(arguments['admittedAt'], fixture.admittedAt);
+      expect(arguments['deadline'], fixture.deadline);
+      entered.complete();
+      await gate.future;
+      fixture.replaceCore(phase: 'EMPTY');
+      fixture.phase = 'STOPPED';
+      fixture.lanRunning = false;
+      return {'exited': true};
+    };
+    final result = FutureProbe(
+      fixture.execute({'action': 'systemRevoked', ...fixture.identity(source)}),
+    );
+    await entered.future;
+    expect(result.settled, isFalse);
+    expect(fixture.publications, isEmpty);
+    expect(fixture.calls(ApplicationContract.coreOperationPrepare), isEmpty);
+    gate.complete();
+    await result.done;
+    expect(result.value!['success'], isTrue);
+    expect(result.value!['lanRestored'], isTrue);
+    final prepare = fixture
+        .calls(ApplicationContract.coreOperationPrepare)
+        .single;
+    expect(prepare.arguments['vpnIntent'], isFalse);
+    expect(prepare.arguments['lanIntent'], isTrue);
+    expect(prepare.arguments['explicitStart'], isFalse);
+    expect(prepare.arguments['admittedAt'], fixture.admittedAt);
+    expect(prepare.arguments['deadline'], fixture.deadline);
+    expect(fixture.authorizations, 0);
+    expect(fixture.exits, hasLength(1));
+    expect(fixture.snapshot.lanRunning, isTrue);
+    expect(fixture.snapshot.running, isFalse);
+    final restored = await fixture.runtime.inputFor(fixture.core);
+    expect(restored!['inputId'], isNot(source.inputId));
+    expect(restored['choices'], {
+      '出口🌐': {'type': 'select', 'member': '节点🌐'},
+    });
+    expect(restored['vpnIntent'], isFalse);
+    expect(restored['lanIntent'], isTrue);
+    expect(await fixture.runInput.exists(), isFalse);
+  });
 
-  test('systemRevoked stale identity 不退出、不发布输入、不触碰替换进程', () async {
+  test('systemRevoked stale identity neither exits, publishes input, nor touches the replacement process', () async {
     await create(lanOnly: true);
     await fixture.startAppRuntime();
     final old = fixture.identity();
@@ -1986,7 +2023,7 @@ void main() {
     expect(fixture.calls(ApplicationContract.coreOperationPrepare), isEmpty);
   });
 
-  test('systemRevoked 在 exit 等待期间被 Stop 取消后不发布迟到 LAN 输入', () async {
+  test('systemRevoked cancelled by Stop while awaiting exit does not publish late LAN input', () async {
     await create(lanOnly: true);
     await fixture.startAppRuntime();
     final gate = Completer<void>();

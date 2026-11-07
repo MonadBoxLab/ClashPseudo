@@ -32,8 +32,8 @@ class AppTrustTest {
 
     @Test fun formalBundleHasTheFixedBytesAndEveryRootParsesAsX509() {
         val bytes = bundle()
-        assertEquals(200116, bytes.size)
-        assertEquals("796f1389bfea13c0ed78f663b765baaff54a508e5483786bd6ece73c5e3e3cbe",
+        assertEquals(AppTrust.BUNDLE_SIZE, bytes.size)
+        assertEquals(AppTrust.BUNDLE_SHA256,
             MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) })
         assertTrue(bytes.toString(Charsets.UTF_8).startsWith("##\n## Bundle of CA Root Certificates\n"))
         val roots = certificates(bytes)

@@ -6,7 +6,7 @@ import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 
-/** 完整 JSON 文档复用 DATA＋TERMINAL；单 frame 预算不限制整个文档。 */
+/** Complete JSON documents use DATA and TERMINAL frames; the per-frame budget does not limit the entire document. */
 internal object CoreDocuments {
     fun write(output: OutputStream, bytes: ByteArray) {
         var offset = 0
@@ -32,7 +32,7 @@ internal object CoreDocuments {
                         Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, terminal.toString())
                     return output.toByteArray()
                 }
-                else -> throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "JSON 文档包含非 DATA frame")
+                else -> throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "JSON document contains a non-DATA frame")
             }
         }
     }

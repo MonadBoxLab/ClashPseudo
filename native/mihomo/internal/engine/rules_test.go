@@ -35,7 +35,7 @@ func readRulePage(t *testing.T, e *Engine, query coreview.RuleQuery) ruleStreamS
 	}, func(value any) error {
 		row, ok := value.(coreview.RuleRow)
 		if !ok {
-			t.Fatal("未知rule record", value)
+			t.Fatal("unknown rule record", value)
 		}
 		snapshot.Rows = append(snapshot.Rows, row)
 		return nil
@@ -44,7 +44,7 @@ func readRulePage(t *testing.T, e *Engine, query coreview.RuleQuery) ruleStreamS
 		t.Fatal(err)
 	}
 	if identity != snapshot.SourceToken {
-		t.Fatal("metadata与terminal来源不一致")
+		t.Fatal("metadata and terminal sources differ")
 	}
 	snapshot.Total = len(snapshot.Rows)
 	return snapshot
@@ -95,7 +95,7 @@ rules:
 	}
 	again := readRulePage(t, &e, coreview.RuleQuery{Kind: "main"})
 	if len(main.SourceToken) != 64 || again.SourceToken != main.SourceToken || sub.SourceToken == main.SourceToken {
-		t.Fatal("rule来源identity改变")
+		t.Fatal("rule source identity changed")
 	}
 	original := errors.New("consumer原始错误")
 	if _, err := e.StreamRules(context.Background(), coreview.RuleQuery{Kind: "main"}, func(any) error { return nil }, func(any) error { return original }); err != original {
@@ -103,7 +103,7 @@ rules:
 	}
 	for _, query := range []coreview.RuleQuery{{Kind: "missing"}, {Kind: "sub", Name: "missing"}, {Kind: "provider", Name: "missing"}, {Kind: "provider", Name: strings.Repeat("x", 4097)}} {
 		if _, err := e.StreamRules(context.Background(), query, func(any) error { return nil }, func(any) error { return nil }); err == nil {
-			t.Fatal("无效scope被接受", query)
+			t.Fatal("invalid scope was accepted", query)
 		}
 	}
 
@@ -189,7 +189,7 @@ func TestRulesClassicalUsesOnlyPublicEnumeration(t *testing.T) {
 		count := 0
 		_, err := e.StreamRules(context.Background(), coreview.RuleQuery{Kind: "provider", Name: "fixture"}, func(any) error { return nil }, func(any) error { count++; return nil })
 		if err == nil || !strings.Contains(err.Error(), "sourceUnavailable") || count != 0 {
-			t.Fatal("使用了classical文件替代解析", state, count, err)
+			t.Fatal("classical file was used for substitute parsing", state, count, err)
 		}
 	}
 }

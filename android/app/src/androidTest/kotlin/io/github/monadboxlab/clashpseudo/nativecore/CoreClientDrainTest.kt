@@ -16,7 +16,7 @@ class CoreClientDrainTest {
     @Before fun awaitStartup() {
         val driver = CorePlatformTestDriver()
         val work = WorkManager.getInstance(driver.context)
-        driver.await("启动任务结束") {
+        driver.await("Startup task finishes") {
             work.getWorkInfosForUniqueWork("update-reconcile").get(5, TimeUnit.SECONDS)
                 .let { it.isNotEmpty() && it.all { item -> item.state.isFinished } } &&
                 AppBridge.operationId == null && !AppBridge.logic.busy
@@ -62,7 +62,7 @@ class CoreClientDrainTest {
             for (flag in listOf("nativeExited", "receiptExited", "ioExited")) call.exited(flag)
             val error = exit.get(Contract.OPERATION_UI_GRACE_MS + 5000, TimeUnit.MILLISECONDS)
             assertNotNull(error)
-            assertEquals("退出请求的原受理期限已到，core process 或本地 FD I/O 尚未结束", error!!.message)
+            assertEquals("The exit request's original admission deadline has expired; the core process or local FD I/O has not finished", error!!.message)
             assertTrue(call.retained())
             assertTrue(call.client.resourceBusy)
             call.exited("writeExited")
@@ -100,7 +100,7 @@ class CoreClientDrainTest {
                 for (flag in listOf("nativeExited", "receiptExited", "ioExited", "writeExited")) call.exited(flag)
                 assertNull(first.get(10, TimeUnit.SECONDS))
                 CoreIpcTestDriver.onMain {}
-                assertFalse("旧 process 的 drain 不能完成另一 process 的退出", second.isDone)
+                assertFalse("Draining an old process must not complete another process's exit", second.isDone)
                 call.onState {
                     documents.remove(descriptors[0])
                     CoreClient::class.java.getDeclaredMethod("completeExitWhenDrained", String::class.java)
@@ -127,7 +127,7 @@ class CoreClientDrainTest {
                 assertNull(value)
                 reply.complete(error)
             }
-            assertEquals("旧 core process 的本地 FD I/O 尚未结束", reply.get(10, TimeUnit.SECONDS)!!.message)
+            assertEquals("Local FD I/O for the old core process has not finished", reply.get(10, TimeUnit.SECONDS)!!.message)
             assertTrue(call.retained())
             assertTrue(call.client.resourceBusy)
             call.exited("receiptExited")

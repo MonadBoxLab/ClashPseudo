@@ -27,7 +27,7 @@ import io.github.monadboxlab.clashpseudo.nativecore.ipc.IRuntimeService
 import io.github.monadboxlab.clashpseudo.vpn.network.UnderlyingNetworks
 import java.util.concurrent.CopyOnWriteArrayList
 
-/** 内部 Binder 只处理小控制信息，JNI 和 FD I/O 不在 Binder 线程执行。 */
+/** Internal Binder handles only small control messages; JNI and FD I/O run off Binder threads. */
 class CoreService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private val callbacks = CopyOnWriteArrayList<ICoreCallback>()
@@ -101,7 +101,7 @@ class CoreService : Service() {
         override fun requestExit(request: Bundle) {
             CoreControl.sameUid()
             try { host.exit(request) }
-            catch (error: LinkageError) { throw IllegalStateException("core 退出执行未完成", error) }
+            catch (error: LinkageError) { throw IllegalStateException("Core exit did not complete", error) }
         }
     }
 
@@ -118,7 +118,7 @@ class CoreService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder {
-        // :core 的 started lifecycle 通过现有 binding 保持 PREVIEW 空闲计时的执行机会。
+        // The :core started lifecycle uses the existing binding to keep PREVIEW idle timer execution available.
         startService(Intent(this, CoreService::class.java))
         return binder
     }
@@ -220,7 +220,7 @@ class CoreService : Service() {
         runtime = null
         callbacks.clear()
         super.onDestroy()
-        // 内核资源锁保留在 CoreProcessResources，Service 销毁不释放它。
+        // CoreProcessResources retains the core resource lock; Service destruction does not release it.
     }
 
     companion object {

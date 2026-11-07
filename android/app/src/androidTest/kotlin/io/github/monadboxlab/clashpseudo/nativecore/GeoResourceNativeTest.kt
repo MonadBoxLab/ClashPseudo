@@ -10,7 +10,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.net.URI
 
-/** 在一次性 :core process 的隔离 home 中调用真实上游 Geo 更新。 */
+/** Call the actual upstream Geo update in an isolated home in a disposable :core process. */
 class GeoResourceNativeTest {
     private lateinit var fixtureDirectory: File
     @Test fun updateReplacesTheLoadedMatcherWithoutRepreparing() = checkUpdate(automatic = false)
@@ -69,7 +69,7 @@ class GeoResourceNativeTest {
         CoreIpcTestDriver.fixture().use { driver ->
             previousProcess = driver.processId
             val pending = driver.fixture(if (stopInFlight) Fixture.GEO_HOLD else if (automatic) Fixture.GEO_AUTOMATIC else Fixture.GEO_MANUAL, input, body)
-            assertNull("旧 process 的资源锁不能由调用方取得", CoreResourceGate.forApplication(driver.context).tryAcquire())
+            assertNull("The caller must not acquire the old process's resource lock", CoreResourceGate.forApplication(driver.context).tryAcquire())
             val reply = pending.await(60)
             assertTrue(reply.terminal.toString(), reply.terminal.getBoolean("complete"))
             val result = reply.value
@@ -81,26 +81,26 @@ class GeoResourceNativeTest {
             assertTrue(prepared.getBoolean("prepared"))
             assertFalse(prepared.getBoolean("attached"))
             if (stopInFlight) {
-                assertTrue("读取 runtimeConfig 前，原 Geo update 必须仍在执行", result.getBoolean("updatePendingBeforeDiagnostic"))
+                assertTrue("The original Geo update must still be running before reading runtimeConfig", result.getBoolean("updatePendingBeforeDiagnostic"))
                 NativeCoreFailureTest.assertSuccess(result.getJSONObject("heldRuntimeConfig"))
                 val configuration = result.getJSONObject("heldRuntimeConfig").getJSONObject("value")
                 assertEquals("rule", configuration.getJSONObject("general").getString("mode"))
                 assertEquals("rule", configuration.getJSONObject("requested").getString("mode"))
-                assertTrue("读取 runtimeConfig 不能等待原 Geo update 结束", result.getBoolean("updatePendingAfterDiagnostic"))
+                assertTrue("Reading runtimeConfig must not wait for the original Geo update to finish", result.getBoolean("updatePendingAfterDiagnostic"))
                 NativeCoreFailureTest.assertSuccess(result.getJSONObject("heldDiagnosticSnapshot"))
                 val diagnosticState = result.getJSONObject("heldDiagnosticSnapshot").getJSONObject("value")
                 assertTrue(diagnosticState.getBoolean("prepared"))
                 assertFalse(diagnosticState.getBoolean("attached"))
                 assertArrayEquals(bytes(fixture.getJSONObject("before").getString(kind)), bytes(result.getString("heldDiagnosticBytes")))
-                assertFalse("Stop 不能在真实 HTTP I/O 返回前结束", result.getBoolean("stopReturnedBeforeIo"))
-                assertFalse("Geo update 必须仍在等待受控 HTTP I/O", result.getBoolean("updateReturnedBeforeIo"))
+                assertFalse("Stop must not finish before actual HTTP I/O returns", result.getBoolean("stopReturnedBeforeIo"))
+                assertFalse("Geo update must still be waiting for controlled HTTP I/O", result.getBoolean("updateReturnedBeforeIo"))
                 assertTrue(result.getLong("holdObservedMs") >= 6200)
                 assertTrue(result.getJSONObject("heldSnapshot").getJSONObject("value").getBoolean("prepared"))
                 assertNativeFailure(result.getJSONObject("nextBeforeDrain"))
                 assertFalse(result.getBoolean("nextGeoExists"))
                 NativeCoreFailureTest.assertSuccess(result.getJSONObject("cancel"))
                 NativeCoreFailureTest.assertSuccess(result.getJSONObject("stop"))
-                // 取消后的 FD 可返回 EOF；实际 invoke receipt 必须保留上游错误，不替换为 stopped。
+                // A cancelled FD may return EOF; the actual invoke receipt must preserve the upstream error, not replace it with stopped.
                 assertNativeFailure(result.getJSONObject("update"))
                 assertArrayEquals(bytes(fixture.getJSONObject("before").getString(kind)), bytes(result.getString("finalBytes")))
             } else {
@@ -127,15 +127,15 @@ class GeoResourceNativeTest {
                 assertTrue(state.getBoolean("prepared"))
                 assertFalse(state.getBoolean("attached"))
             }
-            assertTrue("必须实际调用 socket callback", result.getJSONObject("callbacks").getInt("calls") > 0)
+            assertTrue("The socket callback must actually be invoked", result.getJSONObject("callbacks").getInt("calls") > 0)
             assertTrue(result.getJSONObject("callbacks").isNull("invalidSocket"))
             NativeCoreFailureTest.assertSuccess(result.getJSONObject("shutdown"))
             NativeCoreFailureTest.assertStopped(result.getJSONObject("after").getJSONObject("value"))
-            assertNull("Shutdown 返回后资源锁仍须保留到 process death", CoreResourceGate.forApplication(driver.context).tryAcquire())
+            assertNull("After Shutdown returns, retain the resource lock until process death", CoreResourceGate.forApplication(driver.context).tryAcquire())
             driver.exit()
             assertTrue(driver.deathConfirmed)
             val released = CoreResourceGate.forApplication(driver.context).tryAcquire()
-            assertNotNull("只有真实 process death 后才释放资源锁", released)
+            assertNotNull("Release the resource lock only after actual process death", released)
             released!!.close()
             CoreIpcTestDriver.removeFixtureHome(driver.context, result)
         }

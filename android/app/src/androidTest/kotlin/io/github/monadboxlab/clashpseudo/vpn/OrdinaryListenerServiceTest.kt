@@ -25,12 +25,12 @@ import org.junit.Test
 
 class OrdinaryListenerServiceTest {
     @Test fun ordinaryHttpListenerAuthenticatesAndReleasesAfterNormalStop() {
-        // 在接触 Service、native worker 或 socket 前检查 nonce 与端口。
+        // Check the nonce and port before accessing a Service, native worker, or socket.
         val arguments = InstrumentationRegistry.getArguments()
-        val nonce = checkNotNull(arguments.getString("nonce")) { "缺少 nonce" }
-        check(nonce == "p5-load-listener-r7v1") { "nonce 无效" }
-        val httpPort = checkNotNull(arguments.getString("httpPort")) { "缺少 httpPort" }
-            .toIntOrNull()?.takeIf { it in 1..65535 } ?: error("httpPort 无效")
+        val nonce = checkNotNull(arguments.getString("nonce")) { "Missing nonce" }
+        check(nonce == "p5-load-listener-r7v1") { "Invalid nonce" }
+        val httpPort = checkNotNull(arguments.getString("httpPort")) { "Missing httpPort" }
+            .toIntOrNull()?.takeIf { it in 1..65535 } ?: error("Invalid httpPort")
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val configId = "controlled-ordinary-http-listener-r7v1"
@@ -47,32 +47,32 @@ class OrdinaryListenerServiceTest {
         fun awaitMain(label: String, ready: () -> Boolean) {
             val deadline = SystemClock.elapsedRealtime() + 60_000L
             while (!main(ready)) {
-                check(SystemClock.elapsedRealtime() < deadline) { "等待 $label 超时" }
+                check(SystemClock.elapsedRealtime() < deadline) { "Timed out waiting for $label" }
                 Thread.sleep(25)
             }
         }
-        awaitMain("既有 business writer 空闲") {
+        awaitMain("Existing application writer is idle") {
             !AppBridge.logic.busy && AppBridge.operationId == null && !AppBridge.pendingSystemRestore
         }
         val before = main {
-            assertFalse("不能接管既有 Service", CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java))
+            assertFalse("Must not take over an existing Service", CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java))
             assertEquals(CoreHost.Phase.EMPTY, PseudoVpnService.core.snapshot().phase)
-            assertNull("VPN 必须已有授权，不能请求新授权", VpnService.prepare(context))
+            assertNull("VPN must already be authorized; do not request new authorization", VpnService.prepare(context))
             PseudoVpnService.session.snapshot().also { assertEquals(NativeSession.Phase.STOPPED, it.phase) }
         }
         val excludedUids = setOf(Process.myUid(), context.applicationInfo.uid,
             instrumentation.context.applicationInfo.uid)
         val clientUids = packages.map { name ->
             val uid = context.packageManager.getApplicationInfo(name, 0).uid
-            assertFalse("不能捕获 instrumentation 或 target UID", uid in excludedUids)
-            assertEquals("不能捕获与 client 共用 UID 的其他 package", setOf(name),
+            assertFalse("Must not capture the instrumentation or target UID", uid in excludedUids)
+            assertEquals("Must not capture another package sharing the client's UID", setOf(name),
                 context.packageManager.getPackagesForUid(uid).orEmpty().toSet())
             uid
         }
-        assertEquals("两个既有 client 必须使用独立 UID", 2, clientUids.toSet().size)
+        assertEquals("The two existing clients must use separate UIDs", 2, clientUids.toSet().size)
 
         val loopback = InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1))
-        // 将 SDK 选定端口交给应用前释放 reservation，后续 bind 冲突应使测试失败。
+        // Release the reservation before passing the SDK-selected port to the application; a later bind conflict must fail the test.
         val listenerPort = ServerSocket().use {
             it.bind(InetSocketAddress(loopback, 0), 1)
             it.localPort
@@ -167,7 +167,7 @@ class OrdinaryListenerServiceTest {
                     stream?.use {
                         val deadline = SystemClock.elapsedRealtime() + 10_000L
                         while (count < bytes.size) {
-                            check(SystemClock.elapsedRealtime() < deadline) { "响应 body 超过 deadline" }
+                            check(SystemClock.elapsedRealtime() < deadline) { "Response body exceeded the deadline" }
                             val size = it.read(bytes, count, bytes.size - count)
                             if (size == -1) break
                             check(size > 0)
@@ -179,9 +179,9 @@ class OrdinaryListenerServiceTest {
                     connection.disconnect()
                 }
             }
-            // 使用同一个 loopback client 依次请求受控 endpoint。
+            // Use the same loopback client to request controlled endpoints sequentially.
             request(null, HttpURLConnection.HTTP_PROXY_AUTH)
-            // mihomo HTTP authenticator 对错误 Basic credentials 返回 403，对缺失 credentials 返回 407。
+            // The mihomo HTTP authenticator returns 403 for incorrect Basic credentials and 407 for missing credentials.
             request(basic("wrong-$nonce"), HttpURLConnection.HTTP_FORBIDDEN)
             val response = request(basic(nonce), HttpURLConnection.HTTP_OK)
             assertEquals("# Controlled, local-only fixture $nonce revision 1",
@@ -195,7 +195,7 @@ class OrdinaryListenerServiceTest {
                 platform.exit()
                 observer.awaitDeath()
                 assertTrue(observer.deathConfirmed)
-                platform.await("VPN Service 退出") { !CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java) }
+                platform.await("VPN Service exits") { !CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java) }
                 assertEquals(Contract.CORE_PHASE_EXITED, platform.status()["phase"])
                 assertEquals(NativeSession.Phase.STOPPED, PseudoVpnService.session.snapshot().phase)
                 ServerSocket().use {

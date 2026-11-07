@@ -842,80 +842,91 @@ void main() {
 
   for (final dark in [false, true]) {
     for (final brand in BrandColor.values) {
-      testWidgets('选中名称保留 emoji 原文和默认颜色 dark=$dark brand=$brand', (
-        tester,
-      ) async {
-        final semantics = tester.ensureSemantics();
-        try {
-          const names = [
-            '自动 🇯🇵 English 👩🏽‍💻 1️⃣ ☀️ ☀︎',
-            '🌍👨‍👩‍👧‍👦🇺🇸👍🏿2️⃣',
-          ];
-          StrategySnapshot snapshot(String now) => StrategySnapshot(
-            generation: previewCore.generation,
-            processId: previewCore.processId,
-            inputId: previewCore.inputId,
-            configId: previewCore.configId!,
-            revision: previewCore.revision!,
-            purpose: previewCore.purpose!,
-            composition: previewCore.composition,
-            mode: strategyData().mode,
-            globalReferenced: false,
-            unrestored: {},
-            groups: [
-              StrategyGroup(
-                name: '出口',
-                rawType: 'select',
-                now: now,
-                currentIdentity: '',
-                hidden: false,
-                fixed: '',
-                members: [
-                  for (final name in names)
-                    StrategyMember(name: name, type: 'Direct'),
-                ],
-              ),
-            ],
-          );
-          bridge.data = snapshot(names.first);
-          await show(tester, dark: dark, brand: brand, width: 400, scale: 1.3);
-          await strategies(tester);
-          await open(tester, '出口');
-          expectSelection(tester, 0, true);
-          expectSelection(tester, 1, false);
-          for (final (index, name) in names.indexed) {
-            final finder = find.byKey(ValueKey('strategy-member-name-$index'));
-            final text = tester.widget<Text>(finder);
-            expect(text.data, name);
-            expect(text.textSpan, isNull);
-            final style = Theme.of(tester.element(finder)).textTheme.bodyLarge!;
-            expect(text.style!.fontFamily, style.fontFamily);
-            expect(text.style!.fontFamilyFallback, style.fontFamilyFallback);
-            expect(tester.getSemantics(finder).label, contains(name));
+      testWidgets(
+        'selected names retain original emoji and default colors dark=$dark brand=$brand',
+        (tester) async {
+          final semantics = tester.ensureSemantics();
+          try {
+            const names = [
+              '自动 🇯🇵 English 👩🏽‍💻 1️⃣ ☀️ ☀︎',
+              '🌍👨‍👩‍👧‍👦🇺🇸👍🏿2️⃣',
+            ];
+            StrategySnapshot snapshot(String now) => StrategySnapshot(
+              generation: previewCore.generation,
+              processId: previewCore.processId,
+              inputId: previewCore.inputId,
+              configId: previewCore.configId!,
+              revision: previewCore.revision!,
+              purpose: previewCore.purpose!,
+              composition: previewCore.composition,
+              mode: strategyData().mode,
+              globalReferenced: false,
+              unrestored: {},
+              groups: [
+                StrategyGroup(
+                  name: '出口',
+                  rawType: 'select',
+                  now: now,
+                  currentIdentity: '',
+                  hidden: false,
+                  fixed: '',
+                  members: [
+                    for (final name in names)
+                      StrategyMember(name: name, type: 'Direct'),
+                  ],
+                ),
+              ],
+            );
+            bridge.data = snapshot(names.first);
+            await show(
+              tester,
+              dark: dark,
+              brand: brand,
+              width: 400,
+              scale: 1.3,
+            );
+            await strategies(tester);
+            await open(tester, '出口');
+            expectSelection(tester, 0, true);
+            expectSelection(tester, 1, false);
+            for (final (index, name) in names.indexed) {
+              final finder = find.byKey(
+                ValueKey('strategy-member-name-$index'),
+              );
+              final text = tester.widget<Text>(finder);
+              expect(text.data, name);
+              expect(text.textSpan, isNull);
+              final style = Theme.of(tester.element(finder))
+                  .textTheme
+                  .bodyLarge!;
+              expect(text.style!.fontFamily, style.fontFamily);
+              expect(text.style!.fontFamilyFallback, style.fontFamilyFallback);
+              expect(tester.getSemantics(finder).label, contains(name));
+            }
+            final second = find.byKey(const ValueKey('strategy-member-1'));
+            await tester.ensureVisible(second);
+            await tester.tap(second);
+            await tester.pump();
+            expectSelection(tester, 0, true);
+            expectSelection(tester, 1, false);
+            bridge.data = snapshot(names.last);
+            app.state = const AppSnapshot(
+              phase: 'STOPPED',
+              core: previewCore,
+              resultId: 'emoji-choice',
+              resultSuccess: true,
+            );
+            app.changed();
+            await tester.pumpAndSettle();
+            expectSelection(tester, 0, false);
+            expectSelection(tester, 1, true);
+            expect(tester.takeException(), isNull);
+            await tester.pumpWidget(const SizedBox());
+          } finally {
+            semantics.dispose();
           }
-          final second = find.byKey(const ValueKey('strategy-member-1'));
-          await tester.ensureVisible(second);
-          await tester.tap(second);
-          await tester.pump();
-          expectSelection(tester, 0, true);
-          expectSelection(tester, 1, false);
-          bridge.data = snapshot(names.last);
-          app.state = const AppSnapshot(
-            phase: 'STOPPED',
-            core: previewCore,
-            resultId: 'emoji-choice',
-            resultSuccess: true,
-          );
-          app.changed();
-          await tester.pumpAndSettle();
-          expectSelection(tester, 0, false);
-          expectSelection(tester, 1, true);
-          expect(tester.takeException(), isNull);
-          await tester.pumpWidget(const SizedBox());
-        } finally {
-          semantics.dispose();
-        }
-      });
+        },
+      );
     }
   }
 

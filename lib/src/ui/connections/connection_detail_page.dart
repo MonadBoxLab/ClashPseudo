@@ -153,8 +153,9 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
         widget.controller.app.interactive &&
         workspace?.masterVisible == true &&
         current;
-    // 主列表与保留的详情面板共用连接读取；窄屏返回主列表后继续读取。
-    // 详情操作通过 _live 单独检查该面板是否可操作。
+    // The main list and retained details share connection reads; returning to the list
+    // on narrow screens keeps reading.
+    // Detail actions check pane eligibility separately through _live.
     final visible =
         masterVisible || (_live && (_ruleFormOpen || _ruleMenuOpen || current));
     if (_visible == visible) return;
@@ -234,7 +235,8 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
           final form = _ruleRoute;
           return (origin?.isActive ?? true) &&
               origin?.animation?.status != AnimationStatus.reverse &&
-              // 表单自行检查其页面和弹窗状态；打开表单所属弹窗时继续保留规则来源。
+              // The form checks its own page and popup state; retain the rule source
+              // while its popup is open.
               form?.animation?.status != AnimationStatus.reverse &&
               controller.isRuleSourceCurrent(
                 source,
@@ -901,7 +903,8 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
   );
 }
 
-// 按首次显示的内容固定阅读区域高度；后续较长内容可在区域内滚动和选择。
+// Fix the reading area height from the initial content; longer updates can scroll and
+// remain selectable inside it.
 class _DetailValue extends StatefulWidget {
   const _DetailValue(this.text, {required this.style, this.minHeight = 0});
   final String text;

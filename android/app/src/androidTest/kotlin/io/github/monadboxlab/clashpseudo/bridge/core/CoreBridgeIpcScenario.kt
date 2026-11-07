@@ -6,7 +6,7 @@ import org.json.JSONObject
 import org.junit.Assert.*
 import java.io.Closeable
 
-/** 在真实 :core process 中装载一次配置；查询复用捕获的 inputId 和 generation。 */
+/** Prepare a configuration once in the actual :core process; queries reuse the captured inputId and generation. */
 internal class CoreBridgeIpcScenario(body: String = DIRECT, running: Boolean = false) : Closeable {
     val driver = CoreIpcTestDriver.production()
     val identity: android.os.Bundle
@@ -45,7 +45,7 @@ internal class CoreBridgeIpcScenario(body: String = DIRECT, running: Boolean = f
 
     fun await(pending: CoreIpcTestDriver.Pending): CoreIpcTestDriver.Reply = pending.await().also {
         val receipt = driver.receipt(pending.id)
-        assertTrue("调用结束须收到真实 native receipt", receipt.getBoolean("exited"))
+        assertTrue("Call completion requires the actual native receipt", receipt.getBoolean("exited"))
         assertTrue(it.terminal.toString(), it.terminal.getBoolean("exited"))
         it.terminal.put("nativeReceipt", receipt)
     }

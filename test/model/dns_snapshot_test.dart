@@ -142,19 +142,22 @@ void main() {
     }
   });
 
-  test('完整 DNS 消息和原始查询错误同时保留', () {
-    final value = dnsReply();
-    (value['dns'] as Map)['error'] = 'queryFailed';
-    (value['dns'] as Map)['errorDetail'] = '原始查询错误';
-    value['cancelError'] = '取消未确认';
-    final result = DnsResponse.fromMap(value);
-    expect(result.answer.single.data, '192.0.2.1');
-    expect(result.errorCode, 'queryFailed');
-    expect(result.errorDetail, contains('原始查询错误'));
-    expect(result.cancellationError, '取消未确认');
-    expect(result.source.matchesIdentity(dnsCore()), isTrue);
-    expect(result.stale, isFalse);
-  });
+  test(
+    'complete DNS messages and original query errors are retained together',
+    () {
+      final value = dnsReply();
+      (value['dns'] as Map)['error'] = 'queryFailed';
+      (value['dns'] as Map)['errorDetail'] = '原始查询错误';
+      value['cancelError'] = '取消未确认';
+      final result = DnsResponse.fromMap(value);
+      expect(result.answer.single.data, '192.0.2.1');
+      expect(result.errorCode, 'queryFailed');
+      expect(result.errorDetail, contains('原始查询错误'));
+      expect(result.cancellationError, '取消未确认');
+      expect(result.source.matchesIdentity(dnsCore()), isTrue);
+      expect(result.stale, isFalse);
+    },
+  );
 
   test('stable native errors are not converted into an empty answer', () {
     for (final code in [

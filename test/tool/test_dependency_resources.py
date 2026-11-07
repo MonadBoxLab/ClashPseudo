@@ -1,4 +1,4 @@
-"""使用合成资源文件，测试资源准备、来源记录校验和批量写入。"""
+"""Test resource preparation, source record validation, and batch writes with synthetic resources."""
 
 from contextlib import redirect_stdout
 import gzip
@@ -53,7 +53,7 @@ def mmdb_value(value):
     if isinstance(value, dict):
         return bytes([7 << 5 | len(value)]) + b"".join(mmdb_value(key) + mmdb_value(item) for key, item in value.items())
     if isinstance(value, bool):
-        return bytes([int(value), 7])  # 扩展类型14，布尔值由长度字段表示，后面没有数据字节
+        return bytes([int(value), 7])  # Extended type 14 encodes the boolean in the length field with no trailing data bytes
     return bytes([6 << 5 | 1, value])
 
 
@@ -182,7 +182,7 @@ class ResourceTest(unittest.TestCase):
         spec = self.unknown_spec("geoip")
         spec["storedSha256"] = "0" * 64
         directory = self.base / "wrong-official-digest"
-        with self.assertRaisesRegex(ValueError, "下载文件的字节数或 SHA-256 与记录值不一致"):
+        with self.assertRaisesRegex(ValueError, "Downloaded file size or SHA-256 differs from the record"):
             resources.prepare_resource(spec, directory, self.sources["geoip"])
         self.assertFalse((directory / "resource.json").exists())
         self.assertFalse((directory / "payload").exists())
@@ -199,7 +199,7 @@ class ResourceTest(unittest.TestCase):
         self.assertEqual(resources.prepare_resource(spec, directory), directory)
         with mock.patch.object(resources, "download", return_value=b"0" * 64 + b"  cacert.pem\n"):
             failed = self.base / "bad-checksum-ca"
-            with self.assertRaisesRegex(ValueError, "下载文件的字节数或 SHA-256 与记录值不一致"):
+            with self.assertRaisesRegex(ValueError, "Downloaded file size or SHA-256 differs from the record"):
                 resources.prepare_resource(spec, failed, self.sources["ca"])
             self.assertFalse((failed / "resource.json").exists())
         self.network.assert_not_called()
@@ -209,7 +209,7 @@ class ResourceTest(unittest.TestCase):
         for name, limit in (("FETCH_LIMIT", len(self.data["mmdb"]) - 1),
                             ("RESOURCE_LIMIT", len(self.installed["mmdb"]) - 1)):
             destination = self.base / name
-            with mock.patch.object(resources, name, limit), self.assertRaisesRegex(ValueError, "上限"):
+            with mock.patch.object(resources, name, limit), self.assertRaisesRegex(ValueError, "limit"):
                 resources.prepare_resource(spec, destination, self.sources["mmdb"])
             self.assertFalse((destination / "resource.json").exists())
         self.network.assert_not_called()
@@ -263,13 +263,13 @@ class ResourceTest(unittest.TestCase):
     def test_frozen_ca_uses_recorded_checksum_without_querying_the_official_checksum(self):
         spec = dict(self.specs["ca"], checksumUrl=self.specs["ca"]["sourceUrl"] + ".sha256")
         directory = self.base / "frozen-ca"
-        with mock.patch.object(resources, "download", side_effect=AssertionError("固定构建不能查询checksum")) as fetch:
+        with mock.patch.object(resources, "download", side_effect=AssertionError("Frozen builds must not query checksums")) as fetch:
             resources.prepare_resource(spec, directory, self.sources["ca"])
             self.assertEqual(resources.read_prepared_resource(directory)[0]["storedSha256"], spec["storedSha256"])
             fetch.assert_not_called()
         corrupt = self.base / "changed-ca.pem"
         corrupt.write_bytes(self.data["ca"] + b"changed")
-        with self.assertRaisesRegex(ValueError, "上限|字节数或 SHA-256"):
+        with self.assertRaisesRegex(ValueError, "limit|size or SHA-256"):
             resources.prepare_resource(spec, self.base / "wrong-frozen-ca", corrupt)
 
     def test_preparation_uses_fixed_bytes_and_never_touches_project(self):
@@ -288,7 +288,7 @@ class ResourceTest(unittest.TestCase):
         directory = self.prepare()[1]
         self.assertEqual(resources.prepare_resource(self.specs["geoip"], directory), directory)
         changed = dict(self.specs["geoip"], sourceCommit="b" * 40)
-        with self.assertRaisesRegex(ValueError, "重新运行时资源来源"):
+        with self.assertRaisesRegex(ValueError, "Resource source or frozen inputs differ on rerun"):
             resources.prepare_resource(changed, directory)
         (directory / "payload").write_bytes(b"changed bytes")
         with self.assertRaises(ValueError):
@@ -311,7 +311,7 @@ class ResourceTest(unittest.TestCase):
         (directory / "json.py").write_text("raise RuntimeError('never execute')")
         with self.assertRaises(OSError):
             resources.prepare_resource(self.specs["geoip"], directory)
-        with self.assertRaisesRegex(ValueError, "源码目录"):
+        with self.assertRaisesRegex(ValueError, "source directory"):
             resources.prepare_resource(self.specs["geoip"], resources.ROOT / "candidate")
         self.assertEqual(list(directory.iterdir()), [directory / "json.py"])
 
@@ -336,7 +336,7 @@ class ResourceTest(unittest.TestCase):
                 resources.validate_resource(data, spec)
         spec = resources.resource_spec(self.specs["mmdb"])
         with mock.patch.object(resources, "RESOURCE_LIMIT", len(self.installed["mmdb"]) - 1), \
-                self.assertRaisesRegex(ValueError, "上限"):
+                self.assertRaisesRegex(ValueError, "limit"):
             resources.validate_resource(original, spec)
 
 
@@ -403,19 +403,19 @@ class ResourceTest(unittest.TestCase):
         self.sources["asn"].replace(paths[-1] / "payload")
         self.put("third_party/data/geodata/GeoSite-MIT.txt", b"changed original license")
         changes = sources.resource_changes(self.root, paths)
-        with self.assertRaisesRegex(ValueError, "许可内容已变化"):
+        with self.assertRaisesRegex(ValueError, "license content changed"):
             resources.bundled_materials(self.root, json.loads(changes[resources.RESOURCE_RECORD]))
         self.assertEqual((self.root / "pubspec.yaml").read_bytes(), before["pubspec.yaml"])
 
     def test_only_explicit_delivery_can_refresh_an_unpublished_candidate(self):
         paths = self.prepare()
         before = inputs.snapshot(self.root)
-        with self.assertRaisesRegex(ValueError, "新应用交付"):
+        with self.assertRaisesRegex(ValueError, "new application deliveries"):
             inputs.publish_resources(self.root, before, paths)
         changed = inputs.publish_resources(self.root, before, paths, application_delivery=True)
         self.assertEqual(changed, [resources.RESOURCE_RECORD])
         self.assertEqual(inputs.publish_resources(self.root, inputs.snapshot(self.root), paths, application_delivery=True), [])
-        # 同一未分发候选允许在显式 release 更新中替换资源；普通构建只消费已保存记录。
+        # Explicit release updates may replace resources in the same undistributed candidate; normal builds only consume saved records.
         spec = dict(self.specs["geoip"], sourceCommit="b" * 40)
         paths[1] = resources.prepare_resource(spec, self.base / "different-commit" / "geoip", self.sources["geoip"])
         changes = sources.resource_changes(self.root, paths)
@@ -444,8 +444,8 @@ class FrozenBuildTest(unittest.TestCase):
                 for path in self.output.rglob("*") if path.is_file()}
 
     def test_offline_rebuild_and_retry_only_consume_the_frozen_record(self):
-        with mock.patch.object(sources, "official_resource_spec", side_effect=AssertionError("不得查询 latest")), \
-                mock.patch.object(resources, "download", side_effect=AssertionError("离线准备不得下载")):
+        with mock.patch.object(sources, "official_resource_spec", side_effect=AssertionError("Must not query latest")), \
+                mock.patch.object(resources, "download", side_effect=AssertionError("Offline preparation must not download")):
             resources.prepare_bundled_assets(self.root, payloads=self.payloads, offline=True)
             self.assertEqual(self.files(), self.original)
             shutil.rmtree(self.output)
@@ -461,9 +461,9 @@ class FrozenBuildTest(unittest.TestCase):
             self.assertEqual(limit, self.record["resources"][kind]["storedBytes"])
             Path(destination).write_bytes(self.bytes[kind])
             return {"bytes": len(self.bytes[kind]), "sha256": digest(self.bytes[kind])}
-        with mock.patch.object(sources, "official_resource_specs", side_effect=AssertionError("不得查询 latest")):
+        with mock.patch.object(sources, "official_resource_specs", side_effect=AssertionError("Must not query latest")):
             resources.prepare_bundled_assets(self.root, fetch=fetch)
-            resources.prepare_bundled_assets(self.root, fetch=lambda *a, **k: self.fail("重试不得下载完整 cache"))
+            resources.prepare_bundled_assets(self.root, fetch=lambda *a, **k: self.fail("Retries must not download a complete cache"))
         self.assertEqual(set(calls), set(by_url))
         self.assertEqual(len(calls), 5)
         self.assertEqual(self.files(), self.original)
@@ -473,14 +473,14 @@ class FrozenBuildTest(unittest.TestCase):
         fingerprint = self.record["resources"]["asn"]["storedSha256"]
         cache = self.root / "build/generated/resource-cache" / fingerprint / "payload"
         cache.write_bytes(b"tampered")
-        with mock.patch.object(resources, "download", side_effect=AssertionError("损坏 cache 不得重新下载")) as fetch, \
+        with mock.patch.object(resources, "download", side_effect=AssertionError("Corrupt caches must not be downloaded again")) as fetch, \
                 self.assertRaises(ValueError):
             resources.prepare_bundled_assets(self.root)
         fetch.assert_not_called()
         self.assertEqual(self.files(), self.original)
 
     def test_wrong_download_and_missing_offline_payload_preserve_complete_output(self):
-        with self.assertRaisesRegex(ValueError, "离线构建缺少固定资源"):
+        with self.assertRaisesRegex(ValueError, "Offline build is missing a frozen resource"):
             resources.prepare_bundled_assets(self.root, offline=True)
         self.assertEqual(self.files(), self.original)
         def wrong(url, *, limit, destination):
@@ -507,14 +507,14 @@ class FrozenBuildTest(unittest.TestCase):
         resources.prepare_bundled_assets(self.root, payloads=self.payloads, offline=True)
         self.record["application"] = "1.0.1+2"
         (self.root / resources.RESOURCE_RECORD).write_bytes(common_io.json_bytes(self.record))
-        with mock.patch.object(resources, "download", side_effect=AssertionError("不应重复下载")):
+        with mock.patch.object(resources, "download", side_effect=AssertionError("Must not download again")):
             resources.prepare_bundled_assets(self.root, offline=True)
         self.assertEqual(len(list((self.root / "build/generated/resource-cache").glob("*/payload"))), 5)
 
     def test_cache_digest_cannot_escape_the_cache_directory(self):
         self.record["resources"]["asn"]["storedSha256"] = "../outside"
         (self.root / resources.RESOURCE_RECORD).write_bytes(common_io.json_bytes(self.record))
-        with self.assertRaisesRegex(ValueError, "缓存路径"):
+        with self.assertRaisesRegex(ValueError, "cache path"):
             resources.prepare_bundled_assets(self.root, payloads=self.payloads, offline=True)
         self.assertEqual(self.files(), self.original)
 
@@ -524,7 +524,7 @@ class FrozenBuildTest(unittest.TestCase):
         for value in (True, "1", None):
             changed = dict(self.record, version=value)
             path.write_bytes(common_io.json_bytes(changed))
-            with self.subTest(version=value), self.assertRaisesRegex(ValueError, "记录格式无效"):
+            with self.subTest(version=value), self.assertRaisesRegex(ValueError, "Invalid release resource source record format"):
                 resources.read_release_resources(self.root)
 
 
@@ -585,7 +585,7 @@ class TransactionTest(unittest.TestCase):
                 (self.root / self.second).write_bytes(b"user next target")
             return result
 
-        with mock.patch.object(workspace.os, "replace", side_effect=change_next), self.assertRaisesRegex(ValueError, "发生变化"):
+        with mock.patch.object(workspace.os, "replace", side_effect=change_next), self.assertRaisesRegex(ValueError, "changed"):
             inputs.publish_changes(self.root, self.before, self.after)
         self.assertEqual((self.root / self.first).read_bytes(), self.before[self.first])
         self.assertEqual((self.root / self.second).read_bytes(), b"user next target")
@@ -593,7 +593,7 @@ class TransactionTest(unittest.TestCase):
     def test_unwritten_input_change_is_not_mixed_into_a_successful_transaction(self):
         path = self.root / "pubspec.yaml"
         path.write_bytes(b"user new input")
-        with self.assertRaisesRegex(ValueError, "发生变化"):
+        with self.assertRaisesRegex(ValueError, "changed"):
             inputs.publish_changes(self.root, self.before, self.after)
         self.assertEqual((self.root / self.first).read_bytes(), self.before[self.first])
         self.assertEqual(path.read_bytes(), b"user new input")
@@ -621,7 +621,7 @@ class TransactionTest(unittest.TestCase):
             inputs.publish_changes(self.root, self.before, after)
         self.assertFalse((self.root / target).exists())
         (self.root / target).symlink_to(self.root / self.first)
-        with self.assertRaisesRegex(ValueError, "符号链接"):
+        with self.assertRaisesRegex(ValueError, "symbolic link"):
             inputs.snapshot(self.root)
 
 
@@ -633,7 +633,7 @@ class StreamAndLegalTest(unittest.TestCase):
                     raise AssertionError("unbounded read")
                 return super().read(size)
         self.assertEqual(common_io.read_bounded(Stream(b"abc"), 3), b"abc")
-        with self.assertRaisesRegex(ValueError, "上限"):
+        with self.assertRaisesRegex(ValueError, "limit"):
             common_io.read_bounded(Stream(b"abcd"), 3)
 
     def test_fetch_enforces_length_budget_and_https_redirect_without_network(self):
@@ -686,16 +686,16 @@ class StreamAndLegalTest(unittest.TestCase):
                     target.writestr(name, data)
             return output.getvalue()
         data = archive([("LICENSE", b"x" * 1000)])
-        with mock.patch.object(legal, "TEXT_LIMIT", 999), self.assertRaisesRegex(ValueError, "上限"):
+        with mock.patch.object(legal, "TEXT_LIMIT", 999), self.assertRaisesRegex(ValueError, "limit"):
             legal.archive_legal(data)
         nested = archive([("NOTICE", b"original notice\r\n")])
         outer = archive([("classes.jar", nested), ("../json.py", b"raise RuntimeError('never execute')")])
         self.assertEqual(legal.archive_legal(outer), {"classes.jar!/NOTICE": b"original notice\r\n"})
-        with mock.patch.object(legal, "ARCHIVE_ENTRIES", 2), self.assertRaisesRegex(ValueError, "条目"):
+        with mock.patch.object(legal, "ARCHIVE_ENTRIES", 2), self.assertRaisesRegex(ValueError, "entry count"):
             legal.archive_legal(outer)
         for _ in range(6):
             nested = archive([("classes.jar", nested)])
-        with self.assertRaisesRegex(ValueError, "嵌套"):
+        with self.assertRaisesRegex(ValueError, "nesting"):
             legal.archive_legal(nested)
 
     def test_psl_revision_comes_from_actual_effective_compiled_table(self):
@@ -721,7 +721,7 @@ class StreamAndLegalTest(unittest.TestCase):
 
 
 class OfficialResolutionTest(unittest.TestCase):
-    """用合成的官方API响应测试资源版本、固定提交及下载地址的解析。"""
+    """Test resource version, fixed commit, and download URL resolution with synthetic official API responses."""
 
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="official-resources-")
@@ -831,7 +831,7 @@ class OfficialResolutionTest(unittest.TestCase):
         self.assertEqual(spec["licenseSha256"], digest(self.licenses["geoip"]))
         self.assertEqual(spec["sourceInputs"],
                          [{"sourceCommit": "c" * 40,
-                           "description": "release 202610050438 构建提交中的 text/*.txt 补充输入"}])
+                           "description": "Supplemental text/*.txt inputs from the release 202610050438 build commit"}])
         self.assertNotIn("sourceInputs", sources.official_resource_spec("geosite", self.root,
                                                                         fetch=self.reply("geosite")))
 
@@ -851,7 +851,7 @@ class OfficialResolutionTest(unittest.TestCase):
                 self.calls.append(url)
                 return b"[]"
             return without(url, **values)
-        with self.assertRaisesRegex(ValueError, "构建数据提交"):
+        with self.assertRaisesRegex(ValueError, "build data commit"):
             sources.official_resource_spec("geoip", self.root, fetch=no_rows)
 
     def test_geoip_data_commit_requires_release_time_and_text_inputs(self):
@@ -880,17 +880,17 @@ class OfficialResolutionTest(unittest.TestCase):
             self.assertNotIn(key, spec)
         self.assertEqual(spec["storedSha256"], digest(self.dataset("ca")))
         self.assertIn(spec["checksumUrl"], self.calls)
-        with self.assertRaisesRegex(ValueError, "官方校验文件格式无效"):
+        with self.assertRaisesRegex(ValueError, "Invalid official CA checksum file format"):
             sources.official_resource_spec("ca", self.root, fetch=lambda url, **values:
                                           b"invalid checksum" if url.endswith(".sha256") else self.reply("ca")(url, **values))
 
     def test_missing_official_asset_or_page_link_is_reported(self):
         def missing_asset(url, **values):
             return json.dumps({"tag_name": "upstream-tag", "assets": []}).encode()
-        with self.assertRaisesRegex(ValueError, "发布附件缺失或同名附件重复"):
+        with self.assertRaisesRegex(ValueError, "release asset is missing or duplicated"):
             sources.official_resource_spec("geoip", self.root, fetch=missing_asset)
         for kind in ("ca", "mmdb"):
-            with self.subTest(kind=kind), self.assertRaisesRegex(ValueError, "官方下载页缺少资源链接"):
+            with self.subTest(kind=kind), self.assertRaisesRegex(ValueError, "Official download page lacks a resource link"):
                 sources.official_resource_spec(kind, self.root, fetch=lambda url, **values: b"<html>none</html>")
 
     def test_upstream_tag_and_asset_url_are_used_without_reconstruction(self):
@@ -941,7 +941,7 @@ class OfficialResolutionTest(unittest.TestCase):
 
 
     def test_changed_fixed_revision_license_stops_for_legal_review(self):
-        with self.assertRaisesRegex(ValueError, "许可内容已变化"):
+        with self.assertRaisesRegex(ValueError, "license content changed"):
             sources.official_resource_spec("geoip", self.root, fetch=self.reply("geoip", license_changed=True))
 
     def test_all_five_specs_are_resolved_from_official_sources_without_overrides(self):
@@ -961,7 +961,7 @@ class OfficialResolutionTest(unittest.TestCase):
 
 
 class OfficialPreparationTest(unittest.TestCase):
-    """测试五项资源的准备、固定源码清单生成及已有材料的复用。"""
+    """Test preparation of five resources, frozen source manifest generation, and reuse of existing artifacts."""
 
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="official-preparation-")
@@ -1144,9 +1144,9 @@ class OfficialPreparationTest(unittest.TestCase):
     def test_unknown_or_symlinked_root_is_rejected(self):
         (self.base / "prepared").mkdir()
         (self.base / "prepared" / "stray.txt").write_bytes(b"x")
-        with self.assertRaisesRegex(ValueError, "未知条目"):
+        with self.assertRaisesRegex(ValueError, "unknown entries"):
             sources.prepare_official_resources(self.base / "prepared", root=self.root)
-        with self.assertRaisesRegex(ValueError, "仓库外"):
+        with self.assertRaisesRegex(ValueError, "outside the repository"):
             sources.prepare_official_resources(resources.ROOT / "candidate", root=self.root)
 
     def test_sources_manifest_records_actual_bytes_and_resume_is_offline(self):
@@ -1192,7 +1192,7 @@ class OfficialPreparationTest(unittest.TestCase):
         self.assertEqual(manifest.read_bytes(), registered_bytes)
         self.assertEqual(resources.read_resource_sources(manifest.parent), metadata)
         (self.base / "sources" / geoip["file"]).write_bytes(b"x" * geoip["bytes"])
-        with self.assertRaisesRegex(ValueError, "摘要不同"):
+        with self.assertRaisesRegex(ValueError, "digest differs"):
             sources.prepare_resource_sources(specs, self.base / "sources", inputs=inputs, fetch=download)
         self.assertEqual(self.requests, [])
 
@@ -1237,7 +1237,7 @@ class OfficialPreparationTest(unittest.TestCase):
             changed = json.loads(common_io.json_bytes(original))
             changed["sources"][0]["file"] = name
             manifest.write_bytes(common_io.json_bytes(changed))
-            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "文件路径无效"):
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "Invalid resource source file path"):
                 resources.read_resource_sources(manifest.parent)
 
     def test_source_archive_symlink_is_not_read(self):
@@ -1252,7 +1252,7 @@ class OfficialPreparationTest(unittest.TestCase):
         outside = self.base / "outside"
         archive.replace(outside)
         archive.symlink_to(outside)
-        with self.assertRaisesRegex(ValueError, "普通文件"):
+        with self.assertRaisesRegex(ValueError, "regular files"):
             resources.read_resource_sources(manifest.parent)
 
     def test_sources_directory_with_unknown_files_is_not_reused(self):
@@ -1260,7 +1260,7 @@ class OfficialPreparationTest(unittest.TestCase):
         directory = self.base / "sources"
         directory.mkdir()
         (directory / "stray.tar.gz").write_bytes(b"x")
-        with self.assertRaisesRegex(ValueError, "新空目录"):
+        with self.assertRaisesRegex(ValueError, "new empty directory"):
             sources.prepare_resource_sources(specs, directory, inputs=[{"sourceCommit": "c" * 40,
                                                                        "description": "data"}], fetch=self.fetch)
 
@@ -1295,7 +1295,7 @@ class OfficialPreparationTest(unittest.TestCase):
 
     def test_delivery_entry_without_refresh_only_restores_fixed_sources(self):
         destination = self.base / "delivery"
-        with self.assertRaisesRegex(ValueError, "当前交付缺少固定资源源码清单"):
+        with self.assertRaisesRegex(ValueError, "Current delivery lacks a frozen resource source manifest"):
             sources.delivery_resources(self.root, destination, prepare=False, fetch=self.fetch)
         source_dir = destination / "resource-sources"
         source_dir.mkdir(parents=True)
@@ -1390,12 +1390,12 @@ class OfficialPreparationTest(unittest.TestCase):
         self.assertEqual(inputs.snapshot(self.root), before)
 
     def test_delivery_entry_rejects_project_destination_and_unknown_entries(self):
-        with self.assertRaisesRegex(ValueError, "仓库外"):
+        with self.assertRaisesRegex(ValueError, "outside the repository"):
             sources.delivery_resources(self.root, self.root / "candidate", prepare=False, fetch=self.fetch)
         destination = self.base / "delivery"
         destination.mkdir()
         (destination / "stray").write_bytes(b"x")
-        with self.assertRaisesRegex(ValueError, "未知条目"):
+        with self.assertRaisesRegex(ValueError, "unknown entries"):
             sources.delivery_resources(self.root, destination, prepare=False, fetch=self.fetch)
 
 

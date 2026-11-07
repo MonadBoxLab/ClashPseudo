@@ -9,7 +9,7 @@ import '../../support/core_runtime_fixture.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('GeoIP 原 500ms deadline 后等待 750ms，原成功结果与占用保留到实际 drain', () async {
+  test('GeoIP waits 750ms after the original 500ms deadline and retains the original success and slot until actual drain', () async {
     final fixture = await CoreRuntimeFixture.create(preview: true, body: '');
     fixture.replaceCore(configId: 'main', composition: '["main",1]');
     await fixture.writeRecord({'id': 'main', 'body': '', 'mode': 'rule'});
@@ -90,7 +90,8 @@ void main() {
       expect(fixture.core.processId, source.processId);
       expect(fixture.calls(ApplicationContract.coreOperationPrepare), isEmpty);
 
-      // terminal 的原成功结果先到，实际 receipt 尚未退出时仍不能回复或释放 slot。
+      // The original successful terminal arrives first; do not reply or release the
+      // slot before the actual receipt exits.
       request.complete({'status': 'ok'}, terminal: {'exited': false});
       await fixture.flush();
       expect(pending.settled, isFalse);

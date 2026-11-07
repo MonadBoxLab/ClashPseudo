@@ -6,7 +6,8 @@ import 'package:yaml_edit/yaml_edit.dart';
 import '../../model/config_text.dart';
 import '../../model/lan_proxy.dart';
 
-/// 便捷表单只改本功能监听的地址、端口和 UDP，其他字段沿原文保留。
+/// The form only changes addresses, ports, and UDP for its own listeners; other fields
+/// retain their source text.
 class LanProxySettings {
   LanProxySettings({
     required Iterable<String> addresses,
@@ -19,7 +20,7 @@ class LanProxySettings {
         port > 65535 ||
         this.addresses.any((address) => !isConcreteLanAddress(address)) ||
         this.addresses.toSet().length != this.addresses.length) {
-      throw const FormatException('局域网地址或端口无效');
+      throw const FormatException('Invalid LAN address or port');
     }
   }
 
@@ -41,9 +42,13 @@ class LanProxySettings {
       final parts = decoded.split('\u0000');
       if (parts.length == 2 && parts.last == address) return parts.first;
     } catch (_) {
-      throw const FormatException('监听身份无效，请使用原文编辑');
+      throw const FormatException(
+        'Invalid listener identity; use the text editor',
+      );
     }
-    throw const FormatException('监听身份无效，请使用原文编辑');
+    throw const FormatException(
+      'Invalid listener identity; use the text editor',
+    );
   }
 
   factory LanProxySettings.fromBody(String body) {
@@ -51,7 +56,7 @@ class LanProxySettings {
     final listeners = root['listeners'];
     if (listeners == null) return LanProxySettings(addresses: const []);
     if (listeners is! YamlList) {
-      throw const FormatException('请在原文中编辑 listeners');
+      throw const FormatException('Edit listeners in the text editor');
     }
     final addresses = <String>[];
     final interfaces = <String, String>{};
@@ -60,10 +65,14 @@ class LanProxySettings {
     final names = <String>{};
     for (final item in listeners) {
       if (item is! YamlMap || item['name'] is! String) {
-        throw const FormatException('请在原文中编辑监听配置');
+        throw const FormatException(
+          'Edit listener configuration in the text editor',
+        );
       }
       final name = item['name'] as String;
-      if (!names.add(name)) throw const FormatException('监听名称重复');
+      if (!names.add(name)) {
+        throw const FormatException('Duplicate listener name');
+      }
       if (!name.startsWith(listenerPrefix)) continue;
       final address = item['listen'];
       final nextPort = item['port'];
@@ -75,7 +84,9 @@ class LanProxySettings {
           nextUdp is! bool ||
           port != null && port != nextPort ||
           udp != null && udp != nextUdp) {
-        throw const FormatException('当前监听配置请使用原文编辑');
+        throw const FormatException(
+          'Use the text editor for this listener configuration',
+        );
       }
       addresses.add(address);
       interfaces[address] = _interfaceName(name, address);
@@ -92,7 +103,7 @@ class LanProxySettings {
 
   String applyTo(String original) {
     final body = original.isEmpty ? '{}\n' : original;
-    // 无法表示的正文不能由表单重建。
+    // Do not rebuild source text the form cannot represent.
     LanProxySettings.fromBody(body);
     final root = _root(body);
     final current = root['listeners'] as YamlList?;
@@ -113,7 +124,8 @@ class LanProxySettings {
         }
       }
     }
-    // 删除后重新读取位置，不按旧索引修改相邻监听。
+    // Read positions again after deletion so stale indices cannot alter adjacent
+    // listeners.
     final remaining = (_root(editor.toString())['listeners'] as YamlList);
     for (var index = 0; index < remaining.length; index++) {
       final item = remaining[index] as YamlMap;
@@ -151,7 +163,7 @@ class LanProxySettings {
         check.udp != udp && addresses.isNotEmpty ||
         check.addresses.toSet().length != selected.length ||
         !check.addresses.toSet().containsAll(selected)) {
-      throw const FormatException('监听配置未完整保存');
+      throw const FormatException('Listener configuration was not fully saved');
     }
     return result;
   }
@@ -159,11 +171,11 @@ class LanProxySettings {
   static YamlMap _root(String body) {
     final documents = loadYamlDocuments(body);
     if (documents.length != 1 || documents.single.contents is! YamlMap) {
-      throw const FormatException('局域网插件需要一个 YAML 对象');
+      throw const FormatException('LAN plugin requires a YAML mapping');
     }
     final root = documents.single.contents as YamlMap;
     final listeners = root.nodes['listeners'];
-    // 别名或 merge key 不能经表单修改，否则会影响其他定义。
+    // Editing aliases or merge keys through the form could change other definitions.
     final source = body;
     if (root.nodes.keys.any((key) => key.value == '<<') ||
         listeners != null &&
@@ -173,7 +185,9 @@ class LanProxySettings {
                 listeners.span.end.offset,
               ),
             )) {
-      throw const FormatException('包含锚点或合并字段，请使用原文编辑');
+      throw const FormatException(
+        'Contains anchors or merge keys; use the text editor',
+      );
     }
     return root;
   }

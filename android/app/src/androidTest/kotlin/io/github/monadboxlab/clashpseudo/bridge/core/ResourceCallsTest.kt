@@ -28,7 +28,7 @@ class ResourceCallsTest {
                     JSONObject().put("kind", "geo").put("name", "GeoIP"),
                     source.getString("inputId"), source.getLong("generation")) { metadata ->
                     admitted.complete(metadata.getLong("requestId"))
-                    check(release.await(20, TimeUnit.SECONDS)) { "等待放行原 GeoIP 输入 FD 超时" }
+                    check(release.await(20, TimeUnit.SECONDS)) { "Timed out waiting to release the original GeoIP input FD" }
                 }
             }
             try {
@@ -48,20 +48,20 @@ class ResourceCallsTest {
                 } catch (error: IllegalStateException) {
                     rejected = error
                 }
-                assertNotNull("旧 GeoIP 输入尚未 drain，replacement prepare 必须被拒绝", rejected)
-                assertTrue(rejected!!.message.orEmpty().contains("内核进程正在退出"))
+                assertNotNull("Replacement prepare must be rejected before the old GeoIP input drains", rejected)
+                assertTrue(rejected!!.message.orEmpty().contains("Core process is exiting"))
                 assertFalse(driver.deathConfirmed)
                 assertFalse(submission.isDone)
                 assertFalse(driver.receipts[id]?.isDone == true)
                 val earlyLease = CoreResourceGate.forApplication(driver.context).tryAcquire()
                 earlyLease?.close()
-                assertNull("原 process 仍须持有资源锁", earlyLease)
+                assertNull("The original process must still hold the resource lock", earlyLease)
 
                 release.countDown()
                 val reply = submission.get(10, TimeUnit.SECONDS).await()
                 val error = failure(reply)
                 assertEquals(Contract.CORE_ERROR_CANCELLED, error.getString("code"))
-                assertEquals("请求在进入内核前已取消", error.getString("message"))
+                assertEquals("Request was cancelled before entering the core", error.getString("message"))
                 assertTrue(error.getString("stack").contains("CoreHost"))
                 assertEquals(0, reply.value.length())
                 assertTrue(reply.records.isEmpty())
@@ -70,7 +70,7 @@ class ResourceCallsTest {
                 assertEquals(error.getString("message"), receipt.getJSONObject("error").getString("message"))
                 driver.awaitDeath()
                 val released = CoreResourceGate.forApplication(driver.context).tryAcquire()
-                assertNotNull("实际输入、receipt 与 process drain 后释放资源锁", released)
+                assertNotNull("Release the resource lock after actual input, receipt, and process drain", released)
                 released!!.close()
             } finally {
                 release.countDown()

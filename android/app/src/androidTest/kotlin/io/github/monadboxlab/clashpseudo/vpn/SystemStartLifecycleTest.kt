@@ -50,29 +50,29 @@ class SystemStartLifecycleTest {
         val context = instrumentation.targetContext
         val platform = CorePlatformTestDriver(context)
         val arguments = InstrumentationRegistry.getArguments()
-        fun required(name: String) = checkNotNull(arguments.getString(name)) { "缺少 $name" }
+        fun required(name: String) = checkNotNull(arguments.getString(name)) { "Missing $name" }
         val expectedId = required("expectedConfigId").also { check(it.isNotBlank()) }
         val expectedName = required("expectedConfigName").also { check(it.isNotBlank()) }
         val expectedRevision = required("expectedRevision").toInt().also { check(it > 0) }
         val expectedBody = required("expectedBodySha256").also { check(Regex("[0-9a-f]{64}").matches(it)) }
         val expectedStores = expectedStores()
         check(expectedStores.getValue(BackupFiles.Kind.CONFIGURATIONS) != "absent")
-        check(Build.VERSION.SDK_INT in 36..37) { "该受控场景要求 API 36 或 37" }
+        check(Build.VERSION.SDK_INT in 36..37) { "This controlled scenario requires API 36 or 37" }
         val files = BackupFiles.get(context)
         val stores = File(context.filesDir.canonicalFile, "configurations")
-        platform.await("业务存储恢复") { files.transaction.snapshot().let { it.ready && !it.restoring } }
+        platform.await("Application store recovery") { files.transaction.snapshot().let { it.ready && !it.restoring } }
         val epoch = files.transaction.snapshot().epoch
         fun unchanged() = assertStoresUnchanged(files, stores, epoch, expectedStores)
         unchanged()
         CoreIpcTestDriver.onMain {
             for (stage in Stage.values().filter { it != Stage.DESTROYED }) {
-                assertTrue("headless 启动前不能已有 UI", ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(stage).isEmpty())
+                assertTrue("No UI may exist before headless startup", ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(stage).isEmpty())
             }
             val state = PseudoVpnService.session.snapshot()
             assertEquals(NativeSession.Phase.STOPPED, state.phase)
-            assertEquals("使用保留数据的新应用进程单独运行", 0L, state.generation)
+            assertEquals("Run separately in a new application process with data preserved", 0L, state.generation)
             assertFalse(CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java))
-            assertNull("使用已有 VPN 授权，不打开授权界面", VpnService.prepare(context))
+            assertNull("Use existing VPN authorization without opening the authorization UI", VpnService.prepare(context))
         }
         CoreIpcTestDriver.assertNoGoInApplication()
         var observer: CoreIpcTestDriver? = null
@@ -86,7 +86,7 @@ class SystemStartLifecycleTest {
             val transitions = mutableListOf<String>()
             var previous: String? = null
             try {
-                platform.await("真实 VPN RUNNING") {
+                platform.await("Actual VPN RUNNING") {
                     val state = PseudoVpnService.session.snapshot()
                     val runtime = AppBridge.runtimeState()
                     val facts = "phase=${state.phase}, generation=${state.generation}, error=${state.error}, " +
@@ -144,7 +144,7 @@ class SystemStartLifecycleTest {
                 val retired = observer
                 assertEquals(SystemControls.Admission.ACCEPTED, platform.stopFromSystemControl())
                 retired.awaitDeath()
-                platform.await("旧 process death 后 writer 结束") {
+                platform.await("Writer finishes after old process death") {
                     PseudoVpnService.session.snapshot().phase == NativeSession.Phase.STOPPED &&
                         !AppBridge.logic.busy && AppBridge.operationId == null
                 }
@@ -152,23 +152,23 @@ class SystemStartLifecycleTest {
                     RuntimeDispatchGate(platform).use { gate ->
                         replacement = CoreIpcTestDriver.fixture()
                         start()
-                        platform.await("新 systemStart 等待 AppRuntime 调度") { AppBridge.pendingSystemRestore && AppBridge.logic.busy }
+                        platform.await("New systemStart waits for AppRuntime scheduling") { AppBridge.pendingSystemRestore && AppBridge.logic.busy }
                         val owner = CoreIpcTestDriver.onMain { checkNotNull(AppBridge.operationId) }
                         assertFalse(replacement!!.debug.serviceControl(CoreFixtureContract.SERVICE_STATE).getBoolean("nativeLoaded"))
                         assertTrue(gate.held)
                         replacement!!.debug.serviceControl(CoreFixtureContract.REVOKE_SERVICE)
-                        platform.await("revoke 撤销停止间隙中的新 owner") {
+                        platform.await("Revoke cancels the new owner admitted during the stop interval") {
                             !AppBridge.pendingSystemRestore && AppBridge.operationId != owner
                         }
                         replacement!!.awaitDeath()
                         assertTrue(replacement!!.deathConfirmed)
                         assertTrue(gate.held)
                         gate.release()
-                        platform.await("撤销后无 late start") {
+                        platform.await("No late start after revocation") {
                             !AppBridge.logic.busy && AppBridge.operationId == null &&
                                 PseudoVpnService.session.snapshot().phase == NativeSession.Phase.STOPPED
                         }
-                        assertTrue("释放 AppRuntime 调度不能复活旧 process", replacement!!.deathConfirmed)
+                        assertTrue("Releasing AppRuntime scheduling must not revive the old process", replacement!!.deathConfirmed)
                     }
                 } else {
                     start()
@@ -178,7 +178,7 @@ class SystemStartLifecycleTest {
                     assertEquals(first.second.getString("body"), second.second.getString("body"))
                     try {
                         retired.debug.serviceControl(CoreFixtureContract.REPLAY_RETIRED_SERVICE)
-                        fail("旧 process 的 Binder 不能执行 callback")
+                        fail("The old process's Binder must not execute callbacks")
                     } catch (error: android.os.DeadObjectException) {
                         assertTrue(retired.deathConfirmed)
                     }
@@ -199,13 +199,13 @@ class SystemStartLifecycleTest {
                 }
                 replacement?.let { if (!it.deathConfirmed) it.awaitDeath() }
                 observer?.let { if (!it.deathConfirmed) it.awaitDeath() }
-                platform.await("正常 Stop 与实际 writer 结束") {
+                platform.await("Normal Stop and actual writer completion") {
                     PseudoVpnService.session.snapshot().phase == NativeSession.Phase.STOPPED &&
                         !CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java) &&
                         !AppBridge.pendingSystemRestore && !AppBridge.logic.busy && AppBridge.operationId == null &&
                         CoreClient.get(context).status()[Contract.CORE_FIELD_PHASE] == Contract.CORE_PHASE_EXITED
                 }
-                assertFalse("正常停止不能留下恢复门禁", CoreClient.get(context).lifecycle.snapshot().recoveryRequired)
+                assertFalse("Normal Stop must not leave recovery required", CoreClient.get(context).lifecycle.snapshot().recoveryRequired)
                 CoreIpcTestDriver.assertNoGoInApplication()
             } catch (error: Throwable) { cleanup = error }
             for (remote in listOfNotNull(replacement, observer)) try { remote.close() } catch (error: Throwable) {
@@ -231,7 +231,7 @@ class SystemStartLifecycleTest {
                 logic.retainPlatform(true)
                 LogicEngineHost::class.java.getDeclaredMethod("ensureEngine").apply { isAccessible = true }.invoke(logic)
             }
-            platform.await("AppRuntime 已就绪且 writer 空闲") { ready.getBoolean(logic) && !logic.busy && AppBridge.operationId == null }
+            platform.await("AppRuntime is ready and the writer is idle") { ready.getBoolean(logic) && !logic.busy && AppBridge.operationId == null }
             CoreIpcTestDriver.onMain { ready.setBoolean(logic, false) }
         }
         fun release() {
@@ -287,22 +287,22 @@ class SystemStartLifecycleTest {
         }
         fun <T> main(block: () -> T): T = CoreIpcTestDriver.onMain(block)
         fun await(label: String, timeoutMs: Long = 15_000, ready: () -> Boolean) = platform.await(label, timeoutMs, ready)
-        await("业务 writer 空闲") { !AppBridge.logic.busy && AppBridge.operationId == null }
+        await("Application writer is idle") { !AppBridge.logic.busy && AppBridge.operationId == null }
         val files = BackupFiles.get(context)
         val stores = File(context.filesDir.canonicalFile, "configurations")
         if (hashes != null && epoch != null) assertStoresUnchanged(files, stores, epoch, hashes)
         val before = main {
             if (controlledEntry) {
-                assertFalse("controls 取消场景不能启用 Always-on", PseudoVpnService.alwaysOnState() == true)
-                assertEquals("保留本场景的 keyguard 前提", lockedStop, context.getSystemService(KeyguardManager::class.java).isKeyguardLocked)
+                assertFalse("Always-on must be disabled for the controls cancellation scenario", PseudoVpnService.alwaysOnState() == true)
+                assertEquals("Preserve this scenario's keyguard precondition", lockedStop, context.getSystemService(KeyguardManager::class.java).isKeyguardLocked)
                 assertFalse(AppBridge.pendingSystemRestore)
                 for (stage in Stage.values().filter { it != Stage.DESTROYED }) {
-                    assertTrue("每个 controls 场景开始前不能已有 MainActivity",
+                    assertTrue("No MainActivity may exist before each controls scenario",
                         ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(stage).none { it is MainActivity })
                 }
             }
             assertFalse(CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java))
-            assertNull("保留已有授权，不打开授权界面", VpnService.prepare(context))
+            assertNull("Preserve existing authorization without opening the authorization UI", VpnService.prepare(context))
             PseudoVpnService.session.snapshot().also { assertEquals(NativeSession.Phase.STOPPED, it.phase) }
         }
         var controlsActivity: MainActivity? = null
@@ -327,7 +327,7 @@ class SystemStartLifecycleTest {
                     }
                     val start = Intent(context, PseudoVpnService::class.java).setAction(VpnService.SERVICE_INTERFACE)
                     assertNotNull(if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(start) else context.startService(start))
-                    await("真实 systemStart 等待 AppRuntime 调度") {
+                    await("Actual systemStart waits for AppRuntime scheduling") {
                         AppBridge.pendingSystemRestore && AppBridge.logic.busy && AppBridge.operationId != null &&
                             CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java)
                     }
@@ -351,7 +351,7 @@ class SystemStartLifecycleTest {
                     val manager = android.appwidget.AppWidgetManager.getInstance(context)
                     val provider = android.content.ComponentName(context, VpnWidgetProvider::class.java)
                     fun assertOriginalWidget() {
-                        assertTrue("只能保留既有 widget 4",
+                        assertTrue("Only existing widget 4 may remain",
                             manager.getAppWidgetIds(provider).sortedArray().contentEquals(intArrayOf(4)))
                         assertEquals(provider, manager.getAppWidgetInfo(4)?.provider)
                     }
@@ -376,7 +376,7 @@ class SystemStartLifecycleTest {
                             if (node.isVisibleToUser && node.viewIdResourceName ==
                                 "com.android.launcher3:id/accessibility_action_view" && node.contentDescription?.toString() == "Home") {
                                 val bounds = android.graphics.Rect().also { node.getBoundsInScreen(it) }
-                                assertTrue("要求唯一的实际 Launcher viewport", launcherViewport == null || launcherViewport == bounds)
+                                assertTrue("Exactly one actual Launcher viewport is required", launcherViewport == null || launcherViewport == bounds)
                                 launcherViewport = bounds
                             }
                             if (node.isVisibleToUser && node.className?.toString() ==
@@ -401,7 +401,7 @@ class SystemStartLifecycleTest {
                                     }
                                 } finally { root?.recycle() }
                             }
-                            assertTrue("不能在多个本应用 Launcher widget 中任选一个", hosts.size <= 1)
+                            assertTrue("Must not arbitrarily select among multiple Launcher widgets belonging to this application", hosts.size <= 1)
                             val controls = mutableListOf<android.view.accessibility.AccessibilityNodeInfo>()
                             fun collectControls(node: android.view.accessibility.AccessibilityNodeInfo) {
                                 if (node.viewIdResourceName == context.packageName + ":id/widget_control")
@@ -413,7 +413,7 @@ class SystemStartLifecycleTest {
                             }
                             hosts.singleOrNull()?.let { collectControls(it) }
                             try {
-                                assertTrue("要求唯一的既有 widget 操作入口", controls.size <= 1)
+                                assertTrue("Exactly one existing widget control is required", controls.size <= 1)
                                 val control = controls.singleOrNull()
                                 val witness = "launcherWindows=$launcherWindows ownHosts=${hosts.size} " +
                                     "pageSwipes=$launcherPageSwipes ownControls=${controls.size} action=${control?.contentDescription} " +
@@ -430,7 +430,7 @@ class SystemStartLifecycleTest {
                                     assertTrue(control.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
                                     clicked = true
                                 } else if (hosts.isEmpty() && launcherPageSwipes == 0 && launcherViewport != null) {
-                                    // HOME 之后，使用该 Launcher viewport 已校准的相邻页面手势。
+                                    // After HOME, use the adjacent-page gesture calibrated for this Launcher viewport.
                                     val viewport = checkNotNull(launcherViewport)
                                     assertTrue(viewport.width() > 200 && viewport.height() > 400)
                                     val command = "input swipe ${viewport.right - 100} ${viewport.centerY()} " +
@@ -458,7 +458,7 @@ class SystemStartLifecycleTest {
                         }
                         if (!clicked) Thread.sleep(100)
                     }
-                    assertTrue("既有 Launcher widget 必须实际发送一次 Stop", clicked)
+                    assertTrue("The existing Launcher widget must actually send one Stop", clicked)
                     assertOriginalWidget()
                 }
                 "tile" -> {
@@ -474,7 +474,7 @@ class SystemStartLifecycleTest {
                     var pages = 0
                     var lastWitness = ""
                     while (!clicked && SystemClock.elapsedRealtime() < deadline) {
-                        assertTrue("只清除此 observer 的 accessibility cache", ui.clearCache())
+                        assertTrue("Clear only this observer's accessibility cache", ui.clearCache())
                         val windows = ui.windows
                         var qsWindows = 0
                         val nodes = mutableListOf<android.view.accessibility.AccessibilityNodeInfo>()
@@ -514,16 +514,16 @@ class SystemStartLifecycleTest {
                                     root?.recycle()
                                 }
                             }
-                            assertTrue("要求唯一的可见 Quick Settings 窗口", qsWindows <= 1)
+                            assertTrue("Exactly one visible Quick Settings window is required", qsWindows <= 1)
                             if (qsWindows == 1) {
-                                // Compose label 与可操作 Tile 使用不同 node，按实际边界匹配。
+                                // The Compose label and actionable Tile use different nodes; match their actual bounds.
                                 val own = nodes.filter { it.contentDescription?.toString()?.startsWith("Clash Pseudo,") == true }
-                                assertTrue("不能在多个本应用 Tile 中任选一个", own.size <= 1)
+                                assertTrue("Must not arbitrarily select among multiple Tiles belonging to this application", own.size <= 1)
                                 val target = own.singleOrNull()?.let { label ->
                                     nodes.filter { it.viewIdResourceName in setOf("com.android.systemui:id/qs_tile_small",
                                         "com.android.systemui:id/qs_tile_large") && it.isEnabled && it.isClickable &&
                                         bounds(it) == bounds(label) }.also {
-                                        assertTrue("要求唯一且与本应用 Tile 边界一致的操作入口", it.size <= 1)
+                                        assertTrue("Exactly one control matching this application's Tile bounds is required", it.size <= 1)
                                     }.singleOrNull()
                                 }
                                 val witness = "pages=$pages ownLabels=${own.size} " +
@@ -558,7 +558,7 @@ class SystemStartLifecycleTest {
                                                     .bufferedReader().use { it.readText().trim() }
                                             }
                                         }
-                                        assertEquals("已校准的实际 pager 手势必须完成", "CONTROLLED_INPUT_EXIT=0", exit)
+                                        assertEquals("The calibrated actual pager gesture must finish", "CONTROLLED_INPUT_EXIT=0", exit)
                                         Log.i("SystemStartCheck", "actualTilePagerGestureElapsedMs=" +
                                             (SystemClock.elapsedRealtime() - gestureBegan))
                                         pages++
@@ -572,13 +572,13 @@ class SystemStartLifecycleTest {
                         }
                         if (!clicked) Thread.sleep(100)
                     }
-                    assertTrue("必须实际点击一次本应用 Quick Settings Tile", clicked)
+                    assertTrue("This application's Quick Settings Tile must actually be clicked once", clicked)
                 }
                 "shortcut" -> {
                     val intent = SystemControls.actionIntent(context, "stop")
                     assertEquals(context.packageName + ".StopVpnShortcut", intent.component?.className)
                     shortcut = SystemControls.activityPendingIntent(context, intent, 57042)
-                    // creator 与 sender 使用公开 SDK 入口；实际 alias Activity 在 post-resume 受理固定 Stop。
+                    // The creator and sender use public SDK entry points; the actual alias Activity admits the fixed Stop after resume.
                     val options = ActivityOptions.makeBasic()
                         .setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
                         .toBundle()
@@ -586,14 +586,14 @@ class SystemStartLifecycleTest {
                 }
                 "notification", "notificationLocked" -> {
                     val manager = context.getSystemService(android.app.NotificationManager::class.java)
-                    assertTrue("本场景要求已有通知授权和可见的实际通知",
+                    assertTrue("This scenario requires existing notification permission and a visible actual notification",
                         manager.activeNotifications.any { it.id == 1 })
                     val posted = manager.activeNotifications.single { it.id == 1 }.notification
                     val stop = posted.actions.single().actionIntent
                     val expected = PendingIntent.getBroadcast(context, 1002,
                         Intent(context, VpnWidgetProvider::class.java).setAction(VpnWidgetProvider.ACTION_STOP),
                         PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE)
-                    assertNotNull("实际通知必须复用私有 Stop broadcast", expected)
+                    assertNotNull("The actual notification must reuse the private Stop broadcast", expected)
                     assertEquals(expected, stop)
                     assertEquals(context.packageName, stop.creatorPackage)
                     assertFalse(stop.isActivity)
@@ -601,7 +601,7 @@ class SystemStartLifecycleTest {
                         assertTrue(context.getSystemService(KeyguardManager::class.java).isKeyguardLocked)
                         var admission: SystemControls.Admission? = null
                         SystemControls.request(context, "start") { admission = it }
-                        assertEquals("锁屏时 Start 不能继承 Stop authority", SystemControls.Admission.OPEN_APP, admission)
+                        assertEquals("Start must not inherit Stop authority while the screen is locked", SystemControls.Admission.OPEN_APP, admission)
                         assertEquals(owner, AppBridge.operationId)
                         assertTrue(AppBridge.pendingSystemRestore)
                     }
@@ -609,8 +609,8 @@ class SystemStartLifecycleTest {
                     stop.send(context, 0, null,
                         PendingIntent.OnFinished { _, _, _, _, _ -> receipt.countDown() },
                         android.os.Handler(android.os.Looper.getMainLooper()))
-                    assertTrue("实际 Stop broadcast 必须在 admission callback 后结束", receipt.await(10, TimeUnit.SECONDS))
-                    assertTrue("broadcast 完成不能释放 AppRuntime 调度 gate", gate.held)
+                    assertTrue("The actual Stop broadcast must finish after the admission callback", receipt.await(10, TimeUnit.SECONDS))
+                    assertTrue("Broadcast completion must not release the AppRuntime scheduling gate", gate.held)
                 }
                 "widgetSdk", "widgetLocked" -> {
                     val projected = java.util.concurrent.CompletableFuture<SystemControls.Projection>()
@@ -625,31 +625,31 @@ class SystemStartLifecycleTest {
                             SystemControls.request(context, "start") { admission = it }
                             assertEquals(SystemControls.Admission.OPEN_APP, admission)
                         }
-                        // 使用既有 widget projection 检查 SDK RemoteViews。
+                        // Check SDK RemoteViews using the existing widget projection.
                         val root = VpnWidgetProvider.remoteViews(context, projection, 160f).apply(context, null)
                         val button = checkNotNull(root.findViewById<ImageButton>(R.id.widget_control))
                         assertTrue(button.isEnabled)
                         assertEquals(context.getString(R.string.system_control_action_stop), button.contentDescription?.toString())
                         assertTrue(button.hasOnClickListeners())
-                        assertTrue("SDK 按钮必须发送生产 broadcast PendingIntent", button.performClick())
+                        assertTrue("The SDK button must send the production broadcast PendingIntent", button.performClick())
                     }
                 }
             }
                     if (systemRevoke) {
                         Log.i("SystemStartCheck", "WAIT_REAL_SYSTEM_REVOKE nonce=p5-system-revoke-r7u8 pid=${Process.myPid()} owner=$owner nativePrepared=false")
-                        await("系统实际撤销 VPN 授权", 60_000) { VpnService.prepare(context) != null }
+                        await("The system actually revokes VPN authorization", 60_000) { VpnService.prepare(context) != null }
                     } else if (revoke) {
                         observer.debug.serviceControl(CoreFixtureContract.REVOKE_SERVICE)
                     } else if (controlsEntry == null || controlsEntry in setOf("serviceInterface", "staleIntents")) {
                         assertEquals(SystemControls.Admission.ACCEPTED, platform.stopFromSystemControl())
                     }
-                    await("取消原 systemStart owner") {
+                    await("Cancel the original systemStart owner") {
                         !AppBridge.pendingSystemRestore && AppBridge.operationId != owner && !AppBridge.logic.ownsOperation(owner)
                     }
-                    assertTrue("取消完成时 AppRuntime 调度仍被挂起", gate.held)
+                    assertTrue("AppRuntime scheduling must remain suspended when cancellation finishes", gate.held)
                     observer.awaitDeath()
-                    assertTrue("AppRuntime 调度释放前，未装载 native 的原进程必须退出", observer.deathConfirmed)
-                    await("默认进程收到同一 process 的 DeathRecipient") {
+                    assertTrue("The original process without native loaded must exit before AppRuntime scheduling is released", observer.deathConfirmed)
+                    await("The default process receives DeathRecipient for the same process") {
                         val status = CoreClient.get(context).status()
                         status[Contract.CORE_FIELD_PROCESS_ID] == observer.processId &&
                             status[Contract.CORE_FIELD_PHASE] == Contract.CORE_PHASE_EXITED
@@ -660,26 +660,26 @@ class SystemStartLifecycleTest {
                     main {
                         when (controlsEntry) {
                             "shortcut" -> {
-                                assertNotNull("PendingIntent 必须创建真实 MainActivity", controlsActivity)
+                                assertNotNull("PendingIntent must create an actual MainActivity", controlsActivity)
                                 assertEquals(context.packageName + ".StopVpnShortcut", activityComponent)
-                                assertTrue("Stop 必须在真实 Activity RESUMED 后受理", activityResumed)
+                                assertTrue("Stop must be admitted after the actual Activity is RESUMED", activityResumed)
                             }
                             "widgetSdk", "widgetLocked", "tile", "launcherWidget", "notification", "notificationLocked" ->
-                                assertNull("headless Stop 不能退回 Activity", controlsActivity)
+                                assertNull("Headless Stop must not fall back to an Activity", controlsActivity)
                         }
                     }
                     gate.release()
-                    await("释放调度后 writer 结束且没有 late start") {
+                    await("Writer finishes without a late start after scheduling is released") {
                         !AppBridge.logic.busy && AppBridge.operationId == null && !AppBridge.pendingSystemRestore &&
                             PseudoVpnService.session.snapshot().phase == NativeSession.Phase.STOPPED
                     }
-                    assertTrue("释放 AppRuntime 调度不能复活旧 process", observer.deathConfirmed)
+                    assertTrue("Releasing AppRuntime scheduling must not revive the old process", observer.deathConfirmed)
                     assertEquals(before.generation, PseudoVpnService.session.snapshot().generation)
-                    await("真实 process death 与 Service 销毁") {
+                    await("Actual process death and Service destruction") {
                         !CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java)
                     }
-                    if (systemRevoke) assertNotNull("系统必须实际撤销授权", VpnService.prepare(context))
-                    else assertNull("Stop 必须保留系统授权", VpnService.prepare(context))
+                    if (systemRevoke) assertNotNull("The system must actually revoke authorization", VpnService.prepare(context))
+                    else assertNull("Stop must preserve system authorization", VpnService.prepare(context))
                     CoreIpcTestDriver.assertNoGoInApplication()
                 } finally {
                     try {
@@ -702,13 +702,13 @@ class SystemStartLifecycleTest {
     @Test fun staleRestoreCompletionNeverTouchesAnotherServicesForegroundResources() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val platform = CorePlatformTestDriver(context)
-        platform.await("业务 writer 空闲") { AppBridge.operationId == null && !AppBridge.logic.busy }
+        platform.await("Application writer is idle") { AppBridge.operationId == null && !AppBridge.logic.busy }
         assertEquals(NativeSession.Phase.STOPPED, PseudoVpnService.session.snapshot().phase)
         RuntimeDispatchGate(platform).use { gate ->
             CoreIpcTestDriver.fixture().use { observer ->
                 val start = Intent(context, PseudoVpnService::class.java).setAction(VpnService.SERVICE_INTERFACE)
                 assertNotNull(context.startForegroundService(start))
-                platform.await("真实系统恢复 owner") { AppBridge.pendingSystemRestore && AppBridge.operationId != null }
+                platform.await("Actual system restore owner") { AppBridge.pendingSystemRestore && AppBridge.operationId != null }
                 val current = CoreIpcTestDriver.onMain { checkNotNull(AppBridge.operationId) }
                 val before = PseudoVpnService.session.snapshot()
                 val coordinator = io.github.monadboxlab.clashpseudo.bridge.BridgeTestState.coordinator("systemRestore") as
@@ -718,7 +718,7 @@ class SystemStartLifecycleTest {
                 fun foreground() = context.getSystemService(android.app.ActivityManager::class.java).getRunningServices(100).any {
                     it.service == android.content.ComponentName(context, PseudoVpnService::class.java) && it.foreground
                 }
-                platform.await("真实 foreground", ready = ::foreground)
+                platform.await("Actual foreground", ready = ::foreground)
                 val posted = notification.activeNotifications.singleOrNull { it.id == 1 }
                 for (success in listOf(true, false)) {
                     val replies = mutableListOf<Map<String, Any?>?>()
@@ -736,7 +736,7 @@ class SystemStartLifecycleTest {
                     assertFalse(observer.debug.serviceControl(CoreFixtureContract.SERVICE_STATE).getBoolean("nativeLoaded"))
                 }
                 assertEquals(SystemControls.Admission.ACCEPTED, platform.stopFromSystemControl())
-                platform.await("当前系统恢复结束") { !AppBridge.pendingSystemRestore && AppBridge.operationId == null }
+                platform.await("Current system restore finishes") { !AppBridge.pendingSystemRestore && AppBridge.operationId == null }
                 gate.release()
                 observer.exit()
             }
@@ -748,8 +748,8 @@ class SystemStartLifecycleTest {
 
     private fun expectedStores(): Map<BackupFiles.Kind, String> {
         val arguments = InstrumentationRegistry.getArguments()
-        fun digest(name: String) = checkNotNull(arguments.getString(name)) { "缺少 $name" }.also {
-            check(it == "absent" || Regex("[0-9a-f]{64}").matches(it)) { "$name 无效" }
+        fun digest(name: String) = checkNotNull(arguments.getString(name)) { "Missing $name" }.also {
+            check(it == "absent" || Regex("[0-9a-f]{64}").matches(it)) { "Invalid $name" }
         }
         return mapOf(BackupFiles.Kind.CONFIGURATIONS to digest("expectedConfigurationsSha256"),
             BackupFiles.Kind.OVERRIDES to digest("expectedOverridesSha256"),
@@ -765,13 +765,13 @@ class SystemStartLifecycleTest {
                     for ((kind, expected) in expectedStores) {
                         val file = File(stores, kind.fileName)
                         val actual = if (files.lstat(file) == null) "absent" else files.fingerprint(file).sha256
-                        assertEquals("正式存储 SHA-256 不一致：${kind.fileName}", expected, actual)
+                        assertEquals("Application store SHA-256 mismatch: ${kind.fileName}", expected, actual)
                     }
                 }
                 return
             } catch (error: IOException) {
                 if (error.message != "storageBusy") throw error
-                check(SystemClock.elapsedRealtime() < deadline) { "等待稳定存储读取超时" }
+                check(SystemClock.elapsedRealtime() < deadline) { "Timed out waiting for a stable store read" }
                 Thread.sleep(50)
             }
         }

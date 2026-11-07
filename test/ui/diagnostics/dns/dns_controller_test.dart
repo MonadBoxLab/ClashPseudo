@@ -83,149 +83,155 @@ Future<RuntimeDnsUiApp> runtimeDnsUiApp(WidgetTester tester) async {
 
 void main() {
   for (final purpose in ['RUNNING', 'PREVIEW']) {
-    testWidgets('裸 DNS FD 正文经 CoreRuntime 到 Controller 显示两个 A 答案 $purpose', (
-      tester,
-    ) async {
-      final app = await runtimeDnsUiApp(tester);
-      final native = app.native;
-      native.core = dnsCore(purpose: purpose);
-      app.syncRuntime();
-      final controller = DnsController(app)
-        ..setVisible(true)
-        ..setName('example.com');
-      addTearDown(() {
-        controller.dispose();
-        app.dispose();
-      });
-      final source = native.core;
-      final pending = controller.query();
-      await tester.pump();
-      final request = native
-          .calls(ApplicationContract.coreOperationDnsQuery)
-          .single;
-      final owner = native.dns.snapshot()['queryOwner'];
-      expect(request.arguments, {'name': 'example.com', 'type': 'A'});
-      expect(request.identity['processId'], source.processId);
-      request.complete(nativeDnsResult);
-      await tester.pump();
-      expect(controller.response, isNull);
-      expect(controller.queryBusy, isTrue);
-      expect(native.dns.busy, isTrue);
-      expect(native.dns.snapshot()['queryOwner'], owner);
-      expect(request.actualExited, isFalse);
-      await controller.query();
-      expect(native.calls(ApplicationContract.coreOperationDnsQuery), [
-        request,
-      ]);
-      request.signalExit();
-      await tester.pump();
-      await pending;
-      final response = controller.response!;
-      expect(response.source.processId, source.processId);
-      expect(response.source.purpose, purpose);
-      expect(response.source.matchesIdentity(source), isTrue);
-      expect(response.source.networkRevision, source.networkRevision);
-      expect(response.networkEpoch, source.networkRevision);
-      expect(response.name, 'example.com.');
-      expect(response.rcode, 0);
-      expect(response.rcodeName, 'NOERROR');
-      expect(response.elapsedMs, 48.4008);
-      expect(response.answer.map((record) => record.data), [
-        '172.66.147.243',
-        '104.20.23.154',
-      ]);
-      expect(controller.status, DnsStatus.ready);
-      expect(controller.errorCode, isNull);
-      expect(controller.errorDetail, isNull);
-      expect(controller.stale, isFalse);
-      expect(controller.canQuery, isTrue);
-      expect(app.commands, isEmpty);
-    });
+    testWidgets(
+      'raw DNS FD body through CoreRuntime to Controller shows two A answers $purpose',
+      (tester) async {
+        final app = await runtimeDnsUiApp(tester);
+        final native = app.native;
+        native.core = dnsCore(purpose: purpose);
+        app.syncRuntime();
+        final controller = DnsController(app)
+          ..setVisible(true)
+          ..setName('example.com');
+        addTearDown(() {
+          controller.dispose();
+          app.dispose();
+        });
+        final source = native.core;
+        final pending = controller.query();
+        await tester.pump();
+        final request = native
+            .calls(ApplicationContract.coreOperationDnsQuery)
+            .single;
+        final owner = native.dns.snapshot()['queryOwner'];
+        expect(request.arguments, {'name': 'example.com', 'type': 'A'});
+        expect(request.identity['processId'], source.processId);
+        request.complete(nativeDnsResult);
+        await tester.pump();
+        expect(controller.response, isNull);
+        expect(controller.queryBusy, isTrue);
+        expect(native.dns.busy, isTrue);
+        expect(native.dns.snapshot()['queryOwner'], owner);
+        expect(request.actualExited, isFalse);
+        await controller.query();
+        expect(native.calls(ApplicationContract.coreOperationDnsQuery), [
+          request,
+        ]);
+        request.signalExit();
+        await tester.pump();
+        await pending;
+        final response = controller.response!;
+        expect(response.source.processId, source.processId);
+        expect(response.source.purpose, purpose);
+        expect(response.source.matchesIdentity(source), isTrue);
+        expect(response.source.networkRevision, source.networkRevision);
+        expect(response.networkEpoch, source.networkRevision);
+        expect(response.name, 'example.com.');
+        expect(response.rcode, 0);
+        expect(response.rcodeName, 'NOERROR');
+        expect(response.elapsedMs, 48.4008);
+        expect(response.answer.map((record) => record.data), [
+          '172.66.147.243',
+          '104.20.23.154',
+        ]);
+        expect(controller.status, DnsStatus.ready);
+        expect(controller.errorCode, isNull);
+        expect(controller.errorDetail, isNull);
+        expect(controller.stale, isFalse);
+        expect(controller.canQuery, isTrue);
+        expect(app.commands, isEmpty);
+      },
+    );
   }
 
   for (final errorOnly in [false, true]) {
-    testWidgets('裸 DNS FD 保留${errorOnly ? '原生错误正文' : '答案与 terminal 错误'}及取消原文', (
-      tester,
-    ) async {
-      final app = await runtimeDnsUiApp(tester);
-      final native = app.native;
-      const original = {
-        'code': 'queryFailed',
-        'message': '原始 DNS 错误',
-        'cause': {'type': 'IOException', 'message': '原始 cause'},
-        'stack': '原始 stack',
-        'suppressed': [
-          {'message': '原始 suppressed'},
-        ],
-        'future': [false, null],
-      };
-      const cancellation = {
-        'code': 'cancelFailed',
-        'cause': {'message': '取消 cause'},
-        'suppressed': [
-          {'message': '取消 suppressed'},
-        ],
-        'future': [false, null],
-      };
-      native.onCancel = (_) => {'cancelError': cancellation};
-      final controller = DnsController(app)
-        ..setVisible(true)
-        ..setName('example.com');
-      addTearDown(() {
-        controller.dispose();
-        app.dispose();
-      });
-      final pending = controller.query();
-      await tester.pump();
-      final request = native
-          .calls(ApplicationContract.coreOperationDnsQuery)
-          .single;
-      final owner = native.dns.snapshot()['queryOwner'] as String;
-      await native.dns.cancel(native.core, 'old-owner');
-      expect(native.cancellations, isEmpty);
-      await native.dns.cancel(native.core, owner);
-      final raw = errorOnly
-          ? {'error': 'queryFailed', 'detail': '原生 detail', 'future': original}
-          : nativeDnsResult;
-      request.complete(
-        raw,
-        terminal: {
-          if (!errorOnly) 'error': original,
-          'cancelError': cancellation,
-        },
-      );
-      await tester.pump();
-      expect(controller.queryBusy, isTrue);
-      expect(native.dns.busy, isTrue);
-      expect(native.dns.snapshot()['queryOwner'], owner);
-      expect(native.cancellations, [request]);
-      expect(controller.response, isNull);
-      request.signalExit();
-      await tester.pump();
-      await pending;
-      expect(controller.status, DnsStatus.failed);
-      expect(controller.errorCode, 'queryFailed');
-      expect(controller.cancellationError, cancellation.toString());
-      if (errorOnly) {
-        expect(controller.errorDetail, contains('原生 detail'));
-        expect(controller.errorDetail, isNot(contains('future')));
+    testWidgets(
+      'raw DNS FD retains ${errorOnly ? 'native error body' : 'answers and terminal errors'} and original cancellation text',
+      (tester) async {
+        final app = await runtimeDnsUiApp(tester);
+        final native = app.native;
+        const original = {
+          'code': 'queryFailed',
+          'message': '原始 DNS 错误',
+          'cause': {'type': 'IOException', 'message': '原始 cause'},
+          'stack': '原始 stack',
+          'suppressed': [
+            {'message': '原始 suppressed'},
+          ],
+          'future': [false, null],
+        };
+        const cancellation = {
+          'code': 'cancelFailed',
+          'cause': {'message': '取消 cause'},
+          'suppressed': [
+            {'message': '取消 suppressed'},
+          ],
+          'future': [false, null],
+        };
+        native.onCancel = (_) => {'cancelError': cancellation};
+        final controller = DnsController(app)
+          ..setVisible(true)
+          ..setName('example.com');
+        addTearDown(() {
+          controller.dispose();
+          app.dispose();
+        });
+        final pending = controller.query();
+        await tester.pump();
+        final request = native
+            .calls(ApplicationContract.coreOperationDnsQuery)
+            .single;
+        final owner = native.dns.snapshot()['queryOwner'] as String;
+        await native.dns.cancel(native.core, 'old-owner');
+        expect(native.cancellations, isEmpty);
+        await native.dns.cancel(native.core, owner);
+        final raw = errorOnly
+            ? {
+                'error': 'queryFailed',
+                'detail': '原生 detail',
+                'future': original,
+              }
+            : nativeDnsResult;
+        request.complete(
+          raw,
+          terminal: {
+            if (!errorOnly) 'error': original,
+            'cancelError': cancellation,
+          },
+        );
+        await tester.pump();
+        expect(controller.queryBusy, isTrue);
+        expect(native.dns.busy, isTrue);
+        expect(native.dns.snapshot()['queryOwner'], owner);
+        expect(native.cancellations, [request]);
         expect(controller.response, isNull);
-      } else {
-        expect(controller.errorDetail, contains('原始 DNS 错误'));
-        expect(controller.errorDetail, contains('原始 cause'));
-        expect(controller.errorDetail, contains('原始 suppressed'));
-        expect(controller.response!.answer, hasLength(2));
-        expect(controller.response!.cancellationError, cancellation);
-      }
-      expect(native.dns.snapshot()['cancelError'], cancellation);
-      expect(controller.queryBusy, isFalse);
-    });
+        request.signalExit();
+        await tester.pump();
+        await pending;
+        expect(controller.status, DnsStatus.failed);
+        expect(controller.errorCode, 'queryFailed');
+        expect(controller.cancellationError, cancellation.toString());
+        if (errorOnly) {
+          expect(controller.errorDetail, contains('原生 detail'));
+          expect(controller.errorDetail, isNot(contains('future')));
+          expect(controller.response, isNull);
+        } else {
+          expect(controller.errorDetail, contains('原始 DNS 错误'));
+          expect(controller.errorDetail, contains('原始 cause'));
+          expect(controller.errorDetail, contains('原始 suppressed'));
+          expect(controller.response!.answer, hasLength(2));
+          expect(controller.response!.cancellationError, cancellation);
+        }
+        expect(native.dns.snapshot()['cancelError'], cancellation);
+        expect(controller.queryBusy, isFalse);
+      },
+    );
   }
 
   for (final fakeIp in [false, true]) {
     for (final status in ['completed', 'empty', 'partialOrFailed']) {
       testWidgets(
-        '裸 ${fakeIp ? 'fake-IP' : 'DNS cache'} FD 保留 $status、身份与实际 drain',
+        'raw ${fakeIp ? 'fake-IP' : 'DNS cache'} FD retains $status, identity, and actual drain',
         (tester) async {
           final app = await runtimeDnsUiApp(tester);
           final native = app.native;
@@ -303,54 +309,55 @@ void main() {
   }
 
   for (final fakeIp in [false, true]) {
-    testWidgets('裸 ${fakeIp ? 'fake-IP' : 'DNS cache'} FD 的原错误由严格 model 保留', (
-      tester,
-    ) async {
-      final app = await runtimeDnsUiApp(tester);
-      final native = app.native;
-      final controller = DnsController(app)..setVisible(true);
-      addTearDown(() {
-        controller.dispose();
-        app.dispose();
-      });
-      const raw = {
-        'error': 'future-cache-error',
-        'detail': '原始 cache 错误',
-        'future': [false, null],
-      };
-      final pending = controller.clearCache(fakeIp: fakeIp);
-      final rejected = expectLater(
-        pending,
-        throwsA(
-          isA<DnsFailure>()
-              .having((error) => error.code, 'code', 'future-cache-error')
-              .having(
-                (error) => error.detail,
-                '原始 cache 错误',
-                contains('原始 cache 错误'),
-              )
-              .having(
-                (error) => error.detail,
-                '不包含完整响应',
-                isNot(contains('"future"')),
-              ),
-        ),
-      );
-      await tester.pump();
-      final opcode = fakeIp
-          ? ApplicationContract.coreOperationFakeIpFlush
-          : ApplicationContract.coreOperationDnsCacheClear;
-      final request = native.calls(opcode).single;
-      request.complete(raw);
-      await tester.pump();
-      expect(controller.clearing, isTrue);
-      expect(native.dns.busy, isTrue);
-      request.signalExit();
-      await tester.pump();
-      await rejected;
-      expect(controller.clearing, isFalse);
-      expect(native.dns.busy, isFalse);
-    });
+    testWidgets(
+      'strict model retains original errors from raw ${fakeIp ? 'fake-IP' : 'DNS cache'} FD',
+      (tester) async {
+        final app = await runtimeDnsUiApp(tester);
+        final native = app.native;
+        final controller = DnsController(app)..setVisible(true);
+        addTearDown(() {
+          controller.dispose();
+          app.dispose();
+        });
+        const raw = {
+          'error': 'future-cache-error',
+          'detail': '原始 cache 错误',
+          'future': [false, null],
+        };
+        final pending = controller.clearCache(fakeIp: fakeIp);
+        final rejected = expectLater(
+          pending,
+          throwsA(
+            isA<DnsFailure>()
+                .having((error) => error.code, 'code', 'future-cache-error')
+                .having(
+                  (error) => error.detail,
+                  '原始 cache 错误',
+                  contains('原始 cache 错误'),
+                )
+                .having(
+                  (error) => error.detail,
+                  'excludes the full response',
+                  isNot(contains('"future"')),
+                ),
+          ),
+        );
+        await tester.pump();
+        final opcode = fakeIp
+            ? ApplicationContract.coreOperationFakeIpFlush
+            : ApplicationContract.coreOperationDnsCacheClear;
+        final request = native.calls(opcode).single;
+        request.complete(raw);
+        await tester.pump();
+        expect(controller.clearing, isTrue);
+        expect(native.dns.busy, isTrue);
+        request.signalExit();
+        await tester.pump();
+        await rejected;
+        expect(controller.clearing, isFalse);
+        expect(native.dns.busy, isFalse);
+      },
+    );
   }
 
   testWidgets(
@@ -700,7 +707,9 @@ void main() {
     );
   }
 
-  testWidgets('普通状态变化不取消进行中的 DNS 查询', (tester) async {
+  testWidgets('ordinary state changes do not cancel an active DNS query', (
+    tester,
+  ) async {
     final bridge = DnsTestBridge();
     final app = DnsTestApp(bridge);
     final controller = DnsController(app)
@@ -751,7 +760,10 @@ void main() {
         await pending;
         expect(controller.response, isNull);
         expect(controller.errorCode, 'invalidResponse', reason: field);
-        expect(controller.errorDetail, 'DNS 响应来源与请求不一致');
+        expect(
+          controller.errorDetail,
+          'DNS response source does not match the request',
+        );
         final different = dnsReply();
         final original = different[field];
         different[field] = original is int
@@ -762,7 +774,10 @@ void main() {
         await mismatched;
         expect(controller.response, isNull, reason: field);
         expect(controller.errorCode, 'invalidResponse', reason: field);
-        expect(controller.errorDetail, 'DNS 响应来源与请求不一致');
+        expect(
+          controller.errorDetail,
+          'DNS response source does not match the request',
+        );
       }
       controller.dispose();
       app.dispose();

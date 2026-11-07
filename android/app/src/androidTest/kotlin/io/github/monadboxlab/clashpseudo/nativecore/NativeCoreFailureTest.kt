@@ -39,7 +39,7 @@ class NativeCoreFailureTest {
                 assertTrue(error, error.contains("specification revision"))
                 assertEquals(result.getLong("originalInode"), result.getLong("retainedInode"))
                 assertTrue(result.getInt("retainedFd") > 0)
-                assertTrue("Go 取得的独立副本必须关闭", result.getBoolean("transferredConsumed"))
+                assertTrue("The independent copy acquired by Go must be closed", result.getBoolean("transferredConsumed"))
                 assertFalse(result.getJSONObject("attachedState").getJSONObject("value").getBoolean("attached"))
                 assertDescriptorReleased(result)
             }
@@ -83,7 +83,7 @@ class NativeCoreFailureTest {
     @Test fun connectionJniRejectsUnavailableCoreAndSummaryHasNoFullSnapshot() {
         runScene(Fixture.CONNECTIONS) { result ->
             for (name in listOf("unavailable", "oversized", "close", "previewConnections")) {
-                assertTrue("$name 必须保留实际调用错误", nativeError(result.getJSONObject(name)).isNotEmpty())
+                assertTrue("$name must preserve the actual call error", nativeError(result.getJSONObject(name)).isNotEmpty())
                 assertTrue(result.getJSONObject(name).getJSONObject("receipt").getBoolean("exited"))
             }
             assertSuccess(result.getJSONObject("prepare"))
@@ -137,8 +137,8 @@ class NativeCoreFailureTest {
             val reply = driver.fixture(Fixture.FD_REUSE).await()
             assertTrue(reply.terminal.toString(), reply.terminal.getBoolean("complete"))
             val result = reply.value
-            assertTrue("ownership probe 必须拒绝仍打开的原资源", result.getBoolean("liveOriginalOwned"))
-            assertTrue("必须实际复用 FD number", result.getBoolean("reusedNumber"))
+            assertTrue("Ownership probe must reject the original resource while it is still open", result.getBoolean("liveOriginalOwned"))
+            assertTrue("The FD number must actually be reused", result.getBoolean("reusedNumber"))
             assertTrue(result.getBoolean("differentInode"))
             assertFalse(result.getBoolean("oldOwnedAfterReuse"))
             assertFalse(result.getBoolean("oldOwnedAfterClose"))
@@ -165,7 +165,7 @@ class NativeCoreFailureTest {
             assertEquals(result.getString("expectedException"), trace)
             assertTrue(trace, trace.contains("Caused by: java.io.IOException: $failedName detach cause 原文"))
             assertTrue(trace, trace.contains("Suppressed: java.lang.IllegalStateException: $failedName detach suppressed 原文"))
-            assertFalse("native cleanup 不应产生重复 close 的 EBADF", error.has("suppressed"))
+            assertFalse("Native cleanup must not produce EBADF from a duplicate close", error.has("suppressed"))
             val actualOrder = result.getJSONArray("detachOrder")
             assertEquals(order, (0 until actualOrder.length()).map(actualOrder::getString))
             val before = result.getJSONArray("beforeJavaClose")
@@ -180,14 +180,14 @@ class NativeCoreFailureTest {
                 assertEquals(name, transferred, descriptor.getBoolean("transferred"))
                 assertEquals(name, if (name in order) 1 else 0, descriptor.getInt("detachCalls"))
                 assertEquals(name, 0, descriptor.getInt("javaCloseCalls"))
-                assertEquals("未转移的 FD 必须仍由 Java 持有：$name", !transferred, descriptor.getBoolean("originalOwned"))
+                assertEquals("Java must still own untransferred FDs: $name", !transferred, descriptor.getBoolean("originalOwned"))
                 if (transferred) {
                     transferredNumbers += descriptor.getInt("fd")
                     assertEquals(name, android.system.OsConstants.EBADF, descriptor.getInt("closedErrno"))
                 }
                 val closed = after.getJSONObject(index)
                 assertEquals(name, closed.getString("name"))
-                assertEquals("每个 Java owner 只执行一次 close：$name", 1, closed.getInt("javaCloseCalls"))
+                assertEquals("Each Java owner must close exactly once: $name", 1, closed.getInt("javaCloseCalls"))
                 assertFalse(name, closed.getBoolean("originalOwned"))
             }
             val replacements = result.getJSONArray("replacementsAfterJavaClose")
@@ -197,14 +197,14 @@ class NativeCoreFailureTest {
             }.toSet())
             for (index in 0 until replacements.length()) {
                 val replacement = replacements.getJSONObject(index)
-                assertTrue("FD number 必须属于不同资源", replacement.getBoolean("differentResource"))
-                assertTrue("已 detach 的 Java wrapper 不得误关复用后的 FD", replacement.getBoolean("replacementOwned"))
+                assertTrue("The FD number must belong to a different resource", replacement.getBoolean("differentResource"))
+                assertTrue("A detached Java wrapper must not close the reused FD", replacement.getBoolean("replacementOwned"))
             }
-            assertEquals("reject_handoff 不产生 frames；reader 必须读到真实 EOF", 0, result.getInt("outputBytesAfterDrain"))
+            assertEquals("reject_handoff produces no frames; the reader must reach actual EOF", 0, result.getInt("outputBytesAfterDrain"))
             assertSuccess(result.getJSONObject("handoffSnapshot"))
             assertStopped(result.getJSONObject("handoffSnapshot").getJSONObject("value"))
             assertTrue(result.getBoolean("unrelatedZeroBefore"))
-            assertTrue("reject_handoff 不得关闭未交接的 FD0：${result.getString("unrelatedZeroPath")}",
+            assertTrue("reject_handoff must not close FD0 that was not handed off: ${result.getString("unrelatedZeroPath")}",
                 result.getBoolean("unrelatedZeroAfterNativeReturn"))
         }
     }
@@ -214,7 +214,7 @@ class NativeCoreFailureTest {
             ProviderServer().use { server ->
                 runScene(scene, JSONObject().put("port", server.port).put("token", server.requestId)) { result ->
                     val callbacks = result.getJSONObject("callbacks")
-                    assertTrue("JNI 未调用 socket callback", callbacks.getInt("calls") > 0)
+                    assertTrue("JNI did not invoke the socket callback", callbacks.getInt("calls") > 0)
                     assertTrue(callbacks.isNull("invalidSocket"))
                     val state = result.getJSONObject("snapshot").getJSONObject("value")
                     assertEquals(callbacks.getInt("calls").toLong(), state.getLong("refused"))
@@ -225,19 +225,19 @@ class NativeCoreFailureTest {
             ProviderServer().use { server ->
                 runScene(Fixture.ACCEPT_PROTECT, JSONObject().put("port", server.port).put("token", server.requestId)) { result ->
                     assertSuccess(result.getJSONObject("prepare"))
-                    assertTrue("provider response 未发送", server.served.await(3, TimeUnit.SECONDS))
+                    assertTrue("Provider response was not sent", server.served.await(3, TimeUnit.SECONDS))
                     server.assertHealthy()
                     assertTrue(result.getJSONObject("callbacks").getInt("calls") > 0)
                     assertTrue(result.getJSONObject("callbacks").isNull("invalidSocket"))
                     val state = result.getJSONObject("snapshot").getJSONObject("value")
                     assertTrue(state.getLong("protected") > 0)
                     assertEquals(0L, state.getLong("refused"))
-                    assertTrue("显式 provider cache path 未保留", result.getBoolean("providerExists"))
+                    assertTrue("Explicit provider cache path was not preserved", result.getBoolean("providerExists"))
                     assertArrayEquals(server.body.toByteArray(Charsets.UTF_8), Base64.decode(result.getString("provider"), Base64.DEFAULT))
                     assertEquals(1, result.getInt("matchingFiles"))
                 }
             }
-            assertEquals("provider test thread 未退出", 0, Thread.getAllStackTraces().keys.count { it.name == "native-test-provider" && it.isAlive })
+            assertEquals("Provider test thread did not exit", 0, Thread.getAllStackTraces().keys.count { it.name == "native-test-provider" && it.isAlive })
             Log.i("NativeCoreFailureTest", "scene=$scene round=$round appPid=${android.os.Process.myPid()}")
         }
     }
@@ -295,7 +295,7 @@ class NativeCoreFailureTest {
                     client.set(socket); socket.soTimeout = 3000; accepted.incrementAndGet()
                     val input = socket.getInputStream().bufferedReader(Charsets.US_ASCII)
                     check(input.readLine() == "GET /$requestId HTTP/1.1")
-                    while (true) { val line = input.readLine() ?: error("HTTP headers 未完成"); if (line.isEmpty()) break }
+                    while (true) { val line = input.readLine() ?: error("Incomplete HTTP headers"); if (line.isEmpty()) break }
                     val bytes = body.toByteArray(Charsets.UTF_8)
                     socket.getOutputStream().apply {
                         write(("HTTP/1.1 200 OK\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n").toByteArray(Charsets.US_ASCII))
@@ -305,11 +305,11 @@ class NativeCoreFailureTest {
                 }
             } catch (error: Throwable) { if (!closing.get()) failure.set(error) }
         }, "native-test-provider").apply { start() }
-        fun assertHealthy() { failure.get()?.let { throw AssertionError("provider server 失败", it) } }
+        fun assertHealthy() { failure.get()?.let { throw AssertionError("Provider server failed", it) } }
         override fun close() {
             closing.set(true)
             try { listener.close(); client.get()?.close() } finally { worker.join(5000) }
-            assertFalse("provider thread 未退出", worker.isAlive)
+            assertFalse("Provider thread did not exit", worker.isAlive)
             assertHealthy()
         }
     }
@@ -326,7 +326,7 @@ class NativeCoreFailureTest {
         }
         fun nativeError(call: JSONObject): String {
             val receipt = call.getJSONObject("receipt")
-            assertTrue("必须保留实际 invoke 返回", receipt.getBoolean("exited"))
+            assertTrue("The actual invoke return must be preserved", receipt.getBoolean("exited"))
             assertFalse(receipt.toString(), receipt.isNull("error"))
             return receipt.get("error").toString()
         }

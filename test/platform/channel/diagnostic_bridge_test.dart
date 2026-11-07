@@ -150,12 +150,12 @@ void main() {
     },
   );
 
-  test('响应解析错误保留原因和位置，不包含完整响应', () async {
+  test('response parsing errors retain cause and position without the full response', () async {
     const wire = '{"responseOnly":"not-for-display",!';
     late final FormatException original;
     try {
       jsonDecode(wire);
-      fail('无效 JSON 不应解析成功');
+      fail('Invalid JSON must not parse successfully');
     } on FormatException catch (error) {
       original = error;
     }
@@ -197,42 +197,45 @@ void main() {
     }
   });
 
-  test('存储提交身份异常只保留实际状态和错误', () async {
-    messenger.setMockMethodCallHandler(AppBridge.channel, (call) async {
-      expect(call.method, 'publishStore');
-      return {
-        'saved': true,
-        'durable': false,
-        'epoch': 4,
-        'errorCode': 'publishedDirectorySyncFailed',
-        'errorDetail': {'id': 'storageUnavailable', 'detail': 'fsync failed'},
-        'responseOnly': 'not-for-display',
-      };
-    });
-    final bridge = AppBridge().forOperation(operationId: 'operation');
-    await expectLater(
-      bridge.publishStore('preferences.json', 3),
-      throwsA(
-        isA<PlatformFailure>()
-            .having((error) => error.code, 'code', 'storage')
-            .having(
-              (error) => error.details.toString(),
-              'detail',
-              allOf(
-                contains('expectedEpoch: 3'),
-                contains('epoch: 4'),
-                contains('saved: true'),
-                contains('durable: false'),
-                contains('publishedDirectorySyncFailed'),
-                contains('fsync failed'),
-                isNot(contains('not-for-display')),
+  test(
+    'storage commit identity failures retain only actual state and errors',
+    () async {
+      messenger.setMockMethodCallHandler(AppBridge.channel, (call) async {
+        expect(call.method, 'publishStore');
+        return {
+          'saved': true,
+          'durable': false,
+          'epoch': 4,
+          'errorCode': 'publishedDirectorySyncFailed',
+          'errorDetail': {'id': 'storageUnavailable', 'detail': 'fsync failed'},
+          'responseOnly': 'not-for-display',
+        };
+      });
+      final bridge = AppBridge().forOperation(operationId: 'operation');
+      await expectLater(
+        bridge.publishStore('preferences.json', 3),
+        throwsA(
+          isA<PlatformFailure>()
+              .having((error) => error.code, 'code', 'storage')
+              .having(
+                (error) => error.details.toString(),
+                'detail',
+                allOf(
+                  contains('expectedEpoch: 3'),
+                  contains('epoch: 4'),
+                  contains('saved: true'),
+                  contains('durable: false'),
+                  contains('publishedDirectorySyncFailed'),
+                  contains('fsync failed'),
+                  isNot(contains('not-for-display')),
+                ),
               ),
-            ),
-      ),
-    );
-  });
+        ),
+      );
+    },
+  );
 
-  test('运行输入发布异常保留身份和错误，不携带完整响应', () async {
+  test('runtime input publication failures retain identity and errors without the full response', () async {
     messenger.setMockMethodCallHandler(AppBridge.channel, (call) async {
       expect(call.method, 'publishRunInput');
       expect(call.arguments, {'path': '/tmp/input', 'inputId': 'expected'});

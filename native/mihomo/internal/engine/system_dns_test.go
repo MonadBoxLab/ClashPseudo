@@ -41,10 +41,10 @@ func TestCapturedSystemResolverCannotBorrowReplacementOwnerOrNetwork(t *testing.
 	}
 	requireStop(t, &e)
 	if _, err = captured.LookupIPv4(context.Background(), "two.test"); !errors.Is(err, ErrStopped) {
-		t.Fatal("旧resolver借用了其他owner", err)
+		t.Fatal("old resolver used another owner", err)
 	}
 	if calls.Load() != 1 {
-		t.Fatal("撤销owner后仍调用Android callback", calls.Load())
+		t.Fatal("Android callback was invoked after owner revocation", calls.Load())
 	}
 }
 func TestEngineKeepsExplicitSystemEntriesAndCapturedResolver(t *testing.T) {
@@ -66,24 +66,24 @@ dns:
 rules: ['MATCH,DIRECT']
 `, PrepareOptions{Network: network})
 	if resolver.SystemResolver != e.systemDNS {
-		t.Fatal("未安装本次捕获resolver")
+		t.Fatal("captured resolver was not installed")
 	}
 	for _, list := range [][]dns.NameServer{e.cfg.DNS.NameServer, e.cfg.DNS.Fallback, e.cfg.DNS.DefaultNameserver, e.cfg.DNS.ProxyServerNameserver, e.cfg.DNS.DirectNameServer, e.cfg.DNS.NameServerPolicy[0].NameServers, e.cfg.DNS.ProxyServerPolicy[0].NameServers} {
 		if len(list) != 1 || list[0].Net != "system" {
-			t.Fatal("应用展开或改写了显式system", list)
+			t.Fatal("application expanded or rewrote explicit system", list)
 		}
 	}
 	network.Servers[0] = "192.0.2.54"
 	if e.options.Network.Servers[0] != "192.0.2.53" {
-		t.Fatal("捕获Network引用了外部可变slice")
+		t.Fatal("captured Network references an externally mutable slice")
 	}
 	if !e.usesSystemDNS || !e.spec.UsesSystemDNS {
-		t.Fatal("system依赖未投影")
+		t.Fatal("system dependency was not projected")
 	}
 	captured := resolver.SystemResolver
 	requireStop(t, &e)
 	if resolver.SystemResolver != captured {
-		t.Fatal("Stop替换了已撤销resolver")
+		t.Fatal("Stop replaced the revoked resolver")
 	}
 }
 func TestIndependentExplicitDNSDoesNotRequireSystemServers(t *testing.T) {
@@ -93,7 +93,7 @@ func TestIndependentExplicitDNSDoesNotRequireSystemServers(t *testing.T) {
 	var e Engine
 	prepareWithVPNOptions(t, &e, t.TempDir(), "ipv6: false\ndns: {nameserver: ['tls://192.0.2.53:853']}\nrules: ['MATCH,DIRECT']\n", PrepareOptions{Network: androidnet.NetworkDNS{ID: "strict", APILevel: 29, PrivateDNS: "strict"}})
 	if e.spec.UsesSystemDNS || e.usesSystemDNS {
-		t.Fatal("独立DNS被标记为system依赖")
+		t.Fatal("standalone DNS was marked as a system dependency")
 	}
 	if !slices.Equal(e.spec.DNSServers, []string{"198.18.0.2"}) || !netip.MustParsePrefix("198.18.0.1/30").Contains(netip.MustParseAddr(e.spec.DNSServers[0])) {
 		t.Fatal(e.spec.DNSServers)

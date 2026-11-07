@@ -383,7 +383,8 @@ void main() {
         };
         await tester.tap(saveButton);
         await tester.pump();
-        // 点击保存会禁用字段；SDK 随后关闭输入连接并清除组合输入范围（composing）。
+        // Save disables fields; the SDK then closes the input connection and clears the
+        // composing range.
         expect(inputFocus.hasFocus, isFalse);
         expect(tester.testTextInput.hasAnyClients, isFalse);
         final value = composingValue.copyWith(composing: TextRange.empty);
@@ -487,7 +488,8 @@ void main() {
           await tester.pump();
         }
         if (kind == 'provider') {
-          // 关闭上层页面后，焦点回到页面的 FocusScope；按 Tab 将焦点移回表单。
+          // Closing the upper page returns focus to the page FocusScope; Tab moves
+          // focus back into the form.
           for (var step = 0; step < 5; step++) {
             if (FocusManager.instance.primaryFocus?.context
                     ?.findAncestorWidgetOfExactType<DefinitionEditor>() !=
@@ -692,7 +694,8 @@ void main() {
     final leave = app.overviewLeaveFor(route)!;
     var returned = false;
     unawaited(route.popped.then<void>((_) => returned = true));
-    // 打开类型菜单会添加 LocalHistoryEntry，并将焦点移到菜单按钮。
+    // Opening the type menu adds a LocalHistoryEntry and moves focus to the menu
+    // button.
     await tester.tap(forms.keyed('definition-menu:group/type'));
     await tester.pumpAndSettle();
     final menuItem = find.byType(MenuItemButton);
@@ -717,7 +720,7 @@ void main() {
     expect(find.byType(AlertDialog), findsNothing);
     expect(calls, 0);
     expect(tester.takeException(), isNull);
-    // 菜单关闭后，调用同一个退出回调即可退出表单。
+    // After closing the menu, the same exit callback can leave the form.
     expect(await leave(), isTrue);
     await tester.pumpAndSettle();
     expect(returned, isTrue);
@@ -809,7 +812,8 @@ void main() {
           expect(origin.mounted, isTrue);
           cover();
         } else if (outcome == 'task-retired') {
-          // 保持 AppTaskActivity.active 为 true，只让实时检查读取的 taskActive 变为 false。
+          // Keep AppTaskActivity.active true and change only the live taskActive check
+          // to false.
           taskActive = false;
         }
         pending.complete();

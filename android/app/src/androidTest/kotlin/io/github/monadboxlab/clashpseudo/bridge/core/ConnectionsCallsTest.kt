@@ -38,7 +38,7 @@ class ConnectionsCallsTest {
                 assertTrue(query.toString().toByteArray(Charsets.UTF_8).size < Contract.CORE_IPC_CONTROL_BYTES)
                 var admitted = false
                 val pending = core.start(Contract.CORE_OPERATION_CONNECTIONS, query) { admitted = true }
-                assertTrue("预算内的原负例须经真实 Binder 受理", admitted)
+                assertTrue("The original negative case within budget must be admitted by the actual Binder", admitted)
                 val reply = core.await(pending)
                 assertEquals("connection query failed", failure(reply).getString("message"))
                 assertEquals("connection query failed", reply.terminal.getJSONObject("nativeReceipt").getJSONObject("error").getString("message"))
@@ -54,9 +54,9 @@ class ConnectionsCallsTest {
                 }.exceptionOrNull()
                 assertTrue(error is CoreTransportException)
                 assertEquals(Contract.CORE_ERROR_INPUT_TOO_LARGE, (error as CoreTransportException).code)
-                assertEquals("内核输入分段 request 超过 ${Contract.CORE_IPC_CONTROL_BYTES} 字节", error.message)
+                assertEquals("Core input part request exceeds ${Contract.CORE_IPC_CONTROL_BYTES} bytes", error.message)
                 assertTrue(error.stackTraceToString().contains("CoreParts.validate"))
-                assertFalse("超过 transport 预算的原输入不得进入 Binder 受理", admitted)
+                assertFalse("Original input exceeding the transport budget must not reach Binder admission", admitted)
                 core.assertSameContext()
             }
             val valid = success(core.query(Contract.CORE_OPERATION_CONNECTIONS, JSONObject().put("limit", 1000)))

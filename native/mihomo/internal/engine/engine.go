@@ -1,4 +1,4 @@
-// Package engine在一个内核进程中装载一个mihomo上下文。
+// Package engine loads one mihomo context in one core process.
 package engine
 
 import (
@@ -194,7 +194,7 @@ func (e *Engine) PrepareWithOptions(home string, body []byte, mode string, prote
 	C.Version = Version
 	options.Network.Servers = slices.Clone(options.Network.Servers)
 	e.options = options
-	// 所有解析与provider启动之前安装一次捕获的系统解析和显式system服务器。
+	// Install the captured system resolver and explicit system servers once, before parsing or starting any providers.
 	e.systemDNS = androidnet.NewNetworkResolver(options.Network, androidnet.DNSOwner{ID: owner.id, Revoked: owner.ctx, Stopped: ErrStopped, RawQuery: options.SystemDNSQuery, Lookup: options.SystemLookup})
 	resolver.SystemResolver = e.systemDNS
 	if err = initializeSystemDNS(options.Network); err != nil {
@@ -233,7 +233,7 @@ func (e *Engine) PrepareWithOptions(home string, body []byte, mode string, prote
 	var diagnosticErr error
 	e.sources, diagnosticErr = coreview.ReadDiagnosticSources(body, raw)
 	if diagnosticErr != nil {
-		log.Warnln("配置来源信息读取失败: %v", diagnosticErr)
+		log.Warnln("Failed to read configuration provenance: %v", diagnosticErr)
 	}
 	if options.Purpose == "RUNNING" {
 		up, down := statistic.DefaultManager.Total()
@@ -245,7 +245,7 @@ func (e *Engine) PrepareWithOptions(home string, body []byte, mode string, prote
 			return errors.Join(err, e.stopLocked())
 		}
 	}
-	// hub同时装载Controller和executor；不再重复Apply或provider.Initial。
+	// hub loads both Controller and executor; do not repeat Apply or provider.Initial.
 	hub.ApplyConfig(work)
 	if err = e.listenerStates.Errors(); err != nil {
 		return errors.Join(err, e.stopLocked())

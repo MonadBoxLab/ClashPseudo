@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""使用指定的工具链构建 SDK 测试程序，测试程序以自身测试包为目标。"""
+"""Build an SDK observer targeting its own test package with the specified toolchain."""
 import hashlib
 import json
 from pathlib import Path
@@ -30,18 +30,18 @@ def build(android_jar, build_tools, keystore, output, *, java_release, min_api, 
     temporary_root = Path(tempfile.gettempdir()).resolve()
     if (output == temporary_root or not output.is_relative_to(temporary_root) or
             output.is_relative_to(ROOT)):
-        raise ValueError("构建输出必须保存到系统临时目录下的仓库外新目录")
-    # SDK 测试程序使用的 Android API 要求最低 API 级别为 24。
+        raise ValueError("Build output must use a new directory outside the repository under the system temporary directory")
+    # Android APIs used by the SDK observer require API level 24 or higher.
     if (any(type(value) is not int for value in (java_release, min_api, target_sdk)) or
             java_release <= 0 or min_api < 24 or target_sdk < min_api):
-        raise ValueError("Java 编译目标必须为正整数，最低 Android API 级别至少为 24，目标 API 级别必须为不小于最低级别的整数")
+        raise ValueError("Java release must be a positive integer; minimum Android API must be at least 24 and target API must be an integer no lower than the minimum")
     compiler = shutil.which(javac)
     if not compiler or not keystore.is_file() or not SOURCE.is_file():
-        raise ValueError("找不到 javac、指定的调试签名密钥库或仓库中的 SDK 测试程序源码")
+        raise ValueError("javac, the specified debug keystore, or the repository SDK observer source was not found")
     for path in [jar, *(tools / name for name in ("aapt2", "d8", "zipalign", "apksigner"))]:
         if not path.is_file():
-            raise ValueError("工具链文件不存在：" + str(path))
-    # 新建目录，用于保存构建输出和命令日志。
+            raise ValueError("Toolchain file does not exist: " + str(path))
+    # Create a directory for build outputs and command logs.
     output.mkdir(parents=True, exist_ok=False)
     source_hash = hashlib.sha256(SOURCE.read_bytes()).hexdigest()
     commands = []
@@ -67,7 +67,7 @@ def build(android_jar, build_tools, keystore, output, *, java_release, min_api, 
     run("javac", [compiler, "--release", java_release, "-cp", jar, "-d", classes, SOURCE])
     class_files = sorted(classes.rglob("*.class"))
     if not class_files:
-        raise RuntimeError("javac 未生成 SDK 测试程序的 class 文件")
+        raise RuntimeError("javac did not generate SDK observer class files")
     run("d8-version", [tools / "d8", "--version"])
     run("d8", [tools / "d8", "--release", "--min-api", min_api, "--lib", jar,
                "--output", dex, *class_files])
@@ -82,31 +82,31 @@ def build(android_jar, build_tools, keystore, output, *, java_release, min_api, 
     run("verify-signature", [tools / "apksigner", "verify", "--verbose", apk])
     run("verify-manifest", [tools / "aapt2", "dump", "xmltree", apk, "--file", "AndroidManifest.xml"])
     if source_hash != hashlib.sha256(SOURCE.read_bytes()).hexdigest():
-        raise RuntimeError("构建期间 SDK 测试程序的源码发生了变化")
+        raise RuntimeError("SDK observer source changed during the build")
     result = {"sourceSha256": source_hash, "apkSha256": hashlib.sha256(apk.read_bytes()).hexdigest(),
               "bytes": apk.stat().st_size, "package": PACKAGE, "targetPackage": PACKAGE,
               "runner": RUNNER, "minApi": min_api, "targetSdk": target_sdk, "javaRelease": java_release,
               "androidJar": str(jar), "buildTools": str(tools), "javac": compiler,
-              "scope": "以测试包自身为目标的 SDK 测试程序构建"}
+              "scope": "SDK observer build targeting its own test package"}
     (output / "build.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
     return result
 
 
 def register_parser(subparsers):
     parser = subparsers.add_parser(
-        "build-sdk-observer", help="构建独立 SDK 测试 APK", description=__doc__,
-        epilog="示例：android build-sdk-observer --android-jar /sdk/platforms/android-36/android.jar "
+        "build-sdk-observer", help="Build a standalone SDK observer APK", description=__doc__,
+        epilog="Example: android build-sdk-observer --android-jar /sdk/platforms/android-36/android.jar "
                "--build-tools /sdk/build-tools/<version> --java-release 17 --min-api 24 --target-sdk 36 "
                "--debug-keystore /tmp/debug.keystore --output /tmp/observer-build")
-    parser.add_argument("--android-jar", type=Path, required=True, help="Android 平台 android.jar 文件路径")
-    parser.add_argument("--build-tools", type=Path, required=True, help="Android SDK Build Tools 目录")
-    parser.add_argument("--javac", default="javac", help="javac 命令或路径；默认从 PATH 查找")
-    parser.add_argument("--java-release", type=int, required=True, help="Java 编译目标版本")
-    parser.add_argument("--min-api", type=int, required=True, help="最低 Android API 级别，至少为 24")
-    parser.add_argument("--target-sdk", type=int, required=True, help="SDK 测试程序的目标 Android API 级别")
+    parser.add_argument("--android-jar", type=Path, required=True, help="Path to the Android platform android.jar")
+    parser.add_argument("--build-tools", type=Path, required=True, help="Android SDK Build Tools directory")
+    parser.add_argument("--javac", default="javac", help="javac command or path; defaults to searching PATH")
+    parser.add_argument("--java-release", type=int, required=True, help="Java target release")
+    parser.add_argument("--min-api", type=int, required=True, help="Minimum Android API level, at least 24")
+    parser.add_argument("--target-sdk", type=int, required=True, help="Target Android API level for the SDK observer")
     parser.add_argument("--debug-keystore", type=Path, required=True,
-                        help="包含 androiddebugkey 别名的调试签名密钥库")
-    parser.add_argument("--output", type=Path, required=True, help="系统临时目录下的仓库外新目录，用于保存构建输出")
+                        help="Debug signing keystore containing the androiddebugkey alias")
+    parser.add_argument("--output", type=Path, required=True, help="New directory outside the repository under the system temporary directory for build outputs")
     parser.set_defaults(handler=run)
 
 

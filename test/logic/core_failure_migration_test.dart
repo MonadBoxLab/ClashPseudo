@@ -69,7 +69,7 @@ void main() {
     (1, 'submitted-input', false),
   ]) {
     test(
-      'connected core 仅在尚未装载时复用 generation=$generation inputId=$inputId',
+      'connected core is reused only before loading with generation=$generation inputId=$inputId',
       () async {
         await create(stopped: true);
         fixture.core = CoreSnapshot(

@@ -88,10 +88,10 @@ func TestPreparationRejectsLegacyPurposeAndIncompleteRunningIdentity(t *testing.
 	} {
 		var e Engine
 		if err := e.PrepareWithOptions(t.TempDir(), []byte(validConfig), "rule", func(int) bool { return true }, options); err == nil {
-			t.Fatal("无效运行身份或旧用途被接受", options)
+			t.Fatal("invalid runtime identity or obsolete purpose was accepted", options)
 		}
 		if e.cfg != nil || e.owner != nil || current.Load() != nil {
-			t.Fatal("无效preparation认领了context")
+			t.Fatal("invalid preparation claimed the context")
 		}
 	}
 }

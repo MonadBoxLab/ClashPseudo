@@ -80,7 +80,7 @@
   "configurations": "配置管理",
   "selectConfig": "选择配置",
   "@selectConfig": {
-    "description": "选择这张卡片所代表的配置。"
+    "description": "Selects the configuration represented by this card."
   },
   "recentConnections": "最近连接",
   "overrides": "插件（复写）",
@@ -123,15 +123,15 @@
   "details": "详情",
   "errorDetails": "错误详情",
   "@errorDetails": {
-    "description": "打开错误详情的入口文字和详情标题。"
+    "description": "Label and heading for opening error details."
   },
   "technicalDetails": "技术详情",
   "@technicalDetails": {
-    "description": "用于查看完整原始错误或诊断原文的入口文字和标题。"
+    "description": "Label and heading for viewing the complete original error or diagnostic text."
   },
   "copyTechnicalDetails": "复制技术详情",
   "@copyTechnicalDetails": {
-    "description": "复制完整的原始错误或诊断原文。"
+    "description": "Copies the complete original error or diagnostic text."
   },
   "mainRules": "主规则",
   "subRules": "子规则",
@@ -315,11 +315,11 @@
   "overrideUpdate": "更新插件",
   "viewOverrideError": "查看插件错误",
   "@viewOverrideError": {
-    "description": "打开当前插件的错误详情。"
+    "description": "Opens error details for the current plugin."
   },
   "overrideActionFailed": "插件操作未完成",
   "@overrideActionFailed": {
-    "description": "插件操作未完成时的反馈标题；详细说明保留实际保存结果、应用结果和原始错误。"
+    "description": "Feedback heading for an incomplete plugin operation; details retain the actual save result, application result, and original error."
   },
   "overrideDelete": "删除",
   "overrideDeleteTitle": "删除插件？",
@@ -655,7 +655,7 @@
   "copyOriginalText": "复制原文",
   "connectionLimitedNotice": "记录容量已达上限，部分连接未显示。可清除已结束记录以腾出空间。",
   "@connectionLimitedNotice": {
-    "description": "说明连接记录已达容量上限，并提示清除已结束的记录。"
+    "description": "Explains that connection records have reached capacity and suggests clearing inactive records."
   },
   "connectionRefreshFailed": "刷新失败",
   "exitSearch": "退出搜索",
@@ -1206,27 +1206,27 @@
   "dnsQuery": "查询",
   "dnsRefreshCoreStatus": "刷新内核状态",
   "@dnsRefreshCoreStatus": {
-    "description": "刷新或准备内核状态的操作。"
+    "description": "Action to refresh or prepare core state."
   },
   "dnsViewQueryResults": "查看查询结果",
   "@dnsViewQueryResults": {
-    "description": "在当前 DNS 对话框中查看按记录分组的查询结果。"
+    "description": "Views query results grouped by record in the current DNS dialog."
   },
   "dnsQueryResults": "查询结果",
   "@dnsQueryResults": {
-    "description": "DNS 查询结果区域的标题。"
+    "description": "Heading for the DNS query results area."
   },
   "dnsPreviousQuery": "上次查询",
   "@dnsPreviousQuery": {
-    "description": "标记页面保留的上次 DNS 查询结果。"
+    "description": "Identifies the previous DNS query results retained by the page."
   },
   "dnsViewPreviousQuery": "查看上次查询",
   "@dnsViewPreviousQuery": {
-    "description": "查看页面保留的上次 DNS 查询结果。"
+    "description": "Views the previous DNS query results retained by the page."
   },
   "dnsQueryIdentity": "查询：{name} · {type}",
   "@dnsQueryIdentity": {
-    "description": "显示这次响应对应的查询名称和记录类型；name 和 type 使用发起查询时保存的值。",
+    "description": "Shows the query name and record type for this response; name and type use values captured at query submission.",
     "placeholders": {
       "name": {
         "type": "String"
@@ -1238,7 +1238,7 @@
   },
   "dnsResponseSource": "来源：{source}",
   "@dnsResponseSource": {
-    "description": "显示这次响应的内核来源；source 使用发起查询时保存的来源，并由界面翻译。",
+    "description": "Shows the core source of this response; source uses the value captured at query submission and localized by the UI.",
     "placeholders": {
       "source": {
         "type": "String"
@@ -1247,7 +1247,7 @@
   },
   "dnsCacheOperationDetails": "缓存操作详情",
   "@dnsCacheOperationDetails": {
-    "description": "查看 DNS 缓存或 fake-IP 清理详情的入口文字和标题，包括清理对象、实际状态和各缓存池或映射池的结果。"
+    "description": "Label and heading for DNS cache or fake-IP cleanup details, including targets, actual state, and results for each cache or mapping pool."
   },
   "dnsResolverNotice": "使用当前内核的解析器查询，可能读取缓存，结果不等同于客户端实际收到的 DNS 响应。",
   "dnsExpired": "结果已过期，请重新查询",

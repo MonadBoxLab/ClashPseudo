@@ -1,4 +1,4 @@
-"""Go、Pub 与 Maven 解析及实际版本核对。"""
+"""Go, Pub, and Maven resolution and selected version verification."""
 import json
 import os
 from pathlib import Path
@@ -49,14 +49,14 @@ class Updater:
             return {}
         manifest = json.loads(self.go_run("mod", "edit", "-json"))
         current = {entry["Path"]: entry["Version"] for entry in manifest["Require"]}
-        require(set(names) <= current.keys(), "只能选择现有 Go 依赖：" + repr(sorted(set(names) - current.keys())))
+        require(set(names) <= current.keys(), "Only existing Go dependencies may be selected: " + repr(sorted(set(names) - current.keys())))
         updates = {}
         for name in names:
             if name == MIHOMO:
                 target = release or mihomo_release()
             else:
                 module = json.loads(self.go_run("list", "-mod=readonly", "-m", "-u", "-json", name))
-                # Go 的 Update 字段已按模块版本规则选择较新版本，包括 pseudo-version。
+                # Go selects newer module versions in Update, including pseudo-versions.
                 target = module.get("Update", {}).get("Version", current[name])
             self.resolution["go"][name] = {"previous": current[name], "selected": target}
             if target != current[name]:
@@ -71,10 +71,10 @@ class Updater:
         self.go_run("mod", "verify")
         after = json.loads(self.go_run("mod", "edit", "-json"))
         require(before.get("Replace") == after.get("Replace"),
-                "Go replace 发生变化；保留原 replace，完成所选依赖的来源与许可复核")
+                "Go replace changed; preserve the original replacement and review the selected dependency sources and licenses")
         new = {row["Path"]: row["Version"] for row in after["Require"]}
         for name in ("github.com/rasky/go-lzo", "github.com/metacubex/chacha"):
-            require(name in new, "许可版本约束丢失：" + name)
+            require(name in new, "License version constraint is missing: " + name)
         for name in updates:
             self.resolution["go"].setdefault(name, {})["selected"] = new.get(name)
 
@@ -92,9 +92,9 @@ class Updater:
         for name in names:
             row = packages.get(name)
             require(row and row.get("kind") in ("direct", "dev") and name in hosted,
-                    "只能选择现有 hosted 直接依赖：" + name)
+                    "Only existing direct hosted dependencies may be selected: " + name)
             version = (row.get("resolvable") or {}).get("version")
-            require(version, "当前 SDK 下缺少可解析版本：" + name)
+            require(version, "No resolvable version for the current SDK: " + name)
             self.resolution["pub"][name] = {"current": row.get("current"), "latest": row.get("latest"),
                                              "selected": version, "kind": row["kind"]}
             current = (row.get("current") or {}).get("version")
@@ -121,7 +121,7 @@ class Updater:
         path = self.root / "android/app/build.gradle.kts"
         text = path.read_text(encoding="utf-8")
         declarations = {match["name"]: match for match in MAVEN_DECLARATION.finditer(text)}
-        require(set(names) <= declarations.keys(), "只能选择现有 Android 库：" + repr(sorted(set(names) - declarations.keys())))
+        require(set(names) <= declarations.keys(), "Only existing Android libraries may be selected: " + repr(sorted(set(names) - declarations.keys())))
         configurations = {}
         for name in names:
             declaration = declarations[name]
@@ -185,7 +185,7 @@ class Updater:
         return Legal(self, temporary, fetch, self.run, artifacts)
 
     def evidence(self, output):
-        """生成Go模块图、Android依赖报告和Flutter NOTICES，保存为APK核验输入。"""
+        """Generate the Go module graph, Android dependency report, and Flutter NOTICES as APK verification inputs."""
         prepare_bundled_assets(self.root)
         output.mkdir()
         self.graph(output / "go-modules.json")

@@ -61,7 +61,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('native response and platform errors', () {
-    test('策略 bridge 读取实际成员和来源身份', () async {
+    test('strategy bridge reads actual members and source identity', () async {
       final wire = _wire();
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -78,40 +78,43 @@ void main() {
     });
 
     for (final malformed in [false, true]) {
-      test('策略解析保留错误但不包含完整响应：malformed=$malformed', () async {
-        final wire = malformed
-            ? _original
-            : jsonEncode({
-                ..._wire(),
-                'groups': {'original': _original},
-              });
-        final messenger =
-            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-        messenger.setMockMethodCallHandler(
-          AppBridge.channel,
-          (_) async => wire,
-        );
-        addTearDown(
-          () => messenger.setMockMethodCallHandler(AppBridge.channel, null),
-        );
-        Object? parseError;
-        try {
-          StrategySnapshot.fromMap(jsonDecode(wire) as Map<String, dynamic>);
-        } catch (error) {
-          parseError = error is FormatException
-              ? FormatException(error.message, null, error.offset)
-              : error;
-        }
-        expect(parseError, isNotNull);
-        try {
-          await AppBridge().strategies(previewCore);
-          fail('Invalid typed response was accepted');
-        } on PlatformFailure catch (error) {
-          final detail = (error.details as Map)['detail'] as String;
-          expect(detail, parseError.toString());
-          expect(detail, isNot(contains(wire)));
-        }
-      });
+      test(
+        'strategy parsing retains errors without the full response: malformed=$malformed',
+        () async {
+          final wire = malformed
+              ? _original
+              : jsonEncode({
+                  ..._wire(),
+                  'groups': {'original': _original},
+                });
+          final messenger =
+              TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+          messenger.setMockMethodCallHandler(
+            AppBridge.channel,
+            (_) async => wire,
+          );
+          addTearDown(
+            () => messenger.setMockMethodCallHandler(AppBridge.channel, null),
+          );
+          Object? parseError;
+          try {
+            StrategySnapshot.fromMap(jsonDecode(wire) as Map<String, dynamic>);
+          } catch (error) {
+            parseError = error is FormatException
+                ? FormatException(error.message, null, error.offset)
+                : error;
+          }
+          expect(parseError, isNotNull);
+          try {
+            await AppBridge().strategies(previewCore);
+            fail('Invalid typed response was accepted');
+          } on PlatformFailure catch (error) {
+            final detail = (error.details as Map)['detail'] as String;
+            expect(detail, parseError.toString());
+            expect(detail, isNot(contains(wire)));
+          }
+        },
+      );
     }
 
     test('strategy bridge keeps actual platform errors', () async {

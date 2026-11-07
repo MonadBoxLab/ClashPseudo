@@ -12,7 +12,7 @@ import io.github.monadboxlab.clashpseudo.nativecore.CoreErrors
 import java.net.NetworkInterface
 import java.util.Collections
 
-/** 公开网络信息识别类型，系统接口枚举补足热点下游和无 INTERNET 的网卡。 */
+/** Use public network metadata to identify types; enumerate system interfaces to include hotspot downstream and non-INTERNET interfaces. */
 internal class LocalInterfaces(context: Context, private val changed: (Map<String, Any?>) -> Unit = {}) {
     private val manager = context.applicationContext.getSystemService(ConnectivityManager::class.java)
     private val main = Handler(Looper.getMainLooper())

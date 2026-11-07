@@ -58,7 +58,7 @@ func readNodeStream(t *testing.T, e *Engine, source *string) ([]nodeStreamRow, s
 		return nil
 	})
 	if identity != "" && identity != metadataSource {
-		t.Error("metadata与terminal来源不一致", identity, metadataSource)
+		t.Error("metadata and terminal sources differ", identity, metadataSource)
 	}
 	return rows, identity, err
 }
@@ -98,7 +98,7 @@ rules:
 	builtins := 0
 	for _, row := range rows {
 		if row.Name == "Group" || row.Name == "GLOBAL" {
-			t.Fatal("group出现在node stream", row)
+			t.Fatal("group appeared in the node stream", row)
 		}
 		if row.SourceKind == "configuration" && row.Name != "shared-name" {
 			builtins++
@@ -114,7 +114,7 @@ rules:
 			version = e.cfg.Providers[row.Source].Version()
 		}
 		if row.SourceKind != kind || row.SourceVersion != version {
-			t.Fatal("来源或version改变", row)
+			t.Fatal("source or version changed", row)
 		}
 		sources = append(sources, row.Source)
 	}
@@ -155,15 +155,15 @@ func TestNodeTestHistoryKeepsCompletePublicTarget(t *testing.T) {
 				t.Fatal(err)
 			}
 			if string(actual) != string(expected) {
-				t.Fatal("测速历史或目标不匹配", string(actual), string(expected))
+				t.Fatal("delay history or target does not match", string(actual), string(expected))
 			}
 			if _, ok := row.Extra[target]; !ok {
-				t.Fatal("缺少测速目标", row.Extra)
+				t.Fatal("delay target is missing", row.Extra)
 			}
 			return
 		}
 	}
-	t.Fatal("缺少history-node")
+	t.Fatal("history-node is missing")
 }
 func TestNodesExactProviderFilterKeepsAllMembersAndEmptyName(t *testing.T) {
 	if isolateEngineTest(t) {
@@ -206,7 +206,7 @@ rules: ['MATCH,DIRECT']
 	e.cfg.Providers["unrelated"] = unrelated
 	defer delete(e.cfg.Providers, "unrelated")
 	if rows, _, err = readNodeStream(t, &e, &source); err != nil || len(rows) != 2 || unrelated.version != 1 {
-		t.Fatal("精确来源读取了无关provider成员", rows, err)
+		t.Fatal("reading an exact source accessed unrelated provider members", rows, err)
 	}
 	source = ""
 	rows, _, err = readNodeStream(t, &e, &source)
@@ -215,11 +215,11 @@ rules: ['MATCH,DIRECT']
 	}
 	source = "missing"
 	if _, _, err = readNodeStream(t, &e, &source); err == nil {
-		t.Fatal("缺失provider被接受")
+		t.Fatal("missing provider was accepted")
 	}
 	source = strings.Repeat("x", 4097)
 	if _, _, err = readNodeStream(t, &e, &source); err == nil {
-		t.Fatal("超长来源被接受")
+		t.Fatal("oversized source was accepted")
 	}
 }
 

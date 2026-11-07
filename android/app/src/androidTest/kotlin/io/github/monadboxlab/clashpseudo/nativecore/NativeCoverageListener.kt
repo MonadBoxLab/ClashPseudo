@@ -10,7 +10,7 @@ import org.junit.runner.Result
 import org.junit.runner.notification.RunListener
 import java.io.File
 
-/** 显式启用的 AndroidJUnitRunner listener；每个 native process 单独保存 profile。 */
+/** Explicitly enabled AndroidJUnitRunner listener; each native process saves its own profile. */
 class NativeCoverageListener : RunListener() {
     override fun testRunFinished(result: Result) {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -19,14 +19,14 @@ class NativeCoverageListener : RunListener() {
         assertEquals(NativeSession.Phase.STOPPED, PseudoVpnService.session.snapshot().phase)
         CoreIpcTestDriver.assertNoGoInApplication()
         val output = File(context.filesDir, name)
-        assertFalse("probe profile 必须为新文件", output.exists())
+        assertFalse("Probe profile must be a new file", output.exists())
         CoreIpcTestDriver.fixture().use { driver ->
             val reply = driver.fixture(Fixture.COVERAGE, JSONObject().put("name", name)).await()
             assertTrue(reply.terminal.toString(), reply.terminal.getBoolean("complete"))
             val coverage = reply.value.getJSONObject("coverage")
             val values = coverage.getJSONArray("probe")
             assertEquals(4, values.length())
-            // coverage_probe.c 的 validation_coverage_probe(first, second)：仅 true/true 进入 same_line_a。
+            // In coverage_probe.c, validation_coverage_probe(first, second) reaches same_line_a only for true/true.
             for ((index, expected) in listOf(0, 0, 0, 1).withIndex()) assertEquals(expected, values.getInt(index))
             CoreIpcTestDriver.assertCoverage(coverage)
             assertEquals(output.absolutePath, coverage.getString("path"))

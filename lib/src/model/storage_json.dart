@@ -71,7 +71,8 @@ Uint8List encodeStorageJson(String file, Object value, int limit) {
   return bytes;
 }
 
-/// 未编辑字段沿用原 JSON，包括未知字段、缺省与显式 null。
+/// Unedited fields retain their original JSON, including unknown fields, omissions, and
+/// explicit nulls.
 Map<String, Object?> preserveStorageJsonFields(
   Map<String, Object?>? original,
   Set<String> edited,

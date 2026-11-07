@@ -1,1 +1,1 @@
-"""分发材料、源码与备份核验。"""
+"""Release artifact, source, and backup verification."""

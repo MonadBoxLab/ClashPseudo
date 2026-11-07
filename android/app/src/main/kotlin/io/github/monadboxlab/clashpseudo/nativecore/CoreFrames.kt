@@ -12,7 +12,7 @@ import java.nio.charset.CodingErrorAction
 
 class CoreTransportException(val code: String, message: String, cause: Throwable? = null) : IOException(message, cause)
 
-/** 同一编解码器用于 Binder 两侧与 JNI 管道，不将帧上限当作集合总量。 */
+/** Use the same codec on both sides of Binder and in JNI pipes; the frame limit is not a collection size limit. */
 object CoreFrames {
     data class Frame(val kind: Int, val payload: ByteArray)
 
@@ -20,7 +20,7 @@ object CoreFrames {
         Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
             .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString()
     } catch (error: Exception) {
-        throw CoreTransportException(Contract.CORE_ERROR_INVALID_ENCODING, "内核传输不是有效 UTF-8", error)
+        throw CoreTransportException(Contract.CORE_ERROR_INVALID_ENCODING, "Core transport data is not valid UTF-8", error)
     }
 
     fun write(output: OutputStream, frame: Frame) {
@@ -35,7 +35,7 @@ object CoreFrames {
     class Reader(private val input: InputStream) {
         private var terminal = false
         @Synchronized fun read(): Frame {
-            if (terminal) throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "终态之后没有可读帧")
+            if (terminal) throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "No frames can be read after the terminal frame")
             val stream = DataInputStream(input)
             val size: Long
             val kind: Int
@@ -43,12 +43,12 @@ object CoreFrames {
                 size = stream.readInt().toLong() and 0xffffffffL
                 kind = stream.readUnsignedByte()
             } catch (error: EOFException) {
-                throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "收到终态前管道已结束或帧头不完整", error)
+                throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "Pipe ended or frame header was incomplete before the terminal frame", error)
             }
             validate(kind, size)
             val payload = ByteArray(size.toInt())
             try { stream.readFully(payload) } catch (error: EOFException) {
-                throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "内核传输帧不完整", error)
+                throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "Incomplete core transport frame", error)
             }
             if (kind != Contract.CORE_IPC_FRAME_DATA) utf8(payload)
             if (kind == Contract.CORE_IPC_FRAME_TERMINAL) terminal = true
@@ -58,11 +58,11 @@ object CoreFrames {
 
     private fun validate(kind: Int, size: Long) {
         if (size > Contract.CORE_IPC_FRAME_BYTES) {
-            throw CoreTransportException(Contract.CORE_ERROR_RESULT_TOO_LARGE, "内核传输帧超过 ${Contract.CORE_IPC_FRAME_BYTES} 字节")
+            throw CoreTransportException(Contract.CORE_ERROR_RESULT_TOO_LARGE, "Core transport frame exceeds ${Contract.CORE_IPC_FRAME_BYTES} bytes")
         }
         if (kind !in setOf(Contract.CORE_IPC_FRAME_DATA, Contract.CORE_IPC_FRAME_RECORD,
                 Contract.CORE_IPC_FRAME_TERMINAL, Contract.CORE_IPC_FRAME_METADATA)) {
-            throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "未知内核传输帧类型：$kind")
+            throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "Unknown core transport frame kind: $kind")
         }
     }
 }

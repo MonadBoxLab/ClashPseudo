@@ -1,7 +1,8 @@
 import 'app_message.dart';
 import 'config_entry.dart';
 
-/// 平台错误的原始结构；details 保留 cause、stack、suppressed 及未知字段。
+/// Raw platform error structure; details preserve cause, stack, suppressed, and unknown
+/// fields.
 class PlatformFailure implements Exception {
   const PlatformFailure({
     required this.code,
@@ -26,7 +27,8 @@ class PlatformFailure implements Exception {
   String toString() => 'PlatformFailure(${toMap()})';
 }
 
-/// 将原始错误结构传给业务回执；展示文字不替代该结构。
+/// Passes the raw error structure to operation receipts rather than replacing it with
+/// display text.
 Map<String, Object?> failureValue(Object error, [StackTrace? stack]) =>
     switch (error) {
       PlatformFailure() => {
@@ -63,7 +65,7 @@ AppMessage messageFromFailure(
         try {
           typed = AppMessage.fromMap(current);
         } on FormatException {
-          // 继续读取嵌套的 typed cause。
+          // Continue searching nested typed causes.
         }
       }
       for (final key in const [

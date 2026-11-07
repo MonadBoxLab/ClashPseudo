@@ -1,4 +1,4 @@
-"""self-target SDK 打包适配的显式工具链、可删除输出与失败／中断记录。"""
+"""Verify explicit toolchains, disposable outputs, and failure/interruption records for self-targeted SDK packaging."""
 import tool_test_support
 from tool.android import build_sdk_observer as TOOL
 import json

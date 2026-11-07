@@ -202,11 +202,12 @@ class TrafficController extends ChangeNotifier {
         active &&
         request == sample.request &&
         (!core || source.processId == _memoryProcess);
-    // 期限只改变该项显示，不释放仍未退出的请求。
+    // The deadline changes only the display; it does not release a request that has not
+    // exited.
     sample.deadline?.cancel();
     sample.deadline = Timer(const Duration(seconds: 5), () {
       if (!valid()) return;
-      sample.fail(const FormatException('内存请求尚未返回'));
+      sample.fail(const FormatException('Memory request has not returned'));
       notifyListeners();
     });
     try {
@@ -232,7 +233,7 @@ class TrafficController extends ChangeNotifier {
           _clock.elapsedMilliseconds - began > 5000 ||
           core && value['processId'] != source.processId) {
         throw FormatException(
-          '内存采样无效或已过期: ${{if (value['valid'] is bool) 'valid': value['valid'], if (value['valid'] is! bool) 'validType': value['valid'].runtimeType.toString(), if (bytes is int) 'processRssBytes': bytes, if (bytes is! int) 'processRssBytesType': bytes.runtimeType.toString(), if (sampledAt is int) 'sampledAt': sampledAt, if (sampledAt is! int) 'sampledAtType': sampledAt.runtimeType.toString(), if (core) 'expectedProcessId': source.processId, if (core && value['processId'] is String) 'processId': value['processId']}}',
+          'Memory sample is invalid or expired: ${{if (value['valid'] is bool) 'valid': value['valid'], if (value['valid'] is! bool) 'validType': value['valid'].runtimeType.toString(), if (bytes is int) 'processRssBytes': bytes, if (bytes is! int) 'processRssBytesType': bytes.runtimeType.toString(), if (sampledAt is int) 'sampledAt': sampledAt, if (sampledAt is! int) 'sampledAtType': sampledAt.runtimeType.toString(), if (core) 'expectedProcessId': source.processId, if (core && value['processId'] is String) 'processId': value['processId']}}',
         );
       }
       sample.bytes = bytes;
@@ -244,7 +245,7 @@ class TrafficController extends ChangeNotifier {
         Duration(milliseconds: 5001 - (now - sampledAt)),
         () {
           if (!valid()) return;
-          sample.fail(const FormatException('内存采样已过期'));
+          sample.fail(const FormatException('Memory sample expired'));
           notifyListeners();
         },
       );

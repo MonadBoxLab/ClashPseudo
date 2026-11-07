@@ -73,117 +73,129 @@ Future<void> _show(
 
 void main() {
   for (final language in ['en', 'zh']) {
-    testWidgets('配置选择与运行状态分别表达 $language', (tester) async {
-      final app = _GridApp()
-        ..collection = ConfigCollection(
-          entries: [_config(0), _config(1)],
-          selectedId: 'entry-0',
-        )
-        ..state = const AppSnapshot(
-          phase: 'RUNNING',
-          configId: 'entry-1',
-          revision: 0,
-        );
-      try {
-        await _show(tester, app, false, language: language);
-        final strings = AppLocalizations.of(
-          tester.element(find.byType(ConfigsPage)),
-        );
-        final first = find.byKey(const ValueKey('config-entry-0'));
-        final second = find.byKey(const ValueKey('config-entry-1'));
-        expect(
-          tester.widget<Text>(find.text(_config(0).name)).style!.fontWeight,
-          FontWeight.w700,
-        );
-        expect(
-          tester.widget<Text>(find.text(_config(1).name)).style!.fontWeight,
-          FontWeight.w400,
-        );
-        expect(find.text(language == 'en' ? 'Selected' : '已选择'), findsNothing);
-        expect(
-          find.descendant(
-            of: first,
-            matching: find.textContaining(strings.runningOldBody),
-          ),
-          findsNothing,
-        );
-        expect(
-          find.descendant(
-            of: second,
-            matching: find.textContaining(strings.runningOldBody),
-          ),
-          findsOneWidget,
-        );
-        app.collection = ConfigCollection(
-          entries: [_config(0), _config(1)],
-          selectedId: 'entry-1',
-        );
-        app.changed();
-        await tester.pumpAndSettle();
-        expect(
-          tester.widget<Text>(find.text(_config(0).name)).style!.fontWeight,
-          FontWeight.w400,
-        );
-        expect(
-          tester.widget<Text>(find.text(_config(1).name)).style!.fontWeight,
-          FontWeight.w700,
-        );
-        expect(find.textContaining(strings.runningOldBody), findsOneWidget);
-      } finally {
-        await tester.pumpWidget(const SizedBox.shrink());
-        app.dispose();
-      }
-    });
-  }
-  for (final language in ['en', 'zh']) {
-    for (final scale in [1.0, 1.3, 2.0]) {
-      testWidgets('配置空状态沿正文中线排列 $language/$scale', (tester) async {
-        final app = _GridApp();
-        try {
-          await _show(
-            tester,
-            app,
-            false,
-            language: language,
-            scaler: TextScaler.linear(scale),
+    testWidgets(
+      'configuration selection and runtime state are presented separately $language',
+      (tester) async {
+        final app = _GridApp()
+          ..collection = ConfigCollection(
+            entries: [_config(0), _config(1)],
+            selectedId: 'entry-0',
+          )
+          ..state = const AppSnapshot(
+            phase: 'RUNNING',
+            configId: 'entry-1',
+            revision: 0,
           );
+        try {
+          await _show(tester, app, false, language: language);
           final strings = AppLocalizations.of(
             tester.element(find.byType(ConfigsPage)),
           );
-          for (final width in [320.0, 360.0, 411.0, 480.0, 1200.0]) {
-            tester.view.physicalSize = Size(width, 1136);
-            await tester.pumpAndSettle();
-            for (final target in [
-              find.byIcon(Icons.description_outlined),
-              find.text(strings.noSavedConfigs),
-              find.text(strings.importOrCreateHint),
-              find.widgetWithText(FilledButton, strings.addConfig),
-            ]) {
-              final rect = tester.getRect(target);
-              expect(rect.center.dx, closeTo(width / 2, .01));
-              expect(rect.left, greaterThanOrEqualTo(20 - .01));
-              expect(rect.right, lessThanOrEqualTo(width - 20 + .01));
-            }
-            expect(
-              tester
-                  .widget<Text>(find.text(strings.importOrCreateHint))
-                  .textAlign,
-              TextAlign.center,
-            );
-            final button = find.widgetWithText(FilledButton, strings.addConfig);
-            await tester.ensureVisible(button);
-            await tester.tap(button);
-            await tester.pumpAndSettle();
-            expect(find.text(strings.importFromFile), findsOneWidget);
-            await tester.binding.handlePopRoute();
-            await tester.pumpAndSettle();
-            expect(tester.takeException(), isNull);
-          }
+          final first = find.byKey(const ValueKey('config-entry-0'));
+          final second = find.byKey(const ValueKey('config-entry-1'));
+          expect(
+            tester.widget<Text>(find.text(_config(0).name)).style!.fontWeight,
+            FontWeight.w700,
+          );
+          expect(
+            tester.widget<Text>(find.text(_config(1).name)).style!.fontWeight,
+            FontWeight.w400,
+          );
+          expect(
+            find.text(language == 'en' ? 'Selected' : '已选择'),
+            findsNothing,
+          );
+          expect(
+            find.descendant(
+              of: first,
+              matching: find.textContaining(strings.runningOldBody),
+            ),
+            findsNothing,
+          );
+          expect(
+            find.descendant(
+              of: second,
+              matching: find.textContaining(strings.runningOldBody),
+            ),
+            findsOneWidget,
+          );
+          app.collection = ConfigCollection(
+            entries: [_config(0), _config(1)],
+            selectedId: 'entry-1',
+          );
+          app.changed();
+          await tester.pumpAndSettle();
+          expect(
+            tester.widget<Text>(find.text(_config(0).name)).style!.fontWeight,
+            FontWeight.w400,
+          );
+          expect(
+            tester.widget<Text>(find.text(_config(1).name)).style!.fontWeight,
+            FontWeight.w700,
+          );
+          expect(find.textContaining(strings.runningOldBody), findsOneWidget);
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
           app.dispose();
         }
-      });
+      },
+    );
+  }
+  for (final language in ['en', 'zh']) {
+    for (final scale in [1.0, 1.3, 2.0]) {
+      testWidgets(
+        'configuration empty state aligns with the content centerline $language/$scale',
+        (tester) async {
+          final app = _GridApp();
+          try {
+            await _show(
+              tester,
+              app,
+              false,
+              language: language,
+              scaler: TextScaler.linear(scale),
+            );
+            final strings = AppLocalizations.of(
+              tester.element(find.byType(ConfigsPage)),
+            );
+            for (final width in [320.0, 360.0, 411.0, 480.0, 1200.0]) {
+              tester.view.physicalSize = Size(width, 1136);
+              await tester.pumpAndSettle();
+              for (final target in [
+                find.byIcon(Icons.description_outlined),
+                find.text(strings.noSavedConfigs),
+                find.text(strings.importOrCreateHint),
+                find.widgetWithText(FilledButton, strings.addConfig),
+              ]) {
+                final rect = tester.getRect(target);
+                expect(rect.center.dx, closeTo(width / 2, .01));
+                expect(rect.left, greaterThanOrEqualTo(20 - .01));
+                expect(rect.right, lessThanOrEqualTo(width - 20 + .01));
+              }
+              expect(
+                tester
+                    .widget<Text>(find.text(strings.importOrCreateHint))
+                    .textAlign,
+                TextAlign.center,
+              );
+              final button = find.widgetWithText(
+                FilledButton,
+                strings.addConfig,
+              );
+              await tester.ensureVisible(button);
+              await tester.tap(button);
+              await tester.pumpAndSettle();
+              expect(find.text(strings.importFromFile), findsOneWidget);
+              await tester.binding.handlePopRoute();
+              await tester.pumpAndSettle();
+              expect(tester.takeException(), isNull);
+            }
+          } finally {
+            await tester.pumpWidget(const SizedBox.shrink());
+            app.dispose();
+          }
+        },
+      );
     }
   }
   for (final language in ['en', 'zh']) {

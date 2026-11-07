@@ -29,7 +29,7 @@ class CoreRequestIdsTest {
         val ids = CoreRequestIds(Long.MAX_VALUE - 1)
         assertEquals(Long.MAX_VALUE, ids.next())
         repeat(2) {
-            try { ids.next(); fail("耗尽的 requestId allocator 必须拒绝受理") }
+            try { ids.next(); fail("An exhausted requestId allocator must reject admission") }
             catch (expected: IllegalStateException) { assertTrue(expected.message!!.contains("requestId")) }
         }
     }

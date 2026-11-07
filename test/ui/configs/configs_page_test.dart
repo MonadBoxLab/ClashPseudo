@@ -1701,129 +1701,137 @@ void main() {
     },
   );
 
-  testWidgets('连续更换输入来源后显示当前提示并撤销旧 action', (tester) async {
-    const local = ConfigEntry(
-      id: 'second',
-      name: 'Local',
-      kind: ConfigKind.local,
-      revision: 1,
-      body: 'rules: []\n# original',
-    );
-    await showPage(
-      tester,
-      candidate: local,
-      storageEpoch: 1,
-      feedback: true,
-      language: 'en',
-    );
-    final card = find.byKey(const ValueKey('config-second'));
-    final strings = lookupAppLocalizations(const Locale('en'));
-    final edit = find.descendant(
-      of: card,
-      matching: find.byTooltip(strings.editConfig),
-    );
-    await tester.ensureVisible(edit);
-    await tester.tap(edit);
-    await tester.pumpAndSettle();
-    final body = find.byType(CodeEditor);
-    final page = find.byType(ConfigTextPage);
-    final editor = tester.widget<CodeEditor>(body);
-    final draft = editor.controller!;
-    draft.text = 'rules: [MATCH,DIRECT]\n# retained draft';
-    draft.value = draft.value.copyWith(
-      selection: const CodeLineSelection.collapsed(index: 0, offset: 7),
-      composing: const TextRange(start: 6, end: 7),
-    );
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.pumpAndSettle();
-    final accepted = draft.value;
-    final bodyState = tester.state(body);
-    final pageState = tester.state(page);
-    final save = find.widgetWithText(TextButton, strings.save);
-    final rectangles = [tester.getRect(body), tester.getRect(save)];
-    final retiredActions = <VoidCallback>[];
-    Element? previousNotice;
-    for (final epoch in [2, 3, 4]) {
-      store.collection = ConfigCollection(
-        entries: [
-          first,
-          ConfigEntry(
-            id: local.id,
-            name: local.name,
-            kind: ConfigKind.local,
-            revision: local.revision,
-            body: 'rules: []\n# restored epoch $epoch',
-          ),
-        ],
-        selectedId: first.id,
+  testWidgets(
+    'consecutive input source changes show the current notice and revoke old actions',
+    (tester) async {
+      const local = ConfigEntry(
+        id: 'second',
+        name: 'Local',
+        kind: ConfigKind.local,
+        revision: 1,
+        body: 'rules: []\n# original',
       );
-      bridge.state = AppSnapshot(phase: 'STOPPED', storageEpoch: epoch);
-      await controller.refresh();
-      for (final milliseconds in [0, 16, 100, 200]) {
-        await tester.pump(Duration(milliseconds: milliseconds));
-        expect([tester.getRect(body), tester.getRect(save)], rectangles);
-        expect(tester.state(body), same(bodyState));
-        expect(tester.state(page), same(pageState));
-        expect(tester.widget<CodeEditor>(body).controller, same(draft));
-        expect(draft.value, same(accepted));
-        expect(draft.value.selection, accepted.selection);
-        expect(draft.value.composing, accepted.composing);
-        expect(editor.focusNode!.hasFocus, isTrue);
-        expect(tester.widget<CodeEditor>(body).readOnly, isFalse);
-        expect(tester.widget<TextButton>(save).onPressed, isNull);
-        expect(find.byType(AlertDialog), findsNothing);
-        expect(tester.takeException(), isNull);
-      }
+      await showPage(
+        tester,
+        candidate: local,
+        storageEpoch: 1,
+        feedback: true,
+        language: 'en',
+      );
+      final card = find.byKey(const ValueKey('config-second'));
+      final strings = lookupAppLocalizations(const Locale('en'));
+      final edit = find.descendant(
+        of: card,
+        matching: find.byTooltip(strings.editConfig),
+      );
+      await tester.ensureVisible(edit);
+      await tester.tap(edit);
       await tester.pumpAndSettle();
-      final notice = find.byType(SnackBar);
-      expect(notice, findsOneWidget);
-      expect(_noticeText(strings.editorContextChanged), findsOneWidget);
-      final current = tester.element(notice);
-      if (previousNotice != null) expect(current, isNot(same(previousNotice)));
-      for (final action in retiredActions) {
-        action();
+      final body = find.byType(CodeEditor);
+      final page = find.byType(ConfigTextPage);
+      final editor = tester.widget<CodeEditor>(body);
+      final draft = editor.controller!;
+      draft.text = 'rules: [MATCH,DIRECT]\n# retained draft';
+      draft.value = draft.value.copyWith(
+        selection: const CodeLineSelection.collapsed(index: 0, offset: 7),
+        composing: const TextRange(start: 6, end: 7),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      final accepted = draft.value;
+      final bodyState = tester.state(body);
+      final pageState = tester.state(page);
+      final save = find.widgetWithText(TextButton, strings.save);
+      final rectangles = [tester.getRect(body), tester.getRect(save)];
+      final retiredActions = <VoidCallback>[];
+      Element? previousNotice;
+      for (final epoch in [2, 3, 4]) {
+        store.collection = ConfigCollection(
+          entries: [
+            first,
+            ConfigEntry(
+              id: local.id,
+              name: local.name,
+              kind: ConfigKind.local,
+              revision: local.revision,
+              body: 'rules: []\n# restored epoch $epoch',
+            ),
+          ],
+          selectedId: first.id,
+        );
+        bridge.state = AppSnapshot(phase: 'STOPPED', storageEpoch: epoch);
+        await controller.refresh();
+        for (final milliseconds in [0, 16, 100, 200]) {
+          await tester.pump(Duration(milliseconds: milliseconds));
+          expect([tester.getRect(body), tester.getRect(save)], rectangles);
+          expect(tester.state(body), same(bodyState));
+          expect(tester.state(page), same(pageState));
+          expect(tester.widget<CodeEditor>(body).controller, same(draft));
+          expect(draft.value, same(accepted));
+          expect(draft.value.selection, accepted.selection);
+          expect(draft.value.composing, accepted.composing);
+          expect(editor.focusNode!.hasFocus, isTrue);
+          expect(tester.widget<CodeEditor>(body).readOnly, isFalse);
+          expect(tester.widget<TextButton>(save).onPressed, isNull);
+          expect(find.byType(AlertDialog), findsNothing);
+          expect(tester.takeException(), isNull);
+        }
+        await tester.pumpAndSettle();
+        final notice = find.byType(SnackBar);
+        expect(notice, findsOneWidget);
+        expect(_noticeText(strings.editorContextChanged), findsOneWidget);
+        final current = tester.element(notice);
+        if (previousNotice != null) {
+          expect(current, isNot(same(previousNotice)));
+        }
+        for (final action in retiredActions) {
+          action();
+          await tester.pumpAndSettle();
+          expect(tester.element(notice), same(current));
+          expect(_noticeText(strings.editorContextChanged), findsOneWidget);
+          expect(find.byType(AlertDialog), findsNothing);
+          expect(draft.value, same(accepted));
+        }
+        await controller.refresh();
         await tester.pumpAndSettle();
         expect(tester.element(notice), same(current));
-        expect(_noticeText(strings.editorContextChanged), findsOneWidget);
-        expect(find.byType(AlertDialog), findsNothing);
         expect(draft.value, same(accepted));
+        retiredActions.add(
+          tester
+              .widget<IconButton>(
+                find.descendant(of: notice, matching: find.byType(IconButton)),
+              )
+              .onPressed!,
+        );
+        retiredActions.addAll(
+          tester
+              .widgetList<TextButton>(
+                find.descendant(of: notice, matching: find.byType(TextButton)),
+              )
+              .map((button) => button.onPressed!),
+        );
+        previousNotice = current;
       }
+      draft.text = '${draft.text}\n# another edit';
+      await tester.pump();
+      expect(draft.text, endsWith('# another edit'));
+      expect(tester.element(find.byType(SnackBar)), same(previousNotice));
+      expect(bridge.commands, isEmpty);
+      expect(
+        store.collection.find(local.id)!.body,
+        endsWith('restored epoch 4'),
+      );
+      await _dismissNotice(tester);
       await controller.refresh();
       await tester.pumpAndSettle();
-      expect(tester.element(notice), same(current));
-      expect(draft.value, same(accepted));
-      retiredActions.add(
-        tester
-            .widget<IconButton>(
-              find.descendant(of: notice, matching: find.byType(IconButton)),
-            )
-            .onPressed!,
-      );
-      retiredActions.addAll(
-        tester
-            .widgetList<TextButton>(
-              find.descendant(of: notice, matching: find.byType(TextButton)),
-            )
-            .map((button) => button.onPressed!),
-      );
-      previousNotice = current;
-    }
-    draft.text = '${draft.text}\n# another edit';
-    await tester.pump();
-    expect(draft.text, endsWith('# another edit'));
-    expect(tester.element(find.byType(SnackBar)), same(previousNotice));
-    expect(bridge.commands, isEmpty);
-    expect(store.collection.find(local.id)!.body, endsWith('restored epoch 4'));
-    await _dismissNotice(tester);
-    await controller.refresh();
-    await tester.pumpAndSettle();
-    expect(find.byType(SnackBar), findsNothing);
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(bridge.commands, isEmpty);
-    expect(tester.state(body), same(bodyState));
-    expect(tester.state(page), same(pageState));
-    expect(tester.takeException(), isNull);
-  });
+      expect(find.byType(SnackBar), findsNothing);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(bridge.commands, isEmpty);
+      expect(tester.state(body), same(bodyState));
+      expect(tester.state(page), same(pageState));
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'an edit callback from the old rendered row cannot borrow the new projection epoch',

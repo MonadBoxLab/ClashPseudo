@@ -455,7 +455,7 @@ class _LanProxyPageState extends State<LanProxyPage> {
     }
     unawaited(
       _notice(
-        const FormatException('端口必须在 1 到 65535 之间'),
+        const FormatException('Port must be between 1 and 65535'),
         port: true,
         sourceCurrent: () => _portInvalid,
       ),

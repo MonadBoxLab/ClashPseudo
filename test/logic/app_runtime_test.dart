@@ -516,7 +516,7 @@ void main() {
           expect(
             settled,
             isFalse,
-            reason: settled ? '实际提前回执：${await pending}' : null,
+            reason: settled ? 'Actual early receipt: ${await pending}' : null,
           );
           final concurrent = await reply('execute', {
             'owner': 'next',
@@ -526,7 +526,8 @@ void main() {
           expect(stops, 0);
           connectionClose!.complete(status);
           await tester.pump();
-          // subscription.cancel 返回 Dart 的 root-zone Future，先完成真实 microtask，再检查同次 Reply。
+          // subscription.cancel returns a root-zone Future; drain actual microtasks
+          // before checking the same Reply.
           await tester.runAsync(() => Future<void>.value());
           await tester.pump();
           expect(
@@ -665,34 +666,40 @@ void main() {
           'coreCleanupFailed',
         ),
       ]) {
-    test('cleanup $status 的 $message 使用实际 items，完整保留文件与记录错误且不自动重启', () async {
-      cleanupReply = Completer<Map<String, dynamic>>();
-      final pending = send('execute', {
-        'owner': 'cleanup-owner',
-        'action': 'scheduleCoreCleanup',
-        'paths': ['cache.db', '原文.yaml'],
-      });
-      await Future<void>.delayed(Duration.zero);
-      final outcome = {
-        'success': status == 'completed',
-        'status': status,
-        'items': items,
-        'error': status == 'failed'
-            ? {
-                'message': '原始清理记录错误',
-                'future': [false, null],
-              }
-            : null,
-      };
-      cleanupReply!.complete(outcome);
-      final result = await pending as Map;
-      expect(result['success'], status == 'completed');
-      expect(result['cleanup'], outcome);
-      expect(result['message'], AppMessage(message).withDetail(items).toMap());
-      expect(stops, 0);
-      expect(starts, isEmpty);
-      expect(pathReads, 0);
-    });
+    test(
+      'cleanup $status with $message uses actual items, preserves file and record errors, and does not restart automatically',
+      () async {
+        cleanupReply = Completer<Map<String, dynamic>>();
+        final pending = send('execute', {
+          'owner': 'cleanup-owner',
+          'action': 'scheduleCoreCleanup',
+          'paths': ['cache.db', '原文.yaml'],
+        });
+        await Future<void>.delayed(Duration.zero);
+        final outcome = {
+          'success': status == 'completed',
+          'status': status,
+          'items': items,
+          'error': status == 'failed'
+              ? {
+                  'message': '原始清理记录错误',
+                  'future': [false, null],
+                }
+              : null,
+        };
+        cleanupReply!.complete(outcome);
+        final result = await pending as Map;
+        expect(result['success'], status == 'completed');
+        expect(result['cleanup'], outcome);
+        expect(
+          result['message'],
+          AppMessage(message).withDetail(items).toMap(),
+        );
+        expect(stops, 0);
+        expect(starts, isEmpty);
+        expect(pathReads, 0);
+      },
+    );
   }
 
   test('published cleanup keeps its actual reply and drain after owner cancellation', () async {

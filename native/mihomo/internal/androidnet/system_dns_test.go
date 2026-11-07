@@ -44,18 +44,18 @@ func TestExplicitSystemDNSKeepsAllSevenPublicFieldsAndParameters(t *testing.T) {
 			used, err := CheckSystemDNS(cfg, NetworkDNS{ID: "physical", Servers: []string{"192.0.2.53", "2001:db8::53"}})
 			after, _ := json.Marshal(cfg)
 			if err != nil || !used || !bytes.Equal(before, after) {
-				t.Fatal("显式system或其他DNS参数被改写", err)
+				t.Fatal("explicit system or other DNS parameters were changed", err)
 			}
 			for _, network := range []NetworkDNS{{PrivateDNS: "strict"}, {PrivateDNSActive: true}, {PrivateDNSHostname: "dns.example.test"}} {
 				used, err = CheckSystemDNS(cfg, network)
 				var limit *PlatformError
 				if !used || !errors.As(err, &limit) || limit.Field != tc.field || limit.Reason != "privateDnsUnavailable" {
-					t.Fatal("私人DNS组合缺少准确字段错误", err)
+					t.Fatal("Private DNS combination is missing the error for the specific field", err)
 				}
 			}
 			cfg.Enable = false
 			if used, err = CheckSystemDNS(cfg, NetworkDNS{PrivateDNS: "strict"}); err != nil || used {
-				t.Fatal("禁用DNS仍拒绝未使用的system", err)
+				t.Fatal("disabled DNS still rejected an unused system client", err)
 			}
 		})
 	}
@@ -67,11 +67,11 @@ func TestSystemDNSUnavailableNeverFallsBackAndStrictPrivateDNSIsNotDowngraded(t 
 		_, err := local.ExchangeContext(context.Background(), question)
 		var limit *PlatformError
 		if !errors.As(err, &limit) {
-			t.Fatal("未报告raw-message能力错误", err)
+			t.Fatal("raw-message capability error was not reported", err)
 		}
 		servers, err := network.SystemServers()
 		if err != nil || servers != nil {
-			t.Fatal("无系统服务器时没有向上游传nil", servers, err)
+			t.Fatal("nil was not passed upstream when no system servers were available", servers, err)
 		}
 	}
 	network := NetworkDNS{ID: "physical", Servers: []string{"192.0.2.53", "2001:db8::53", "192.0.2.53"}}
@@ -81,7 +81,7 @@ func TestSystemDNSUnavailableNeverFallsBackAndStrictPrivateDNSIsNotDowngraded(t 
 	}
 	cfg := &config.DNS{Enable: true, NameServer: []dns.NameServer{{Net: "tls", Addr: "192.0.2.53:853"}}}
 	if used, err := CheckSystemDNS(cfg, NetworkDNS{PrivateDNS: "strict"}); used || err != nil {
-		t.Fatal("独立安全DNS被拒绝", err)
+		t.Fatal("standalone secure DNS was rejected", err)
 	}
 }
 func TestSystemDNSOwnerCannotBorrowAnotherCapturedNetwork(t *testing.T) {
@@ -92,11 +92,11 @@ func TestSystemDNSOwnerCannotBorrowAnotherCapturedNetwork(t *testing.T) {
 	original.ID = "replacement"
 	original.Servers[0] = "192.0.2.54"
 	if local.network.ID != "captured" || local.network.Servers[0] != "192.0.2.53" || local.network.Key() != "exact-key" {
-		t.Fatal("resolver的捕获网络被外部修改")
+		t.Fatal("resolver's captured network was modified externally")
 	}
 	revoke()
 	if local.Invalid() {
-		t.Fatal("已撤销owner仍可用")
+		t.Fatal("revoked owner is still available")
 	}
 }
 
@@ -111,22 +111,22 @@ func (r *capturedCacheDNS) ResetConnection() { r.resets.Add(1) }
 func TestCaptureCacheRetainsActualResolverAndRejectsUnavailableOwners(t *testing.T) {
 	var absent *NetworkResolver
 	if absent.CaptureCache(41) != nil {
-		t.Fatal("nil resolver给出cache能力")
+		t.Fatal("nil resolver exposed a cache capability")
 	}
 	first, second := &capturedCacheDNS{}, &capturedCacheDNS{}
 	local := &NetworkResolver{owner: DNSOwner{ID: 41}, actual: first}
 	captured := local.CaptureCache(41)
 	if captured == nil || local.CaptureCache(42) != nil {
-		t.Fatal("cache能力借用了其他owner")
+		t.Fatal("cache capability used another owner")
 	}
 	local.actual = second
 	captured()
 	if first.cleared.Load() != 1 || second.cleared.Load() != 0 {
-		t.Fatal("捕获cache操作改到了另一个resolver")
+		t.Fatal("captured cache operation affected another resolver")
 	}
 	local.actual = nil
 	if local.CaptureCache(41) != nil {
-		t.Fatal("不存在实际resolver仍给出cache能力")
+		t.Fatal("cache capability was exposed without an actual resolver")
 	}
 }
 func TestStableSystemDNSCannotServeCachedAnswersAfterSessionCancellation(t *testing.T) {
@@ -141,7 +141,7 @@ func TestStableSystemDNSCannotServeCachedAnswersAfterSessionCancellation(t *test
 	before := calls.Load()
 	revoke()
 	if value, err := local.ExchangeContext(context.Background(), question); err == nil || value != nil || calls.Load() != before {
-		t.Fatal("撤销owner后仍交付cache或进入callback", value, err)
+		t.Fatal("cache was delivered or callback entered after owner revocation", value, err)
 	}
 }
 func TestSystemDNSRawCallbackKeepsOriginalErrorAndMessage(t *testing.T) {
@@ -153,7 +153,7 @@ func TestSystemDNSRawCallbackKeepsOriginalErrorAndMessage(t *testing.T) {
 	question := new(D.Msg).SetQuestion("actual.test.", D.TypeA)
 	value, err := client.ExchangeContext(context.Background(), question)
 	if value == nil || len(value.Answer) != 1 || !errors.Is(err, original) || client.Address() != "android://captured" {
-		t.Fatal("原始消息或cause丢失", value, err)
+		t.Fatal("original message or cause was lost", value, err)
 	}
 }
 func TestLegacySystemDNSKeepsActualResultUntilLookupReturns(t *testing.T) {
@@ -164,7 +164,7 @@ func TestLegacySystemDNSKeepsActualResultUntilLookupReturns(t *testing.T) {
 		ip := netip.MustParseAddr("192.0.2.7")
 		local := NewNetworkResolver(NetworkDNS{ID: "captured", APILevel: 28}, DNSOwner{Lookup: func(child context.Context, host string, got int) ([]netip.Addr, error) {
 			if got != family || host != "legacy.test" {
-				t.Error("Lookup参数改变")
+				t.Error("Lookup parameters changed")
 			}
 			close(entered)
 			<-child.Done()
@@ -179,13 +179,13 @@ func TestLegacySystemDNSKeepsActualResultUntilLookupReturns(t *testing.T) {
 		cancel()
 		select {
 		case <-done:
-			t.Fatal("Lookup实际返回前释放了调用")
+			t.Fatal("call was released before Lookup returned")
 		case <-time.After(30 * time.Millisecond):
 		}
 		close(release)
 		<-done
 		if len(values) != 1 || values[0] != ip || !errors.Is(err, original) || !errors.Is(err, context.Canceled) {
-			t.Fatal("实际结果或取消cause丢失", values, err)
+			t.Fatal("actual result or cancellation cause was lost", values, err)
 		}
 	}
 }
@@ -210,13 +210,13 @@ func TestSystemDNSPublicCallsKeepActualValuesAndErrorsAfterInterruption(t *testi
 	revoke()
 	select {
 	case <-done:
-		t.Fatal("原始callback实际返回前完成")
+		t.Fatal("completed before the original callback returned")
 	case <-time.After(30 * time.Millisecond):
 	}
 	close(release)
 	<-done
 	if err != nil || answer == nil {
-		t.Fatal("丢失实际成功结果", answer, err)
+		t.Fatal("actual successful result was lost", answer, err)
 	}
 }
 func answerWire(wire []byte) ([]byte, error) {
@@ -243,19 +243,19 @@ func TestStableSystemDNSUsesPublicResolverForRealExchangeAndCacheClear(t *testin
 		}
 	}
 	if calls.Load() != 1 {
-		t.Fatal("未使用公开resolver的cache", calls.Load())
+		t.Fatal("public resolver cache was not used", calls.Load())
 	}
 	local.CaptureCache(41)()
 	if _, err := local.ExchangeContext(context.Background(), question); err != nil || calls.Load() != 2 {
-		t.Fatal("未清除实际公开cache", err, calls.Load())
+		t.Fatal("actual public cache was not cleared", err, calls.Load())
 	}
 	legacy := NewNetworkResolver(NetworkDNS{ID: "captured", APILevel: 28}, DNSOwner{})
 	if _, err := legacy.ResolveECH(context.Background(), "ech.test"); err == nil {
-		t.Fatal("API24—28没有报告ECH能力错误")
+		t.Fatal("API 24–28 did not report an ECH capability error")
 	}
 }
 func TestPublicResolverExitDoesNotClaimInternalRawQueryExit(t *testing.T) {
-	// mihomo v1.19.33 dns/resolver.go:152—242使用background context和singleflight；公开返回不等内部任务全部退出。
+	// mihomo v1.19.33 dns/resolver.go:152–242 uses a background context and singleflight; the public call returns without waiting for all internal tasks to exit.
 	owner, revoke := context.WithCancel(context.Background())
 	defer revoke()
 	entered, release, actualExit := make(chan struct{}), make(chan struct{}), make(chan struct{})
@@ -281,18 +281,18 @@ func TestPublicResolverExitDoesNotClaimInternalRawQueryExit(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		close(release)
-		t.Fatal("公开调用没有按其context返回")
+		t.Fatal("public call did not return according to its context")
 	}
 	select {
 	case <-actualExit:
 		close(release)
-		t.Fatal("测试callback提前退出")
+		t.Fatal("test callback exited early")
 	default:
 	}
 	close(release)
 	select {
 	case <-actualExit:
 	case <-time.After(time.Second):
-		t.Fatal("原始callback未实际退出")
+		t.Fatal("original callback did not exit")
 	}
 }

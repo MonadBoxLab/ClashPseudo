@@ -290,7 +290,7 @@ object AppBridge {
     }
 
     fun setUiVisible(owner: MainActivity, visible: Boolean) {
-        // 旧 Activity 的回调不能撤销当前 Activity 的工作和 runtime 引用。
+        // Callbacks from an old Activity must not revoke the current Activity's work or runtime references.
         if (activity.get() !== owner) return
         if (uiVisible != visible) logic.retainPlatform(visible)
         uiVisible = visible
@@ -1048,9 +1048,9 @@ object AppBridge {
         operations.clearResultFeedback()
         operations.resultSuccess = false
         authorizationResult(false)
-        // STARTING 先关闭 PREPARE admission，再取消原请求。
+        // During STARTING, close PREPARE admission before cancelling the original request.
         if (!preserveLan) exitSystemRevoked(owner, request)
-        // 新 owner 先占用 admission，旧 executor 的同步 drain 不会受理其他 writer。
+        // Reserve admission for the new owner before draining the old executor synchronously, so no other writer can enter.
         cancelScheduledOperation()
         previous?.let { logic.cancel(it); native.abandon(it) }
         logic.coreEvent(event)
@@ -1096,7 +1096,7 @@ object AppBridge {
         }
         if (operations.remainingMs(owner) == 0L) {
             exitSystemRevoked(owner, request, AppMessage("operationNotCompletedRetry")
-                .withDetail("VPN revoke 的原受理期限已到，LAN 恢复尚未完成"))
+                .withDetail("The original VPN revoke admission deadline has expired; LAN recovery is incomplete"))
             return
         }
         if (logic.busy || operations.executorBusy || client.requestBusy || resourceBusy || storagePublishing || backupCapturing) return
@@ -1123,7 +1123,7 @@ object AppBridge {
             (request["admittedAt"] as Number).toLong(), (request["deadline"] as Number).toLong(), "revoked") { error ->
             if (operationId != owner) return@exit
             if (error != null) {
-                android.util.Log.e("PseudoRuntime", "VPN revoke 后 core 退出尚未确认", error)
+                android.util.Log.e("PseudoRuntime", "Core exit remains unconfirmed after VPN revoke", error)
                 recordIncompleteRevocation(owner, mapOf("success" to false, "message" to
                     (incomplete ?: AppMessage("operationNotCompletedRetry")).withDetail(error).toMap()))
             } else finish(owner, mapOf("success" to (incomplete == null), "message" to incomplete?.toMap()))
@@ -1134,7 +1134,7 @@ object AppBridge {
         if (operationId != owner) return
         operations.command = command!! + ("revocationState" to "incomplete")
         operations.finish(owner, outcome) { AppStrings.message(R.string.error_result_unconfirmed).withDetail(it) }
-        // 未确认 process 与 FD I/O 退出时保留 admission；用户可通过 Stop 再次请求退出。
+        // Retain admission until process exit and FD I/O completion are confirmed; the user can request exit again with Stop.
         refreshBusy()
         notifyUi()
     }

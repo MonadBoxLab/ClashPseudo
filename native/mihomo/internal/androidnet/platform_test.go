@@ -51,7 +51,7 @@ func TestPublicNonTunServicesRemainAvailableToHub(t *testing.T) {
 			t.Fatal(err)
 		}
 		if err = PlatformRuntime(raw, p); err != nil {
-			t.Fatal("非TUN公开功能被应用拒绝", err)
+			t.Fatal("application rejected a public non-TUN feature", err)
 		}
 	}
 }

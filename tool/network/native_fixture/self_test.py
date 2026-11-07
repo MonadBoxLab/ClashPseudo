@@ -1,4 +1,4 @@
-"""fixture 自测：配置传输和仅限自身的网络服务。"""
+"""Fixture self-tests for configuration transfer and fixture-only network services."""
 import socket
 import struct
 import urllib.error

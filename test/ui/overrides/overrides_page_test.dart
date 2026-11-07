@@ -920,7 +920,8 @@ void main() {
                   }
                 }
 
-                // 检查首屏卡片的状态和完整远程来源，屏幕外的卡片按需构建。
+                // Check visible card state and complete remote sources; offscreen cards
+                // build lazily.
                 expect(remoteCard, findsOneWidget);
                 expect(
                   tester
@@ -961,11 +962,13 @@ void main() {
                   inside(remoteCard, find.byIcon(Icons.more_vert)),
                 ]);
 
-                // 恢复本地条目的未知更新时间，检查首次显示实际时间时的布局。
+                // Restore unknown local update time to check layout when the actual
+                // time first appears.
                 app.overrides = [remote, local];
                 app.changed();
                 await tester.pumpAndSettle();
-                // 滚动到本地条目后，重新测量卡片内七个元素的位置和尺寸。
+                // After scrolling to the local entry, remeasure positions and sizes of
+                // all seven card elements.
                 await tester.scrollUntilVisible(
                   card,
                   200,
@@ -1571,7 +1574,7 @@ void main() {
         expect(app.commands.single['id'], existing ? id : null);
         expect(app.commands.single['revision'], existing ? 1 : null);
         await _dismissNotice(tester);
-        // 操作结果与保存后重新读取的条目分别返回。
+        // Return the operation result separately from the entry reread after saving.
         app.overrides = [
           OverrideEntry(
             id: id,
@@ -1912,7 +1915,8 @@ void main() {
           return;
         }
         app.restoreSameIdentity('rules: ["DOMAIN,restored.test,DIRECT"]');
-        // 页面按新状态重新构建前，调用当前按钮的回调。
+        // Invoke the current button callback before the page rebuilds with the new
+        // state.
         await tester.tap(find.byTooltip(strings.moreLabel));
         await tester.pumpAndSettle();
         expect(find.byType(MenuItemButton), findsNothing);
@@ -2084,7 +2088,7 @@ void main() {
           )
           .onPressed!;
       app.restoreSameIdentity('rules: ["DOMAIN,restored.test,DIRECT"]');
-      // 新帧绘制前已排队的回调仍使用 epoch 41。
+      // Callbacks queued before the new frame still use epoch 41.
       oldSelection();
       await tester.pumpAndSettle();
       expect(app.commands.single['action'], 'changeOverride');

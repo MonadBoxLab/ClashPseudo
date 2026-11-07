@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""使用合成工作树和工具副本，测试对应源码归档的文件内容、摘要和源码身份。"""
+"""Test file content, digests, and source identity in corresponding source archives with synthetic working trees and tool copies."""
 
 import gzip
 import hashlib
@@ -15,6 +15,7 @@ import tempfile
 import unittest
 from unittest import mock
 import tarfile
+import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -97,13 +98,13 @@ class SourceArchiveTest(unittest.TestCase):
 
     def test_unclassified_signing_container_fails_before_output_is_created(self):
         self.file("release.keystore")
-        with self.assertRaisesRegex(ValueError, "私有构建材料"):
+        with self.assertRaisesRegex(ValueError, "Private build material"):
             self.packager.application_tar(self.root, self.output, None)
         self.assertFalse(self.output.exists())
 
     def test_existing_output_is_preserved(self):
         self.output.write_bytes(b"not owned by this attempt")
-        with self.assertRaisesRegex(ValueError, "已存在"):
+        with self.assertRaisesRegex(ValueError, "already exists"):
             self.packager.application_tar(self.root, self.output, None)
         self.assertEqual(self.output.read_bytes(), b"not owned by this attempt")
 
@@ -113,7 +114,7 @@ class SourceArchiveTest(unittest.TestCase):
         (outside / "file.dart").write_bytes(b"outside")
         (self.root / "linked").symlink_to(outside, target_is_directory=True)
         self.names.append("linked/file.dart")
-        with self.assertRaisesRegex(ValueError, "符号链接"):
+        with self.assertRaisesRegex(ValueError, "symbolic link"):
             self.packager.application_tar(self.root, self.output, None)
         self.assertFalse(self.output.exists())
 
@@ -124,7 +125,7 @@ class SourceArchiveTest(unittest.TestCase):
             original(archive, name, data, executable)
             path.write_bytes(b"second")
         with mock.patch.object(self.packager, "add_bytes", side_effect=add), \
-                self.assertRaisesRegex(ValueError, "工作树发生变化"):
+                self.assertRaisesRegex(ValueError, "Working tree changed"):
             self.packager.application_tar(self.root, self.output, None)
         self.assertFalse(self.output.exists())
         self.assertEqual(path.read_bytes(), b"second")
@@ -136,7 +137,7 @@ class SourceArchiveTest(unittest.TestCase):
             original(archive, name, data, executable)
             self.file("lib/late.dart")
         with mock.patch.object(self.packager, "add_bytes", side_effect=add), \
-                self.assertRaisesRegex(ValueError, "工作树发生变化"):
+                self.assertRaisesRegex(ValueError, "Working tree changed"):
             self.packager.application_tar(self.root, self.output, None)
         self.assertFalse(self.output.exists())
 
@@ -152,7 +153,7 @@ class SourceArchiveTest(unittest.TestCase):
 
     def test_commit_mode_cannot_hide_untracked_current_source(self):
         self.file("lib/new.dart")
-        with self.assertRaisesRegex(ValueError, "干净工作树"):
+        with self.assertRaisesRegex(ValueError, "clean working tree"):
             self.packager.application_tar(self.root, self.output, "a" * 40)
         self.assertFalse(self.output.exists())
 
@@ -243,7 +244,7 @@ class SourceArchiveTest(unittest.TestCase):
             duplicate["description"] = "Duplicate public fixture"
             changed["sources"][0]["inputs"].append(duplicate)
             manifest.write_text(json.dumps(changed))
-            with tarfile.open(fileobj=io.BytesIO(), mode="w") as archive, self.assertRaisesRegex(ValueError, "重复"):
+            with tarfile.open(fileobj=io.BytesIO(), mode="w") as archive, self.assertRaisesRegex(ValueError, "Duplicate"):
                 self.packager.add_resource_sources(archive, self.root, manifest)
 
     def test_symlinked_input_cannot_read_outside_materials(self):
@@ -252,7 +253,7 @@ class SourceArchiveTest(unittest.TestCase):
         outside = self.base / "outside.tar.gz"
         path.rename(outside)
         path.symlink_to(outside)
-        with tarfile.open(fileobj=io.BytesIO(), mode="w") as archive, self.assertRaisesRegex(ValueError, "普通文件"):
+        with tarfile.open(fileobj=io.BytesIO(), mode="w") as archive, self.assertRaisesRegex(ValueError, "regular files"):
             self.packager.add_resource_sources(archive, self.root, manifest)
 
     def package_inputs(self):
@@ -322,6 +323,42 @@ class SourceArchiveTest(unittest.TestCase):
             self.assertIn("build-inputs/certificates.json", archive.getnames())
             self.assertIn("build-inputs/geodata.json", archive.getnames())
 
+    def test_go_source_package_omits_local_paths_and_preserves_replacement_inputs(self):
+        manifest, evidence, updater = self.package_inputs()
+        main = {"Path": "example.org/app", "Main": True}
+        replacement = {"Path": "example.org/fork", "Version": "v1.0.1",
+                       "Sum": "h1:replacement", "GoModSum": "h1:replacement-go-mod"}
+        dependency = {"Path": "example.org/module", "Version": "v1.0.0", "Replace": replacement}
+        records = json.loads(json.dumps([main, dependency]))
+        for index, module in enumerate([*records, records[1]["Replace"]]):
+            module.update(Dir=str(self.base / f"cache-{index}"),
+                          GoMod=str(self.base / f"cache-{index}" / "go.mod"))
+        raw_graph = "\n".join(json.dumps(module) for module in records).encode()
+        (evidence / "go-modules.json").write_bytes(raw_graph)
+        go_zip = self.base / "module.zip"
+        with zipfile.ZipFile(go_zip, "w") as archive:
+            archive.writestr("example.org/fork@v1.0.1/go.mod", "module example.org/fork\n")
+        updater.legal.return_value.production_modules.return_value = {dependency["Path"]}
+        def go_run(*arguments):
+            if arguments == ("version",):
+                return "go version synthetic\n"
+            self.assertEqual(arguments, ("mod", "download", "-json", "example.org/fork@v1.0.1"))
+            return json.dumps({"Zip": str(go_zip)})
+        updater.go_run.side_effect = go_run
+        output = self.base / "sources.tar.gz"
+        with mock.patch.object(self.packager, "maven_sources", return_value={"metadata.pom": b"original POM"}):
+            self.packager.create(updater, evidence, output, resource_sources=manifest)
+        with tarfile.open(output) as archive:
+            exported = archive.extractfile("build-inputs/go-modules.json").read()
+            self.assertNotIn(str(self.base).encode(), exported)
+            graph = self.base / "exported-go-modules.json"
+            graph.write_bytes(exported)
+            self.assertEqual(self.packager.artifacts.go_modules(graph),
+                             {main["Path"]: main, dependency["Path"]: dependency})
+            self.assertEqual(archive.extractfile("dependencies/go/example.org/fork@v1.0.1.zip").read(),
+                             go_zip.read_bytes())
+        self.assertEqual((evidence / "go-modules.json").read_bytes(), raw_graph)
+
     def test_source_changes_during_dependency_packaging_remove_only_owned_output(self):
         manifest, evidence, updater = self.package_inputs()
         output = self.base / "sources.tar.gz"
@@ -331,7 +368,7 @@ class SourceArchiveTest(unittest.TestCase):
         updater.go_run.side_effect = version
         with mock.patch.object(self.packager, "application_version", return_value="1.0.0+1", create=True), \
                 mock.patch.object(self.packager, "maven_sources", return_value={"metadata.pom": b"original POM"}), \
-                self.assertRaisesRegex(ValueError, "工作树发生变化"):
+                self.assertRaisesRegex(ValueError, "Working tree changed"):
             self.packager.create(updater, evidence, output, resource_sources=manifest)
         self.assertFalse(output.exists())
         self.assertEqual((self.root / "lib/current.dart").read_bytes(), b"newer user edit")
@@ -368,7 +405,7 @@ class SourceArchiveTest(unittest.TestCase):
             self.output.write_bytes(b"replacement user material")
             source.write_bytes(b"second")
         with mock.patch.object(self.packager, "add_bytes", side_effect=add), \
-                self.assertRaisesRegex(ValueError, "工作树发生变化"):
+                self.assertRaisesRegex(ValueError, "Working tree changed"):
             self.packager.application_tar(self.root, self.output, None)
         self.assertEqual(self.output.read_bytes(), b"replacement user material")
 

@@ -453,31 +453,36 @@ void main() {
     },
   );
 
-  testWidgets('隐私标记读取失败按退避重试，成功后不再提示', (tester) async {
-    final bridge = _InstallationBridge()
-      ..shown = true
-      ..readFailure = StateError('marker read failed');
-    final controller = _NoticeController(bridge);
-    addTearDown(controller.dispose);
-    await tester.pumpWidget(_app(controller));
-    await _paintPrompt(tester);
-    expect(bridge.reads, 1);
-    await tester.pump(const Duration(milliseconds: 900));
-    expect(bridge.reads, 1);
-    await tester.pump(const Duration(milliseconds: 101));
-    expect(bridge.reads, 2);
-    await tester.pump(const Duration(seconds: 2));
-    expect(bridge.reads, 3);
-    bridge.readFailure = null;
-    await tester.pump(const Duration(seconds: 5));
-    await tester.pumpAndSettle();
-    expect(bridge.reads, 4);
-    expect(bridge.marks, 0);
-    expect(find.byType(PrivacyNoticeDialog), findsNothing);
-    expect(find.byType(SnackBar), findsNothing);
-  });
+  testWidgets(
+    'privacy marker read failures retry with backoff and stop prompting after success',
+    (tester) async {
+      final bridge = _InstallationBridge()
+        ..shown = true
+        ..readFailure = StateError('marker read failed');
+      final controller = _NoticeController(bridge);
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(_app(controller));
+      await _paintPrompt(tester);
+      expect(bridge.reads, 1);
+      await tester.pump(const Duration(milliseconds: 900));
+      expect(bridge.reads, 1);
+      await tester.pump(const Duration(milliseconds: 101));
+      expect(bridge.reads, 2);
+      await tester.pump(const Duration(seconds: 2));
+      expect(bridge.reads, 3);
+      bridge.readFailure = null;
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      expect(bridge.reads, 4);
+      expect(bridge.marks, 0);
+      expect(find.byType(PrivacyNoticeDialog), findsNothing);
+      expect(find.byType(SnackBar), findsNothing);
+    },
+  );
 
-  testWidgets('读取超时后的重试等待真实读取结束', (tester) async {
+  testWidgets('retry after read timeout waits for the actual read to finish', (
+    tester,
+  ) async {
     final first = Completer<bool>();
     final second = Completer<bool>();
     final bridge = _InstallationBridge()..readReply = first;
@@ -508,7 +513,9 @@ void main() {
     expect(find.byType(SnackBar), findsNothing);
   });
 
-  testWidgets('隐私标记写入失败后仅在用户重试时再次写入', (tester) async {
+  testWidgets('failed privacy marker writes retry only on user request', (
+    tester,
+  ) async {
     final bridge = _InstallationBridge()
       ..writeFailure = StateError('marker write failed');
     final controller = _NoticeController(bridge);

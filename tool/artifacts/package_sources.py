@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""打包当前应用及实际解析依赖的对应源码，供 APK 同步分发。"""
+"""Package corresponding sources for the current application and resolved dependencies for distribution with APKs."""
 
 import gzip
 import hashlib
@@ -30,7 +30,7 @@ from tool.artifacts import verify_release_licenses as artifacts
 
 def add_bytes(archive, name, data, executable=False):
     path = PurePosixPath(name)
-    require(not path.is_absolute() and ".." not in path.parts, "源码归档路径无效：" + name)
+    require(not path.is_absolute() and ".." not in path.parts, "Invalid source archive path: " + name)
     info = tarfile.TarInfo(path.as_posix())
     info.size = len(data)
     info.mode = 0o755 if executable else 0o644
@@ -38,9 +38,16 @@ def add_bytes(archive, name, data, executable=False):
     archive.addfile(info, io.BytesIO(data))
 
 
+def module_source_record(module):
+    return {
+        key: module_source_record(value) if key in ("Replace", "Update") else value
+        for key, value in module.items() if key not in ("Dir", "GoMod")
+    }
+
+
 def add_directory(archive, directory, prefix):
     for path in sorted(directory.rglob("*")):
-        require(not path.is_symlink(), "源码目录包含符号链接：" + str(path))
+        require(not path.is_symlink(), "Source directory contains a symbolic link: " + str(path))
         if path.is_file():
             add_bytes(archive, prefix + "/" + path.relative_to(directory).as_posix(),
                       path.read_bytes(), bool(path.stat().st_mode & 0o111))
@@ -57,7 +64,7 @@ def maven_sources(coordinate):
             if error.code != 404:
                 raise
     else:
-        raise ValueError("Maven POM 缺失：" + coordinate)
+        raise ValueError("Missing Maven POM: " + coordinate)
     files = {name + "-" + version + ".pom": pom}
     tree = ET.fromstring(pom)
     packaging = tree.findtext("{http://maven.apache.org/POM/4.0.0}packaging", default="jar")
@@ -85,7 +92,7 @@ def output_identity(status):
 
 
 def remove_owned_output(path, identity):
-    # 失败时按设备号和inode识别并删除本次输出文件；输出路径已被替换时保留替换文件。
+    # Identify owned output by device and inode on failure; preserve replacements at the output path.
     try:
         current = path.lstat()
     except FileNotFoundError:
@@ -95,11 +102,11 @@ def remove_owned_output(path, identity):
 
 
 def application_tar(root, output, commit):
-    require(not output.exists(), "应用源码输出路径已存在：" + str(output))
+    require(not output.exists(), "Application source output path already exists: " + str(output))
     if commit:
         run(["git", "diff", "--exit-code", commit, "--"], root)
         require(not run(["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"], root),
-                       "提交模式要求干净工作树；当前源码请使用 workingTree 模式")
+                       "Commit mode requires a clean working tree; use workingTree mode for current sources")
         entries = run(["git", "ls-tree", "-r", "--name-only", "-z", commit], root)
         check_private_inputs(filter(None, entries.split("\0")))
         run(["git", "archive", "--format=tar", "--output", output, commit], root)
@@ -123,7 +130,7 @@ def application_tar(root, output, commit):
                         add_bytes(archive, "application/" + name, data, executable)
                         files.append(file_record(name, data, executable))
             check_working_tree(root, {"_status": status, "files": files})
-            require(output_identity(output.lstat()) == owned, "归档输出文件已被替换")
+            require(output_identity(output.lstat()) == owned, "Archive output file has been replaced")
         except BaseException:
             if owned is not None:
                 remove_owned_output(output, owned)
@@ -135,7 +142,7 @@ def application_tar(root, output, commit):
 
 
 def add_resource_sources(archive, root, manifest_path):
-    """将 release 记录对应的可编辑资源源码与补充输入纳入分发。"""
+    """Include editable resource sources and supplemental inputs matching the release record."""
     metadata = read_resource_sources(manifest_path.parent)
     check_resource_source_selection(root, metadata)
     for kind, source in resource_source_entries(metadata):
@@ -148,7 +155,7 @@ def create(updater, evidence, output, commit=None, resource_sources=None, releas
     root = updater.root
     record = read_release_resources(root, release_inputs)
     generated = root / GENERATED_BUNDLED
-    require(not output.exists(), "对应源码输出路径已存在：" + str(output))
+    require(not output.exists(), "Corresponding source output path already exists: " + str(output))
     modules = artifacts.go_modules(evidence / "go-modules.json")
     coordinates = artifacts.android_coordinates((evidence / "android-dependencies.txt").read_text(encoding="utf-8"))
     version = application_version(root)
@@ -192,13 +199,15 @@ def create(updater, evidence, output, commit=None, resource_sources=None, releas
                     if package["name"] not in hosted:
                         continue
                     uri = urlparse(urljoin(configuration.as_uri(), package["rootUri"]))
-                    require(uri.scheme == "file", "Pub 源码路径无效")
+                    require(uri.scheme == "file", "Invalid Pub source path")
                     add_directory(archive, Path(unquote(uri.path)),
                                   f"dependencies/pub/{package['name']}-{hosted[package['name']]}")
                 for coordinate in sorted(coordinates):
                     for name, data in maven_sources(coordinate).items():
                         add_bytes(archive, "dependencies/android/" + coordinate.replace(":", "/") + "/" + name, data)
-                for name in ("go-modules.json", "android-dependencies.txt", "NOTICES"):
+                add_bytes(archive, "build-inputs/go-modules.json",
+                          b"".join(json_bytes(module_source_record(module)) for module in modules.values()))
+                for name in ("android-dependencies.txt", "NOTICES"):
                     add_bytes(archive, "build-inputs/" + name, (evidence / name).read_bytes())
                 toolchain = {
                     "application": version,
@@ -250,10 +259,10 @@ def create(updater, evidence, output, commit=None, resource_sources=None, releas
                     "应用补丁、生成输入、通知与GPLv3正文位于application.tar；依赖与分发关系见项目NOTICE.md。\n"
                 ).encode())
             require(run(["git", "rev-parse", "HEAD"], root).strip() == current,
-                           "归档期间基准提交发生变化；确定源码提交后，使用新的输出路径重试")
+                           "Base commit changed during archiving; finalize the source commit and retry with a new output path")
             if commit is None:
                 check_working_tree(root, identity)
-            require(output_identity(output.lstat()) == owned, "归档输出文件已被替换")
+            require(output_identity(output.lstat()) == owned, "Archive output file has been replaced")
         except BaseException:
             if owned is not None:
                 remove_owned_output(output, owned)
@@ -264,13 +273,13 @@ def create(updater, evidence, output, commit=None, resource_sources=None, releas
 
 
 def register_parser(subparsers):
-    parser = subparsers.add_parser("package-sources", help="打包当前应用与依赖对应源码", description=__doc__)
+    parser = subparsers.add_parser("package-sources", help="Package corresponding sources for the current application and dependencies", description=__doc__)
     parser.add_argument("--project", type=Path, default=ROOT)
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--commit", help="归档指定 Git 提交，要求工作树干净；省略时归档当前文件")
-    parser.add_argument("--release-inputs", type=Path, help="固定资源记录路径")
-    parser.add_argument("--resource-sources", type=Path, help="resource-sources.json 路径，默认读取 evidence 目录")
+    parser.add_argument("--commit", help="Archive the specified Git commit from a clean working tree; omit to archive current files")
+    parser.add_argument("--release-inputs", type=Path, help="Frozen resource record path")
+    parser.add_argument("--resource-sources", type=Path, help="Path to resource-sources.json, defaulting to the evidence directory")
     parser.add_argument("--go", default="go")
     parser.add_argument("--flutter", default="flutter")
     parser.set_defaults(handler=package, command_parser=parser)

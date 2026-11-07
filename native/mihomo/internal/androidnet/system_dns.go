@@ -15,7 +15,7 @@ import (
 	D "github.com/miekg/dns"
 )
 
-// NetworkDNS是装载前捕获的一次底层网络快照，装载后不替换。
+// NetworkDNS is an underlying network snapshot captured before loading and never replaced afterward.
 type NetworkDNS struct {
 	ID                 string   `json:"id"`
 	Servers            []string `json:"servers"`
@@ -68,7 +68,7 @@ func (n NetworkDNS) addresses() ([]dns.NameServer, error) {
 	return result, nil
 }
 
-// SystemServers只供进程初始化时设置上游显式system客户端。
+// SystemServers is only used to configure the upstream explicit system client during process initialization.
 func (n NetworkDNS) SystemServers() ([]string, error) {
 	if n.ID == "" || n.Private() || len(n.Servers) == 0 {
 		return nil, nil
@@ -93,7 +93,7 @@ func (n NetworkDNS) Key() string {
 	return fmt.Sprintf("%s|%s|%t|%s|%d|%s", n.ID, n.PrivateDNS, n.PrivateDNSActive, n.PrivateDNSHostname, n.Revision, strings.Join(slices.Compact(servers), ","))
 }
 
-// NetworkResolver只连接Android公开回调，不建立UDP客户端或备用DNS。
+// NetworkResolver only uses public Android callbacks; it creates no UDP client or fallback DNS.
 type NetworkResolver struct {
 	owner   DNSOwner
 	actual  resolver.Resolver
@@ -143,7 +143,7 @@ func (r *NetworkResolver) lookup(ctx context.Context, host string, family int) (
 		defer stop()
 	}
 	ips, err := r.owner.Lookup(child, host, family)
-	// getAllByName没有取消入口，callback实际返回后才完成这次调用。
+	// getAllByName has no cancellation API; this call completes only after the callback returns.
 	if child.Err() != nil {
 		return ips, errors.Join(err, child.Err())
 	}
@@ -229,7 +229,7 @@ func (c *rawDNSClient) ExchangeContext(ctx context.Context, m *D.Msg) (*D.Msg, e
 	return message, callErr
 }
 
-// CheckSystemDNS仅检查私人DNS与上游独立system客户端的组合，不修改解析结果。
+// CheckSystemDNS only checks the combination of Private DNS and the upstream standalone system client; it does not change resolution results.
 func CheckSystemDNS(c *config.DNS, network NetworkDNS) (bool, error) {
 	if !c.Enable {
 		return false, nil

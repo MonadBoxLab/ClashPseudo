@@ -153,7 +153,7 @@ var PartLimits = map[string]int{
 	A.CorePartTrust:     4 << 20,
 }
 
-// ReadParts逐段复核实际字节；终态前EOF不算完整输入。
+// ReadParts verifies actual bytes for each part; EOF before the terminal does not count as complete input.
 func ReadParts(r io.Reader) (map[string][]byte, error) {
 	parts := make(map[string][]byte)
 	part := ""

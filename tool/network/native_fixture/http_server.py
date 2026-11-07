@@ -1,4 +1,4 @@
-"""配置、更新与传输失败场景，以及原生网络探针端点。"""
+"""Configuration, update, and transfer failure scenarios with native network probe endpoints."""
 import contextlib
 import struct
 import zlib

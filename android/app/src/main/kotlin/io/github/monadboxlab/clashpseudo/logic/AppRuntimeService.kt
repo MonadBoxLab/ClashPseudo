@@ -15,7 +15,7 @@ import io.github.monadboxlab.clashpseudo.nativecore.map
 import io.github.monadboxlab.clashpseudo.nativecore.ipc.IRuntimeCallback
 import io.github.monadboxlab.clashpseudo.nativecore.ipc.IRuntimeService
 
-/** 系统创建的 :core Service 复用默认进程已有的唯一 LogicEngineHost。 */
+/** System-created :core services reuse the single existing LogicEngineHost in the default process. */
 class AppRuntimeService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private val binder = object : IRuntimeService.Stub() {
@@ -30,7 +30,7 @@ class AppRuntimeService : Service() {
             fun reply(value: Bundle) {
                 try { callback.onResult(value) }
                 catch (error: android.os.RemoteException) {
-                    android.util.Log.w("PseudoRuntime", "runtime 回复接收端已失效：processId=$processId", error)
+                    android.util.Log.w("PseudoRuntime", "Runtime reply receiver is no longer available: processId=$processId", error)
                 }
             }
             main.post {
@@ -81,7 +81,7 @@ class AppRuntimeService : Service() {
                         event.getParcelable<android.os.ParcelFileDescriptor>("details")?.close()
                         reply(Bundle().apply { putBoolean(Contract.CORE_FIELD_ACCEPTED, false) })
                     } else {
-                        // 迟到 revoke 只读取已有连接，不为旧事件绑定或创建 core process。
+                        // Late revoke events only read the existing connection; they must not bind or create a core process.
                         client.refreshPresentation { error -> deliver(client.status(), error) }
                     }
                 } else client.handshake(deliver)

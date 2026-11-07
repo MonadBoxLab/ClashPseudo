@@ -1,4 +1,4 @@
-"""收集依赖的许可原文，检查许可与GPLv3的兼容性。"""
+"""Collect original dependency licenses and check GPLv3 compatibility."""
 
 import hashlib
 import io
@@ -25,7 +25,7 @@ def limited_read(stream, limit):
         if not chunk:
             return bytes(result)
         if len(result) + len(chunk) > limit:
-            raise ValueError("许可材料超过读取大小上限")
+            raise ValueError("License material exceeds the read size limit")
         result.extend(chunk)
 
 
@@ -33,7 +33,7 @@ def read_text_bytes(path):
     with path.open("rb") as stream:
         return limited_read(stream, TEXT_LIMIT)
 
-# 可与GPL-3.0-only组合的许可，以及随独立数据文件提供源码时可用的许可。
+# Licenses compatible with GPL-3.0-only, plus licenses usable for separate data files with accompanying sources.
 COMPATIBLE = {
     "MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "BSD-0-Clause", "0BSD",
     "ISC", "Zlib", "Unlicense", "CC0-1.0", "BSL-1.0", "MPL-2.0",
@@ -68,7 +68,7 @@ def sections(text, pattern):
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
         key = match[1]
         if key in blocks:
-            raise ValueError("通知包含重复依赖：" + key)
+            raise ValueError("Notice contains duplicate dependencies: " + key)
         blocks[key] = text[match.start():end]
     return prefix, blocks
 
@@ -80,7 +80,7 @@ def legal_files(directory):
     for path in directory.rglob("*"):
         paths.append(path)
         if len(paths) > 100000:
-            raise ValueError("许可源码文件数超过上限")
+            raise ValueError("License source file count exceeds the limit")
     total = 0
     for path in sorted(paths):
         if not path.is_file() or path.is_symlink():
@@ -96,7 +96,7 @@ def legal_files(directory):
                     copyrights.add(line)
                     total += len(line.encode()) + 1
         if total > ARCHIVE_LIMIT:
-            raise ValueError("许可正文与版权行超过总大小上限")
+            raise ValueError("License text and copyright lines exceed the total size limit")
     if copyrights:
         result["源码版权行"] = ("\n".join(sorted(copyrights)) + "\n").encode()
     return result
@@ -108,35 +108,35 @@ def render_files(files):
 
 
 def archive_legal(data, *, _budget=None, _depth=0):
-    """读取归档中的许可；外层归档与嵌套JAR共用解压后总大小和条目数上限。"""
+    """Read archive licenses; the outer archive and nested JARs share expanded size and entry count limits."""
     if len(data) > ARCHIVE_LIMIT or _depth > 4:
-        raise ValueError("许可归档大小或嵌套层数超过上限")
+        raise ValueError("License archive size or nesting depth exceeds the limit")
     budget = _budget if _budget is not None else {"bytes": ARCHIVE_LIMIT, "entries": ARCHIVE_ENTRIES}
     files = {}
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         entries = archive.infolist()
         budget["entries"] -= len(entries)
         if budget["entries"] < 0:
-            raise ValueError("许可归档超过条目数上限")
+            raise ValueError("License archive exceeds the entry count limit")
         for info in entries:
             path = PurePosixPath(info.filename)
             if info.is_dir() or not (LEGAL_NAME.fullmatch(path.name) or path.suffix in (".jar", ".java", ".kt")):
                 continue
             limit = min(budget["bytes"], ARCHIVE_LIMIT if path.suffix == ".jar" else TEXT_LIMIT)
             if info.file_size > limit or info.flag_bits & 1:
-                raise ValueError("许可归档成员大小超过上限或已加密：" + info.filename)
+                raise ValueError("License archive member exceeds the size limit or is encrypted: " + info.filename)
             with archive.open(info) as stream:
                 value = limited_read(stream, limit)
             budget["bytes"] -= len(value)
             if LEGAL_NAME.fullmatch(path.name):
                 if path.as_posix() in files:
-                    raise ValueError("许可归档包含重复正文：" + path.as_posix())
+                    raise ValueError("License archive contains duplicate text: " + path.as_posix())
                 files[path.as_posix()] = value
             elif path.suffix == ".jar":
                 for name, value in archive_legal(value, _budget=budget, _depth=_depth + 1).items():
                     key = path.as_posix() + "!/" + name
                     if key in files:
-                        raise ValueError("许可归档包含重复正文：" + key)
+                        raise ValueError("License archive contains duplicate text: " + key)
                     files[key] = value
             else:
                 header = re.match(r"\s*(/\*.*?\*/)", value.decode("utf-8"), re.S)
@@ -146,7 +146,7 @@ def archive_legal(data, *, _budget=None, _depth=0):
 
 
 def resource_materials(root, specs):
-    """生成 CA 与 Geo 的资源清单和来源通知，返回各文件的待写入内容。"""
+    """Generate CA and Geo resource manifests and source notices, returning file contents for writeback."""
     def encoded(value):
         return (json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode()
 
@@ -203,13 +203,13 @@ def resource_materials(root, specs):
     ):
         data = read_text_bytes(root / "third_party/data/geodata" / name)
         if not data:
-            raise ValueError("资源许可正文为空：" + name)
+            raise ValueError("Resource license text is empty: " + name)
         kind = {"CC-BY-SA-4.0.txt": "geoip", "GeoSite-MIT.txt": "geosite"}.get(name)
         if kind and sha(data) != specs[kind]["licenseSha256"]:
-            raise ValueError("指定源码提交中的资源许可内容已变化，请完成技术复核：" + name)
+            raise ValueError("Resource license content changed in the specified source commit; technical review is required: " + name)
         materials.append({"file": "licenses/" + name, "bytes": len(data), "sha256": sha(data), "sourceUrl": source})
     if not read_text_bytes(root / "third_party/data/certificates/MPL-2.0.txt"):
-        raise ValueError("CA MPL-2.0 许可正文缺失")
+        raise ValueError("CA MPL-2.0 license text is missing")
     notice = ("内置Geo数据的来源与许可\n\n"
               + "\n\n".join(
                   f"{item['workName']}\n来源：{item['sourceUrl']}\n版本：{item['version']}\n"
@@ -247,7 +247,7 @@ class Legal:
     def check(self, files, previous="", gpl2_later=False):
         grants = {name: data for name, data in files.items()
                   if GRANT_NAME.fullmatch(PurePosixPath(name).name)}
-        self.require(grants, "缺少许可授权正文：" + repr(sorted(files)))
+        self.require(grants, "License grant text is missing: " + repr(sorted(files)))
         accepted = set(re.findall(r"SHA-256 ([a-f0-9]{64})", previous))
         changed = {name: data for name, data in grants.items() if sha(data) not in accepted}
         if not changed:
@@ -269,7 +269,7 @@ class Legal:
                      if row["Name"] not in ("Copyright", "Author", "Authors")}
             allowed = COMPATIBLE | ({"GPL-2.0", "GPL-2.0-only", "GPL-2.0-or-later"} if gpl2_later else set())
             self.require(names and names <= allowed,
-                         f"许可需要技术复核：{name}，识别结果 {sorted(names)}；原文 SHA-256 {sha(changed[name])}")
+                         f"License requires technical review: {name}, detected {sorted(names)}; original SHA-256 {sha(changed[name])}")
 
     def production_modules(self):
         names = set()
@@ -297,7 +297,7 @@ class Legal:
                 blocks.append(existing[key])
                 continue
             metadata = json.loads(self.updater.go_run("mod", "download", "-json", key.replace(" ", "@")))
-            self.require(not metadata.get("Error") and metadata.get("Dir"), "Go 源码归档不可用：" + key)
+            self.require(not metadata.get("Error") and metadata.get("Dir"), "Go source archive is unavailable: " + key)
             files = legal_files(Path(metadata["Dir"]))
             if not any(GRANT_NAME.fullmatch(PurePosixPath(path).name) for path in files):
                 origin = metadata.get("Origin", {})
@@ -316,11 +316,11 @@ class Legal:
             lzo = effective["Path"] == "github.com/rasky/go-lzo"
             if lzo:
                 readme = (Path(metadata["Dir"]) / "README.md").read_bytes()
-                self.require(b"GPL-2.0-or-later" in readme, "go-lzo 缺少与 GPLv3 组合所需的 or-later 授权")
+                self.require(b"GPL-2.0-or-later" in readme, "go-lzo lacks the or-later grant required for GPLv3 compatibility")
                 files["README.md"] = readme
             self.check(files, previous, gpl2_later=lzo)
             if effective["Path"] == "github.com/metacubex/mihomo":
-                self.require("LICENSE" in files, "mihomo 根许可缺失")
+                self.require("LICENSE" in files, "mihomo root license is missing")
                 (self.root / "third_party/notices/mihomo.txt").write_bytes(files["LICENSE"])
             block = (SEPARATOR + key + "\nhttps://pkg.go.dev/" + key.replace(" ", "@") + "\n"
                      + f"模块 Sum：{metadata['Sum']}\nGoModSum：{metadata['GoModSum']}\n"
@@ -335,10 +335,10 @@ class Legal:
         module = selected.get("Replace") or selected
         metadata = json.loads(self.updater.go_run("mod", "download", "-json",
                                                 module["Path"] + "@" + module["Version"]))
-        self.require(not metadata.get("Error") and metadata.get("Dir"), "x/net 实际源码不可用")
+        self.require(not metadata.get("Error") and metadata.get("Dir"), "Selected x/net sources are unavailable")
         table = read_text_bytes(Path(metadata["Dir"]) / "publicsuffix/table.go").decode("utf-8")
         revision = re.search(r"git revision ([0-9a-f]{40})", table[:6000])
-        self.require(revision, "x/net 的 publicsuffix 数据缺少来源提交号")
+        self.require(revision, "x/net publicsuffix data lacks a source commit")
         revision = revision[1]
         return {"module": module["Path"], "moduleVersion": module["Version"], "revision": revision,
                 "sourceUrl": "https://raw.githubusercontent.com/publicsuffix/list/" + revision + "/public_suffix_list.dat"}
@@ -359,16 +359,16 @@ class Legal:
             data = read_text_bytes(target)
             checksum = sha(data)
             self.require(re.search(r"(?<![0-9a-f])" + checksum + r"(?![0-9a-f])", current),
-                         "PSL 固定来源与现有摘要不同")
+                         "Frozen PSL source differs from the existing digest")
             self.require(data and b"BEGIN ICANN DOMAINS" in data and b"END PRIVATE DOMAINS" in data,
-                         "PSL 原始列表格式无效")
+                         "Invalid original PSL list format")
             return dict(source, sha256=checksum)
         data = self.fetch(source["sourceUrl"])
         self.require(data and b"BEGIN ICANN DOMAINS" in data and b"END PRIVATE DOMAINS" in data,
-                     "PSL 原始列表格式无效")
+                     "Invalid original PSL list format")
         if unchanged:
-            self.require(sha(data) in current, "PSL 固定来源与现有摘要不同")
-        # 将可编辑PSL列表加入对应源码包，并附上现有的MPL许可全文。
+            self.require(sha(data) in current, "Frozen PSL source differs from the existing digest")
+        # Include the editable PSL list and existing full MPL license in the corresponding source package.
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
         if not unchanged:
@@ -392,7 +392,7 @@ class Legal:
             if package["name"] not in changed:
                 continue
             uri = urlparse(urljoin(base, package["rootUri"]))
-            self.require(uri.scheme == "file", "Pub 包来源必须指向依赖解析得到的本地文件")
+            self.require(uri.scheme == "file", "Pub package sources must point to local files from dependency resolution")
             directory = Path(unquote(uri.path))
             if directory == self.root:
                 continue
@@ -422,26 +422,26 @@ class Legal:
                 except urllib.error.HTTPError as error:
                     if error.code != 404:
                         raise
-            self.require(pom is not None, "Maven POM 缺失：" + coordinate)
+            self.require(pom is not None, "Missing Maven POM: " + coordinate)
             tree = ET.fromstring(pom)
             ns = {"m": "http://maven.apache.org/POM/4.0.0"}
             licenses = tree.findall("m:licenses/m:license", ns)
-            # Maven 的父 POM 可以集中声明许可。
+            # Maven parent POMs may provide shared license declarations.
             if not licenses:
                 parent = tree.find("m:parent", ns)
                 if parent is not None:
                     parent_values = [parent.findtext("m:" + name, namespaces=ns)
                                      for name in ("groupId", "artifactId", "version")]
-                    self.require(all(parent_values), "Maven 父 POM 坐标缺失")
+                    self.require(all(parent_values), "Maven parent POM coordinates are missing")
                     pg, pa, pv = parent_values
                     parent_pom = self.fetch(f"{repository}/{pg.replace('.', '/')}/{pa}/{pv}/{pa}-{pv}.pom")
                     licenses = ET.fromstring(parent_pom).findall("m:licenses/m:license", ns)
-            self.require(licenses, "Maven 许可声明缺失：" + coordinate)
+            self.require(licenses, "Maven license declaration is missing: " + coordinate)
             files = {}
             for license_element in licenses:
                 name = license_element.findtext("m:name", namespaces=ns)
                 identifier = POM_LICENSES.get(name)
-                self.require(identifier, f"Maven 许可需要技术复核：{coordinate}，{name}")
+                self.require(identifier, f"Maven license requires technical review: {coordinate}, {name}")
                 files["LICENSE-" + identifier] = self.fetch(
                     "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/" + identifier + ".txt")
             packaging = tree.findtext("m:packaging", default="jar", namespaces=ns)

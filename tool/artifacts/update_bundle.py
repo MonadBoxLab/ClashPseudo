@@ -1,4 +1,4 @@
-"""用标准 Git bundle 传递经过验证的候选提交，不重新生成 commit。"""
+"""Transfer verified candidate commits using standard Git bundles without recreating commits."""
 from pathlib import Path
 
 from tool.common.io import require
@@ -22,28 +22,28 @@ def changed_paths(project, base, commit=None):
 
 def clean(project):
     require(not git(project, "status", "--porcelain", "--untracked-files=normal"),
-            "工作区存在未提交文件，不能发布候选")
+            "Cannot publish a candidate with uncommitted workspace changes")
 
 
 def check_candidate(project, base, commit):
     require(git(project, "rev-list", "--parents", "-n", "1", commit) == f"{commit} {base}",
-            "候选必须是基准之后的单个提交")
+            "Candidate must be a single commit directly after the base")
     paths = changed_paths(project, base, commit)
-    require(paths and paths <= set(INPUTS), "候选包含依赖更新白名单之外的文件")
+    require(paths and paths <= set(INPUTS), "Candidate contains files outside the dependency update allowlist")
     require(git(project, "show", "-s", "--format=%B", commit) == COMMIT_MESSAGE,
-            "候选 commit message 与自动更新约定不符")
+            "Candidate commit message does not match the automated update convention")
     for entry in run(["git", "ls-tree", "-z", commit, "--", *sorted(paths)], project).split("\0"):
         if entry:
-            require(entry.split(" ", 1)[0] == "100644", "依赖输入必须是普通文件")
+            require(entry.split(" ", 1)[0] == "100644", "Dependency inputs must be regular files")
     return sorted(paths)
 
 
 def commit_candidate(project, base, expected):
-    require(git(project, "rev-parse", "HEAD") == base, "更新期间 HEAD 已变化")
+    require(git(project, "rev-parse", "HEAD") == base, "HEAD changed during the update")
     paths = changed_paths(project, base)
     require(paths and paths == set(expected) and paths <= set(INPUTS),
-            "实际变更与依赖更新白名单或报告不同")
-    require(not git(project, "ls-files", "--others", "--exclude-standard"), "候选存在未跟踪文件")
+            "Actual changes differ from the dependency update allowlist or report")
+    require(not git(project, "ls-files", "--others", "--exclude-standard"), "Candidate contains untracked files")
     run(["git", "add", "--", *sorted(paths)], project)
     run(["git", "-c", "user.name=github-actions[bot]", "-c",
          "user.email=41898282+github-actions[bot]@users.noreply.github.com",
@@ -55,30 +55,30 @@ def commit_candidate(project, base, expected):
 
 
 def export_bundle(project, destination, base, commit):
-    require(git(project, "rev-parse", "HEAD") == commit, "HEAD 与候选提交不同")
+    require(git(project, "rev-parse", "HEAD") == commit, "HEAD differs from the candidate commit")
     clean(project)
     check_candidate(project, base, commit)
     destination = Path(destination).absolute()
-    require(not destination.exists() and not destination.is_symlink(), "Git bundle 已存在")
+    require(not destination.exists() and not destination.is_symlink(), "Git bundle already exists")
     run(["git", "bundle", "create", destination, f"{base}..HEAD"], project)
     return destination
 
 
 def import_bundle(project, source, base, commit):
     source = Path(source).absolute()
-    require(source.is_file() and not source.is_symlink(), "缺少本次运行的 Git bundle，请重跑原发布 job")
-    require(git(project, "rev-parse", "HEAD") == base, "发布脚本必须来自候选基准")
-    require(git(project, "bundle", "list-heads", source) == f"{commit} HEAD", "Git bundle 的候选提交不一致")
+    require(source.is_file() and not source.is_symlink(), "Git bundle for this run is missing; rerun the original release job")
+    require(git(project, "rev-parse", "HEAD") == base, "Release scripts must come from the candidate base")
+    require(git(project, "bundle", "list-heads", source) == f"{commit} HEAD", "Git bundle candidate commit does not match")
     run(["git", "bundle", "verify", source], project)
     run(["git", "fetch", "--no-tags", source, "HEAD"], project)
-    require(git(project, "rev-parse", "FETCH_HEAD") == commit, "导入的候选提交不同")
+    require(git(project, "rev-parse", "FETCH_HEAD") == commit, "Imported candidate commit does not match")
     return check_candidate(project, base, commit)
 
 
 def register_parser(subparsers):
     for name, action, description in (
-            ("export-update", export_bundle, "导出候选提交的标准 Git bundle"),
-            ("restore-update", import_bundle, "导入 Git bundle 并核对候选，不切换工作区")):
+            ("export-update", export_bundle, "Export the candidate commit as a standard Git bundle"),
+            ("restore-update", import_bundle, "Import a Git bundle and verify the candidate without switching the workspace")):
         parser = subparsers.add_parser(name, help=description)
         parser.add_argument("--project", type=Path, default=ROOT)
         parser.add_argument("--bundle", type=Path, required=True)

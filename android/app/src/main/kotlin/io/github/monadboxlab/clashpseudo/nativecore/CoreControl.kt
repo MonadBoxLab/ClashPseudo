@@ -22,7 +22,7 @@ internal object CoreControl {
         try {
             parcel.writeBundle(bundle)
             if (parcel.dataSize() > Contract.CORE_IPC_CONTROL_BYTES) {
-                throw CoreTransportException(Contract.CORE_ERROR_INPUT_TOO_LARGE, "内核控制事务超过预算")
+                throw CoreTransportException(Contract.CORE_ERROR_INPUT_TOO_LARGE, "Core control transaction exceeds the budget")
             }
         } finally { parcel.recycle() }
     }
@@ -30,20 +30,20 @@ internal object CoreControl {
     fun identity(bundle: Bundle, processId: String) {
         check(bundle)
         if (bundle.getInt(Contract.CORE_FIELD_PROTOCOL, -1) != Contract.CORE_IPC_VERSION) {
-            throw CoreTransportException(Contract.CORE_ERROR_PROTOCOL_MISMATCH, "内核协议版本不一致")
+            throw CoreTransportException(Contract.CORE_ERROR_PROTOCOL_MISMATCH, "Core protocol version mismatch")
         }
         if (bundle.getString(Contract.CORE_FIELD_PROCESS_ID) != processId) {
-            throw CoreTransportException(Contract.CORE_ERROR_IDENTITY_MISMATCH, "请求属于其他内核进程")
+            throw CoreTransportException(Contract.CORE_ERROR_IDENTITY_MISMATCH, "Request belongs to another core process")
         }
         listOf(Contract.CORE_FIELD_PROCESS_ID, Contract.CORE_FIELD_INPUT_ID).forEach { key ->
             if ((bundle.getString(key)?.toByteArray(Charsets.UTF_8)?.size ?: 0) > Contract.CORE_IPC_IDENTITY_BYTES) {
-                throw CoreTransportException(Contract.CORE_ERROR_IDENTITY_MISMATCH, "内核请求身份超过预算")
+                throw CoreTransportException(Contract.CORE_ERROR_IDENTITY_MISMATCH, "Core request identity exceeds the budget")
             }
         }
         if (bundle.getLong(Contract.CORE_FIELD_REQUEST_ID, 0) < 0 ||
             bundle.getLong(Contract.CORE_FIELD_GENERATION, 0) < 0 ||
             bundle.getLong(Contract.CORE_FIELD_NETWORK_REVISION, 0) < 0) {
-            throw CoreTransportException(Contract.CORE_ERROR_IDENTITY_MISMATCH, "内核请求身份包含负数")
+            throw CoreTransportException(Contract.CORE_ERROR_IDENTITY_MISMATCH, "Core request identity contains a negative number")
         }
     }
 }
@@ -108,13 +108,13 @@ internal fun JSONObject.bundle(): Bundle = Bundle().also { target ->
 
 internal fun Bundle.map(): Map<String, Any?> = keySet().associateWith { key -> get(key) }
 
-/** 每个 core process 共用一个 allocator，达到上限后拒绝新请求。 */
+/** Each core process shares one allocator, which rejects new requests after reaching the limit. */
 internal class CoreRequestIds(initial: Long = 0) {
     private val value = java.util.concurrent.atomic.AtomicLong(initial.also { require(it >= 0) })
     fun next(): Long {
         while (true) {
             val previous = value.get()
-            check(previous < Long.MAX_VALUE) { "core requestId 已耗尽" }
+            check(previous < Long.MAX_VALUE) { "Core requestId space is exhausted" }
             if (value.compareAndSet(previous, previous + 1)) return previous + 1
         }
     }

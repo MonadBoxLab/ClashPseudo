@@ -28,7 +28,8 @@ const diagnosticSource = CoreSnapshot(
   phase: 'READY',
 );
 
-/// 仅替代平台传输；DNS、批次、身份校验和取消状态均由生产对象维护。
+/// Replaces platform transport only; production objects own DNS, batches, identity
+/// validation, and cancellation state.
 class CoreDiagnosticFixture {
   CoreDiagnosticFixture() {
     client = CoreClient(const MethodChannelPort(AppBridge.channel));
@@ -289,7 +290,8 @@ class CoreDiagnosticFixture {
     for (final gate in _gates) {
       if (!gate.isCompleted) gate.complete();
     }
-    // 结束测试端持有的传输和退出通知，生产对象自行解除 Timer 与占用。
+    // Complete test-owned transport and exit notifications; production objects release
+    // their own timers and slots.
     for (var pass = 0; pass < 8; pass++) {
       for (final request in requests.toList()) {
         if (!request.hasTerminal) {
@@ -308,7 +310,8 @@ class CoreDiagnosticFixture {
   }
 }
 
-/// 每个 coreRead 回执来自一帧完整的 FD 字节；terminal 与实际退出分别控制。
+/// Each coreRead receipt contains one complete FD frame; terminal and actual exit are
+/// controlled separately.
 class CoreDiagnosticRequest {
   CoreDiagnosticRequest._(
     this.fixture,
@@ -341,7 +344,7 @@ class CoreDiagnosticRequest {
   }
 
   void terminal(Map<String, Object?> value) {
-    if (hasTerminal) throw StateError('该请求已有 terminal');
+    if (hasTerminal) throw StateError('Request already has a terminal');
     hasTerminal = true;
     frame(ApplicationContract.coreIpcFrameTerminal, {
       'exited': false,
@@ -371,7 +374,9 @@ class CoreDiagnosticRequest {
   }
 
   Future<Map<String, dynamic>> readFrame() {
-    if (_reader != null) throw StateError('同一请求存在两个 coreRead');
+    if (_reader != null) {
+      throw StateError('Two coreRead calls for the same request');
+    }
     reads++;
     final reader = Completer<Map<String, dynamic>>();
     _reader = reader;
@@ -383,7 +388,7 @@ class CoreDiagnosticRequest {
     if (_reader == null || _wire.isEmpty) return;
     final wire = _wire.removeFirst();
     final length = ByteData.sublistView(wire).getUint32(0, Endian.big);
-    if (wire.length != length + 5) throw StateError('FD frame 长度不符');
+    if (wire.length != length + 5) throw StateError('FD frame length mismatch');
     final reader = _reader!;
     _reader = null;
     reader.complete({

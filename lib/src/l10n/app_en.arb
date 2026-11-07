@@ -80,7 +80,7 @@
   "configurations": "Configurations",
   "selectConfig": "Select configuration",
   "@selectConfig": {
-    "description": "选择这张卡片所代表的配置。"
+    "description": "Selects the configuration represented by this card."
   },
   "recentConnections": "Recent connections",
   "overrides": "Plugins (overrides)",
@@ -123,15 +123,15 @@
   "details": "Details",
   "errorDetails": "Error details",
   "@errorDetails": {
-    "description": "打开错误详情的入口文字和详情标题。"
+    "description": "Label and heading for opening error details."
   },
   "technicalDetails": "Technical details",
   "@technicalDetails": {
-    "description": "用于查看完整原始错误或诊断原文的入口文字和标题。"
+    "description": "Label and heading for viewing the complete original error or diagnostic text."
   },
   "copyTechnicalDetails": "Copy technical details",
   "@copyTechnicalDetails": {
-    "description": "复制完整的原始错误或诊断原文。"
+    "description": "Copies the complete original error or diagnostic text."
   },
   "mainRules": "Main rules",
   "subRules": "Sub-rules",
@@ -315,11 +315,11 @@
   "overrideUpdate": "Update plugin",
   "viewOverrideError": "View plugin error",
   "@viewOverrideError": {
-    "description": "打开当前插件的错误详情。"
+    "description": "Opens error details for the current plugin."
   },
   "overrideActionFailed": "Plugin action not completed",
   "@overrideActionFailed": {
-    "description": "插件操作未完成时的反馈标题；详细说明保留实际保存结果、应用结果和原始错误。"
+    "description": "Feedback heading for an incomplete plugin operation; details retain the actual save result, application result, and original error."
   },
   "overrideDelete": "Delete",
   "overrideDeleteTitle": "Delete plugin?",
@@ -655,7 +655,7 @@
   "copyOriginalText": "Copy original text",
   "connectionLimitedNotice": "The record limit has been reached, so some connections are not shown. Clear ended records to make room.",
   "@connectionLimitedNotice": {
-    "description": "说明连接记录已达容量上限，并提示清除已结束的记录。"
+    "description": "Explains that connection records have reached capacity and suggests clearing inactive records."
   },
   "connectionRefreshFailed": "Refresh failed",
   "exitSearch": "Exit search",
@@ -1319,27 +1319,27 @@
   "dnsQuery": "Query",
   "dnsRefreshCoreStatus": "Refresh core status",
   "@dnsRefreshCoreStatus": {
-    "description": "刷新或准备内核状态的操作。"
+    "description": "Action to refresh or prepare core state."
   },
   "dnsViewQueryResults": "View query results",
   "@dnsViewQueryResults": {
-    "description": "在当前 DNS 对话框中查看按记录分组的查询结果。"
+    "description": "Views query results grouped by record in the current DNS dialog."
   },
   "dnsQueryResults": "Query results",
   "@dnsQueryResults": {
-    "description": "DNS 查询结果区域的标题。"
+    "description": "Heading for the DNS query results area."
   },
   "dnsPreviousQuery": "Previous query",
   "@dnsPreviousQuery": {
-    "description": "标记页面保留的上次 DNS 查询结果。"
+    "description": "Identifies the previous DNS query results retained by the page."
   },
   "dnsViewPreviousQuery": "View previous query",
   "@dnsViewPreviousQuery": {
-    "description": "查看页面保留的上次 DNS 查询结果。"
+    "description": "Views the previous DNS query results retained by the page."
   },
   "dnsQueryIdentity": "Query: {name} · {type}",
   "@dnsQueryIdentity": {
-    "description": "显示这次响应对应的查询名称和记录类型；name 和 type 使用发起查询时保存的值。",
+    "description": "Shows the query name and record type for this response; name and type use values captured at query submission.",
     "placeholders": {
       "name": {
         "type": "String"
@@ -1351,7 +1351,7 @@
   },
   "dnsResponseSource": "Source: {source}",
   "@dnsResponseSource": {
-    "description": "显示这次响应的内核来源；source 使用发起查询时保存的来源，并由界面翻译。",
+    "description": "Shows the core source of this response; source uses the value captured at query submission and localized by the UI.",
     "placeholders": {
       "source": {
         "type": "String"
@@ -1360,7 +1360,7 @@
   },
   "dnsCacheOperationDetails": "Cache operation details",
   "@dnsCacheOperationDetails": {
-    "description": "查看 DNS 缓存或 fake-IP 清理详情的入口文字和标题，包括清理对象、实际状态和各缓存池或映射池的结果。"
+    "description": "Label and heading for DNS cache or fake-IP cleanup details, including targets, actual state, and results for each cache or mapping pool."
   },
   "dnsResolverNotice": "Current core resolver; may use cached data and does not reproduce client DNS responses.",
   "dnsExpired": "Result expired · query again",

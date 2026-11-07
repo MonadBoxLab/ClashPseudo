@@ -17,7 +17,8 @@ class FocusedPageRoute<T> extends MaterialPageRoute<T> {
         ownerNavigator.mounted &&
         identical(navigator, ownerNavigator) &&
         AppTaskActivity.routeIsActive(this);
-    // 保留 ModalRoute 的声明式订阅，同时让回调直接读取 Route 实例。
+    // Keep the declarative ModalRoute subscription while callbacks read the Route
+    // instance directly.
     ModalRoute.of(context);
     bool current({Route<dynamic>? ownedPopup}) =>
         context.mounted &&

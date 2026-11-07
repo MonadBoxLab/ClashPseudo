@@ -200,7 +200,8 @@ class ConnectionObserver {
       traffic.invalidate();
     });
     try {
-      // 到期后保留实际 Future 的占用，不再执行或接受本次只读采样。
+      // Keep the slot occupied until the Future exits; do not run or accept this
+      // read-only sample after expiry.
       updateState(await platform.runtimeState());
       token = _token;
       if (!_running || _disposed || expired) return;

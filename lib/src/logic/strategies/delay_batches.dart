@@ -11,7 +11,7 @@ import '../../model/strategy_snapshot.dart';
 import '../../platform/core/core_client.dart';
 import '../diagnostics/dns_operations.dart';
 
-/// 测速批次与四个实际调用名额由 AppRuntime 统一持有。
+/// AppRuntime owns delay test batches and the four slots for actual calls.
 class DelayBatches {
   DelayBatches(this.start, this.strategies, {required this.changed});
   final CoreOperationStarter start;
@@ -48,7 +48,7 @@ class DelayBatches {
     Map<String, Object?> query,
   ) async {
     if (!_visible) throw const PlatformFailure(code: 'expired');
-    if (_admitting) throw StateError('测速批次正在准备');
+    if (_admitting) throw StateError('Delay test batch is being prepared');
     _admitting = true;
     final id = query['id'] as String? ?? _id();
     _admittingId = id;
@@ -75,7 +75,7 @@ class DelayBatches {
           .firstOrNull;
       if (existing != null) {
         if (existing.id == id) return _startReply(existing);
-        throw StateError('测速批次尚未退出');
+        throw StateError('Delay test batch has not exited');
       }
       final snapshot = await strategies(source);
       if (expired || _cancelledStarts.contains(id)) {
@@ -83,14 +83,14 @@ class DelayBatches {
       }
       final group = snapshot.find(groupName);
       if (snapshot.stale || !snapshot.matches(source) || group == null) {
-        throw const FormatException('测速来源已变化');
+        throw const FormatException('Delay test source changed');
       }
       final requested = query['members'] as List?;
       final members = requested == null || requested.isEmpty
           ? group.members.map((member) => member.name).toSet().toList()
           : requested.cast<String>().toSet().toList();
       if (members.any((name) => !group.hasMember(name))) {
-        throw const FormatException('测速成员已变化');
+        throw const FormatException('Delay test members changed');
       }
       final batch = _DelayBatch(id, source, groupName, group.sourceIdentity, {
         for (final member in group.members)
@@ -141,8 +141,8 @@ class DelayBatches {
 
   Future<Map<String, dynamic>> read(String id) async {
     final batch = _batches[id];
-    if (batch == null) throw StateError('测速批次不存在');
-    if (batch.reading) throw StateError('测速来源正在读取');
+    if (batch == null) throw StateError('Delay test batch does not exist');
+    if (batch.reading) throw StateError('Delay test source is being read');
     batch.reading = true;
     final revision = batch.revision;
     try {

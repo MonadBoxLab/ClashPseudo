@@ -1275,7 +1275,7 @@ Widget _selectionLabel(Set<String> labels, String selected) => Stack(
   ],
 );
 
-/// 每个带 key 的输入框按记录或类型保留并释放 controller。
+/// Each keyed input retains and disposes its controller by record or type.
 class _ScalarInput extends StatefulWidget {
   const _ScalarInput({
     super.key,

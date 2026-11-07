@@ -40,7 +40,7 @@ func (rawSocket) Control(f func(uintptr)) error  { f(42); return nil }
 func (rawSocket) Read(func(uintptr) bool) error  { return nil }
 func (rawSocket) Write(func(uintptr) bool) error { return nil }
 
-// isolateEngineTest让每个装载测试使用独立的mihomo全局状态；父进程串行等待实际退出。
+// isolateEngineTest gives each loading test isolated mihomo global state; the parent waits for each process to exit in sequence.
 func isolateEngineTest(t *testing.T) bool {
 	t.Helper()
 	const key = "PSEUDO_ENGINE_TEST"
@@ -85,9 +85,9 @@ func runEngineProcessNamed(t *testing.T, name string, environment ...string) {
 	command.Env = append(command.Env, environment...)
 	output, err := command.CombinedOutput()
 	if err != nil {
-		t.Fatalf("独立core测试失败: %v; context=%v\n%s", err, ctx.Err(), output)
+		t.Fatalf("isolated core test failed: %v; context=%v\n%s", err, ctx.Err(), output)
 	}
-	t.Logf("独立core测试输出\n%s", output)
+	t.Logf("isolated core test output\n%s", output)
 }
 
 func runEnginePhase(t *testing.T, home, phase string, environment ...string) {
@@ -137,7 +137,7 @@ func TestPrepareStopRestart(t *testing.T) {
 		requireStop(t, &e)
 		requireStop(t, &e)
 		if err := e.Prepare(home, []byte(validConfig), "rule", func(int) bool { return true }); err == nil {
-			t.Fatal("同一core context在Stop后重新装载")
+			t.Fatal("same core context loaded again after Stop")
 		}
 		if e.cfg != nil || e.owner != nil || current.Load() != nil {
 			t.Fatal("session references retained")
@@ -344,7 +344,7 @@ func TestLateProviderResponseCannotReplaceNewContext(t *testing.T) {
 				return
 			}
 			if time.Now().After(deadline) {
-				t.Fatal("provider阶段未完成", name)
+				t.Fatal("provider phase did not complete", name)
 			}
 			time.Sleep(time.Millisecond)
 		}

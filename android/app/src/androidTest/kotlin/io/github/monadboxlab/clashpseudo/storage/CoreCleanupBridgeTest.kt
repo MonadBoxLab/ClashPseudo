@@ -34,7 +34,7 @@ class CoreCleanupBridgeTest {
         override fun success(result: Any?) { value = result; count++; done.countDown() }
         override fun error(code: String, message: String?, details: Any?) { this.code = code; this.details = details; count++; done.countDown() }
         override fun notImplemented() = error("missing", null, null)
-        fun await() { assertTrue("清理 callback 未返回", done.await(10, TimeUnit.SECONDS)); assertEquals(1, count) }
+        fun await() { assertTrue("Cleanup callback did not return", done.await(10, TimeUnit.SECONDS)); assertEquals(1, count) }
         fun failed(detail: String) {
             await(); assertEquals("coreCleanup", code)
             assertTrue(details.toString(), AppMessage.fromMap(details)?.detail.orEmpty().contains(detail))
@@ -136,10 +136,10 @@ class CoreCleanupBridgeTest {
         val database = File(h.core, "cache.db").apply { writeText("actual cache") }
         val provider = File(h.core, "provider.yaml").apply { writeText("user provider") }
         val reply = h.schedule(h.claim(), listOf(provider.path))
-        reply.failed("相对路径无效")
+        reply.failed("Invalid core cleanup relative path")
         assertFalse(h.record.exists()); assertTrue(database.exists()); assertEquals("user provider", provider.readText())
         val unregistered = h.schedule(h.claim(), listOf(provider.name))
-        unregistered.failed("未确认"); assertFalse(h.record.exists()); assertFalse(h.client.lifecycle.snapshot().cleanupPending)
+        unregistered.failed("Cleanup list contains unconfirmed files"); assertFalse(h.record.exists()); assertFalse(h.client.lifecycle.snapshot().cleanupPending)
     }
 
     @Test fun anOldEpochOrUninitializedCleanupCannotDeleteOrPublishFiles() = harness { h ->
@@ -147,7 +147,7 @@ class CoreCleanupBridgeTest {
         val oldEpoch = h.schedule(h.claim(h.fixture.storage.snapshot().epoch - 1))
         oldEpoch.failed("storageEpochChanged"); assertFalse(h.record.exists()); assertTrue(database.exists())
         h.install(CoreDataCleanup(h.core, h.record))
-        val pending = h.schedule(h.claim()); pending.failed("初始化")
+        val pending = h.schedule(h.claim()); pending.failed("Core file cleanup is still initializing")
         assertFalse(h.record.exists()); assertTrue(database.exists()); assertFalse(h.publishing.get())
     }
 

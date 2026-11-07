@@ -423,97 +423,105 @@ void main() {
 
 void _categoryPaginationTest() {
   for (final category in ['nodes', 'rules']) {
-    testWidgets('$category 运行条目增加后，本地条目按统一分页保持可达', (tester) async {
-      tester.view.physicalSize = const Size(700, 900);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-      final bridge = _Bridge();
-      final store = ReadOnlyOverrideStore()
-        ..entries = [
-          OverrideEntry(
-            id: 'custom',
-            name: 'custom',
-            kind: ConfigKind.local,
-            role: OverrideRole.localCustom,
-            revision: 1,
-            enabled: false,
-            body: _body(category),
+    testWidgets(
+      '$category local items remain reachable through unified pagination as runtime items increase',
+      (tester) async {
+        tester.view.physicalSize = const Size(700, 900);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final bridge = _Bridge();
+        final store = ReadOnlyOverrideStore()
+          ..entries = [
+            OverrideEntry(
+              id: 'custom',
+              name: 'custom',
+              kind: ConfigKind.local,
+              role: OverrideRole.localCustom,
+              revision: 1,
+              enabled: false,
+              body: _body(category),
+            ),
+          ];
+        final app = AppController(
+          bridge,
+          store: _Configs(),
+          overrideStore: store,
+          preferencesStore: MemoryPreferencesStore(),
+        );
+        addTearDown(app.dispose);
+        await app.refresh();
+        await tester.pumpWidget(
+          MaterialApp(
+            locale: const Locale('en'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: category == 'nodes'
+                ? NodesPage(app: app)
+                : RulesPage(app: app),
           ),
-        ];
-      final app = AppController(
-        bridge,
-        store: _Configs(),
-        overrideStore: store,
-        preferencesStore: MemoryPreferencesStore(),
-      );
-      addTearDown(app.dispose);
-      await app.refresh();
-      await tester.pumpWidget(
-        MaterialApp(
-          locale: const Locale('en'),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: category == 'nodes' ? NodesPage(app: app) : RulesPage(app: app),
-        ),
-      );
-      await settleLocalDefinitions(tester);
-      final target = _categoryRow(
-        category,
-        category == 'rules' ? 'local-20.test' : 'local-20',
-      );
-      final scroll = find
-          .descendant(
-            of: find.byType(ReadingList),
-            matching: find.byType(Scrollable),
-          )
-          .first;
-      await tester.scrollUntilVisible(target, 400, scrollable: scroll);
-      await tester.ensureVisible(target);
-      await tester.pumpAndSettle();
-      expect(target, findsOneWidget);
-      expect(
-        tester.widget<ReadingList>(find.byType(ReadingList)).items,
-        hasLength(50),
-      );
-      bridge.count = 40;
-      final previousReads = bridge.reads;
-      expect(find.byIcon(Icons.refresh), findsNothing);
-      await tester.pump(const Duration(seconds: 30));
-      await settleLocalDefinitions(tester);
-      expect(bridge.reads, previousReads + 1);
-      final strings = lookupAppLocalizations(const Locale('en'));
-      expect(find.text(strings.resultRange(1, 50, 120)), findsOneWidget);
-      expect(target, findsNothing);
-      expect(
-        tester.widget<ReadingList>(find.byType(ReadingList)).items,
-        hasLength(50),
-      );
-      await tester.tap(find.widgetWithIcon(IconButton, Icons.chevron_right));
-      await settleLocalDefinitions(tester);
-      expect(find.text(strings.resultRange(51, 100, 120)), findsOneWidget);
-      await tester.scrollUntilVisible(target, 400, scrollable: scroll);
-      await tester.ensureVisible(target);
-      await tester.pumpAndSettle();
-      expect(target, findsOneWidget);
-      expect(
-        tester
-            .widget<IconButton>(
-              find.descendant(
-                of: target,
-                matching: find.widgetWithIcon(IconButton, Icons.edit_outlined),
-              ),
+        );
+        await settleLocalDefinitions(tester);
+        final target = _categoryRow(
+          category,
+          category == 'rules' ? 'local-20.test' : 'local-20',
+        );
+        final scroll = find
+            .descendant(
+              of: find.byType(ReadingList),
+              matching: find.byType(Scrollable),
             )
-            .onPressed,
-        isNotNull,
-      );
-      await tester.tap(find.widgetWithIcon(IconButton, Icons.chevron_left));
-      await settleLocalDefinitions(tester);
-      expect(find.text(strings.resultRange(1, 50, 120)), findsOneWidget);
-      expect(target, findsNothing);
-      expect(store.entries.single.enabled, isFalse);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    });
+            .first;
+        await tester.scrollUntilVisible(target, 400, scrollable: scroll);
+        await tester.ensureVisible(target);
+        await tester.pumpAndSettle();
+        expect(target, findsOneWidget);
+        expect(
+          tester.widget<ReadingList>(find.byType(ReadingList)).items,
+          hasLength(50),
+        );
+        bridge.count = 40;
+        final previousReads = bridge.reads;
+        expect(find.byIcon(Icons.refresh), findsNothing);
+        await tester.pump(const Duration(seconds: 30));
+        await settleLocalDefinitions(tester);
+        expect(bridge.reads, previousReads + 1);
+        final strings = lookupAppLocalizations(const Locale('en'));
+        expect(find.text(strings.resultRange(1, 50, 120)), findsOneWidget);
+        expect(target, findsNothing);
+        expect(
+          tester.widget<ReadingList>(find.byType(ReadingList)).items,
+          hasLength(50),
+        );
+        await tester.tap(find.widgetWithIcon(IconButton, Icons.chevron_right));
+        await settleLocalDefinitions(tester);
+        expect(find.text(strings.resultRange(51, 100, 120)), findsOneWidget);
+        await tester.scrollUntilVisible(target, 400, scrollable: scroll);
+        await tester.ensureVisible(target);
+        await tester.pumpAndSettle();
+        expect(target, findsOneWidget);
+        expect(
+          tester
+              .widget<IconButton>(
+                find.descendant(
+                  of: target,
+                  matching: find.widgetWithIcon(
+                    IconButton,
+                    Icons.edit_outlined,
+                  ),
+                ),
+              )
+              .onPressed,
+          isNotNull,
+        );
+        await tester.tap(find.widgetWithIcon(IconButton, Icons.chevron_left));
+        await settleLocalDefinitions(tester);
+        expect(find.text(strings.resultRange(1, 50, 120)), findsOneWidget);
+        expect(target, findsNothing);
+        expect(store.entries.single.enabled, isFalse);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
   }
 }
 
@@ -765,7 +773,7 @@ void _categoryReadabilityTest() {
             expect(
               tester.getSize(find.byType(ReadingList)).width,
               category == 'groups' ? pane.width : expected,
-              reason: 'strategy card 使用实际 grid，其它分类使用可读列宽',
+              reason: 'Strategy cards use the actual grid; other categories use readable column widths',
             );
             if (category == 'nodes' || category == 'rules') {
               final previous = tester.getRect(find.byIcon(Icons.chevron_left));

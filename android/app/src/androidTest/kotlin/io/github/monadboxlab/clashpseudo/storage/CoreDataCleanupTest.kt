@@ -39,7 +39,7 @@ class CoreDataCleanupTest {
     }
     private inline fun <reified T : Throwable> rejects(block: () -> Unit): T {
         try { block() } catch (error: Throwable) { if (error is T) return error else throw error }
-        throw AssertionError("必须拒绝 ${T::class.java.simpleName}")
+        throw AssertionError("Must reject ${T::class.java.simpleName}")
     }
     private fun items(cleanup: CoreDataCleanup) = cleanup.snapshot()["files"] as List<Map<String, Any?>>
 

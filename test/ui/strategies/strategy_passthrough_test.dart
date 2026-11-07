@@ -216,54 +216,57 @@ void main() {
   );
 
   for (final language in ['en', 'zh']) {
-    testWidgets('策略来源过期后保留页面和阅读位置，不显示原始数据入口：$language', (tester) async {
-      tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = const Size(320, 700);
-      addTearDown(tester.view.reset);
-      final wire = _wire();
-      final bridge = StrategyBridgeFake()
-        ..data = StrategySnapshot.fromMap(wire);
-      final app = StrategyAppFake(bridge);
-      final controller = StrategyController(app);
-      addTearDown(() {
-        controller.dispose();
-        app.dispose();
-      });
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.forBrightness(Brightness.light),
-          locale: Locale(language),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(context)
-                .copyWith(textScaler: TextScaler.linear(2)),
-            child: child!,
+    testWidgets(
+      'expired strategy source retains the page and reading position without an original-data entry: $language',
+      (tester) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(320, 700);
+        addTearDown(tester.view.reset);
+        final wire = _wire();
+        final bridge = StrategyBridgeFake()
+          ..data = StrategySnapshot.fromMap(wire);
+        final app = StrategyAppFake(bridge);
+        final controller = StrategyController(app);
+        addTearDown(() {
+          controller.dispose();
+          app.dispose();
+        });
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.forBrightness(Brightness.light),
+            locale: Locale(language),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: TextScaler.linear(2)),
+              child: child!,
+            ),
+            home: StrategiesPage(controller: controller, active: true),
           ),
-          home: StrategiesPage(controller: controller, active: true),
-        ),
-      );
-      await tester.pumpAndSettle();
-      final pageState = tester.state(find.byType(StrategiesPage));
-      final data = controller.data;
-      final reading = find.byKey(const PageStorageKey('strategies-scroll'));
-      final readingRect = tester.getRect(reading);
-      expect(find.byIcon(Icons.data_object), findsNothing);
-      expect(controller.current, isTrue);
-      expect(controller.canChoose, isTrue);
-      app.state = const AppSnapshot(phase: 'STOPPED');
-      app.changed();
-      await tester.pump();
-      expect(controller.current, isFalse);
-      expect(controller.canChoose, isFalse);
-      expect(controller.data, same(data));
-      expect(tester.state(find.byType(StrategiesPage)), same(pageState));
-      expect(tester.getRect(reading), readingRect);
-      expect(controller.data!.groups.single.now, _original);
-      expect(find.byIcon(Icons.data_object), findsNothing);
-      expect(tester.takeException(), isNull);
-      controller.setVisible(false);
-      await tester.pumpWidget(const SizedBox.shrink());
-    });
+        );
+        await tester.pumpAndSettle();
+        final pageState = tester.state(find.byType(StrategiesPage));
+        final data = controller.data;
+        final reading = find.byKey(const PageStorageKey('strategies-scroll'));
+        final readingRect = tester.getRect(reading);
+        expect(find.byIcon(Icons.data_object), findsNothing);
+        expect(controller.current, isTrue);
+        expect(controller.canChoose, isTrue);
+        app.state = const AppSnapshot(phase: 'STOPPED');
+        app.changed();
+        await tester.pump();
+        expect(controller.current, isFalse);
+        expect(controller.canChoose, isFalse);
+        expect(controller.data, same(data));
+        expect(tester.state(find.byType(StrategiesPage)), same(pageState));
+        expect(tester.getRect(reading), readingRect);
+        expect(controller.data!.groups.single.now, _original);
+        expect(find.byIcon(Icons.data_object), findsNothing);
+        expect(tester.takeException(), isNull);
+        controller.setVisible(false);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
   }
 }

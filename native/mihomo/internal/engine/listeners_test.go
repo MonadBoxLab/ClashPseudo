@@ -163,11 +163,11 @@ rules: ['MATCH,DIRECT']
 				t.Fatal(err)
 			}
 			defer requireStop(t, &e)
-			// RUNNING的公开listeners在Prepare中启动；Attach不重复Listen。
+			// Public RUNNING listeners start during Prepare; Attach does not call Listen again.
 			for _, port := range ports {
 				conn, err := net.DialTimeout("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), time.Second)
 				if err != nil {
-					t.Fatalf("Prepare未启动listener %d: %v", port, err)
+					t.Fatalf("Prepare did not start listener %d: %v", port, err)
 				}
 				_ = conn.Close()
 			}
@@ -221,7 +221,7 @@ func TestIngressBindFailureRollsBackEarlierListenersAndTUN(t *testing.T) {
 	defer requireStop(t, &e)
 	var socket *net.OpError
 	if !errors.As(err, &socket) || !errors.Is(err, syscall.EADDRINUSE) {
-		t.Fatalf("Prepare丢失实际bind错误: %v", err)
+		t.Fatalf("Prepare lost the actual bind error: %v", err)
 	}
 	if e.tun != nil || e.cfg != nil {
 		t.Fatal("failed ingress retained a live native lease")
@@ -274,7 +274,7 @@ func TestOrdinaryNTPStartsDuringRunningPrepareAndUsesPublicApplicationClock(t *t
 			if err := attachIngressFixture(t, &e); err != nil {
 				t.Fatal(err)
 			}
-			// 测试peer返回公开NTP wire response。
+			// The test peer returns a public NTP wire response.
 			response := make([]byte, 48)
 			response[0], response[1] = 0x24, 1 // v4 server, primary stratum
 			copy(response[24:32], buffer[40:48])
@@ -331,7 +331,7 @@ func TestNamedTLSConstructionFailureClosesSocketAllocatedBeforeError(t *testing.
 	err := e.PrepareWithOptions(t.TempDir(), []byte(body), "rule", func(int) bool { return true }, PrepareOptions{Purpose: "RUNNING", VPNIntent: true, Generation: 7, Composition: "tls"})
 	defer requireStop(t, &e)
 	if err == nil || !strings.Contains(err.Error(), "parse certificate failed") || !strings.Contains(err.Error(), "missing.crt") {
-		t.Fatalf("Prepare未返回公开TLS构造错误: %v", err)
+		t.Fatalf("Prepare did not return the public TLS construction error: %v", err)
 	}
 	if e.failed {
 		t.Fatal("safe HTTP rollback was incorrectly marked unconfirmed")
@@ -519,6 +519,6 @@ func TestDNSListenerAppliesRoutingMarkOrReturnsTheActualSocketError(t *testing.T
 	}
 	states := e.listenerStates.Snapshot()
 	if len(states) != 2 || states[0].State != "bound" || states[1].State != "bound" {
-		t.Fatal("缺少实际DNS TCP/UDP socket", states)
+		t.Fatal("actual DNS TCP/UDP sockets are missing", states)
 	}
 }

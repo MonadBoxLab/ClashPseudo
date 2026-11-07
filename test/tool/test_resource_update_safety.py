@@ -1,4 +1,4 @@
-"""使用合成文件，测试资源写入失败后的文件恢复和输入变化检查。"""
+"""Test file restoration after failed resource writes and detection of changed inputs with synthetic files."""
 
 import tool_test_support
 from tool.dependencies import packages, inputs, legal
@@ -97,7 +97,7 @@ class TransactionSafetyTest(unittest.TestCase):
     def test_new_target_is_removed_when_the_following_replacement_fails(self):
         new_name = "pubspec.yaml"
         after = dict(self.before)
-        # 按写入顺序排列文件，首项为原目录中不存在的新文件。
+        # Order files by write sequence, starting with a new file absent from the original directory.
         after = {new_name: b"new candidate", **after}
         after[new_name] = b"new candidate"
         after[self.first] = b"changed existing"
@@ -129,7 +129,7 @@ class TransactionSafetyTest(unittest.TestCase):
                 (self.root / self.second).write_bytes(b"concurrent user edit")
 
         with mock.patch.object(workspace, "sync_directory", side_effect=synced):
-            with self.assertRaisesRegex(ValueError, "更新期间文件发生变化"):
+            with self.assertRaisesRegex(ValueError, "File changed during update"):
                 inputs.publish_changes(self.root, self.before, self.after)
         self.assertEqual((self.root / self.first).read_bytes(), self.before[self.first])
         self.assertEqual((self.root / self.second).read_bytes(), b"concurrent user edit")
@@ -182,7 +182,7 @@ class TransactionSafetyTest(unittest.TestCase):
 
     def test_concurrent_change_of_an_unchanged_input_aborts_the_whole_transaction(self):
         (self.root / "pubspec.yaml").write_bytes(b"user version change")
-        with self.assertRaisesRegex(ValueError, "更新期间文件发生变化"):
+        with self.assertRaisesRegex(ValueError, "File changed during update"):
             inputs.publish_changes(self.root, self.before, self.after)
         self.assertEqual((self.root / self.first).read_bytes(), self.before[self.first])
         self.assertEqual((self.root / self.second).read_bytes(), self.before[self.second])
@@ -193,7 +193,7 @@ class TransactionSafetyTest(unittest.TestCase):
         outside = self.root / "outside"
         outside.mkdir()
         (self.root / "pubspec.yaml").symlink_to(outside / "target")
-        with self.assertRaisesRegex(ValueError, "符号链接"):
+        with self.assertRaisesRegex(ValueError, "symbolic link"):
             inputs.publish_changes(self.root, self.before, self.after)
         self.assertFalse((outside / "target").exists())
         self.assertEqual((self.root / self.first).read_bytes(), self.before[self.first])
@@ -220,7 +220,7 @@ class NetworkSafetyTest(unittest.TestCase):
         response = self.Response(b"12345", None)
         with mock.patch.object(common_io.urllib.request, "build_opener") as opener:
             opener.return_value.open.return_value = response
-            with self.assertRaisesRegex(ValueError, "上限"):
+            with self.assertRaisesRegex(ValueError, "limit"):
                 common_io.fetch("https://example.test/fixed", limit=4)
         self.assertTrue(all(0 < size <= common_io.CHUNK for size in response.read_calls))
 
@@ -228,7 +228,7 @@ class NetworkSafetyTest(unittest.TestCase):
         response = self.Response(b"12345", "5")
         with mock.patch.object(common_io.urllib.request, "build_opener") as opener:
             opener.return_value.open.return_value = response
-            with self.assertRaisesRegex(ValueError, "上限"):
+            with self.assertRaisesRegex(ValueError, "limit"):
                 common_io.fetch("https://example.test/fixed", limit=4)
         self.assertEqual(response.read_calls, [])
 
@@ -236,7 +236,7 @@ class NetworkSafetyTest(unittest.TestCase):
         response = self.Response(b"abc", "4")
         with mock.patch.object(common_io.urllib.request, "build_opener") as opener:
             opener.return_value.open.return_value = response
-            with self.assertRaisesRegex(ValueError, "Content-Length 声明的字节数与实际读取的字节数不一致"):
+            with self.assertRaisesRegex(ValueError, "Content-Length does not match the number of bytes read"):
                 common_io.fetch("https://example.test/fixed", limit=8)
 
     def test_short_declared_response_is_not_accepted_as_complete_on_disk(self):
@@ -245,7 +245,7 @@ class NetworkSafetyTest(unittest.TestCase):
             destination = Path(temporary) / "payload.part"
             with mock.patch.object(common_io.urllib.request, "build_opener") as opener:
                 opener.return_value.open.return_value = response
-                with self.assertRaisesRegex(ValueError, "Content-Length 声明的字节数与实际读取的字节数不一致"):
+                with self.assertRaisesRegex(ValueError, "Content-Length does not match the number of bytes read"):
                     common_io.fetch("https://example.test/fixed", limit=8, destination=destination)
             self.assertEqual(destination.read_bytes(), b"abc")
             self.assertFalse((destination.parent / "resource.json").exists())
@@ -280,12 +280,12 @@ class LegalSafetyTest(unittest.TestCase):
         inner = self.archive([("LICENSE", b"legal " * 40)])
         outer = self.archive([("classes.jar", inner)])
         budget = {"bytes": len(inner) + 100, "entries": 10}
-        with self.assertRaisesRegex(ValueError, "上限"):
+        with self.assertRaisesRegex(ValueError, "limit"):
             legal.archive_legal(outer, _budget=budget)
 
     def test_legal_archive_entry_budget_applies_even_to_ignored_members(self):
         data = self.archive([("not-legal.bin", b""), ("another.bin", b"")])
-        with self.assertRaisesRegex(ValueError, "条目数上限"):
+        with self.assertRaisesRegex(ValueError, "entry count limit"):
             legal.archive_legal(data, _budget={"bytes": 1000, "entries": 1})
 
     def test_legacy_psl_notice_reuses_same_effective_revision_and_real_local_bytes_without_fetch(self):
@@ -318,7 +318,7 @@ class LegalSafetyTest(unittest.TestCase):
             self.assertEqual(notice.read_bytes(), original)
             fetch.assert_not_called()
             target.write_bytes(data.replace(b"test", b"changed"))
-            with self.assertRaisesRegex(ValueError, "固定来源与现有摘要不同"):
+            with self.assertRaisesRegex(ValueError, "Frozen PSL source differs from the existing digest"):
                 instance.public_suffix(graph)
             fetch.assert_not_called()
 

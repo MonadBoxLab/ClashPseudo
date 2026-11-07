@@ -29,7 +29,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
-/** :core 进程中的唯一系统资源宿主，不保存正文、测速批次或业务历史。 */
+/** The sole system resource host in :core; it does not store content, delay batches, or application history. */
 class CoreHost internal constructor(
     private val context: Context,
     private val statusChanged: (Bundle) -> Unit,
@@ -117,25 +117,25 @@ class CoreHost internal constructor(
         val id = allocateRequestId()
         request.putLong(Contract.CORE_FIELD_REQUEST_ID, id)
         val operation = request.getInt(Contract.CORE_FIELD_OPERATION)
-        check(request.getLong(Contract.CORE_FIELD_NETWORK_REVISION) == network.revision) { "请求不属于捕获的 Network revision" }
+        check(request.getLong(Contract.CORE_FIELD_NETWORK_REVISION) == network.revision) { "Request does not belong to the captured Network revision" }
         if (phase == Contract.CORE_PHASE_READY) {
             check(request.getLong(Contract.CORE_FIELD_GENERATION) == generation && request.getString(Contract.CORE_FIELD_INPUT_ID) == inputId) {
-                "请求不属于当前 inputId/generation"
+                "Request does not belong to the current inputId/generation"
             }
         } else if (operation == Contract.CORE_OPERATION_PREPARE || operation == Contract.CORE_OPERATION_LOGS) {
             check(request.getLong(Contract.CORE_FIELD_GENERATION) == 1L && !request.getString(Contract.CORE_FIELD_INPUT_ID).isNullOrEmpty()) {
-                "装载及启动 LOGS 需要新的 inputId/generation"
+                "Preparation and startup LOGS require a new inputId/generation"
             }
         }
         if (id <= 0L || operation !in Contract.CORE_OPERATION_PREPARE..Contract.CORE_OPERATION_VPN_SPEC ||
             operation == Contract.CORE_OPERATION_ATTACH ||
             operation == Contract.CORE_OPERATION_SHUTDOWN || operation == Contract.CORE_OPERATION_STOP) {
             input.close(); output.close()
-            throw IllegalArgumentException("内核请求操作或标识无效")
+            throw IllegalArgumentException("Invalid core request operation or identity")
         }
-        check(!stopping.get()) { "内核进程正在退出" }
+        check(!stopping.get()) { "Core process is exiting" }
         val token = Call()
-        check(calls.putIfAbsent(id, token) == null) { "内核请求标识重复" }
+        check(calls.putIfAbsent(id, token) == null) { "Duplicate core request identity" }
         try {
             workers.execute {
                 var receipt = JSONObject().put(Contract.CORE_FIELD_EXITED, true).toString().toByteArray(Charsets.UTF_8)
@@ -148,11 +148,11 @@ class CoreHost internal constructor(
                         val metadata = JSONObject(CoreFrames.utf8(parts.getValue(Contract.CORE_PART_REQUEST)))
                         verifyMetadata(request, metadata)
                         synchronized(token) {
-                            if (!token.get()) throw CoreTransportException(Contract.CORE_ERROR_CANCELLED, "请求在进入内核前已取消")
+                            if (!token.get()) throw CoreTransportException(Contract.CORE_ERROR_CANCELLED, "Request was cancelled before entering the core")
                             token.started = true
                         }
                         if (operation == Contract.CORE_OPERATION_PREPARE) {
-                            check(prepared.compareAndSet(false, true)) { "每个内核进程只允许装载一个上下文" }
+                            check(prepared.compareAndSet(false, true)) { "Each core process can prepare only one context" }
                             preparationStarted = true
                             prepare(id, request, metadata, parts, target)
                         } else if (operation == Contract.CORE_OPERATION_PATHS) queryPaths(id, parts, target)
@@ -161,7 +161,7 @@ class CoreHost internal constructor(
                             CoreProcessResources.acquire(context)
                             if (operation == Contract.CORE_OPERATION_CANCEL) {
                                 val targetId = metadata.getJSONObject("arguments").getLong("targetRequestId")
-                                require(targetId > 0 && targetId != id) { "CANCEL targetRequestId 无效" }
+                                require(targetId > 0 && targetId != id) { "Invalid CANCEL targetRequestId" }
                                 val started = calls[targetId]?.let { target -> synchronized(target) {
                                     val actual = target.started
                                     target.set(false)
@@ -197,7 +197,7 @@ class CoreHost internal constructor(
                     }
                     failure?.let { lastError = CoreErrors.json(it); receipt = CoreErrors.receipt(it) }
                     try {
-                        // callback 来自实际 invoke、平台调用和 FD close 返回，不来自 EOF 或取消意图。
+                        // Callbacks follow actual invoke, platform call, and FD close returns, not EOF or cancellation intent.
                         requestExited(id, receipt)
                     } finally {
                         calls.remove(id, token)
@@ -221,20 +221,20 @@ class CoreHost internal constructor(
             request.getLong(Contract.CORE_FIELD_REQUEST_ID) != control.getLong(Contract.CORE_FIELD_REQUEST_ID) ||
             request.getLong(Contract.CORE_FIELD_GENERATION) != control.getLong(Contract.CORE_FIELD_GENERATION) ||
             request.optString(Contract.CORE_FIELD_INPUT_ID) != control.getString(Contract.CORE_FIELD_INPUT_ID).orEmpty()) {
-            throw CoreTransportException(Contract.CORE_ERROR_IDENTITY_MISMATCH, "管道请求与控制身份不一致")
+            throw CoreTransportException(Contract.CORE_ERROR_IDENTITY_MISMATCH, "Pipe request does not match the control identity")
         }
     }
 
     private fun prepare(id: Long, controlRequest: Bundle, request: JSONObject,
                         originalParts: Map<String, ByteArray>, output: ParcelFileDescriptor) {
         CoreProcessResources.acquire(context)
-        check(controlRequest.getLong(Contract.CORE_FIELD_GENERATION) == 1L) { "新 core process 的 generation 必须为 1" }
+        check(controlRequest.getLong(Contract.CORE_FIELD_GENERATION) == 1L) { "A new core process must have generation 1" }
         val arguments = request.getJSONObject("arguments")
         val purpose = arguments.getString("purpose")
         this.purpose = purpose
-        check(purpose in setOf(Contract.CORE_PURPOSE_PREVIEW, Contract.CORE_PURPOSE_RUNNING)) { "内核用途无效" }
+        check(purpose in setOf(Contract.CORE_PURPOSE_PREVIEW, Contract.CORE_PURPOSE_RUNNING)) { "Invalid core purpose" }
         inputId = controlRequest.getString(Contract.CORE_FIELD_INPUT_ID)?.takeIf { it.isNotBlank() }
-            ?: throw IllegalArgumentException("内核装载缺少 inputId")
+            ?: throw IllegalArgumentException("Core preparation is missing inputId")
         generation = controlRequest.getLong(Contract.CORE_FIELD_GENERATION).coerceAtLeast(1L)
         configId = arguments.optStringOrNull("configId") ?: arguments.optStringOrNull("id")
         revision = arguments.optInt("revision")
@@ -245,24 +245,24 @@ class CoreHost internal constructor(
             val row = selected.getJSONObject(index)
             LanBinding(row.getString("listenerName"), row.getString("interfaceName"), row.getInt("interfaceIndex"), row.getString("address"))
         }
-        check(!lanIntent || lanBindings.isNotEmpty()) { "局域网代理没有选中的接口地址" }
-        check(lanBindings.map { it.listenerName }.distinct().size == lanBindings.size) { "局域网 listenerName 重复" }
+        check(!lanIntent || lanBindings.isNotEmpty()) { "LAN proxy has no selected interface address" }
+        check(lanBindings.map { it.listenerName }.distinct().size == lanBindings.size) { "Duplicate LAN listenerName" }
         lanBindings.forEach { selectedAddress ->
-            check(localInterfaces.available(selectedAddress.interfaceName, selectedAddress.interfaceIndex, selectedAddress.address)) { "所选局域网接口地址已失效：${selectedAddress.address}" }
+            check(localInterfaces.available(selectedAddress.interfaceName, selectedAddress.interfaceIndex, selectedAddress.address)) { "Selected LAN interface address is no longer available: ${selectedAddress.address}" }
         }
-        check(UnderlyingNetworks.snapshot().key == network.key) { "底层网络已变化，需要新的内核进程" }
+        check(UnderlyingNetworks.snapshot().key == network.key) { "Underlying network has changed; a new core process is required" }
         phase = Contract.CORE_PHASE_LOADING
         statusChanged(status())
         CorePreparationObserver.beforeNativePrepare(context, processId, checkNotNull(inputId), configId,
             revision, id, arguments.getLong(Contract.CORE_FIELD_DEADLINE)) { stopping.get() || calls[id]?.get() != true }
         if (stopping.get() || calls[id]?.get() != true) {
-            throw CoreTransportException(Contract.CORE_ERROR_CANCELLED, "PREPARE 在 native 装载前已取消")
+            throw CoreTransportException(Contract.CORE_ERROR_CANCELLED, "PREPARE was cancelled before native preparation")
         }
         val options = JSONObject(CoreFrames.utf8(originalParts.getValue(Contract.CORE_PART_OPTIONS)))
         options.put("purpose", purpose).put("generation", generation).put("network", network.json())
             .put("vpnIntent", vpnIntent).put("lanIntent", lanIntent)
         val home = AppFiles.core(context)
-        check(home.isDirectory || home.mkdirs()) { "无法创建私有内核数据目录" }
+        check(home.isDirectory || home.mkdirs()) { "Cannot create the private core data directory" }
         arguments.put("home", home.path)
         request.put("generation", generation).put("networkRevision", network.revision)
         val parts = originalParts.toMutableMap().apply {
@@ -285,8 +285,8 @@ class CoreHost internal constructor(
         localInterfaces.setActive(lanIntent)
         if (vpnIntent) {
             val specification = VpnSpecification.read(value.getJSONObject("vpnSpec").toString())
-            check(specification.generation == generation && specification.networkKey == network.key) { "VPN 规格与当前装载不一致" }
-            val service = checkNotNull(PseudoVpnService.instance) { "VPN 系统资源宿主不可用" }
+            check(specification.generation == generation && specification.networkKey == network.key) { "VPN specification does not match the current preparation" }
+            val service = checkNotNull(PseudoVpnService.instance) { "VPN system resource host is unavailable" }
             val attached = service.establish(specification, accessMode, packages, network)
             access = attached.second
             val attachId = allocateRequestId()
@@ -390,7 +390,7 @@ class CoreHost internal constructor(
         val error = receipt.optJSONObject(Contract.CORE_FIELD_ERROR) ?: result.terminal.optJSONObject(Contract.CORE_FIELD_ERROR)
             ?: result.value.optJSONObject(Contract.CORE_FIELD_ERROR)
         if (error != null) throw CoreNativeResultException(result, error)
-        if (!result.terminal.optBoolean(Contract.CORE_FIELD_COMPLETE)) throw IOException("内核资源调用没有完整终态")
+        if (!result.terminal.optBoolean(Contract.CORE_FIELD_COMPLETE)) throw IOException("Core resource call has no complete terminal frame")
     }
 
     @Synchronized private fun initializeTrust() {
@@ -422,7 +422,7 @@ class CoreHost internal constructor(
         val admittedAt = request.getLong(Contract.CORE_FIELD_ADMITTED_AT)
         val deadline = request.getLong(Contract.CORE_FIELD_DEADLINE)
         require(admittedAt >= 0 && deadline >= admittedAt && deadline - admittedAt <= Contract.OPERATION_BACKUP_TIMEOUT_MS) {
-            "退出请求没有有效的原受理预算"
+            "Exit request has no valid original admission budget"
         }
         if (!stopping.compareAndSet(false, true)) return
         transport.closeAdmission()
@@ -501,16 +501,16 @@ class CoreHost internal constructor(
         private val active = AtomicBoolean(true)
         private val dnsExecutor = Executors.newCachedThreadPool { runnable -> Thread(runnable, "core-system-dns") }
         private val dns = AndroidSystemDns(network, dnsExecutor)
-        override fun checkCurrent() = check(active.get()) { "内核资源所属上下文已结束" }
+        override fun checkCurrent() = check(active.get()) { "The context owning the core resource has ended" }
         override fun publishIfCurrent(block: () -> Unit) = synchronized(this) { checkCurrent(); block() }
         @Keep fun protect(fd: Int): ByteArray = protectResult {
             checkCurrent()
-            if (vpnIntent()) check(checkNotNull(PseudoVpnService.instance).protect(fd)) { "Android 拒绝保护入站 socket" }
+            if (vpnIntent()) check(checkNotNull(PseudoVpnService.instance).protect(fd)) { "Android refused to protect the inbound socket" }
         }
         @Keep fun protectNetwork(fd: Int, networkHandle: String): ByteArray = protectResult {
             checkCurrent()
-            if (vpnIntent()) check(checkNotNull(PseudoVpnService.instance).protect(fd)) { "Android 拒绝保护出站 socket" }
-            check(network.bindSocket(fd, networkHandle)) { "出站 socket 不属于捕获的底层网络" }
+            if (vpnIntent()) check(checkNotNull(PseudoVpnService.instance).protect(fd)) { "Android refused to protect the outbound socket" }
+            check(network.bindSocket(fd, networkHandle)) { "Outbound socket does not belong to the captured underlying network" }
         }
         private fun protectResult(action: () -> Unit): ByteArray = try {
             action(); JSONObject().put("ok", true).put("error", JSONObject.NULL).toString().toByteArray(Charsets.UTF_8)

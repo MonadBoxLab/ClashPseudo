@@ -3,7 +3,7 @@ import 'dart:convert';
 
 import '../../model/application_contract.dart';
 
-/// AppRuntime 持有唯一日志窗口，传输队列不承担历史保存。
+/// AppRuntime owns the sole log window; transport queues do not retain history.
 class LogWindow {
   static const capacity = ApplicationContract.logEntries;
   static const byteCapacity = ApplicationContract.logTextBytes;
@@ -47,7 +47,9 @@ class LogWindow {
     final sequence = event['seq'];
     final text = event['text'];
     if (sequence is! int || sequence <= 0 || text is! String) {
-      throw const FormatException('日志事件缺少序号或正文');
+      throw const FormatException(
+        'Log event is missing its sequence number or text',
+      );
     }
     if (sequence <= _next || sequence <= _cleared) return;
     _sequenceDropped += sequence - _next - 1;
@@ -77,7 +79,8 @@ class LogWindow {
     if (count > _transportDropped) _transportDropped = count;
   }
 
-  /// FD 在途事件与传输 queue 使用同一次 watermark；较旧回执不能降低边界。
+  /// In-flight FD events and the transport queue share a watermark; older receipts
+  /// cannot lower it.
   void clear(String source, {int? through, int? droppedThrough}) {
     if (_source != source) return;
     final end = through ?? _next;

@@ -154,7 +154,7 @@ class RuntimeConfigController extends ChangeNotifier {
       }
       final configuration = value['configuration'];
       if (configuration is! String) {
-        throw const FormatException('运行配置不是文本');
+        throw const FormatException('Runtime configuration is not text');
       }
       source = expected;
       text = configuration;

@@ -5,7 +5,7 @@ import org.json.JSONObject
 import java.io.InputStream
 import java.io.OutputStream
 
-/** 原始正文与片段分别传输、分别检查预算。 */
+/** Transmit raw content and parts separately, checking each budget independently. */
 object CoreParts {
     private fun budget(part: String): Int = when (part) {
         Contract.CORE_PART_CONFIG -> Contract.CONFIGURATION_TEXT_BYTES
@@ -13,17 +13,17 @@ object CoreParts {
         Contract.CORE_PART_OPTIONS -> Contract.CONFIGURATION_PREPARATION_OPTIONS_BYTES
         Contract.CORE_PART_REQUEST -> Contract.CORE_IPC_CONTROL_BYTES
         Contract.CORE_PART_TRUST -> Contract.CONFIGURATION_PREPARATION_OPTIONS_BYTES
-        else -> throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "未知内核输入分段：$part")
+        else -> throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "Unknown core input part: $part")
     }
 
     fun validate(parts: Map<String, ByteArray>) {
         parts.forEach { (name, bytes) ->
             if (bytes.size > budget(name)) {
-                throw CoreTransportException(Contract.CORE_ERROR_INPUT_TOO_LARGE, "内核输入分段 $name 超过 ${budget(name)} 字节")
+                throw CoreTransportException(Contract.CORE_ERROR_INPUT_TOO_LARGE, "Core input part $name exceeds ${budget(name)} bytes")
             }
             CoreFrames.utf8(bytes)
         }
-        require(parts.containsKey(Contract.CORE_PART_REQUEST)) { "缺少内核请求分段" }
+        require(parts.containsKey(Contract.CORE_PART_REQUEST)) { "Missing core request part" }
     }
 
     fun write(output: OutputStream, parts: Map<String, ByteArray>) {
@@ -51,7 +51,7 @@ object CoreParts {
         fun finish() {
             val name = current ?: return
             val value = checkNotNull(bytes)
-            if (offset != value.size) throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "内核输入分段 $name 长度不符")
+            if (offset != value.size) throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "Core input part $name length mismatch")
             CoreFrames.utf8(value)
             parts[name] = value
             current = null
@@ -66,16 +66,16 @@ object CoreParts {
                     val name = metadata.getString("part")
                     val size = metadata.getLong("bytes")
                     if (parts.containsKey(name) || size < 0 || size > budget(name)) {
-                        throw CoreTransportException(Contract.CORE_ERROR_INPUT_TOO_LARGE, "内核输入分段重复或超过预算：$name")
+                        throw CoreTransportException(Contract.CORE_ERROR_INPUT_TOO_LARGE, "Duplicate or oversized core input part: $name")
                     }
                     current = name
                     bytes = ByteArray(size.toInt())
                     offset = 0
                 }
                 Contract.CORE_IPC_FRAME_DATA -> {
-                    val target = bytes ?: throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "内核数据没有所属分段")
+                    val target = bytes ?: throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "Core data does not belong to a part")
                     if (frame.payload.size > target.size - offset) {
-                        throw CoreTransportException(Contract.CORE_ERROR_INPUT_TOO_LARGE, "内核输入分段超过声明长度")
+                        throw CoreTransportException(Contract.CORE_ERROR_INPUT_TOO_LARGE, "Core input part exceeds its declared length")
                     }
                     frame.payload.copyInto(target, offset)
                     offset += frame.payload.size
@@ -83,12 +83,12 @@ object CoreParts {
                 Contract.CORE_IPC_FRAME_TERMINAL -> {
                     finish()
                     if (!JSONObject(CoreFrames.utf8(frame.payload)).optBoolean(Contract.CORE_FIELD_COMPLETE)) {
-                        throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "内核输入没有完整终态")
+                        throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "Core input has no complete terminal frame")
                     }
                     validate(parts)
                     return parts
                 }
-                else -> throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "请求流不能包含结果记录")
+                else -> throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "Request stream cannot contain result records")
             }
         }
     }

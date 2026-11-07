@@ -7,7 +7,7 @@ import (
 	"github.com/metacubex/mihomo/dns"
 )
 
-// 调用方只在进程唯一一次装载前执行，不在停止或网络变化时重写。
+// The caller runs this only before the process's single load, never rewriting it on stop or network changes.
 func initializeSystemDNS(network androidnet.NetworkDNS) error {
 	servers, err := network.SystemServers()
 	if err != nil {

@@ -298,68 +298,73 @@ void main() {
     },
   );
 
-  testWidgets('许可证读取失败通过 SnackBar 展示并可重试', (tester) async {
-    final strings = lookupAppLocalizations(const Locale('en'));
-    await tester.pumpWidget(_host('en'));
-    await tester.tap(find.text('notice'));
-    await tester.pumpAndSettle();
-    rootBundle.evict('LICENSE');
-    var fail = true;
-    var reads = 0;
-    tester.binding.defaultBinaryMessenger.setMockMessageHandler(
-      'flutter/assets',
-      (message) async {
-        final name = utf8.decode(message!.buffer.asUint8List());
-        if (name != 'LICENSE') return null;
-        reads++;
-        if (fail) return null;
-        return Uint8List.fromList(utf8.encode('GPL fixture text')).buffer
-            .asByteData();
-      },
-    );
-    addTearDown(() {
+  testWidgets(
+    'license read failures display through SnackBar and allow retry',
+    (tester) async {
+      final strings = lookupAppLocalizations(const Locale('en'));
+      await tester.pumpWidget(_host('en'));
+      await tester.tap(find.text('notice'));
+      await tester.pumpAndSettle();
+      rootBundle.evict('LICENSE');
+      var fail = true;
+      var reads = 0;
       tester.binding.defaultBinaryMessenger.setMockMessageHandler(
         'flutter/assets',
-        null,
+        (message) async {
+          final name = utf8.decode(message!.buffer.asUint8List());
+          if (name != 'LICENSE') return null;
+          reads++;
+          if (fail) return null;
+          return Uint8List.fromList(utf8.encode('GPL fixture text')).buffer
+              .asByteData();
+        },
       );
-      rootBundle.evict('LICENSE');
-    });
-    final link = find.widgetWithText(
-      TextButton,
-      strings.privacyNoticeLicenseNotice,
-    );
-    await tester.ensureVisible(link);
-    await tester.tap(link);
-    await tester.pumpAndSettle();
-    expect(reads, 1);
-    expect(find.byType(SnackBar), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('license-load-error-details')),
-      findsNothing,
-    );
-    await tester.tap(
-      find.descendant(
-        of: find.byType(SnackBar),
-        matching: find.widgetWithText(TextButton, strings.errorDetails),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('operation-technical-details')));
-    await tester.pumpAndSettle();
-    expect(
-      tester
-          .widget<SelectableText>(
-            find.byKey(const ValueKey('operation-technical-text')),
-          )
-          .data,
-      contains('LICENSE'),
-    );
-    fail = false;
-    await tester.tap(find.widgetWithText(TextButton, strings.retry).last);
-    await tester.pumpAndSettle();
-    expect(reads, 2);
-    expect(find.text('GPL fixture text'), findsOneWidget);
-    expect(find.byType(SnackBar), findsNothing);
-    expect(tester.takeException(), isNull);
-  });
+      addTearDown(() {
+        tester.binding.defaultBinaryMessenger.setMockMessageHandler(
+          'flutter/assets',
+          null,
+        );
+        rootBundle.evict('LICENSE');
+      });
+      final link = find.widgetWithText(
+        TextButton,
+        strings.privacyNoticeLicenseNotice,
+      );
+      await tester.ensureVisible(link);
+      await tester.tap(link);
+      await tester.pumpAndSettle();
+      expect(reads, 1);
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('license-load-error-details')),
+        findsNothing,
+      );
+      await tester.tap(
+        find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.widgetWithText(TextButton, strings.errorDetails),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('operation-technical-details')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<SelectableText>(
+              find.byKey(const ValueKey('operation-technical-text')),
+            )
+            .data,
+        contains('LICENSE'),
+      );
+      fail = false;
+      await tester.tap(find.widgetWithText(TextButton, strings.retry).last);
+      await tester.pumpAndSettle();
+      expect(reads, 2);
+      expect(find.text('GPL fixture text'), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

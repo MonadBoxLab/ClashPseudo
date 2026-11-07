@@ -1,4 +1,4 @@
-"""检查目录和职责调整后，Android 组件类名、后台任务标识、JNI 入口及 FlutterEngine 入口名称保持不变。"""
+"""Verify that directory and responsibility changes preserve Android component names, background task identifiers, JNI entry points, and FlutterEngine entry names."""
 import importlib.util
 from pathlib import Path
 import re

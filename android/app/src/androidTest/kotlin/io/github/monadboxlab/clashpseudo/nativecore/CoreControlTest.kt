@@ -17,7 +17,7 @@ class CoreControlTest {
         putLong(Contract.CORE_FIELD_NETWORK_REVISION, 1)
     }
     private fun rejected(expectedCode: String, block: () -> Unit) {
-        try { block(); fail("无效控制事务必须拒绝") }
+        try { block(); fail("Invalid control transactions must be rejected") }
         catch (error: CoreTransportException) { assertEquals(expectedCode, error.code) }
     }
 

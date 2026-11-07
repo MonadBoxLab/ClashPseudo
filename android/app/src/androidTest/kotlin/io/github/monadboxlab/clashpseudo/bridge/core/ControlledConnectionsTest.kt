@@ -67,13 +67,13 @@ class ControlledConnectionsTest {
         var uiStopConfirmed = false
         var lastSummary: Pair<Int, Int>? = null
         var automation: UiAutomation? = null
-        var stage = "准备真实 UI"
+        var stage = "Prepare the actual UI"
         var primaryFailure: Throwable? = null
         var startDispatched = false
         var startupWork: List<Map<String, Any?>> = emptyList()
         var lastUiLabels: List<String> = emptyList()
         fun startupFinished(remaining: Long): Boolean {
-            check(remaining > 0) { "原 startup 期限已到" }
+            check(remaining > 0) { "The original startup deadline has expired" }
             val infos = androidx.work.WorkManager.getInstance(context)
                 .getWorkInfosForUniqueWork("update-reconcile")
                 .get(minOf(remaining, 5_000L), TimeUnit.MILLISECONDS)
@@ -112,9 +112,9 @@ class ControlledConnectionsTest {
             }
             Log.e("ConnectionLiveRead", "FAILED nonce=$nonce stage=$stage location=$location", error)
         }
-        // overview 动画运行时读取当前 SDK tree，不等待动画停止。
+        // Read the current SDK tree while the overview animation runs; do not wait for it to stop.
         fun uiNodes(): List<AccessibilityNodeInfo> {
-            val currentAutomation = checkNotNull(automation) { "真实 UiAutomation 尚未取得" }
+            val currentAutomation = checkNotNull(automation) { "Actual UiAutomation has not been acquired" }
             val nodes = mutableListOf<AccessibilityNodeInfo>()
             val pending = ArrayDeque<AccessibilityNodeInfo>()
             currentAutomation.rootInActiveWindow?.let { pending.add(it) }
@@ -230,18 +230,18 @@ class ControlledConnectionsTest {
                 }
                 if (!startupReady) Thread.sleep(100)
             }
-            assertTrue("真实 MainActivity 与 startup WorkInfo/owner/executor 未在原 UI 期限内就绪", startupReady)
-            stage = "取得真实 UiAutomation"
-            automation = checkNotNull(instrumentation.uiAutomation) { "默认 flags 的 UiAutomation 未连接" }
+            assertTrue("Actual MainActivity and startup WorkInfo/owner/executor were not ready within the original UI deadline", startupReady)
+            stage = "Acquire actual UiAutomation"
+            automation = checkNotNull(instrumentation.uiAutomation) { "UiAutomation with default flags is not connected" }
             Log.i("ConnectionLiveRead", "UI_AUTOMATION nonce=$nonce flags=0 elapsedMs=${SystemClock.elapsedRealtime()}")
-            stage = "读取已选配置并通过真实 UI Start"
+            stage = "Read the selected configuration and Start through the actual UI"
             while (uiNodes().none { uiLabel(it) == "p5-load-r4n4" } &&
                 SystemClock.elapsedRealtime() < uiReadyBy) Thread.sleep(100)
             assertTrue("Controlled selection was not shown before UI Start",
                 uiNodes().any { uiLabel(it) == "p5-load-r4n4" })
             clickUi("Start tunnel")
             startDispatched = true
-            stage = "观察真实运行 context 与受控连接"
+            stage = "Observe the actual running context and controlled connections"
             while (SystemClock.elapsedRealtime() < deadline) {
                 val session = PseudoVpnService.session.snapshot()
                 if (session.configId == expectedId && session.revision == expectedRevision &&
@@ -449,7 +449,7 @@ class ControlledConnectionsTest {
             diagnose(error, "try")
             throw error
         } finally {
-            stage = "确认实际 cleanup 与 writer/query drain"
+            stage = "Confirm actual cleanup and writer/query drain"
             try {
                 val beforeCleanup = platform.status()
                 val sessionBeforeCleanup = PseudoVpnService.session.snapshot()
@@ -495,13 +495,13 @@ class ControlledConnectionsTest {
                     assertEquals(false, stopped["vpnRunning"])
                     assertEquals(false, stopped["lanRunning"])
                 } else {
-                    assertTrue("未建立 context 时不能留下存活的 core", stopped["phase"] == null || stopped["phase"] == Contract.CORE_PHASE_EXITED)
+                    assertTrue("No live core may remain when a context was not established", stopped["phase"] == null || stopped["phase"] == Contract.CORE_PHASE_EXITED)
                     assertFalse(stopped["vpnRunning"] == true)
                     assertFalse(stopped["lanRunning"] == true)
                 }
                 assertEquals(false, stopped["recoveryRequired"])
                 val released = CoreResourceGate.forApplication(context).tryAcquire()
-                assertNotNull("真实 process death 后必须释放资源锁", released)
+                assertNotNull("The resource lock must be released after actual process death", released)
                 released!!.close()
                 CoreIpcTestDriver.assertNoGoInApplication()
             } catch (cleanup: Throwable) {

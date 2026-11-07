@@ -10,7 +10,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-// 下载显式注入 UI 使用的 factory；delegate 执行真实 loopback HTTPS 验证。
+// Downloads explicitly inject the UI factory; the delegate performs actual loopback
+// HTTPS validation.
 class _RawHttp extends HttpOverrides {}
 
 class _RecordingHttp extends HttpOverrides {

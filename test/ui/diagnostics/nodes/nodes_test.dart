@@ -53,67 +53,73 @@ void main() {
   );
 
   for (final intent in ['same', 'search', 'source']) {
-    testWidgets('节点当前页越界时保留最新读取意图：$intent', (tester) async {
-      final bridge = NodeBridge();
-      final app = TestApp(bridge);
-      final controller = NodesController(app)..setVisible(true);
-      addTearDown(() {
-        controller.dispose();
-        app.dispose();
-      });
-      Map<String, dynamic> smallerPage({int offset = 0, int generation = 1}) {
-        final value = page(offset: offset, generation: generation);
-        final original = value['page'] as Map<String, dynamic>;
-        return {
-          ...value,
-          'page': {
-            ...original,
-            'token': 'b' * 64,
-            'total': 20,
-            'nextOffset': -1,
-            'nodes': (original['nodes'] as List)
-                .take(offset == 0 ? 20 : 0)
-                .toList(),
-          },
-        };
-      }
+    testWidgets(
+      'out-of-range node page retains the latest read intent: $intent',
+      (tester) async {
+        final bridge = NodeBridge();
+        final app = TestApp(bridge);
+        final controller = NodesController(app)..setVisible(true);
+        addTearDown(() {
+          controller.dispose();
+          app.dispose();
+        });
+        Map<String, dynamic> smallerPage({int offset = 0, int generation = 1}) {
+          final value = page(offset: offset, generation: generation);
+          final original = value['page'] as Map<String, dynamic>;
+          return {
+            ...value,
+            'page': {
+              ...original,
+              'token': 'b' * 64,
+              'total': 20,
+              'nextOffset': -1,
+              'nodes': (original['nodes'] as List)
+                  .take(offset == 0 ? 20 : 0)
+                  .toList(),
+            },
+          };
+        }
 
-      bridge.replies.single.complete(page());
-      await tester.pump();
-      final next = controller.next();
-      expect(bridge.queries.last['token'], 'a' * 64);
-      bridge.replies.last.complete(page(offset: 50));
-      await next;
-      await tester.pump();
-      final retained = controller.nodes;
-      await tester.pump(const Duration(seconds: 30));
-      expect(bridge.queries.last['offset'], 50);
-      expect(bridge.queries.last['token'], '');
-      if (intent == 'search') {
-        controller.filter('latest');
-        await tester.pump(const Duration(milliseconds: 250));
-      } else if (intent == 'source') {
-        app.publish(AppSnapshot(phase: 'RUNNING', core: core(2)));
-      }
-      expect(bridge.queries, hasLength(3));
-      bridge.replies.last.complete(smallerPage(offset: 50));
-      await tester.pump();
-      expect(bridge.queries, hasLength(4));
-      expect(bridge.queries.last['offset'], 0);
-      expect(bridge.queries.last['token'], '');
-      expect(bridge.queries.last['search'], intent == 'search' ? 'latest' : '');
-      expect(controller.nodes, same(retained));
-      bridge.replies.last.complete(
-        smallerPage(generation: intent == 'source' ? 2 : 1),
-      );
-      await tester.pump();
-      expect(controller.offset, 0);
-      expect(controller.total, 20);
-      expect(controller.nodes, hasLength(20));
-      expect(controller.source?.generation, intent == 'source' ? 2 : 1);
-      expect(controller.current, isTrue);
-      controller.setVisible(false);
-    });
+        bridge.replies.single.complete(page());
+        await tester.pump();
+        final next = controller.next();
+        expect(bridge.queries.last['token'], 'a' * 64);
+        bridge.replies.last.complete(page(offset: 50));
+        await next;
+        await tester.pump();
+        final retained = controller.nodes;
+        await tester.pump(const Duration(seconds: 30));
+        expect(bridge.queries.last['offset'], 50);
+        expect(bridge.queries.last['token'], '');
+        if (intent == 'search') {
+          controller.filter('latest');
+          await tester.pump(const Duration(milliseconds: 250));
+        } else if (intent == 'source') {
+          app.publish(AppSnapshot(phase: 'RUNNING', core: core(2)));
+        }
+        expect(bridge.queries, hasLength(3));
+        bridge.replies.last.complete(smallerPage(offset: 50));
+        await tester.pump();
+        expect(bridge.queries, hasLength(4));
+        expect(bridge.queries.last['offset'], 0);
+        expect(bridge.queries.last['token'], '');
+        expect(
+          bridge.queries.last['search'],
+          intent == 'search' ? 'latest' : '',
+        );
+        expect(controller.nodes, same(retained));
+        bridge.replies.last.complete(
+          smallerPage(generation: intent == 'source' ? 2 : 1),
+        );
+        await tester.pump();
+        expect(controller.offset, 0);
+        expect(controller.total, 20);
+        expect(controller.nodes, hasLength(20));
+        expect(controller.source?.generation, intent == 'source' ? 2 : 1);
+        expect(controller.current, isTrue);
+        controller.setVisible(false);
+      },
+    );
   }
 
   testWidgets(
@@ -445,51 +451,54 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
   }
-  testWidgets('节点自动读取当前页并在页码越界时保留旧内容直到新页完成', (tester) async {
-    final bridge = NodeBridge();
-    final app = TestApp(bridge);
-    final controller = NodesController(app)..setVisible(true);
-    addTearDown(() {
-      controller.dispose();
-      app.dispose();
-    });
-    bridge.replies.first.complete(page());
-    await tester.pump();
-    final next = controller.next();
-    bridge.replies.last.complete(page(offset: 50));
-    await next;
-    expect(controller.offset, 50);
-    expect(controller.nodes.single['name'], 'node-50');
-    final previous = controller.nodes;
-    await tester.pump(const Duration(seconds: 30));
-    expect(bridge.queries.last['offset'], 50);
-    expect(bridge.queries.last['token'], '');
-    expect(controller.nodes, same(previous));
-    final shortened = page(offset: 50);
-    final shortenedPage = shortened['page'] as Map;
-    shortenedPage['total'] = 1;
-    shortenedPage['nodes'] = <Object>[];
-    shortenedPage['nextOffset'] = -1;
-    shortenedPage['token'] = 'b' * 64;
-    bridge.replies.last.complete(shortened);
-    await tester.pump();
-    expect(bridge.queries.last['offset'], 0);
-    expect(bridge.queries.last['token'], '');
-    expect(controller.nodes, same(previous));
-    final first = page();
-    final firstPage = first['page'] as Map;
-    firstPage['total'] = 1;
-    firstPage['nodes'] = [(firstPage['nodes'] as List).first];
-    firstPage['nextOffset'] = -1;
-    firstPage['token'] = 'b' * 64;
-    bridge.replies.last.complete(first);
-    await tester.pump();
-    expect(controller.offset, 0);
-    expect(controller.nodes.single['name'], 'node-0');
-    expect(controller.token, 'b' * 64);
-    expect(app.commands, isEmpty);
-    controller.setVisible(false);
-  });
+  testWidgets(
+    'nodes automatically read the current page and retain old content after an out-of-range page until the new page completes',
+    (tester) async {
+      final bridge = NodeBridge();
+      final app = TestApp(bridge);
+      final controller = NodesController(app)..setVisible(true);
+      addTearDown(() {
+        controller.dispose();
+        app.dispose();
+      });
+      bridge.replies.first.complete(page());
+      await tester.pump();
+      final next = controller.next();
+      bridge.replies.last.complete(page(offset: 50));
+      await next;
+      expect(controller.offset, 50);
+      expect(controller.nodes.single['name'], 'node-50');
+      final previous = controller.nodes;
+      await tester.pump(const Duration(seconds: 30));
+      expect(bridge.queries.last['offset'], 50);
+      expect(bridge.queries.last['token'], '');
+      expect(controller.nodes, same(previous));
+      final shortened = page(offset: 50);
+      final shortenedPage = shortened['page'] as Map;
+      shortenedPage['total'] = 1;
+      shortenedPage['nodes'] = <Object>[];
+      shortenedPage['nextOffset'] = -1;
+      shortenedPage['token'] = 'b' * 64;
+      bridge.replies.last.complete(shortened);
+      await tester.pump();
+      expect(bridge.queries.last['offset'], 0);
+      expect(bridge.queries.last['token'], '');
+      expect(controller.nodes, same(previous));
+      final first = page();
+      final firstPage = first['page'] as Map;
+      firstPage['total'] = 1;
+      firstPage['nodes'] = [(firstPage['nodes'] as List).first];
+      firstPage['nextOffset'] = -1;
+      firstPage['token'] = 'b' * 64;
+      bridge.replies.last.complete(first);
+      await tester.pump();
+      expect(controller.offset, 0);
+      expect(controller.nodes.single['name'], 'node-0');
+      expect(controller.token, 'b' * 64);
+      expect(app.commands, isEmpty);
+      controller.setVisible(false);
+    },
+  );
 
   group('read passthrough', () {
     testWidgets(
@@ -531,133 +540,142 @@ void main() {
       },
     );
 
-    testWidgets('节点只展示业务字段，读取错误保留真实原因', (tester) async {
-      final bridge = NodeBridge();
-      final app = TestApp(bridge);
-      final taskRoutes = AppTaskNavigatorObserver();
-      addTearDown(app.dispose);
-      await tester.pumpWidget(
-        MaterialApp(
-          locale: const Locale('en'),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          navigatorObservers: [taskRoutes],
-          home: NodesPage(app: app),
-        ),
-      );
-      final value = page();
-      value['unknown-envelope'] = {'original': '${'x' * 20000}tail'};
-      final row = ((value['page'] as Map)['nodes'] as List).first as Map;
-      row['sourceKind'] = 'future-source';
-      row['future-values'] = [false, 0, null, <Object?>[]];
-      row['extra'] = {
-        'https://example.test': {
-          'alive': true,
-          'history': [
-            {'time': '2026-01-01T00:00:00Z', 'delay': 42},
+    testWidgets(
+      'nodes show only business fields and read errors retain actual causes',
+      (tester) async {
+        final bridge = NodeBridge();
+        final app = TestApp(bridge);
+        final taskRoutes = AppTaskNavigatorObserver();
+        addTearDown(app.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            locale: const Locale('en'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            navigatorObservers: [taskRoutes],
+            home: NodesPage(app: app),
+          ),
+        );
+        final value = page();
+        value['unknown-envelope'] = {'original': '${'x' * 20000}tail'};
+        final row = ((value['page'] as Map)['nodes'] as List).first as Map;
+        row['sourceKind'] = 'future-source';
+        row['future-values'] = [false, 0, null, <Object?>[]];
+        row['extra'] = {
+          'https://example.test': {
+            'alive': true,
+            'history': [
+              {'time': '2026-01-01T00:00:00Z', 'delay': 42},
+            ],
+          },
+        };
+        row['provenance'] = {
+          'contributors': [
+            {'kind': 'future-kind'},
           ],
-        },
-      };
-      row['provenance'] = {
-        'contributors': [
-          {'kind': 'future-kind'},
-        ],
-      };
-      bridge.replies.single.complete(value);
-      await tester.pumpAndSettle();
-      expect(find.text('node-0'), findsOneWidget);
-      expect(find.byIcon(Icons.data_object), findsNothing);
-      expect(find.byIcon(Icons.refresh), findsNothing);
-      await tester.tap(find.widgetWithText(ListTile, 'node-0'));
-      await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(
-        find.text('https://example.test'),
-        200,
-        scrollable: find
+        };
+        bridge.replies.single.complete(value);
+        await tester.pumpAndSettle();
+        expect(find.text('node-0'), findsOneWidget);
+        expect(find.byIcon(Icons.data_object), findsNothing);
+        expect(find.byIcon(Icons.refresh), findsNothing);
+        await tester.tap(find.widgetWithText(ListTile, 'node-0'));
+        await tester.pumpAndSettle();
+        await tester.scrollUntilVisible(
+          find.text('https://example.test'),
+          200,
+          scrollable: find
+              .descendant(
+                of: find.byType(ListView).last,
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
+        expect(find.text('https://example.test'), findsOneWidget);
+        expect(find.text('42 ms'), findsOneWidget);
+        expect(find.textContaining('future-values'), findsNothing);
+        expect(find.byIcon(Icons.data_object), findsNothing);
+        await tester.tap(find.byType(BackButton).last);
+        await tester.pumpAndSettle();
+        final count = bridge.queries.length;
+        await tester.pump(const Duration(seconds: 30));
+        expect(bridge.queries, hasLength(count + 1));
+        bridge.replies.last.completeError(
+          PlatformFailure(
+            code: 'native',
+            message: 'original-node-bridge-cause',
+            details: messages.androidErrorNativeReadUnavailable
+                .withDetail('original-node-native-cause: fixture-secret')
+                .toMap(),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+        await tester.pumpAndSettle();
+        final status = find
             .descendant(
-              of: find.byType(ListView).last,
-              matching: find.byType(Scrollable),
+              of: find.byType(SnackBar),
+              matching: find.byType(TextButton),
             )
-            .first,
-      );
-      expect(find.text('https://example.test'), findsOneWidget);
-      expect(find.text('42 ms'), findsOneWidget);
-      expect(find.textContaining('future-values'), findsNothing);
-      expect(find.byIcon(Icons.data_object), findsNothing);
-      await tester.tap(find.byType(BackButton).last);
-      await tester.pumpAndSettle();
-      final count = bridge.queries.length;
-      await tester.pump(const Duration(seconds: 30));
-      expect(bridge.queries, hasLength(count + 1));
-      bridge.replies.last.completeError(
-        PlatformFailure(
-          code: 'native',
-          message: 'original-node-bridge-cause',
-          details: messages.androidErrorNativeReadUnavailable
-              .withDetail('original-node-native-cause: fixture-secret')
-              .toMap(),
-        ),
-      );
-      await tester.pump();
-      await tester.pump();
-      await tester.pumpAndSettle();
-      final status = find
-          .descendant(
-            of: find.byType(SnackBar),
-            matching: find.byType(TextButton),
-          )
-          .first;
-      expect(tester.widget<TextButton>(status).onPressed, isNotNull);
-      expect(status.hitTestable(), findsOneWidget);
-      final originContext = tester.element(status);
-      final origin = ModalRoute.of(originContext)!;
-      final workspace = tester.state<CollectionWorkspaceState>(
-        find.byType(CollectionWorkspace),
-      );
-      expect(app.foreground, isTrue);
-      expect(origin.isActive, isTrue);
-      expect(origin.isCurrent, isTrue);
-      expect(taskRoutes.stack.last, same(origin));
-      expect(AppTaskActivity.isActive(originContext), isTrue);
-      expect(AppTaskActivity.routeIsActive(origin), isTrue);
-      expect(workspace.masterVisible, isTrue);
-      expect(workspace.masterPresented, isTrue);
-      await tester.tap(status);
-      await tester.pump();
-      expect(taskRoutes.stack.last, isA<DialogRoute<void>>());
-      final popup = taskRoutes.stack.last as DialogRoute<void>;
-      expect(find.byType(AlertDialog), findsOneWidget);
-      expect(
-        ModalRoute.of(tester.element(find.byType(AlertDialog))),
-        same(popup),
-      );
-      expect(popup.isActive, isTrue);
-      expect(popup.isCurrent, isTrue);
-      expect(popup.animation!.status, AnimationStatus.forward);
-      expect(popup.animation!.value, 0);
-      expect(AppTaskActivity.routeIsActive(origin, ownedPopup: popup), isTrue);
-      await tester.pump(
-        popup.transitionDuration + const Duration(microseconds: 1),
-      );
-      expect(taskRoutes.stack.last, same(popup));
-      expect(popup.isActive, isTrue);
-      expect(popup.isCurrent, isTrue);
-      expect(popup.animation!.status, AnimationStatus.completed);
-      expect(popup.animation!.value, 1);
-      await tester.pumpAndSettle();
-      expect(taskRoutes.stack.last, same(popup));
-      expect(find.byType(AlertDialog), findsOneWidget);
-      await tester.tap(
-        find.byKey(const ValueKey('operation-technical-details')),
-      );
-      await tester.pumpAndSettle();
-      expect(
-        find.textContaining('original-node-native-cause: fixture-secret'),
-        findsOneWidget,
-      );
-      expect(find.textContaining('original-node-bridge-cause'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    });
+            .first;
+        expect(tester.widget<TextButton>(status).onPressed, isNotNull);
+        expect(status.hitTestable(), findsOneWidget);
+        final originContext = tester.element(status);
+        final origin = ModalRoute.of(originContext)!;
+        final workspace = tester.state<CollectionWorkspaceState>(
+          find.byType(CollectionWorkspace),
+        );
+        expect(app.foreground, isTrue);
+        expect(origin.isActive, isTrue);
+        expect(origin.isCurrent, isTrue);
+        expect(taskRoutes.stack.last, same(origin));
+        expect(AppTaskActivity.isActive(originContext), isTrue);
+        expect(AppTaskActivity.routeIsActive(origin), isTrue);
+        expect(workspace.masterVisible, isTrue);
+        expect(workspace.masterPresented, isTrue);
+        await tester.tap(status);
+        await tester.pump();
+        expect(taskRoutes.stack.last, isA<DialogRoute<void>>());
+        final popup = taskRoutes.stack.last as DialogRoute<void>;
+        expect(find.byType(AlertDialog), findsOneWidget);
+        expect(
+          ModalRoute.of(tester.element(find.byType(AlertDialog))),
+          same(popup),
+        );
+        expect(popup.isActive, isTrue);
+        expect(popup.isCurrent, isTrue);
+        expect(popup.animation!.status, AnimationStatus.forward);
+        expect(popup.animation!.value, 0);
+        expect(
+          AppTaskActivity.routeIsActive(origin, ownedPopup: popup),
+          isTrue,
+        );
+        await tester.pump(
+          popup.transitionDuration + const Duration(microseconds: 1),
+        );
+        expect(taskRoutes.stack.last, same(popup));
+        expect(popup.isActive, isTrue);
+        expect(popup.isCurrent, isTrue);
+        expect(popup.animation!.status, AnimationStatus.completed);
+        expect(popup.animation!.value, 1);
+        await tester.pumpAndSettle();
+        expect(taskRoutes.stack.last, same(popup));
+        expect(find.byType(AlertDialog), findsOneWidget);
+        await tester.tap(
+          find.byKey(const ValueKey('operation-technical-details')),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.textContaining('original-node-native-cause: fixture-secret'),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('original-node-bridge-cause'),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
   });
 }

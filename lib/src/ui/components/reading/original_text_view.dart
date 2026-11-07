@@ -9,7 +9,8 @@ import '../../navigation/task_activity.dart';
 import '../feedback/operation_notice.dart';
 import 'technical_reading_pane.dart';
 
-/// 将文本分块显示，不修改正文、换行或拆开 UTF-16 代理对。
+/// Displays text in chunks without changing content or line breaks, or splitting UTF-16
+/// surrogate pairs.
 List<int> originalTextChunkEnds(String text) {
   final ends = <int>[];
   var start = 0;
@@ -55,10 +56,12 @@ class OriginalTextView extends StatefulWidget {
   final Widget? header;
   final Object? identity;
 
-  /// 开始复制和显示异步复制失败时，检查当前查看的对象是否仍允许操作。
+  /// Checks the viewed object's eligibility before copying and before showing an
+  /// asynchronous copy failure.
   final bool Function()? isCurrent;
 
-  /// 复制失败弹窗打开后，用其实际 Route 检查当前查看的对象是否仍允许操作。
+  /// After a copy-failure popup opens, checks the viewed object's eligibility with its
+  /// actual Route.
   final bool Function(ModalRoute<dynamic> ownedPopup)? isCurrentWithPopup;
 
   @override

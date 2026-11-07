@@ -18,7 +18,7 @@ class TaskShortcuts extends StatefulWidget {
   final Widget child;
   final bool enabled;
 
-  /// 只暂停快捷键，当前任务中的控件仍可获得焦点。
+  /// Pauses shortcuts only; controls in the current task can still receive focus.
   final bool shortcutsEnabled;
 
   final VoidCallback? onSearch;

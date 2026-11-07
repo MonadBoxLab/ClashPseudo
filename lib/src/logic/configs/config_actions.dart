@@ -43,7 +43,7 @@ class ConfigActions {
     try {
       await platform.stage(messages.stageStopping);
     } catch (failure, stack) {
-      // 进度投影失败不阻止实际 Stop。
+      // Progress projection failure must not prevent the actual Stop.
       stageFailure = failure;
       stageStack = stack;
     }

@@ -247,7 +247,8 @@ class AppController extends ChangeNotifier {
 
   Future<void> refresh() => _read.refresh();
 
-  /// 当前页面负责显示命令反馈时，全局提示等待该页面确认已显示结果或放弃显示。
+  /// When a page owns command feedback, global notices wait until it confirms display
+  /// or relinquishes ownership.
   bool get hasLocalFeedbackOwner => _feedback.owns(lastCommand);
 
   bool feedbackHandledLocally(
@@ -407,7 +408,8 @@ class AppController extends ChangeNotifier {
         notifyListeners();
       }
     }
-    // 提交命令和读取状态期间保留同一提交记录；停止请求仍按受理条件处理。
+    // Retain the same submission record while submitting and reading state; Stop
+    // requests still follow admission rules.
     try {
       if (!_disposed) await refresh();
     } finally {

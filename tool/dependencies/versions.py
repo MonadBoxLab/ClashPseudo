@@ -1,4 +1,4 @@
-"""读取应用版本声明，并在依赖更新后递增 patch 与 versionCode。"""
+"""Read the application version and increment patch and versionCode after dependency updates."""
 
 
 def _declaration(text):

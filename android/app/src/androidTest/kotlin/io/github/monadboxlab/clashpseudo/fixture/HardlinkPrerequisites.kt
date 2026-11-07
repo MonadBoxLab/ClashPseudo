@@ -8,7 +8,7 @@ import org.json.JSONObject
 import org.junit.Assume.assumeNoException
 import java.io.File
 
-/** 在测试的实际路径创建 hardlink；不支持时保留原 errno，并由 JUnit 记录 assumption。 */
+/** Create a hardlink at the test's actual path; if unsupported, preserve the original errno and record a JUnit assumption. */
 object HardlinkPrerequisites {
     fun link(source: File, target: File, selector: String) {
         try {
@@ -21,13 +21,13 @@ object HardlinkPrerequisites {
                 .put("errno", error.errno).put("error", error.toString()).toString()
             Log.w("HardlinkPrerequisites", detail, error)
             assumeNoException(detail, error)
-            throw AssertionError("JUnit assumption 未终止测试", error)
+            throw AssertionError("JUnit assumption did not terminate the test", error)
         }
         val original = Os.lstat(source.path)
         val linked = Os.lstat(target.path)
         check(OsConstants.S_ISREG(original.st_mode) && original.st_dev == linked.st_dev &&
             original.st_ino == linked.st_ino && original.st_nlink > 1L && linked.st_nlink == original.st_nlink) {
-            "hardlink 必须共享实际 inode 与 link count"
+            "Hardlinks must share the actual inode and link count"
         }
     }
 }

@@ -14,7 +14,7 @@ class NativeSession(private val clock: () -> Long = { android.os.SystemClock.ela
     private var phase = Phase.STOPPED
     private var error: AppMessage? = null
 
-    /** 将已校验的远端系统状态投影给现有界面；进程身份由 CoreClient 核对。 */
+    /** Project validated remote system state to the existing UI; CoreClient verifies process identity. */
     @Synchronized fun project(value: Map<String, Any?>) {
         generation = (value["generation"] as? Number)?.toLong() ?: generation
         configId = value["configId"] as? String

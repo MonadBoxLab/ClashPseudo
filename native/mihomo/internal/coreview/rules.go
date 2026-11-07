@@ -115,7 +115,7 @@ func RuleOrigin(cfg *config.Config, q RuleQuery) string {
 	return "normalized-rules"
 }
 
-// StreamRules只读取公开规则、DumpMrs和inline payload，不重读Vehicle.Path。
+// StreamRules only reads public rules, DumpMrs, and inline payloads; it does not reread Vehicle.Path.
 func StreamRules(cfg *config.Config, p *configinput.Provenance, q RuleQuery, emit func(any) error) (string, error) {
 	if err := q.Validate(); err != nil {
 		return "", err

@@ -39,7 +39,8 @@ class ConnectionController extends ChangeNotifier {
     }
   }
 
-  // 仅记录明确的读取结果；可见性清理和主动操作不表示读取恢复。
+  // Track explicit read results only; visibility cleanup and user actions do not imply
+  // read recovery.
   int readRevision = 0;
   bool? readFailed;
   void _readResult(bool failed) {

@@ -166,66 +166,71 @@ void main() {
     settings.value = settings.value.withAppearance('language', 'en');
   }
 
-  testWidgets('平台事件只更新对应来源并合并重复 LAN 状态', (tester) async {
-    await controller.initialize();
-    final initialReads = bridge.reads;
-    var changes = 0;
-    controller.addListener(() => changes++);
-    const codec = StandardMethodCodec();
-    Future<void> send(String method, Object? arguments) async {
-      final response = Completer<void>();
-      tester.binding.channelBuffers.push(
-        AppBridge.channel.name,
-        codec.encodeMethodCall(MethodCall(method, arguments)),
-        (data) {
-          expect(codec.decodeEnvelope(data!), isNull);
-          response.complete();
-        },
-      );
-      await response.future;
-    }
+  testWidgets(
+    'platform events update only the matching source and merge duplicate LAN state',
+    (tester) async {
+      await controller.initialize();
+      final initialReads = bridge.reads;
+      var changes = 0;
+      controller.addListener(() => changes++);
+      const codec = StandardMethodCodec();
+      Future<void> send(String method, Object? arguments) async {
+        final response = Completer<void>();
+        tester.binding.channelBuffers.push(
+          AppBridge.channel.name,
+          codec.encodeMethodCall(MethodCall(method, arguments)),
+          (data) {
+            expect(codec.decodeEnvelope(data!), isNull);
+            response.complete();
+          },
+        );
+        await response.future;
+      }
 
-    await send(ApplicationContract.uiEventLocalInterfacesChanged, {
-      'revision': 3,
-      'error': 'interface original',
-    });
-    expect(controller.localInterfacesRevision, 3);
-    expect(controller.localInterfacesError, 'interface original');
-    expect(changes, 1);
-    await send(ApplicationContract.uiEventLocalInterfacesChanged, {
-      'revision': 3,
-      'error': 'interface original',
-    });
-    await send(ApplicationContract.uiEventLocalInterfacesChanged, {
-      'revision': -1,
-      'error': null,
-    });
-    await send(ApplicationContract.uiEventLocalInterfacesChanged, {
-      'revision': 4,
-      'error': 17,
-    });
-    expect(changes, 1);
-    await send(ApplicationContract.uiEventLocalInterfacesChanged, {
-      'revision': 3,
-      'error': null,
-    });
-    expect(changes, 2);
-    expect(controller.localInterfacesError, isNull);
+      await send(ApplicationContract.uiEventLocalInterfacesChanged, {
+        'revision': 3,
+        'error': 'interface original',
+      });
+      expect(controller.localInterfacesRevision, 3);
+      expect(controller.localInterfacesError, 'interface original');
+      expect(changes, 1);
+      await send(ApplicationContract.uiEventLocalInterfacesChanged, {
+        'revision': 3,
+        'error': 'interface original',
+      });
+      await send(ApplicationContract.uiEventLocalInterfacesChanged, {
+        'revision': -1,
+        'error': null,
+      });
+      await send(ApplicationContract.uiEventLocalInterfacesChanged, {
+        'revision': 4,
+        'error': 17,
+      });
+      expect(changes, 1);
+      await send(ApplicationContract.uiEventLocalInterfacesChanged, {
+        'revision': 3,
+        'error': null,
+      });
+      expect(changes, 2);
+      expect(controller.localInterfacesError, isNull);
 
-    await send(ApplicationContract.uiEventApplicationsChanged, {
-      'package': 'app.alpha',
-    });
-    expect(controller.changedApplication, 'app.alpha');
-    await send(ApplicationContract.uiEventApplicationsChanged, {
-      'package': 'app.beta',
-    });
-    expect(controller.applicationsRevision, 2);
-    expect(controller.changedApplication, 'app.beta');
-    await send(ApplicationContract.uiEventApplicationsChanged, {'package': ''});
-    expect(changes, 4);
-    expect(bridge.reads, initialReads);
-    controller.setForeground(false);
-  });
+      await send(ApplicationContract.uiEventApplicationsChanged, {
+        'package': 'app.alpha',
+      });
+      expect(controller.changedApplication, 'app.alpha');
+      await send(ApplicationContract.uiEventApplicationsChanged, {
+        'package': 'app.beta',
+      });
+      expect(controller.applicationsRevision, 2);
+      expect(controller.changedApplication, 'app.beta');
+      await send(ApplicationContract.uiEventApplicationsChanged, {
+        'package': '',
+      });
+      expect(changes, 4);
+      expect(bridge.reads, initialReads);
+      controller.setForeground(false);
+    },
+  );
 
   testWidgets('composition keeps the controller refresh entry point', (
     tester,

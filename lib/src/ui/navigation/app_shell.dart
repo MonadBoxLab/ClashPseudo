@@ -456,7 +456,8 @@ class _AppShellState extends State<AppShell> {
         return true;
       }
 
-      // 两层 Navigator 都位于根页面时同步切换任务，首帧即停用旧任务的操作并开始切换动画。
+      // Switch tasks synchronously when both Navigators are at their roots; disable
+      // old-task actions and start the transition in the first frame.
       if (select()) return;
       if (!await _unwind(app, outer, outerRoot)) return;
       if (!await _unwind(app, navigator, root)) return;
@@ -513,7 +514,8 @@ class _AppShellState extends State<AppShell> {
       AppTaskNavigatorObserver.isCurrentPage(ModalRoute.of(context));
 
   Widget _pages(bool active, Route<dynamic>? root) {
-    // 页面被自己的弹窗覆盖时仍可接收操作结果；底层页面是否允许交互需要另行检查。
+    // A page covered by its own popup can still receive results; check underlying page
+    // interaction separately.
     final outer = ModalRoute.of(context);
     final outerNavigator = outer?.navigator;
     final innerNavigator = _navigator.currentState;
@@ -664,7 +666,8 @@ class _AppShellState extends State<AppShell> {
         } else {
           _barLayout = layout;
         }
-        // 仅保留导航控件用于退出动画，业务页面和内部 Navigator 始终使用同一棵组件树。
+        // Retain only navigation controls for the exit animation; business pages and
+        // the inner Navigator keep the same subtree.
         final railLayout = _railLayout ?? layout;
         final barLayout = _barLayout ?? layout;
         int selected(WorkspaceLayout layout) => layout.tasks.contains(_task)
@@ -851,7 +854,8 @@ class _AppShellState extends State<AppShell> {
                   ],
                 ),
               ),
-              // Scaffold 仅按非 null 判断是否消费 body 的底部 padding。
+              // Scaffold checks only for non-null when consuming the body's bottom
+              // padding.
               bottomNavigationBar: extent == 0 && !showBar
                   ? null
                   : SizedBox(

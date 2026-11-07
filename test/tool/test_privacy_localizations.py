@@ -1,4 +1,4 @@
-"""固定隐私定稿的逐字内容与分节接口，不依赖 Flutter 或业务模块。"""
+"""Verify finalized privacy text and section interfaces without Flutter or application modules."""
 
 import hashlib
 import json
@@ -14,7 +14,7 @@ SECTIONS = (
     "privacyRecordsAndLogs",
     "privacyDeletingData",
 )
-# 完整隐私说明的UTF-8摘要；全文与分节同时检查。
+# UTF-8 digests of the complete privacy notices; verify both full text and sections.
 APPROVED_BODY_SHA256 = {
     "zh": "6021980a6239995b15846d607430074153db57e13bc08a71eb9ce2cf69bafe23",
     "en": "03cd5dbdd18129d96d164aedf3c3386d4aa8b92523bc5d2acdde2cdab10af45f",

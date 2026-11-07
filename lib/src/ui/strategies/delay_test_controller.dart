@@ -57,7 +57,7 @@ class DelayTestController extends ChangeNotifier {
   }) async {
     _requests++;
     final grace = Timer(const Duration(seconds: 5), () {
-      final error = TimeoutException('Delay 请求仍未结束');
+      final error = TimeoutException('Delay request has not completed');
       if (cleanup) {
         cleanupFailure = error;
         cleanupStack = StackTrace.current;

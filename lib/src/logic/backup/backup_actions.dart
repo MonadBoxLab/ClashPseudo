@@ -271,7 +271,8 @@ class BackupActions {
             platform,
             runInput,
           ).execute({'action': 'start'});
-          // 已收到启动操作的实际回执；之后收到的取消请求不能将启动结果改为未执行。
+          // The start receipt has arrived; later cancellation cannot mark the start as
+          // unexecuted.
           final actual = await platform.snapshot();
           if (!actual.confirmed || !_runningIdentity(actual)) {
             throw ConfigFailure(messages.runningConfigUnavailable);

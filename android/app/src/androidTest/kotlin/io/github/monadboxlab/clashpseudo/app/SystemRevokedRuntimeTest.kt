@@ -44,7 +44,7 @@ import java.net.Socket
 import java.security.MessageDigest
 import java.util.UUID
 
-/** 使用真实 :core revoke、不可变输入与尚未读取的生产 FD 检查恢复顺序。 */
+/** Check recovery order using actual :core revoke, immutable input, and an unread production FD. */
 class SystemRevokedRuntimeTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val platform = CorePlatformTestDriver(context)
@@ -71,20 +71,20 @@ class SystemRevokedRuntimeTest {
         )
         main {
             for (candidate in stale) {
-                assertFalse("旧身份的 revoke 不能撤销当前 owner", AppBridge.systemRevoked(candidate))
+                assertFalse("Revoke with an old identity must not revoke the current owner", AppBridge.systemRevoked(candidate))
                 assertEquals(owner, AppBridge.operationId)
                 assertEquals(admittedAt, AppBridge.operationAdmittedAt)
                 assertEquals(deadline, AppBridge.operationDeadline)
                 assertEquals("waiting", AppBridge.command?.get("revocationState"))
             }
             assertEquals(true, AppBridge.runtimeState()["writerBusy"])
-            assertFalse("旧 FD 尚未 drain 时不能执行 LAN 恢复", AppBridge.logic.ownsOperation(owner))
+            assertFalse("LAN recovery must not run before the old FD drains", AppBridge.logic.ownsOperation(owner))
         }
-        assertEquals("旧请求尚未读取时不能发布 LAN 输入", beforeFiles, runRecords())
+        assertEquals("LAN input must not be published while the old request is unread", beforeFiles, runRecords())
         assertEquals(running.status["processId"], client.status()["processId"])
         assertTrue(drain(held).terminal.getBoolean("complete"))
         try {
-            platform.await("revoke 后只恢复 LAN", 120_000) {
+            platform.await("Restore only LAN after revoke", 120_000) {
                 val status = client.status()
                 status["phase"] == Contract.CORE_PHASE_READY && status["processId"] != running.status["processId"] &&
                     status["lanRunning"] == true && status["vpnRunning"] == false &&
@@ -108,7 +108,7 @@ class SystemRevokedRuntimeTest {
         assertFalse(record.getBoolean("vpnIntent"))
         assertTrue(record.getBoolean("lanIntent"))
         for (field in listOf("id", "revision", "body", "overrides", "choices", "composition", "access", "packages")) {
-            assertEquals("LAN 恢复改变了 immutable input 的 $field", running.record.get(field).toString(), record.get(field).toString())
+            assertEquals("LAN recovery changed immutable input field $field", running.record.get(field).toString(), record.get(field).toString())
         }
         val actual = platform.query(Contract.CORE_OPERATION_SNAPSHOT)
         assertTrue(actual.terminal.getBoolean("complete"))
@@ -121,11 +121,11 @@ class SystemRevokedRuntimeTest {
             it.getString("name") == running.listenerName && it.getString("state") == "bound"
         })
         Socket().use { it.connect(InetSocketAddress(running.address, running.port), 5_000) }
-        platform.await("原 VPN Service 退出") { !CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java) }
-        main { assertNull("直接调用 callback 不改变 SDK grant", VpnService.prepare(context)) }
-        // 原进程的迟到事件不能停止或恢复后来建立的 LAN-only context。
+        platform.await("Original VPN Service exits") { !CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java) }
+        main { assertNull("Calling the callback directly must not change the SDK grant", VpnService.prepare(context)) }
+        // Late events from the original process must not stop or restore a later LAN-only context.
         assertFalse(main { AppBridge.systemRevoked(event) })
-        assertFalse("AppRuntimeService 必须拒绝原 process 的迟到 revoke", dispatchRuntimeEvent(running.status))
+        assertFalse("AppRuntimeService must reject late revoke from the original process", dispatchRuntimeEvent(running.status))
         assertEquals(after["processId"], client.status()["processId"])
         assertEquals(after["inputId"], client.status()["inputId"])
         assertEquals(true, client.status()["lanRunning"])
@@ -153,7 +153,7 @@ class SystemRevokedRuntimeTest {
         assertEquals(running.status["processId"], client.status()["processId"])
         assertEquals(running.status["inputId"], client.status()["inputId"])
         assertEquals(beforeFiles, runRecords())
-        // 等待已排入 main 的 retry 经过一次调度，不能迟到启动 LAN。
+        // Let the retry queued on main run once; it must not start LAN late.
         val idle = java.util.concurrent.CountDownLatch(1)
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ idle.countDown() }, 150L)
         assertTrue(idle.await(10, java.util.concurrent.TimeUnit.SECONDS))
@@ -161,7 +161,7 @@ class SystemRevokedRuntimeTest {
         assertEquals(beforeFiles, runRecords())
         assertEquals(false, client.status()["vpnRunning"])
         assertEquals(false, client.status()["lanRunning"])
-        assertFalse("停止后的迟到 revoke 不能重新创建 core", dispatchRuntimeEvent(running.status))
+        assertFalse("Late revoke after Stop must not recreate the core", dispatchRuntimeEvent(running.status))
         assertFalse(dispatchRuntimeEvent(running.status, android.os.DeadObjectException()))
         main { assertEquals(Contract.CORE_PHASE_EXITED, client.status()["phase"]) }
         assertFalse(CoreIpcTestDriver.servicePresent(context, CoreService::class.java))
@@ -185,7 +185,7 @@ class SystemRevokedRuntimeTest {
             submit(Contract.CORE_OPERATION_PREPARE, identity, mapOf("purpose" to Contract.CORE_PURPOSE_RUNNING,
                 "vpnIntent" to true, "lanIntent" to false, "explicitStart" to true,
                 "admittedAt" to at, "deadline" to at + Contract.OPERATION_ORDINARY_TIMEOUT_MS))
-            platform.await("STARTING 的真实 PREPARE gate") {
+            platform.await("Actual PREPARE gate during STARTING") {
                 CorePreparationObserver.workerGateState(context) != null && client.status()["phase"] == Contract.CORE_PHASE_LOADING
             }
             val gate = checkNotNull(CorePreparationObserver.workerGateState(context))
@@ -212,7 +212,7 @@ class SystemRevokedRuntimeTest {
                 receipt.write(1)
                 receipt.flush()
             }
-            platform.await("STARTING PREPARE 收到 revoke 取消") {
+            platform.await("STARTING PREPARE receives revoke cancellation") {
                 checkNotNull(CorePreparationObserver.workerGateState(context)).let { it.getBoolean("cancelObserved") && it.getBoolean("finished") }
             }
             observer.awaitDeath()
@@ -248,7 +248,7 @@ class SystemRevokedRuntimeTest {
         val rows = LocalInterfaces(context).snapshot()["addresses"] as List<*>
         val row = checkNotNull(rows.filterIsInstance<Map<*, *>>().firstOrNull {
             it["selectable"] == true && it["available"] == true && InetAddress.getByName(it["address"] as String) is Inet4Address
-        }) { "设备没有可选择的实际 LAN IPv4 接口" }
+        }) { "Device has no selectable LAN IPv4 interface" }
         val address = InetAddress.getByName(row["address"] as String)
         val port = ServerSocket().use { it.bind(InetSocketAddress(address, 0), 1); it.localPort }
         val name = "clash-pseudo-lan-" + Base64.encodeToString("${row["interfaceName"]}\u0000${row["address"]}".toByteArray(),
@@ -278,7 +278,7 @@ class SystemRevokedRuntimeTest {
                 "deadline" to at + Contract.OPERATION_ORDINARY_TIMEOUT_MS, "lanInterfaces" to listOf(mapOf(
                     "listenerName" to name, "interfaceName" to row["interfaceName"], "interfaceIndex" to row["interfaceIndex"], "address" to row["address"])))))
             assertTrue(prepared.terminal.toString(), prepared.terminal.getBoolean("complete"))
-            platform.await("VPN 与 LAN 实际就绪") { client.status()["phase"] == Contract.CORE_PHASE_READY &&
+            platform.await("VPN and LAN are actually ready") { client.status()["phase"] == Contract.CORE_PHASE_READY &&
                 client.status()["vpnRunning"] == true && client.status()["lanRunning"] == true && !AppBridge.logic.busy }
             val status = platform.status()
             val observer = CoreIpcTestDriver.fixture().also(observers::add)
@@ -318,7 +318,7 @@ class SystemRevokedRuntimeTest {
     }
 
     private fun awaitWaiting(running: Running): String {
-        platform.await("revoke 等待真实请求 FD drain", 10_000) {
+        platform.await("Revoke waits for the actual request FD to drain", 10_000) {
             AppBridge.command?.get("action") == "systemRevoked" && AppBridge.command?.get("revocationState") == "waiting"
         }
         return main {
@@ -356,9 +356,9 @@ class SystemRevokedRuntimeTest {
             }
             val json = JSONObject(snapshot).put("failure", failure.stackTraceToString()).toString()
             val file = File(AppFiles.work(context), "revoke-diagnostic-${UUID.randomUUID()}.json")
-            check(file.createNewFile()) { "无法创建 revoke 诊断文件" }
+            check(file.createNewFile()) { "Cannot create the revoke diagnostic file" }
             CorePrivateFiles.write(file, json.toByteArray(Charsets.UTF_8))
-            failure.addSuppressed(IllegalStateException("revoke 诊断 ${file.absolutePath}\n$json"))
+            failure.addSuppressed(IllegalStateException("Revoke diagnostics ${file.absolutePath}\n$json"))
             android.util.Log.e("RevokeDiagnostics", "${file.absolutePath}\n$json")
         } catch (error: Throwable) {
             if (error !== failure) failure.addSuppressed(error)
@@ -401,7 +401,7 @@ class SystemRevokedRuntimeTest {
                     return CoreIpcTestDriver.Reply(if (output.size() == 0) JSONObject() else JSONObject(CoreFrames.utf8(output.toByteArray())),
                         JSONObject(CoreFrames.utf8(bytes)))
                 }
-                else -> error("本次调用包含意外 frame kind：${frame["kind"]}")
+                else -> error("Unexpected frame kind in this call: ${frame["kind"]}")
             }
         }
     }
@@ -439,18 +439,18 @@ class SystemRevokedRuntimeTest {
     }
 
     private fun requireIdle() {
-        platform.await("现有 writer 退出") { AppBridge.operationId == null && !AppBridge.logic.busy &&
+        platform.await("Existing writer exits") { AppBridge.operationId == null && !AppBridge.logic.busy &&
             !AppBridge.pendingSystemRestore && AppBridge.runtimeState()["writerBusy"] == false }
         main {
             assertEquals("STOPPED", AppBridge.runtimeState()["phase"])
             assertFalse(CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java))
-            assertNull("测试必须已有 VPN grant", VpnService.prepare(context))
+            assertNull("Test requires an existing VPN grant", VpnService.prepare(context))
             assertNotEquals(true, PseudoVpnService.alwaysOnState())
         }
         CoreIpcTestDriver.assertNoGoInApplication()
     }
 
-    private fun awaitStopped() = platform.await("实际 core/FD 与 Dart writer 退出", 120_000) {
+    private fun awaitStopped() = platform.await("Actual core/FD and Dart writer exit", 120_000) {
         client.status()["phase"] in setOf(Contract.CORE_PHASE_DISCONNECTED, Contract.CORE_PHASE_EXITED) && !client.requestBusy &&
             AppBridge.operationId == null && !AppBridge.logic.busy && AppBridge.runtimeState()["writerBusy"] == false
     }
@@ -463,7 +463,7 @@ class SystemRevokedRuntimeTest {
         .associateWith { AppFiles.configs(context).resolve(it).takeIf(File::exists)?.readBytes() }
 
     private fun assertStores(expected: Map<String, ByteArray?>) {
-        for ((name, bytes) in expected) assertArrayEquals("revoke 不能改写 $name", bytes,
+        for ((name, bytes) in expected) assertArrayEquals("Revoke must not rewrite $name", bytes,
             AppFiles.configs(context).resolve(name).takeIf(File::exists)?.readBytes())
     }
 

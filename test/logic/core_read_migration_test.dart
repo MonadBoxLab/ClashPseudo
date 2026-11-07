@@ -66,7 +66,7 @@ void _expectSanitizedFormat(Object? failure) {
   late FormatException original;
   try {
     jsonDecode(modeStrategyOriginal);
-    fail('无效 JSON 未触发解析错误');
+    fail('Invalid JSON did not trigger a parsing error');
   } on FormatException catch (error) {
     original = error;
   }
@@ -131,55 +131,61 @@ void main() {
       method == 'updateResource' ? {'status': 'ok'} : {'ready': true};
 
   for (final valid in [false, true]) {
-    test('内核内存采样保留实际字段和错误，不传递完整响应 valid=$valid', () async {
-      await create();
-      final processId = fixture.core.processId!;
-      fixture.script(ApplicationContract.coreOperationMemory, (request) {
-        request.complete({
-          'valid': valid,
-          'processRssBytes': valid ? 321 : null,
-          'sampledAt': 123,
-          if (!valid) 'error': 'actual memory failure',
-          'unused': {'private': 'memory-response-only'},
+    test(
+      'core memory samples retain actual fields and errors without forwarding the full response valid=$valid',
+      () async {
+        await create();
+        final processId = fixture.core.processId!;
+        fixture.script(ApplicationContract.coreOperationMemory, (request) {
+          request.complete({
+            'valid': valid,
+            'processRssBytes': valid ? 321 : null,
+            'sampledAt': 123,
+            if (!valid) 'error': 'actual memory failure',
+            'unused': {'private': 'memory-response-only'},
+          });
         });
-      });
-      final result = FutureProbe(
-        fixture.runtime.read('coreMemory', {'processId': processId}),
-      );
-      await result.done;
-      if (valid) {
-        expect(decoded(result.value), {
-          'valid': true,
-          'processRssBytes': 321,
-          'sampledAt': 123,
-          'processId': processId,
-        });
-      } else {
-        expect(result.error, isA<FormatException>());
-        final error = result.error as FormatException;
-        expect(error.message, contains('actual memory failure'));
-        expect(error.message, contains('processRssBytesType'));
-        expect(error.message, isNot(contains('memory-response-only')));
-        expect(error.source, isNull);
-      }
-    });
+        final result = FutureProbe(
+          fixture.runtime.read('coreMemory', {'processId': processId}),
+        );
+        await result.done;
+        if (valid) {
+          expect(decoded(result.value), {
+            'valid': true,
+            'processRssBytes': 321,
+            'sampledAt': 123,
+            'processId': processId,
+          });
+        } else {
+          expect(result.error, isA<FormatException>());
+          final error = result.error as FormatException;
+          expect(error.message, contains('actual memory failure'));
+          expect(error.message, contains('processRssBytesType'));
+          expect(error.message, isNot(contains('memory-response-only')));
+          expect(error.source, isNull);
+        }
+      },
+    );
   }
 
-  test('内核内存采样身份不匹配保留实际 processId 和 phase', () async {
-    await create();
-    final result = FutureProbe(
-      fixture.runtime.read('coreMemory', {'processId': 'other-process'}),
-    );
-    await result.done;
-    expect(result.error, isA<PlatformFailure>());
-    final details = (result.error as PlatformFailure).details as Map;
-    expect(details['expectedProcessId'], 'other-process');
-    expect(details['processId'], fixture.core.processId);
-    expect(details['phase'], 'ready');
-    expect(details.containsKey('coreLifecycle'), isFalse);
-  });
+  test(
+    'core memory identity mismatch retains actual processId and phase',
+    () async {
+      await create();
+      final result = FutureProbe(
+        fixture.runtime.read('coreMemory', {'processId': 'other-process'}),
+      );
+      await result.done;
+      expect(result.error, isA<PlatformFailure>());
+      final details = (result.error as PlatformFailure).details as Map;
+      expect(details['expectedProcessId'], 'other-process');
+      expect(details['processId'], fixture.core.processId);
+      expect(details['phase'], 'ready');
+      expect(details.containsKey('coreLifecycle'), isFalse);
+    },
+  );
 
-  test('日志 watermark 失败保留身份和数值，不展示完整响应', () async {
+  test('log watermark failure retains identity and values without exposing the full response', () async {
     fixture = await CoreRuntimeFixture.create(preview: true);
     addTearDown(fixture.dispose);
     fixture.script(ApplicationContract.coreOperationLogs, (request) {
@@ -286,31 +292,34 @@ void main() {
     },
   );
 
-  test('运行配置跨多个 frame 保留完整 YAML 和 Unicode', () async {
-    await create();
-    final text =
-        'global-ua: ${'x' * ApplicationContract.coreIpcFrameBytes}🙂\n';
-    final bytes = Uint8List.fromList(utf8.encode(jsonEncode(text)));
-    fixture.script(ApplicationContract.coreOperationRuntimeConfig, (request) {
-      for (var start = 0; start < bytes.length;) {
-        final end = (start + ApplicationContract.coreIpcFrameBytes).clamp(
-          0,
-          bytes.length,
-        );
-        request.bytes(
-          ApplicationContract.coreIpcFrameData,
-          Uint8List.sublistView(bytes, start, end),
-        );
-        start = end;
-      }
-      request.terminal({'complete': true, 'exited': true});
-    });
-    final value = decoded(await read('runtimeConfig'));
-    expect(value['configuration'], text);
-    expectIdentity(value, fixture.core);
-  });
+  test(
+    'runtime configuration retains complete YAML and Unicode across frames',
+    () async {
+      await create();
+      final text =
+          'global-ua: ${'x' * ApplicationContract.coreIpcFrameBytes}🙂\n';
+      final bytes = Uint8List.fromList(utf8.encode(jsonEncode(text)));
+      fixture.script(ApplicationContract.coreOperationRuntimeConfig, (request) {
+        for (var start = 0; start < bytes.length;) {
+          final end = (start + ApplicationContract.coreIpcFrameBytes).clamp(
+            0,
+            bytes.length,
+          );
+          request.bytes(
+            ApplicationContract.coreIpcFrameData,
+            Uint8List.sublistView(bytes, start, end),
+          );
+          start = end;
+        }
+        request.terminal({'complete': true, 'exited': true});
+      });
+      final value = decoded(await read('runtimeConfig'));
+      expect(value['configuration'], text);
+      expectIdentity(value, fixture.core);
+    },
+  );
 
-  test('运行配置超过总预算时保留真实退出并反馈超限', () async {
+  test('runtime configuration exceeding the total budget awaits actual exit and reports the limit', () async {
     await create();
     fixture.onCancel = (request) {
       request.signalExit();
@@ -501,44 +510,47 @@ void main() {
   );
 
   for (final method in _reads.keys) {
-    test('独立 native receipt 结束前不复用 $method slot，原错误返回后允许重试', () async {
-      await create();
-      final failure = nativeFailure('java.io.IOException');
-      fixture.script(
-        _reads[method]!,
-        (request) => _completeRead(request, _originalRow(), exited: false),
-      );
-      final entered = fixture.next(_reads[method]!);
-      final first = FutureProbe(read(method));
-      final request = await entered;
-      await fixture.flush();
-      expect(first.replies, 0);
-      fixture.expire();
-      final pending = decoded(await read(method));
-      expect(pending['readPending'], isTrue);
-      expect(pending.containsKey('page'), isFalse);
-      expect(fixture.calls(_reads[method]!), hasLength(1));
-      expect(first.replies, 0);
-      request.signalExit(receipt: {'error': failure});
-      await first.done;
-      expect(first.value, isNull);
-      expectOriginalError(first.error, failure);
-      expect(first.replies, 1);
-      fixture.operationExpired = false;
-      fixture.now = fixture.admittedAt;
-      fixture.script(
-        _reads[method]!,
-        (request) => _completeRead(request, successfulRead(method)),
-      );
-      expect(
-        rowFrom(method, decoded(await read(method))),
-        containsPair(
-          successfulRead(method).keys.single,
-          successfulRead(method).values.single,
-        ),
-      );
-      expect(fixture.calls(_reads[method]!), hasLength(2));
-    });
+    test(
+      '$method slot is not reused before the separate native receipt completes and can retry after the original error returns',
+      () async {
+        await create();
+        final failure = nativeFailure('java.io.IOException');
+        fixture.script(
+          _reads[method]!,
+          (request) => _completeRead(request, _originalRow(), exited: false),
+        );
+        final entered = fixture.next(_reads[method]!);
+        final first = FutureProbe(read(method));
+        final request = await entered;
+        await fixture.flush();
+        expect(first.replies, 0);
+        fixture.expire();
+        final pending = decoded(await read(method));
+        expect(pending['readPending'], isTrue);
+        expect(pending.containsKey('page'), isFalse);
+        expect(fixture.calls(_reads[method]!), hasLength(1));
+        expect(first.replies, 0);
+        request.signalExit(receipt: {'error': failure});
+        await first.done;
+        expect(first.value, isNull);
+        expectOriginalError(first.error, failure);
+        expect(first.replies, 1);
+        fixture.operationExpired = false;
+        fixture.now = fixture.admittedAt;
+        fixture.script(
+          _reads[method]!,
+          (request) => _completeRead(request, successfulRead(method)),
+        );
+        expect(
+          rowFrom(method, decoded(await read(method))),
+          containsPair(
+            successfulRead(method).keys.single,
+            successfulRead(method).values.single,
+          ),
+        );
+        expect(fixture.calls(_reads[method]!), hasLength(2));
+      },
+    );
     for (final kind in [
       'java.io.IOException',
       'java.lang.UnsatisfiedLinkError',
@@ -1121,11 +1133,11 @@ void main() {
     (false, true),
   ]) {
     test(
-      'CoreCall PREPARE 取消失败后 FD 读取失败保留原错误与 receipt：${exitedBeforeRead
-          ? '已确认 exited'
+      'CoreCall PREPARE FD read failure after failed cancellation retains the original error and receipt: ${exitedBeforeRead
+          ? 'exited already confirmed'
           : retryFails
-          ? '再次 cancel 失败后等待 exited'
-          : '再次 cancel 成功后等待 exited'}',
+          ? 'awaits exited after another failed cancel'
+          : 'awaits exited after successful retry of cancel'}',
       () async {
         await create();
         final cancellation = PlatformException(
@@ -1336,58 +1348,58 @@ void main() {
     );
   }
 
-  diagnosticTest('后台取消在 DNS admission 返回后执行，立即恢复可见也不释放原 slot', (
-    tester,
-    transport,
-  ) async {
-    await transport.warmUp(tester);
-    final gate = transport.gate();
-    final cancellation = nativeFailure('java.lang.UnsatisfiedLinkError');
-    transport.onCancel = (_) => {'cancelError': cancellation};
-    transport.script(
-      ApplicationContract.coreOperationDnsQuery,
-      (_) => gate.future,
-    );
-    final result = FutureProbe(transport.query(owner: 'original-owner'));
-    await tester.pump();
-    final request = transport
-        .calls(ApplicationContract.coreOperationDnsQuery)
-        .single;
-    transport.runtime.event({'event': 'uiVisibility', 'visible': false});
-    transport.runtime.event({'event': 'uiVisibility', 'visible': true});
-    await tester.pump();
-    expect(transport.cancellations, isEmpty);
-    expect(result.replies, 0);
-    expect(transport.dns.busy, isTrue);
-    final blocked = FutureProbe(transport.query(owner: 'replacement-owner'));
-    await tester.pump();
-    expect(blocked.error, isNotNull);
-    expect(transport.calls(ApplicationContract.coreOperationDnsQuery), [
-      request,
-    ]);
-    gate.complete();
-    await tester.pump();
-    expect(transport.cancellations, [request]);
-    expect(transport.dns.snapshot()['cancelError'], cancellation);
-    request.complete({'rcode': 0, 'detail': modeStrategyOriginal});
-    await tester.pump();
-    expect(result.replies, 0);
-    expect(transport.dns.busy, isTrue);
-    request.signalExit();
-    await tester.pump();
-    expect(result.error, isNull);
-    expect((result.value as Map)['cancelError'], cancellation);
-    expect((result.value as Map)['dns'], {
-      'rcode': 0,
-      'detail': modeStrategyOriginal,
-    });
-    expect(result.replies, 1);
-    expect(transport.dns.busy, isFalse);
-  });
+  diagnosticTest(
+    'background cancellation runs after DNS admission returns; immediate visibility restoration does not release the original slot',
+    (tester, transport) async {
+      await transport.warmUp(tester);
+      final gate = transport.gate();
+      final cancellation = nativeFailure('java.lang.UnsatisfiedLinkError');
+      transport.onCancel = (_) => {'cancelError': cancellation};
+      transport.script(
+        ApplicationContract.coreOperationDnsQuery,
+        (_) => gate.future,
+      );
+      final result = FutureProbe(transport.query(owner: 'original-owner'));
+      await tester.pump();
+      final request = transport
+          .calls(ApplicationContract.coreOperationDnsQuery)
+          .single;
+      transport.runtime.event({'event': 'uiVisibility', 'visible': false});
+      transport.runtime.event({'event': 'uiVisibility', 'visible': true});
+      await tester.pump();
+      expect(transport.cancellations, isEmpty);
+      expect(result.replies, 0);
+      expect(transport.dns.busy, isTrue);
+      final blocked = FutureProbe(transport.query(owner: 'replacement-owner'));
+      await tester.pump();
+      expect(blocked.error, isNotNull);
+      expect(transport.calls(ApplicationContract.coreOperationDnsQuery), [
+        request,
+      ]);
+      gate.complete();
+      await tester.pump();
+      expect(transport.cancellations, [request]);
+      expect(transport.dns.snapshot()['cancelError'], cancellation);
+      request.complete({'rcode': 0, 'detail': modeStrategyOriginal});
+      await tester.pump();
+      expect(result.replies, 0);
+      expect(transport.dns.busy, isTrue);
+      request.signalExit();
+      await tester.pump();
+      expect(result.error, isNull);
+      expect((result.value as Map)['cancelError'], cancellation);
+      expect((result.value as Map)['dns'], {
+        'rcode': 0,
+        'detail': modeStrategyOriginal,
+      });
+      expect(result.replies, 1);
+      expect(transport.dns.busy, isFalse);
+    },
+  );
 
   for (final cancellation in [false, true]) {
     test(
-      'DNS structured ${cancellation ? 'cancelError' : 'native error'} 大结果保留完整原文',
+      'large DNS structured ${cancellation ? 'cancelError' : 'native error'} retains the complete original text',
       () async {
         await create();
         final failure = {

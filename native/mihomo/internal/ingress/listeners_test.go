@@ -134,11 +134,11 @@ func TestListenerRegistryKeepsOwnershipUntilExplicitClose(t *testing.T) {
 	}
 	conn, err := net.DialTimeout("tcp4", tcp.Addr().String(), time.Second)
 	if err != nil {
-		t.Fatal("登记资源时提前关闭了socket", err)
+		t.Fatal("socket was closed early while registering resources", err)
 	}
 	_ = conn.Close()
 	if err = observer.CloseListener("exact"); err == nil {
-		t.Fatal("按前缀认领了其他监听")
+		t.Fatal("another listener was claimed by prefix")
 	}
 	if _, err = udp.WriteTo([]byte("owned"), udp.LocalAddr()); err != nil {
 		t.Fatal(err)
@@ -148,27 +148,27 @@ func TestListenerRegistryKeepsOwnershipUntilExplicitClose(t *testing.T) {
 	}
 	buffer := make([]byte, 16)
 	if n, _, err := udp.ReadFrom(buffer); err != nil || string(buffer[:n]) != "owned" {
-		t.Fatal("登记资源关闭了已交接的UDP socket", err)
+		t.Fatal("resource registration closed a transferred UDP socket", err)
 	}
 	if err = observer.CloseListener("exact-name"); err != nil {
 		t.Fatal(err)
 	}
 	if err = observer.CloseListener("exact-name"); err != nil {
-		t.Fatal("重复关闭不是幂等操作", err)
+		t.Fatal("repeated close was not idempotent", err)
 	}
 	if _, err = tcp.Accept(); !errors.Is(err, net.ErrClosed) {
-		t.Fatal("TCP未关闭", err)
+		t.Fatal("TCP was not closed", err)
 	}
 	if _, _, err = udp.ReadFrom(make([]byte, 1)); !errors.Is(err, net.ErrClosed) {
-		t.Fatal("UDP未关闭", err)
+		t.Fatal("UDP was not closed", err)
 	}
 	states := observer.Snapshot()
 	if len(states) != 2 {
-		t.Fatal("状态记录保存了第二份事件历史", states)
+		t.Fatal("state records retained a second event history", states)
 	}
 	for _, state := range states {
 		if state.State != "closed" {
-			t.Fatal("实际Close未反映到状态", state)
+			t.Fatal("actual Close was not reflected in state", state)
 		}
 	}
 }
@@ -230,7 +230,7 @@ func TestDNSListenerRetainsBothSocketsAndTheirActualRoutingMark(t *testing.T) {
 	}})
 	if original != nil {
 		if result.Err == nil || !strings.Contains(result.Err.Error(), original.Error()) || result.CleanupUncertain || len(result.Resources) != 0 {
-			t.Fatal("原始routing mark错误或失败清理状态被改变", result.Err, original, result.CleanupUncertain, len(result.Resources))
+			t.Fatal("original routing mark error or failed cleanup state changed", result.Err, original, result.CleanupUncertain, len(result.Resources))
 		}
 		return
 	}
@@ -241,7 +241,7 @@ func TestDNSListenerRetainsBothSocketsAndTheirActualRoutingMark(t *testing.T) {
 	marksMu.Lock()
 	defer marksMu.Unlock()
 	if len(marks) != 2 || marks[0] != mark || marks[1] != mark || len(observer.Snapshot()) != 2 {
-		t.Fatal("未保留TCP/UDP实际routing mark", marks, observer.Snapshot())
+		t.Fatal("actual TCP/UDP routing marks were not preserved", marks, observer.Snapshot())
 	}
 }
 
@@ -278,7 +278,7 @@ func TestResourceCloseUsesReverseOrderAndKeepsOriginalErrors(t *testing.T) {
 	third := &orderedListener{name: "c", events: &events}
 	err := Close([]io.Closer{first, second, third})
 	if !errors.Is(err, firstErr) || !errors.Is(err, secondErr) || !slices.Equal(events, []string{"close:c", "close:b", "close:a"}) {
-		t.Fatal("Close顺序或原始cause丢失", events, err)
+		t.Fatal("Close order or original cause was lost", events, err)
 	}
 }
 func TestListenerRegistryClosesInReverseAcquisitionOrderAndKeepsErrors(t *testing.T) {
@@ -296,7 +296,7 @@ func TestListenerRegistryClosesInReverseAcquisitionOrderAndKeepsErrors(t *testin
 	for i := 0; i < 2; i++ {
 		err := observer.CloseAll()
 		if !errors.Is(err, firstErr) || !errors.Is(err, lastErr) || !slices.Equal(events, []string{"close:m", "close:a", "close:z"}) {
-			t.Fatal("registry没有按实际取得顺序反向关闭或丢失原错误", events, err)
+			t.Fatal("registry did not close in reverse acquisition order or lost the original error", events, err)
 		}
 	}
 }
@@ -313,7 +313,7 @@ func TestPrepareNamedLetsHubCallListenOnceAndActivateDoesNotRepeatIt(t *testing.
 				}
 				command.Env = append(os.Environ(), "PSEUDO_NAMED_LISTENER_TEST="+t.Name())
 				if output, err := command.CombinedOutput(); err != nil {
-					t.Fatalf("独立named listener测试失败: %v\n%s", err, output)
+					t.Fatalf("isolated named listener test failed: %v\n%s", err, output)
 				}
 				return
 			}
@@ -345,25 +345,25 @@ func TestPrepareNamedLetsHubCallListenOnceAndActivateDoesNotRepeatIt(t *testing.
 			}
 			hub.ApplyConfig(cfg)
 			if !slices.Equal(events, []string{"listen:named"}) {
-				t.Fatal("hub没有恰好调用一次原Listen", events)
+				t.Fatal("hub did not call the original Listen exactly once", events)
 			}
 			if result := Activate(cfg, nil); result.Err != nil || len(result.Resources) != 0 || len(events) != 1 {
-				t.Fatal("延后入口再次执行了named Listen", events, result.Err)
+				t.Fatal("deferred ingress called named Listen again", events, result.Err)
 			}
 			if fails {
 				if !errors.Is(observer.Errors(), original) {
-					t.Fatal("Listen原始cause丢失", observer.Errors())
+					t.Fatal("original Listen cause was lost", observer.Errors())
 				}
 				if err = observer.CloseAll(); err != nil || !slices.Equal(events, []string{"listen:named"}) {
-					t.Fatal("失败Listen认领了未交接的协议资源", events, err)
+					t.Fatal("failed Listen claimed protocol resources that were not transferred", events, err)
 				}
 			} else {
 				if err = observer.CloseListener("named"); !errors.Is(err, closeErr) {
-					t.Fatal("Close原始cause丢失", err)
+					t.Fatal("original Close cause was lost", err)
 				}
 				_ = observer.CloseListener("named")
 				if !slices.Equal(events, []string{"listen:named", "close:named"}) {
-					t.Fatal("登记资源实际Close不止一次", events)
+					t.Fatal("registered resource was actually closed more than once", events)
 				}
 			}
 			listener.PatchInboundListeners(nil, tunnel.Tunnel, true)
@@ -390,27 +390,27 @@ func TestNamedListenerStartupFailureRollsBackAcquiredResourcesAndKeepsAllCauses(
 			t.Fatal(err)
 		}
 		if name == "m" && !errors.Is(err, startup) {
-			t.Fatal("失败入口丢失Listen的原始cause", err)
+			t.Fatal("failed ingress lost the original Listen cause", err)
 		}
 	}
 	if len(observer.owned) != 2 || observer.owned["m"] != nil {
-		t.Fatal("失败Listen交接了尚未取得的协议资源")
+		t.Fatal("failed Listen transferred protocol resources not yet acquired")
 	}
 	err := errors.Join(observer.Errors(), observer.CloseAll())
 	for _, original := range []error{startup, firstClose, secondClose} {
 		if !errors.Is(err, original) {
-			t.Fatal("回滚丢失原始cause", original, err)
+			t.Fatal("rollback lost the original cause", original, err)
 		}
 	}
 	expected := []string{"listen:z", "listen:a", "listen:m", "close:a", "close:z"}
 	if !slices.Equal(events, expected) {
-		t.Fatal("回滚没有按取得顺序反向关闭全部named资源", events)
+		t.Fatal("rollback did not close all named resources in reverse acquisition order", events)
 	}
 	for _, listener := range cfg.Listeners {
 		_ = listener.Close()
 	}
 	if !slices.Equal(events, expected) {
-		t.Fatal("回滚后的named资源仍被重复关闭", events)
+		t.Fatal("named resources were closed again after rollback", events)
 	}
 }
 
@@ -425,15 +425,15 @@ func TestNamedListenFailureKeepsActualSocketCleanupCauseWithoutClosingUnstartedP
 	wrapped := &observedInbound{InboundListener: protocol, config: guard, observer: observer}
 	err := wrapped.Listen(nil)
 	if !errors.Is(err, startup) || !errors.Is(err, cleanup) || !errors.Is(observer.Errors(), startup) || !errors.Is(observer.Errors(), cleanup) {
-		t.Fatal("Listen或实际socket清理的原始cause丢失", err, observer.Errors())
+		t.Fatal("original cause from Listen or actual socket cleanup was lost", err, observer.Errors())
 	}
 	if len(observer.owned) != 0 || len(guard.resources) != 0 {
-		t.Fatal("失败Listen返回了仍然拥有的资源")
+		t.Fatal("failed Listen returned resources it still owned")
 	}
 	if err := wrapped.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(events, []string{"listen:failed", "close:socket"}) {
-		t.Fatal("失败Listen调用了未启动的协议Close或重复关闭socket", events)
+		t.Fatal("failed Listen called Close on a protocol that never started or closed the socket twice", events)
 	}
 }

@@ -154,7 +154,7 @@ void main() {
     },
   );
 
-  test('HTTP factory 错误经过 ConfigFailure 后保留完整 cause、stack 与未知字段', () async {
+  test('HTTP factory errors retain complete cause, stack, and unknown fields through ConfigFailure', () async {
     const original = PlatformFailure(
       code: 'trustedRootsUnavailable',
       message: '原始 HTTP client 错误',

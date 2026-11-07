@@ -270,7 +270,7 @@ class _AlwaysOnPageState extends State<AlwaysOnPage> {
     setState(() => _opening = true);
     _feedbackChanges.value++;
     try {
-      // 打开 Android 的 VPN 设置，不再弹出确认。
+      // Open Android VPN settings without another confirmation.
       await widget.app.platform.openVpnSettings();
       if (current()) unawaited(_load());
     } catch (error) {

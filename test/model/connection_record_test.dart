@@ -4,7 +4,7 @@ import 'package:clash_pseudo/src/model/connection_snapshot.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('连接观察只传输业务字段并按实际内容计量', () {
+  test('connection observations transport only business fields and measure actual content', () {
     final raw = <String, dynamic>{
       'id': 'explicit-values',
       'upload': 0,

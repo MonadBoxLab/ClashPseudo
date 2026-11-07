@@ -121,83 +121,24 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   for (final kind in ['proxyProvider', 'ruleProvider']) {
-    testWidgets('$kind 停用本地 provider 的描述不加入空 vehicleType', (tester) async {
-      const entry = OverrideEntry(
-        id: 'custom',
-        name: 'Local providers',
-        kind: ConfigKind.local,
-        role: OverrideRole.localCustom,
-        revision: 4,
-        enabled: false,
-        body: '''proxy-providers: {local-proxy-provider: {type: inline, payload: []}}
+    testWidgets(
+      '$kind disabled local provider description omits empty vehicleType',
+      (tester) async {
+        const entry = OverrideEntry(
+          id: 'custom',
+          name: 'Local providers',
+          kind: ConfigKind.local,
+          role: OverrideRole.localCustom,
+          revision: 4,
+          enabled: false,
+          body: '''proxy-providers: {local-proxy-provider: {type: inline, payload: []}}
 rule-providers: {local-rule-provider: {type: inline, payload: []}}
 ''',
-      );
-      final bridge = ResourceBridge();
-      final app = ResourceApp(bridge)
-        ..overrides = [entry]
-        ..overridesLoaded = true;
-      addTearDown(app.dispose);
-      await tester.pumpWidget(
-        MaterialApp(
-          navigatorObservers: [AppTaskNavigatorObserver()],
-          locale: const Locale('en'),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: ResourcesPage(app: app),
-        ),
-      );
-      bridge.replies.single.complete(resourcePage(core(1), rows: []));
-      await settleLocalDefinitions(tester);
-      final strings = lookupAppLocalizations(const Locale('en'));
-      final proxy = kind == 'proxyProvider';
-      final name = proxy ? 'local-proxy-provider' : 'local-rule-provider';
-      final label = proxy
-          ? strings.resourceProxyProvider
-          : strings.resourceRuleProvider;
-      final tile = find.widgetWithText(ListTile, name);
-      expect(
-        find.descendant(of: tile, matching: find.text(label)),
-        findsOneWidget,
-      );
-      final edit = find.descendant(
-        of: tile,
-        matching: find.byWidgetPredicate(
-          (widget) =>
-              widget is IconButton &&
-              widget.tooltip == strings.editLocalDefinition,
-        ),
-      );
-      expect(tester.widget<IconButton>(edit).onPressed, isNotNull);
-      await tester.tap(tile);
-      await settleLocalDefinitions(tester);
-      expect(
-        tester
-            .widgetList<SelectableText>(find.byType(SelectableText))
-            .map((text) => text.data),
-        contains(label),
-      );
-      expect(find.text('$label · '), findsNothing);
-      expect(find.byIcon(Icons.data_object), findsNothing);
-      expect(app.overrides.single, same(entry));
-      expect(app.overrides.single.enabled, isFalse);
-      expect(app.commands, isEmpty);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox.shrink());
-    });
-
-    for (final vehicleType in ['', 'HTTP']) {
-      testWidgets('$kind 运行描述只保留非空 vehicleType="$vehicleType"', (tester) async {
-        final row = <String, dynamic>{
-          'kind': kind,
-          'name': 'runtime-provider',
-          'type': 'inline',
-          'vehicleType': vehicleType,
-          'count': 3,
-          'updateSupported': false,
-        };
+        );
         final bridge = ResourceBridge();
-        final app = ResourceApp(bridge);
+        final app = ResourceApp(bridge)
+          ..overrides = [entry]
+          ..overridesLoaded = true;
         addTearDown(app.dispose);
         await tester.pumpWidget(
           MaterialApp(
@@ -208,36 +149,101 @@ rule-providers: {local-rule-provider: {type: inline, payload: []}}
             home: ResourcesPage(app: app),
           ),
         );
-        bridge.replies.single.complete(resourcePage(core(1), rows: [row]));
-        await tester.pumpAndSettle();
+        bridge.replies.single.complete(resourcePage(core(1), rows: []));
+        await settleLocalDefinitions(tester);
         final strings = lookupAppLocalizations(const Locale('en'));
-        final label = kind == 'proxyProvider'
+        final proxy = kind == 'proxyProvider';
+        final name = proxy ? 'local-proxy-provider' : 'local-rule-provider';
+        final label = proxy
             ? strings.resourceProxyProvider
             : strings.resourceRuleProvider;
-        final description = [
-          strings.resourceCountValue(3),
-          label,
-          if (vehicleType.isNotEmpty) vehicleType,
-        ].join(' · ');
-        final tile = find.widgetWithText(ListTile, 'runtime-provider');
+        final tile = find.widgetWithText(ListTile, name);
         expect(
-          find.descendant(of: tile, matching: find.text(description)),
+          find.descendant(of: tile, matching: find.text(label)),
           findsOneWidget,
         );
-        expect(find.byTooltip(strings.editLocalDefinition), findsNothing);
+        final edit = find.descendant(
+          of: tile,
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is IconButton &&
+                widget.tooltip == strings.editLocalDefinition,
+          ),
+        );
+        expect(tester.widget<IconButton>(edit).onPressed, isNotNull);
         await tester.tap(tile);
-        await tester.pumpAndSettle();
+        await settleLocalDefinitions(tester);
         expect(
           tester
               .widgetList<SelectableText>(find.byType(SelectableText))
               .map((text) => text.data),
-          contains(description),
+          contains(label),
         );
+        expect(find.text('$label · '), findsNothing);
         expect(find.byIcon(Icons.data_object), findsNothing);
+        expect(app.overrides.single, same(entry));
+        expect(app.overrides.single.enabled, isFalse);
         expect(app.commands, isEmpty);
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());
-      });
+      },
+    );
+
+    for (final vehicleType in ['', 'HTTP']) {
+      testWidgets(
+        '$kind runtime description retains only nonempty vehicleType="$vehicleType"',
+        (tester) async {
+          final row = <String, dynamic>{
+            'kind': kind,
+            'name': 'runtime-provider',
+            'type': 'inline',
+            'vehicleType': vehicleType,
+            'count': 3,
+            'updateSupported': false,
+          };
+          final bridge = ResourceBridge();
+          final app = ResourceApp(bridge);
+          addTearDown(app.dispose);
+          await tester.pumpWidget(
+            MaterialApp(
+              navigatorObservers: [AppTaskNavigatorObserver()],
+              locale: const Locale('en'),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              home: ResourcesPage(app: app),
+            ),
+          );
+          bridge.replies.single.complete(resourcePage(core(1), rows: [row]));
+          await tester.pumpAndSettle();
+          final strings = lookupAppLocalizations(const Locale('en'));
+          final label = kind == 'proxyProvider'
+              ? strings.resourceProxyProvider
+              : strings.resourceRuleProvider;
+          final description = [
+            strings.resourceCountValue(3),
+            label,
+            if (vehicleType.isNotEmpty) vehicleType,
+          ].join(' · ');
+          final tile = find.widgetWithText(ListTile, 'runtime-provider');
+          expect(
+            find.descendant(of: tile, matching: find.text(description)),
+            findsOneWidget,
+          );
+          expect(find.byTooltip(strings.editLocalDefinition), findsNothing);
+          await tester.tap(tile);
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widgetList<SelectableText>(find.byType(SelectableText))
+                .map((text) => text.data),
+            contains(description),
+          );
+          expect(find.byIcon(Icons.data_object), findsNothing);
+          expect(app.commands, isEmpty);
+          expect(tester.takeException(), isNull);
+          await tester.pumpWidget(const SizedBox.shrink());
+        },
+      );
     }
 
     testWidgets(
@@ -902,7 +908,9 @@ rule-providers: {local-rule-provider: {type: inline, payload: []}}
       },
     );
 
-    testWidgets('资源页不提供完整响应入口', (tester) async {
+    testWidgets('resource page does not offer a full-response entry', (
+      tester,
+    ) async {
       final bridge = ResourceBridge();
       final app = ResourceApp(bridge);
       addTearDown(app.dispose);

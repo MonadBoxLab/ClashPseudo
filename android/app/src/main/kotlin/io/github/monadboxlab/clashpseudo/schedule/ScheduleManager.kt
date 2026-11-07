@@ -14,12 +14,12 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import java.util.concurrent.TimeUnit
 
-/** 登记Android定时任务；Dart保存更新设置并执行下载。 */
+/** Register Android scheduled tasks; Dart saves update settings and performs downloads. */
 object ScheduleManager {
     private const val PREFS = "update-schedules"
     private fun name(kind: String, id: String) = "update-$kind-$id"
 
-    /** 在后台线程更新指定类别的任务；恢复备份时更新全部任务。 */
+    /** Update tasks of the specified kind on a background thread; update all tasks when restoring a backup. */
     @Synchronized
     fun sync(context: Context, targets: List<Map<*, *>>, kind: String? = null, done: () -> Unit) {
         require(kind == null || kind in setOf("config", "override"))
@@ -41,7 +41,7 @@ object ScheduleManager {
             it.startsWith("update-$kind-")
         }.toSet()
         val next = retained + names
-        // 所有WorkManager操作完成后，再移除已取消任务的名称。
+        // Remove cancelled task names only after all WorkManager operations finish.
         check(prefs.edit().remove("targets").putStringSet("active", previous + names).commit())
         (previous - next).forEach { manager.cancelUniqueWork(it).result.get() }
         desired.forEach { schedule ->
@@ -56,7 +56,7 @@ object ScheduleManager {
         done()
     }
 
-    /** 在后台线程按已保存设置协调定时更新；业务执行者忙碌时由Worker重试。 */
+    /** Reconcile scheduled updates with saved settings on a background thread; the Worker retries while the application executor is busy. */
     fun reconcile(context: Context) {
         val manager = WorkManager.getInstance(context)
         val input = Data.Builder().putBoolean("reconcile", true).build()
@@ -65,7 +65,7 @@ object ScheduleManager {
         manager.getWorkInfosForUniqueWork("update-reconcile").get()
             .filter { it.id != request.id && it.state == WorkInfo.State.ENQUEUED }
             .forEach { pending ->
-                // KEEP沿用旧任务时，updateWork重新登记调度并保留其重试次数和入队时间。
+                // When KEEP retains an old task, updateWork reschedules it while preserving its attempt count and enqueue time.
                 manager.updateWork(OneTimeWorkRequestBuilder<ScheduleWorker>()
                     .setId(pending.id).setInputData(input).build()).get()
             }

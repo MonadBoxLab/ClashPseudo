@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
-/// 记录系统打开总览的请求及各路由的离开确认回调，不持有 Navigator 或业务状态。
+/// Tracks system overview requests and route departure confirmations without holding
+/// Navigator or business state.
 class SystemNavigationRequests {
   SystemNavigationRequests(this._changed);
 

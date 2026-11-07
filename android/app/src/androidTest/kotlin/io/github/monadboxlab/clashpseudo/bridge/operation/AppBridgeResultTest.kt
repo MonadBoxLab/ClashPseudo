@@ -272,7 +272,7 @@ class AppBridgeResultTest {
                             assertEquals("alwaysOnNotice", (details as Map<*, *>)["id"])
                             reply.complete(false to code)
                         }
-                        override fun notImplemented() { reply.completeExceptionally(AssertionError("缺少 stop 方法")) }
+                        override fun notImplemented() { reply.completeExceptionally(AssertionError("Missing stop method")) }
                     }, internal)
                 }
                 val result = reply.get(15, TimeUnit.SECONDS)
@@ -311,8 +311,8 @@ class AppBridgeResultTest {
                                 accepted = admission["operationId"] as String
                                 assertTrue((admission["remainingMs"] as Long) in 1L..120_000L)
                             }
-                            override fun error(code: String, message: String?, details: Any?) { fail("Stop 被拒绝：$code") }
-                            override fun notImplemented() { fail("缺少 Stop 方法") }
+                            override fun error(code: String, message: String?, details: Any?) { fail("Stop was rejected: $code") }
+                            override fun notImplemented() { fail("Missing Stop method") }
                         })
                     assertNotNull(accepted)
                     assertNotEquals("resource-owner", accepted)
@@ -330,9 +330,9 @@ class AppBridgeResultTest {
                         submit.invoke(AppBridge, io.flutter.plugin.common.MethodCall("submit", mapOf(
                             "action" to "start", "storageEpoch" to AppBridge.runtimeState()["storageEpoch"])),
                             object : MethodChannel.Result {
-                                override fun success(value: Any?) { fail("I/O 结束前 writer 已开放") }
+                                override fun success(value: Any?) { fail("Writer became available before I/O finished") }
                                 override fun error(code: String, message: String?, details: Any?) { rejected = code == "busy" }
-                                override fun notImplemented() { fail("缺少 Start 方法") }
+                                override fun notImplemented() { fail("Missing Start method") }
                             })
                         assertTrue(rejected)
                     }
@@ -351,7 +351,7 @@ class AppBridgeResultTest {
                     }
                     if (!settled) SystemClock.sleep(10)
                 }
-                assertTrue("Stop 必须在全部 I/O 结束后返回", settled)
+                assertTrue("Stop must return only after all I/O finishes", settled)
             }
         } finally {
             instrumentation.runOnMainSync {

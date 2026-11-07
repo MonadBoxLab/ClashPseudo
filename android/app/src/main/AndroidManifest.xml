@@ -8,7 +8,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- 按应用配置VPN接管范围需要读取已安装应用列表。 -->
+    <!-- Per-app VPN routing requires access to the installed application list. -->
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
@@ -49,7 +49,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
-        <!-- 应用内快捷方式使用非导出的控制入口。 -->
+        <!-- In-app shortcuts use a non-exported control entry point. -->
         <activity-alias
             android:name="${applicationId}.StartVpnShortcut"
             android:targetActivity=".MainActivity"
@@ -95,7 +95,7 @@
             android:name=".app.AppWorkService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
-        <!-- VPN授权由VpnService.prepare检查；systemExempted用于已获授权的VPN服务。 -->
+        <!-- VpnService.prepare checks VPN authorization; systemExempted applies to authorized VPN services. -->
         <service
             android:name=".vpn.PseudoVpnService"
             android:process=":core"

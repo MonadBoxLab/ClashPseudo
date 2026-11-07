@@ -1,4 +1,4 @@
-"""只面向 fixture 自身端点的 TCP、UDP、DNS 与 SOCKS 服务。"""
+"""TCP, UDP, DNS, and SOCKS servers restricted to fixture endpoints."""
 import contextlib
 import http.server
 import json

@@ -80,7 +80,7 @@ class NativeCheckActivity : Activity() {
         button("测试代理订阅下载缓慢") { requestStart("slow") }
         button("启动无效配置测试") { requestStart("invalid") }
         button("停止接管") {
-            SystemControls.request(this, "stop") { admission -> report("停止请求：$admission") }
+            SystemControls.request(this, "stop") { admission -> report("Stop request: $admission") }
         }
         button("流量检查") { worker.execute { runProbe(false) } }
         button("仅检查 TCP") { worker.execute { runProbe(false, tcpOnly = true) } }
@@ -101,9 +101,9 @@ class NativeCheckActivity : Activity() {
     }
 
     private fun fixtureAddress(): String {
-        require(host.matches(Regex("[0-9.]+"))) { "请在启动测试页的命令中指定局域网 IPv4 地址" }
+        require(host.matches(Regex("[0-9.]+"))) { "Specify a LAN IPv4 address in the command that launches the test page" }
         val address = InetAddress.getByName(host)
-        require(address.isSiteLocalAddress && port in 1024..65529) { "请指定局域网 IPv4 地址和 1024 至 65529 之间的端口" }
+        require(address.isSiteLocalAddress && port in 1024..65529) { "Specify a LAN IPv4 address and a port between 1024 and 65529" }
         return address.hostAddress!!
     }
 
@@ -118,7 +118,7 @@ class NativeCheckActivity : Activity() {
                 val resource = when (scene) { "missing" -> "missing"; "slow" -> "slow-provider"; else -> "provider" }
                 body += "\nproxy-providers:\n  fixture:\n    type: http\n    url: http://$ip:$port/$resource\n    path: ./fixture-$scene.yaml\n    interval: 2\n    health-check: {enable: false}\n"
             }
-            // 固定 SOCKS fixture 只处理 TCP，UDP 保持 DIRECT。
+            // The fixed SOCKS fixture handles only TCP; UDP remains DIRECT.
             body += "\nrules:\n  - DST-PORT,${port + 4},REJECT\n  - DST-PORT,$port,$route\n  - MATCH,DIRECT\n"
             if (scene == "invalid") body += "  - NOT-A-VALID-RULE,invalid\n"
             pending = body
@@ -159,16 +159,16 @@ class NativeCheckActivity : Activity() {
                     if ((frame["kind"] as Number).toInt() == Contract.CORE_IPC_FRAME_TERMINAL) {
                         val terminal = JSONObject(CoreFrames.utf8(frame["payload"] as ByteArray))
                         val receipt = frame["nativeReceipt"] as? Map<*, *>
-                        check(receipt?.get("exited") == true) { "实际调用尚未退出：$frame" }
-                        check(terminal.optBoolean("complete")) { "启动失败：$terminal\n$receipt" }
-                        report("启动已完成；processId=${admission["processId"]}，请查看 VPN 状态并执行流量检查。")
+                        check(receipt?.get("exited") == true) { "The actual call has not exited: $frame" }
+                        check(terminal.optBoolean("complete")) { "Startup failed: $terminal\n$receipt" }
+                        report("Startup completed; processId=${admission["processId"]}. Check the VPN status and run a traffic probe.")
                         break
                     }
                 }
             } catch (error: Throwable) {
                 report(error.stackTraceToString())
             } finally {
-                if (stage.exists() && !stage.delete()) report("无法删除本次输入暂存文件：${stage.name}")
+                if (stage.exists() && !stage.delete()) report("Failed to delete this run's input staging file: ${stage.name}")
             }
         }
     }
@@ -178,7 +178,7 @@ class NativeCheckActivity : Activity() {
         if (requestCode != 1) return
         if (resultCode == RESULT_OK) startPending() else {
             pending = null
-            report("授权已取消，未启动接管。")
+            report("Authorization cancelled; tunnel was not started.")
         }
     }
 
@@ -196,7 +196,7 @@ class NativeCheckActivity : Activity() {
                 override fun error(code: String, message: String?, details: Any?) {
                     reply.completeExceptionally(java.io.IOException("$code: $message\n$details"))
                 }
-                override fun notImplemented() { reply.completeExceptionally(IllegalStateException("接口未实现：$method")) }
+                override fun notImplemented() { reply.completeExceptionally(IllegalStateException("Interface not implemented: $method")) }
             })
         }
         return try { reply.get(130, TimeUnit.SECONDS) }
@@ -224,7 +224,7 @@ class NativeCheckActivity : Activity() {
                     }
                 } else {
                     val reply = socket.getInputStream().readBytes().toString(Charsets.UTF_8)
-                    check(reply.contains(id)) { "HTTP 未返回本次标识" }
+                    check(reply.contains(id)) { "HTTP response did not contain this request's identity" }
                 }
             }
             if (hold) { report("HOLD_ENDED id=$id"); return }
@@ -248,7 +248,7 @@ class NativeCheckActivity : Activity() {
                     rejected = socket.getInputStream().read() == -1
                 }
             } catch (_: java.io.IOException) { rejected = true }
-            check(rejected) { "拒绝规则未生效" }
+            check(rejected) { "Reject rule did not take effect" }
             report("PROBE_OK id=$id tcp=ok udp=ok dns=$addresses reject=observed")
         } catch (error: Exception) { report("PROBE_${if (hold) "HOLD_END" else "FAILED"} id=$id $error") }
     }

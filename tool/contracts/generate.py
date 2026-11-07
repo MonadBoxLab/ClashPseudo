@@ -1,4 +1,4 @@
-"""从跨语言常量声明和资源来源清单生成各语言的编译期定义。"""
+"""Generate compile-time definitions from cross-language constants and resource source manifests."""
 
 import json
 from pathlib import Path
@@ -7,8 +7,8 @@ import subprocess
 
 
 SOURCE = Path("contracts/application.json")
-HEADER = "// 由 contracts/application.json 生成；修改源声明后运行 python3 -I -B tool/main.py contracts generate。\n"
-ASSET_HEADER = "// 由 Geo／CA manifest 生成；修改源声明后运行 python3 -I -B tool/main.py contracts generate。\n"
+HEADER = "// Generated from contracts/application.json; after editing the source, run python3 -I -B tool/main.py contracts generate.\n"
+ASSET_HEADER = "// Generated from Geo/CA manifests; after editing the source, run python3 -I -B tool/main.py contracts generate.\n"
 
 
 def unique_object(pairs):
@@ -52,35 +52,35 @@ def validate_core_contract(data):
     if ipc is None:
         return
     if not isinstance(ipc, dict):
-        raise ValueError("Core IPC contract 格式无效")
+        raise ValueError("Invalid Core IPC contract format")
     limits = ("version", "control_bytes", "identity_bytes", "frame_bytes",
               "queue_bytes", "record_bytes")
     if any(type(ipc.get(name)) is not int or not 0 < ipc[name] <= 0x7fffffff
            for name in limits):
-        raise ValueError("Core IPC 容量必须是有效的正整数")
+        raise ValueError("Core IPC capacities must be valid positive integers")
     if not (ipc["identity_bytes"] <= ipc["control_bytes"] <= ipc["frame_bytes"]
             <= ipc["queue_bytes"] and ipc["record_bytes"] <= ipc["frame_bytes"]):
-        raise ValueError("Core IPC 容量之间的关系无效")
+        raise ValueError("Invalid relationships between Core IPC capacities")
     frames = [value for name, value in ipc.items() if name.startswith("frame_") and name != "frame_bytes"]
     if (not frames or any(type(value) is not int or not 1 <= value <= 255 for value in frames)
             or len(frames) != len(set(frames))):
-        raise ValueError("Core IPC frame kind 必须是互不重复的单字节值")
+        raise ValueError("Core IPC frame kinds must be unique single-byte values")
     operations = data.get("core_operation")
     if (not isinstance(operations, dict) or not operations
             or any(type(value) is not int or not 0 < value <= 0x7fffffff
                    for value in operations.values())
             or len(operations) != len(set(operations.values()))):
-        raise ValueError("core_operation 的值必须是互不重复的正整数")
+        raise ValueError("core_operation values must be unique positive integers")
     for domain in ("core_part", "core_channel", "core_field", "core_purpose", "core_phase", "core_error"):
         fields = data.get(domain)
         if (not isinstance(fields, dict) or not fields
                 or any(not isinstance(value, str) or not value for value in fields.values())
                 or len(fields) != len(set(fields.values()))):
-            raise ValueError(f"Core IPC 字段必须是互不重复的非空字符串：{domain}")
+            raise ValueError(f"Core IPC fields must be unique nonempty strings: {domain}")
 
 
 def asset_metadata(manifest, certificate):
-    """根据当次构建的 Geo／CA manifest 生成资源定义，不读取源码目录中的 payload。"""
+    """Generate resource definitions from the current build Geo/CA manifests without reading payloads from the source directory."""
     if (not isinstance(manifest, dict)
             or manifest.get("format") != "clash-pseudo-bundled-geodata"
             or type(manifest.get("version")) is not int or manifest["version"] != 1
@@ -166,7 +166,7 @@ def generate(root, check=False, *, env=None):
         actual = target.read_text() if target.exists() else None
         if actual == expected:
             continue
-        if actual is not None and not actual.startswith(("// 由 contracts/application.json 生成；", "// 由 Geo／CA manifest 生成；")):
+        if actual is not None and not actual.startswith(("// Generated from contracts/application.json;", "// Generated from Geo/CA manifests;")):
             raise ValueError(f"Output is not owned by this generator: {relative}")
         changed.append((target, expected))
     if check and changed:
@@ -180,14 +180,14 @@ def generate(root, check=False, *, env=None):
 def register_parser(subparsers):
     for name, check in (("generate", False), ("check", True)):
         parser = subparsers.add_parser(
-            name, help="检查生成文件一致性" if check else "生成跨语言 Contract 文件",
-            description="检查项目输入，不写文件。" if check else "按声明生成 Dart、Kotlin、Go、C 定义，或生成资源 Kotlin 定义。",
-            epilog=f"示例：contracts {name} --project /path/to/project")
-        parser.add_argument("--project", type=Path, default=Path(__file__).resolve().parents[2], help="应用项目目录")
+            name, help="Check generated file consistency" if check else "Generate cross-language contract files",
+            description="Check project inputs without writing files." if check else "Generate Dart, Kotlin, Go, and C definitions from declarations, or Kotlin resource definitions.",
+            epilog=f"Example: contracts {name} --project /path/to/project")
+        parser.add_argument("--project", type=Path, default=Path(__file__).resolve().parents[2], help="Application project directory")
         if not check:
-            parser.add_argument("--asset-manifest", type=Path, help="当次生成的 Geo manifest")
-            parser.add_argument("--certificate-manifest", type=Path, help="当次生成的 CA manifest")
-            parser.add_argument("--asset-output", type=Path, help="BundledAssetContract.kt 输出路径")
+            parser.add_argument("--asset-manifest", type=Path, help="Geo manifest generated for the current build")
+            parser.add_argument("--certificate-manifest", type=Path, help="CA manifest generated for the current build")
+            parser.add_argument("--asset-output", type=Path, help="BundledAssetContract.kt output path")
         parser.set_defaults(handler=run, check=check, validate_args=validate_args)
 
 
@@ -195,7 +195,7 @@ def validate_args(args, parser):
     if not args.check:
         values = (args.asset_manifest, args.certificate_manifest, args.asset_output)
         if any(values) and not all(values):
-            parser.error("资源生成需要 --asset-manifest、--certificate-manifest 和 --asset-output")
+            parser.error("Resource generation requires --asset-manifest, --certificate-manifest, and --asset-output")
 
 
 def run(args):

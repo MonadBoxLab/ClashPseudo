@@ -73,7 +73,7 @@ class CloseBridge extends AppBridge {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('CoreRuntime FD 连接入口', () {
+  group('CoreRuntime FD connection entry points', () {
     late CoreRuntimeFixture fixture;
     const id = '00000001-0000-4000-8000-000000000000';
     final sample = <String, Object?>{
@@ -93,7 +93,7 @@ void main() {
 
     for (final abandon in [false, true]) {
       test(
-        'queued close 原${abandon ? 'abandon' : '100ms deadline'}回调在 worker drain 前仅失败一次，drain 后重试 closed',
+        'queued close ${abandon ? 'abandon' : '100ms deadline'} callback fails once before worker drain and retries as closed after drain',
         () async {
           final captured = fixture.core;
           fixture.deadline = fixture.admittedAt + 100;
@@ -144,7 +144,8 @@ void main() {
             );
             release.complete();
             await first.done;
-            // 调用方已收到错误，重试前另行等待实际 work 结束。
+            // The caller has received the error; wait separately for actual work to
+            // finish before retrying.
             await fixture.flush();
             expect(first.error, isA<PlatformFailure>());
             expect(first.replies, 1);
@@ -185,7 +186,7 @@ void main() {
                 'hasError': earlyError != null,
               },
               {'completed': true, 'replies': 1, 'hasError': true},
-              reason: '原 first.await/error 必须发生在 worker drain 前，不能用 snapshot.operationMessage 代替回调',
+              reason: 'The original first.await/error must precede worker drain; snapshot.operationMessage cannot replace the callback',
             );
           } finally {
             fixture.beforePlatformCall = null;
@@ -198,68 +199,71 @@ void main() {
     }
 
     for (final boundary in ['cancelBefore', 'cancelAfter', 'deadline']) {
-      test('queued close 最后一次 snapshot 在 $boundary 后返回，不提交 native', () async {
-        final entered = Completer<void>();
-        final release = Completer<void>();
-        var checks = 0;
-        var snapshots = 0;
-        fixture.beforePlatformCall = (call) async {
-          if (call.method == 'checkOperation') checks++;
-          if (checks == 3 && call.method == 'snapshot' && ++snapshots == 2) {
-            entered.complete();
-            await release.future;
+      test(
+        'queued close does not submit to native when the final snapshot returns after $boundary',
+        () async {
+          final entered = Completer<void>();
+          final release = Completer<void>();
+          var checks = 0;
+          var snapshots = 0;
+          fixture.beforePlatformCall = (call) async {
+            if (call.method == 'checkOperation') checks++;
+            if (checks == 3 && call.method == 'snapshot' && ++snapshots == 2) {
+              entered.complete();
+              await release.future;
+            }
+            return null;
+          };
+          final first = FutureProbe(
+            fixture.operation.closeConnection(fixture.core, id),
+          );
+          try {
+            await entered.future.timeout(const Duration(seconds: 2));
+            if (boundary == 'cancelBefore') fixture.operation.cancel();
+            if (boundary == 'deadline') fixture.expire();
+            release.complete();
+            if (boundary == 'cancelAfter') fixture.operation.cancel();
+            await first.done;
+            await fixture.flush();
+            expect(
+              first.error,
+              isA<PlatformFailure>().having((e) => e.code, 'code', 'expired'),
+            );
+            expect(first.replies, 1);
+            expect(
+              fixture.calls(ApplicationContract.coreOperationConnectionClose),
+              isEmpty,
+            );
+            fixture.beforePlatformCall = null;
+            fixture.script(ApplicationContract.coreOperationConnectionClose, (
+              request,
+            ) {
+              request.complete({'status': 'closed'});
+            });
+            expect(
+              await fixture.bootstrap.runtime.platform.closeConnection(
+                fixture.core,
+                id,
+              ),
+              'closed',
+            );
+            expect(
+              fixture.calls(ApplicationContract.coreOperationConnectionClose),
+              hasLength(1),
+            );
+            expect(first.replies, 1);
+            expect(fixture.exits, isEmpty);
+          } finally {
+            fixture.beforePlatformCall = null;
+            if (!release.isCompleted) release.complete();
+            await first.done;
+            await fixture.flush();
           }
-          return null;
-        };
-        final first = FutureProbe(
-          fixture.operation.closeConnection(fixture.core, id),
-        );
-        try {
-          await entered.future.timeout(const Duration(seconds: 2));
-          if (boundary == 'cancelBefore') fixture.operation.cancel();
-          if (boundary == 'deadline') fixture.expire();
-          release.complete();
-          if (boundary == 'cancelAfter') fixture.operation.cancel();
-          await first.done;
-          await fixture.flush();
-          expect(
-            first.error,
-            isA<PlatformFailure>().having((e) => e.code, 'code', 'expired'),
-          );
-          expect(first.replies, 1);
-          expect(
-            fixture.calls(ApplicationContract.coreOperationConnectionClose),
-            isEmpty,
-          );
-          fixture.beforePlatformCall = null;
-          fixture.script(ApplicationContract.coreOperationConnectionClose, (
-            request,
-          ) {
-            request.complete({'status': 'closed'});
-          });
-          expect(
-            await fixture.bootstrap.runtime.platform.closeConnection(
-              fixture.core,
-              id,
-            ),
-            'closed',
-          );
-          expect(
-            fixture.calls(ApplicationContract.coreOperationConnectionClose),
-            hasLength(1),
-          );
-          expect(first.replies, 1);
-          expect(fixture.exits, isEmpty);
-        } finally {
-          fixture.beforePlatformCall = null;
-          if (!release.isCompleted) release.complete();
-          await first.done;
-          await fixture.flush();
-        }
-      });
+        },
+      );
     }
 
-    test('queued close 取消后收到迟到平台异常，只保留原错误并在 drain 后释放 slot', () async {
+    test('queued close retains only the original error on a late platform failure after cancellation and releases the slot after drain', () async {
       final entered = Completer<void>();
       final release = Completer<void>();
       var checks = 0;
@@ -329,7 +333,7 @@ void main() {
 
     for (final networkOnly in [false, true]) {
       test(
-        'queued close 在 gate 期间${networkOnly ? 'networkRevision 变化' : '替换 core'}，不关闭新来源的连接',
+        'queued close does not close replacement connections when ${networkOnly ? 'networkRevision changes' : 'the core is replaced'} during the gate',
         () async {
           final captured = fixture.core;
           final entered = Completer<void>();
@@ -425,7 +429,7 @@ void main() {
 
     for (final cancelFirst in [false, true]) {
       test(
-        'close 已提交但 receipt 尚未返回，取消与完成竞争时${cancelFirst ? '先取消' : '先完成'}均等待实际退出',
+        'submitted close awaits actual exit when ${cancelFirst ? 'cancellation' : 'completion'} wins the race before its receipt returns',
         () async {
           final receipt = Completer<void>();
           final entered = fixture.next(
@@ -477,81 +481,81 @@ void main() {
       );
     }
 
-    test(
-      '完整 bounded query 与 suggestions 原样传输并附 captured identity 和单调时间',
-      () async {
-        final query = {
-          'limit': 50,
-          'previousActiveIds': [id],
-          'detailId': id,
-        };
-        final suggestion = {
-          'id': id,
-          'rule': 'DOMAIN,fixture.test,DIRECT',
-          'future': [false, null, modeStrategyOriginal],
-        };
-        fixture.script(ApplicationContract.coreOperationConnections, (request) {
-          expect(request.arguments, {
-            ...query,
-            'admittedAt': 100,
-            'deadline': 60100,
-          });
-          request.complete({...sample, 'ruleSuggestions': suggestion});
+    test('complete bounded query and suggestions pass through with captured identity and monotonic timing', () async {
+      final query = {
+        'limit': 50,
+        'previousActiveIds': [id],
+        'detailId': id,
+      };
+      final suggestion = {
+        'id': id,
+        'rule': 'DOMAIN,fixture.test,DIRECT',
+        'future': [false, null, modeStrategyOriginal],
+      };
+      fixture.script(ApplicationContract.coreOperationConnections, (request) {
+        expect(request.arguments, {
+          ...query,
+          'admittedAt': 100,
+          'deadline': 60100,
         });
-        final value = await fixture.operation.sampleConnections(
-          fixture.core,
-          query,
-        );
-        for (final field in fixture.identity().entries) {
-          expect(value[field.key], field.value, reason: field.key);
-        }
-        expect(value['ruleSuggestions'], suggestion);
-        expect(value['phase'], fixture.core.phase);
-        expect(value.containsKey('failed'), isFalse);
-        expect(value['elapsedMs'], fixture.now);
-        expect(value['observedAt'], greaterThan(0));
-        expect(value['sessionUploadBytes'], 100);
-        expect(value['sessionDownloadBytes'], 200);
-        expect(fixture.exits, isEmpty);
-      },
-    );
+        request.complete({...sample, 'ruleSuggestions': suggestion});
+      });
+      final value = await fixture.operation.sampleConnections(
+        fixture.core,
+        query,
+      );
+      for (final field in fixture.identity().entries) {
+        expect(value[field.key], field.value, reason: field.key);
+      }
+      expect(value['ruleSuggestions'], suggestion);
+      expect(value['phase'], fixture.core.phase);
+      expect(value.containsKey('failed'), isFalse);
+      expect(value['elapsedMs'], fixture.now);
+      expect(value['observedAt'], greaterThan(0));
+      expect(value['sessionUploadBytes'], 100);
+      expect(value['sessionDownloadBytes'], 200);
+      expect(fixture.exits, isEmpty);
+    });
 
     for (final method in ['sampleConnections', 'closeConnection']) {
-      test('$method 逐字段拒绝缺失或不匹配的完整身份，尚未提交 native', () async {
-        final valid = fixture.identity();
-        for (final field in valid.keys) {
-          for (final wrong in [
-            null,
-            field == 'generation' ||
-                    field == 'revision' ||
-                    field == 'networkRevision'
-                ? -1
-                : 'wrong',
-          ]) {
-            await expectLater(
-              fixture.runtime.read(method, {
-                ...valid,
-                field: wrong,
-                'connectionId': id,
-                'query': {'limit': 50},
-              }),
-              throwsA(isA<PlatformFailure>()),
-            );
+      test(
+        '$method rejects missing or mismatched identity fields before native submission',
+        () async {
+          final valid = fixture.identity();
+          for (final field in valid.keys) {
+            for (final wrong in [
+              null,
+              field == 'generation' ||
+                      field == 'revision' ||
+                      field == 'networkRevision'
+                  ? -1
+                  : 'wrong',
+            ]) {
+              await expectLater(
+                fixture.runtime.read(method, {
+                  ...valid,
+                  field: wrong,
+                  'connectionId': id,
+                  'query': {'limit': 50},
+                }),
+                throwsA(isA<PlatformFailure>()),
+              );
+            }
           }
-        }
-        expect(
-          fixture.calls(ApplicationContract.coreOperationConnections),
-          isEmpty,
-        );
-        expect(
-          fixture.calls(ApplicationContract.coreOperationConnectionClose),
-          isEmpty,
-        );
-        expect(fixture.exits, isEmpty);
-      });
+          expect(
+            fixture.calls(ApplicationContract.coreOperationConnections),
+            isEmpty,
+          );
+          expect(
+            fixture.calls(ApplicationContract.coreOperationConnectionClose),
+            isEmpty,
+          );
+          expect(fixture.exits, isEmpty);
+        },
+      );
     }
 
-    test('read 到期后保持实际 slot，close 使用独立 slot，真实退出后才允许下一次 read', () async {
+    test('expired read retains its slot while close uses a separate slot; the next read waits for actual exit', () async {
       fixture.script(ApplicationContract.coreOperationConnections, (request) {
         request.complete(sample, terminal: {'exited': false});
       });
@@ -609,8 +613,8 @@ void main() {
     for (final queued in [true, false]) {
       testWidgets(
         queued
-            ? 'ConnectionsCallsTest.timeoutDoesNotQueueMoreReadsOrStopVpn：排队 readonly 到期后显示失败且不进入 native，实际受理结束前保持 slot'
-            : 'ConnectionsCallsTest.inProgressTimeoutRetainsSlotAndDropsLateResult：执行中的 readonly 到期后显示失败，实际 FD drain 前保持 slot 且迟到 sample 不回填窗口',
+            ? 'ConnectionsCallsTest.timeoutDoesNotQueueMoreReadsOrStopVpn: an expired queued read fails without entering native and retains its slot until admission ends'
+            : 'ConnectionsCallsTest.inProgressTimeoutRetainsSlotAndDropsLateResult: an expired running read fails, retains its slot until FD drain, and does not backfill late samples',
         (tester) async {
           final gate = Completer<Map<String, dynamic>>();
           Map<String, dynamic> state() => {
@@ -763,7 +767,7 @@ void main() {
       );
     }
 
-    test('sample 交付前 composition 变化使整个结果失效，不更改 replacement', () async {
+    test('a composition change before sample delivery invalidates the whole result without changing the replacement', () async {
       final captured = fixture.core;
       fixture.script(ApplicationContract.coreOperationConnections, (request) {
         fixture.replaceCore(composition: 'replacement');
@@ -781,64 +785,67 @@ void main() {
     });
 
     for (final status in ['closed', 'absent', 'failed', 'unknown']) {
-      test('close 的 $status 在 deadline、取消和来源变化后保留实际结果，等真实退出且只交付一次', () async {
-        final captured = fixture.core;
-        fixture.script(ApplicationContract.coreOperationConnectionClose, (
-          request,
-        ) {
-          expect(request.arguments['id'], id);
-          request.complete(
-            {
-              'status': status,
-              'future': [false, null],
-            },
-            terminal: {'exited': false},
+      test(
+        'close $status retains its actual result after deadline, cancellation, and source changes, waits for actual exit, and delivers once',
+        () async {
+          final captured = fixture.core;
+          fixture.script(ApplicationContract.coreOperationConnectionClose, (
+            request,
+          ) {
+            expect(request.arguments['id'], id);
+            request.complete(
+              {
+                'status': status,
+                'future': [false, null],
+              },
+              terminal: {'exited': false},
+            );
+          });
+          final entered = fixture.next(
+            ApplicationContract.coreOperationConnectionClose,
           );
-        });
-        final entered = fixture.next(
-          ApplicationContract.coreOperationConnectionClose,
-        );
-        final pending = FutureProbe(
-          fixture.runtime.read('closeConnection', {
-            ...fixture.identity(),
-            'connectionId': id,
-          }, operation: fixture.operation),
-        );
-        final request = await entered;
-        fixture.expire();
-        fixture.operation.cancel();
-        await fixture.flush();
-        expect(pending.settled, isFalse);
-        final blocked = jsonDecode(
-          await fixture.runtime.read('closeConnection', {
-            ...fixture.identity(),
-            'connectionId': id,
-          }) as String,
-        ) as Map;
-        expect(blocked['readPending'], isTrue);
-        expect(
-          fixture.calls(ApplicationContract.coreOperationConnectionClose),
-          hasLength(1),
-        );
-        fixture.replaceCore(
-          processId: 'replacement',
-          inputId: 'replacement-input',
-          generation: 2,
-        );
-        request.signalExit();
-        await pending.done;
-        expect(pending.replies, 1);
-        final value = jsonDecode(pending.value as String) as Map;
-        expect(value['status'], status);
-        expect(value['future'], [false, null]);
-        expect(value['processId'], captured.processId);
-        expect(value['composition'], captured.composition);
-        expect(fixture.core.processId, 'replacement');
-        expect(fixture.exits, isEmpty);
-      });
+          final pending = FutureProbe(
+            fixture.runtime.read('closeConnection', {
+              ...fixture.identity(),
+              'connectionId': id,
+            }, operation: fixture.operation),
+          );
+          final request = await entered;
+          fixture.expire();
+          fixture.operation.cancel();
+          await fixture.flush();
+          expect(pending.settled, isFalse);
+          final blocked = jsonDecode(
+            await fixture.runtime.read('closeConnection', {
+              ...fixture.identity(),
+              'connectionId': id,
+            }) as String,
+          ) as Map;
+          expect(blocked['readPending'], isTrue);
+          expect(
+            fixture.calls(ApplicationContract.coreOperationConnectionClose),
+            hasLength(1),
+          );
+          fixture.replaceCore(
+            processId: 'replacement',
+            inputId: 'replacement-input',
+            generation: 2,
+          );
+          request.signalExit();
+          await pending.done;
+          expect(pending.replies, 1);
+          final value = jsonDecode(pending.value as String) as Map;
+          expect(value['status'], status);
+          expect(value['future'], [false, null]);
+          expect(value['processId'], captured.processId);
+          expect(value['composition'], captured.composition);
+          expect(fixture.core.processId, 'replacement');
+          expect(fixture.exits, isEmpty);
+        },
+      );
     }
 
-    test('close native 错误保留 cause、suppressed 与未知字段，不改成成功，失败后释放 slot', () async {
+    test('close native errors retain cause, suppressed, and unknown fields, remain failures, and release the slot', () async {
       final failure = nativeFailure('java.io.IOException');
       fixture.script(ApplicationContract.coreOperationConnectionClose, (
         request,

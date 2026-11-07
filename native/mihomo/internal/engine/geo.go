@@ -6,7 +6,7 @@ import (
 	C "github.com/metacubex/mihomo/constant"
 )
 
-// 公开getter在parser/provider启动前读取，并保留本次实际路径。
+// Read public getters before starting parsers or providers and retain the actual paths for this run.
 func geoFiles() [4]string {
 	return [4]string{C.Path.GeoIP(), C.Path.MMDB(), C.Path.ASN(), C.Path.GeoSite()}
 }

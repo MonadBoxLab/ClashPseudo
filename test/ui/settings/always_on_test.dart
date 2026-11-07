@@ -356,7 +356,8 @@ void main() {
             200,
             scrollable: find.byType(Scrollable).first,
           );
-          // 先结束页面初始动画，VPN 状态请求仍未完成。
+          // Finish the initial page animation while the VPN status request remains
+          // pending.
           await tester.pump(const Duration(milliseconds: 300));
           await tester.pump(const Duration(milliseconds: 300));
           final anchor = tester.getRect(button);
@@ -402,52 +403,20 @@ void main() {
   }
 
   for (final succeeds in [true, false]) {
-    testWidgets('VPN 状态详情打开期间保留在途读取：成功=$succeeds', (tester) async {
-      final pending = Completer<Map<String, dynamic>>();
-      final bridge = AccessBridge()..statusReply = pending;
-      final app = AccessApp(bridge);
-      addTearDown(app.dispose);
-      await show(tester, AlwaysOnPage(app: app));
-      await tester.pump();
-      await tester.pump(const Duration(seconds: 5));
-      await tester.pumpAndSettle();
-      final strings = AppLocalizations.of(
-        tester.element(find.byType(AlwaysOnPage)),
-      );
-      await tester.tap(
-        find.descendant(
-          of: find.byType(SnackBar),
-          matching: find.text(strings.errorDetails),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.byType(AlertDialog), findsOneWidget);
-      app.publish(app.state);
-      if (succeeds) {
-        pending.complete({'alwaysOn': true, 'lockdown': false});
-      } else {
-        pending.completeError(StateError('实际 VPN 状态读取失败'));
-      }
-      await tester.pumpAndSettle();
-      expect(find.byType(AlertDialog), findsOneWidget);
-      expect(bridge.statusCalls, 1);
-      await tester.tap(
-        find.descendant(
-          of: find.byType(AlertDialog),
-          matching: find.text(strings.close),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(bridge.statusCalls, 1);
-      if (succeeds) {
-        expectSystemStates(
-          tester,
-          alwaysOn: strings.alwaysOnEnabled,
-          lockdown: strings.lockdownDisabled,
+    testWidgets(
+      'VPN status details retain in-flight reads while open: success=$succeeds',
+      (tester) async {
+        final pending = Completer<Map<String, dynamic>>();
+        final bridge = AccessBridge()..statusReply = pending;
+        final app = AccessApp(bridge);
+        addTearDown(app.dispose);
+        await show(tester, AlwaysOnPage(app: app));
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 5));
+        await tester.pumpAndSettle();
+        final strings = AppLocalizations.of(
+          tester.element(find.byType(AlwaysOnPage)),
         );
-        expect(find.byType(SnackBar), findsNothing);
-      } else {
-        expect(find.byType(SnackBar), findsOneWidget);
         await tester.tap(
           find.descendant(
             of: find.byType(SnackBar),
@@ -455,64 +424,104 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsOneWidget);
+        app.publish(app.state);
+        if (succeeds) {
+          pending.complete({'alwaysOn': true, 'lockdown': false});
+        } else {
+          pending.completeError(StateError('实际 VPN 状态读取失败'));
+        }
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsOneWidget);
+        expect(bridge.statusCalls, 1);
         await tester.tap(
-          find.byKey(const ValueKey('operation-technical-details')),
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.text(strings.close),
+          ),
         );
         await tester.pumpAndSettle();
-        expect(find.textContaining('实际 VPN 状态读取失败'), findsOneWidget);
-      }
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    });
+        expect(bridge.statusCalls, 1);
+        if (succeeds) {
+          expectSystemStates(
+            tester,
+            alwaysOn: strings.alwaysOnEnabled,
+            lockdown: strings.lockdownDisabled,
+          );
+          expect(find.byType(SnackBar), findsNothing);
+        } else {
+          expect(find.byType(SnackBar), findsOneWidget);
+          await tester.tap(
+            find.descendant(
+              of: find.byType(SnackBar),
+              matching: find.text(strings.errorDetails),
+            ),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(
+            find.byKey(const ValueKey('operation-technical-details')),
+          );
+          await tester.pumpAndSettle();
+          expect(find.textContaining('实际 VPN 状态读取失败'), findsOneWidget);
+        }
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
   }
 
-  testWidgets('VPN 状态读取失败只显示 SnackBar，详情保留原错误且可重试', (tester) async {
-    final bridge = AccessBridge()..statusFails = true;
-    final app = AccessApp(bridge);
-    addTearDown(app.dispose);
-    await show(tester, AlwaysOnPage(app: app));
-    await tester.pumpAndSettle();
-    final strings = AppLocalizations.of(
-      tester.element(find.byType(AlwaysOnPage)),
-    );
-    expect(find.byType(SnackBar), findsOneWidget);
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(find.text(strings.vpnStatusReadFailed), findsOneWidget);
-    expect(find.text('Bad state: status failed'), findsNothing);
-    final anchor = tester.getRect(
-      find.byKey(const ValueKey('always-on-settings')),
-    );
-    await tester.tap(
-      find.descendant(
-        of: find.byType(SnackBar),
-        matching: find.widgetWithText(TextButton, strings.errorDetails),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('operation-technical-details')));
-    await tester.pumpAndSettle();
-    expect(find.text('Bad state: status failed'), findsOneWidget);
-    bridge.statusFails = false;
-    await tester.tap(find.widgetWithText(TextButton, strings.retry));
-    await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(find.byType(SnackBar), findsNothing);
-    expect(
-      tester.getRect(find.byKey(const ValueKey('always-on-settings'))),
-      anchor,
-    );
-    expectSystemStates(
-      tester,
-      alwaysOn: strings.alwaysOnEnabled,
-      lockdown: strings.lockdownDisabled,
-    );
-    expect(
-      tester.getRect(find.byKey(const ValueKey('always-on-settings'))),
-      anchor,
-    );
-    expect(tester.takeException(), isNull);
-  });
+  testWidgets(
+    'VPN status read failure shows only SnackBar; details retain the original error and allow retry',
+    (tester) async {
+      final bridge = AccessBridge()..statusFails = true;
+      final app = AccessApp(bridge);
+      addTearDown(app.dispose);
+      await show(tester, AlwaysOnPage(app: app));
+      await tester.pumpAndSettle();
+      final strings = AppLocalizations.of(
+        tester.element(find.byType(AlwaysOnPage)),
+      );
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.text(strings.vpnStatusReadFailed), findsOneWidget);
+      expect(find.text('Bad state: status failed'), findsNothing);
+      final anchor = tester.getRect(
+        find.byKey(const ValueKey('always-on-settings')),
+      );
+      await tester.tap(
+        find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.widgetWithText(TextButton, strings.errorDetails),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+      await tester.tap(
+        find.byKey(const ValueKey('operation-technical-details')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Bad state: status failed'), findsOneWidget);
+      bridge.statusFails = false;
+      await tester.tap(find.widgetWithText(TextButton, strings.retry));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(SnackBar), findsNothing);
+      expect(
+        tester.getRect(find.byKey(const ValueKey('always-on-settings'))),
+        anchor,
+      );
+      expectSystemStates(
+        tester,
+        alwaysOn: strings.alwaysOnEnabled,
+        lockdown: strings.lockdownDisabled,
+      );
+      expect(
+        tester.getRect(find.byKey(const ValueKey('always-on-settings'))),
+        anchor,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('always-on page shows unknown state and opens system settings', (
     tester,

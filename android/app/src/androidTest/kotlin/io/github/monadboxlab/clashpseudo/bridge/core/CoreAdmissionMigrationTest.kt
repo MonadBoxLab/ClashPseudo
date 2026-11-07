@@ -48,11 +48,11 @@ class CoreAdmissionMigrationTest {
         }
     }
 
-    /** 原 100ms budget 继续计时，只延迟真实 checkOperation Reply 的交付。 */
+    /** The original 100ms budget keeps running; delay only delivery of the actual checkOperation Reply. */
     private fun queuedDeadlineThroughTheActualRuntimeChannel() {
         val platform = CorePlatformTestDriver()
         val client = CoreClient.get(platform.context)
-        platform.await("原 business writer 空闲") { AppBridge.operationId == null && !AppBridge.logic.busy }
+        platform.await("Original application writer is idle") { AppBridge.operationId == null && !AppBridge.logic.busy }
         CoreIpcTestDriver.production().use { observer ->
             var failure: Throwable? = null
             var gate: RuntimeReplyGate? = null
@@ -100,7 +100,7 @@ class CoreAdmissionMigrationTest {
                 assertTrue(expired.toString(), expired is CorePlatformTestDriver.ChannelFailure)
                 assertEquals("expired", (expired as CorePlatformTestDriver.ChannelFailure).code)
                 assertEquals(1, first.replies.get())
-                assertFalse("原 work 必须仍持有未交付的真实 Reply", channelGate.delivered)
+                assertFalse("The original work must still hold the undelivered actual Reply", channelGate.delivered)
                 val pending = JSONObject(runtimeRead("closeConnection", source).value.get(10, TimeUnit.SECONDS) as String)
                 assertTrue(pending.toString(), pending.getBoolean("readPending"))
                 assertEquals(0, channelGate.closeSubmissions.get())
@@ -112,7 +112,7 @@ class CoreAdmissionMigrationTest {
                 do {
                     actual = JSONObject(runtimeRead("closeConnection", source).value.get(10, TimeUnit.SECONDS) as String)
                     if (!actual.optBoolean("readPending")) break
-                    check(SystemClock.elapsedRealtime() < end) { "原 close work 未释放 slot" }
+                    check(SystemClock.elapsedRealtime() < end) { "Original close work did not release its slot" }
                     Thread.sleep(10)
                 } while (true)
                 assertEquals("absent", actual.getString("status"))
@@ -170,13 +170,13 @@ class CoreAdmissionMigrationTest {
                 }
                 override fun notImplemented() {
                     check(pending.replies.incrementAndGet() == 1)
-                    pending.value.completeExceptionally(AssertionError("真实 AppRuntime 未实现 $method"))
+                    pending.value.completeExceptionally(AssertionError("Actual AppRuntime does not implement $method"))
                 }
             })
         }
     }
 
-    /** 原 handler 继续处理每条消息；只保留一份已经生成的真实成功 Reply。 */
+    /** The original handler keeps processing every message; hold only one already-generated actual success Reply. */
     private class RuntimeReplyGate(host: LogicEngineHost, private val owner: String) : Closeable {
         private val engine = LogicEngineHost::class.java.getDeclaredField("engine").apply { isAccessible = true }
             .get(host) as FlutterEngine
@@ -204,7 +204,7 @@ class CoreAdmissionMigrationTest {
                             ByteBuffer.allocateDirect(original.position()).apply { put(original.duplicate().apply { flip() }) }
                         }
                         try {
-                            check(copy != null) { "真实 checkOperation 未返回 envelope" }
+                            check(copy != null) { "Actual checkOperation did not return an envelope" }
                             StandardMethodCodec.INSTANCE.decodeEnvelope(copy.duplicate().apply { flip() })
                         } catch (error: Throwable) {
                             delivered = true
@@ -238,7 +238,7 @@ class CoreAdmissionMigrationTest {
         val submission = CompletableFuture.supplyAsync {
             core.start(operation, arguments) { metadata ->
                 admitted.complete(metadata.getLong("requestId"))
-                check(release.await(20, TimeUnit.SECONDS)) { "等待测试放行原输入 FD 超时" }
+                check(release.await(20, TimeUnit.SECONDS)) { "Timed out waiting for the test to release the original input FD" }
             }
         }
         try {
@@ -247,9 +247,9 @@ class CoreAdmissionMigrationTest {
             assertFalse(core.driver.receipts[id]?.isDone == true)
             assertNull(CoreResourceGate.forApplication(core.driver.context).tryAcquire())
 
-            // metadata 尚未写入原 pipe，取消走原 Service、token 和 native CANCEL。
+            // Metadata has not been written to the original pipe; cancellation uses the original Service, token, and native CANCEL.
             CoreBridgeIpcScenario.success(core.driver.cancel(id))
-            assertFalse("取消意图不能伪造原调用退出", core.driver.receipts[id]?.isDone == true)
+            assertFalse("Cancellation intent must not fake the original call's exit", core.driver.receipts[id]?.isDone == true)
             assertFalse(submission.isDone)
             core.assertSameContext()
             assertNull(CoreResourceGate.forApplication(core.driver.context).tryAcquire())
@@ -259,7 +259,7 @@ class CoreAdmissionMigrationTest {
             val reply = core.await(pending)
             val error = CoreBridgeIpcScenario.failure(reply)
             assertEquals(Contract.CORE_ERROR_CANCELLED, error.getString("code"))
-            assertEquals("请求在进入内核前已取消", error.getString("message"))
+            assertEquals("Request was cancelled before entering the core", error.getString("message"))
             assertTrue(error.getString("stack").contains("CoreHost"))
             val receipt = core.driver.receipt(id)
             assertTrue(receipt.getBoolean("exited"))

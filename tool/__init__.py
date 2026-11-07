@@ -1,1 +1,1 @@
-"""项目构建与维护工具。公共命令从 tool/main.py 启动。"""
+"""Project build and maintenance tools. Public commands start from tool/main.py."""

@@ -1,4 +1,4 @@
-"""使用合成归档，测试APK中的许可、数据资产和原生依赖校验。"""
+"""Test APK license, data asset, and native dependency verification with synthetic archives."""
 
 from contextlib import redirect_stdout, redirect_stderr
 import gzip
@@ -138,7 +138,7 @@ class ReleaseLicenseTest(unittest.TestCase):
         self.assertTrue(final.startswith("FINAL "), output)
         self.assertEqual(json.loads(final.removeprefix("FINAL ")), {
             "exit_code": 0,
-            "scope": "许可与数据资产字节、各ABI的Go buildinfo及所选依赖图",
+            "scope": "License and data asset bytes, per-ABI Go buildinfo, and selected dependency graphs",
         })
 
     def test_each_split_checks_only_its_selected_abi(self):
@@ -205,7 +205,7 @@ class ReleaseLicenseTest(unittest.TestCase):
         name = "assets/geodata/dbip-country-lite.mmdb.gzip"
         self.entries[name.removesuffix(".gzip")] = gzip.decompress(self.entries.pop(name))
         self.write_archive()
-        self.assert_failure("APK 资源文件集合与本轮生成材料不同")
+        self.assert_failure("APK resource file set differs from the current generated inputs")
 
     def test_ca_and_geo_report_actual_packaged_bytes(self):
         result, output, _ = self.run_verifier()
@@ -222,7 +222,7 @@ class ReleaseLicenseTest(unittest.TestCase):
     def test_extra_stale_ca_bundle_is_not_silently_packaged(self):
         self.entries["assets/certificates/old.pem"] = b"stale public certificate fixture"
         self.write_archive()
-        self.assert_failure("APK 资源文件集合与本轮生成材料不同")
+        self.assert_failure("APK resource file set differs from the current generated inputs")
 
     def test_metadata_does_not_select_files_or_trigger_parsing(self):
         self.certificate_manifest.unlink()
@@ -237,7 +237,7 @@ class ReleaseLicenseTest(unittest.TestCase):
     def test_missing_generated_asset_fails_before_native_extraction(self):
         del self.entries["assets/geodata/GeoIP.dat"]
         self.write_archive()
-        self.assert_failure("APK 资源文件集合与本轮生成材料不同")
+        self.assert_failure("APK resource file set differs from the current generated inputs")
         self.assertEqual(list(self.output.iterdir()), [])
 
     def psl_source(self, replacement=False):
@@ -270,7 +270,7 @@ class ReleaseLicenseTest(unittest.TestCase):
         result, output, _ = self.run_verifier()
         self.assertEqual(result, 0, output)
         self.assertIn('"verified": false', output)
-        self.assertIn("填写--xnet-source参数，指定实际所选x/net模块的原始zip路径，然后重新运行PSL来源核验", output)
+        self.assertIn("Set --xnet-source to the original ZIP for the selected x/net module, then rerun PSL source verification", output)
 
     def test_selected_xnet_table_revision_and_editable_psl_are_checked(self):
         source, _, revision = self.psl_source()
@@ -291,21 +291,21 @@ class ReleaseLicenseTest(unittest.TestCase):
         source, module, revision = self.psl_source()
         notice = self.project / "third_party/notices/publicsuffix.txt"
         notice.write_text(notice.read_text().replace(revision, "7" * 40))
-        with self.assertRaisesRegex(ValueError, "PSL 通知与所选 x/net 的来源提交或可编辑源码不同"):
+        with self.assertRaisesRegex(ValueError, "PSL notice differs from the selected x/net source commit or editable sources"):
             verifier.check_public_suffix(self.project, module, source)
 
     def test_psl_editable_source_drift_is_rejected(self):
         source, module, _ = self.psl_source()
         editable = self.project / "third_party/data/publicsuffix/public_suffix_list.dat"
         editable.write_bytes(editable.read_bytes() + b"different.example\n")
-        with self.assertRaisesRegex(ValueError, "PSL 通知与所选 x/net 的来源提交或可编辑源码不同"):
+        with self.assertRaisesRegex(ValueError, "PSL notice differs from the selected x/net source commit or editable sources"):
             verifier.check_public_suffix(self.project, module, source)
 
     def test_psl_archive_duplicate_and_outside_paths_are_not_extracted(self):
         source, module, _ = self.psl_source()
         with zipfile.ZipFile(source, "a") as archive:
             archive.writestr("../json.py", b"raise RuntimeError('must not run')")
-        with self.assertRaisesRegex(ValueError, "x/net 源码归档路径越界"):
+        with self.assertRaisesRegex(ValueError, "x/net source archive path escapes the archive root"):
             verifier.check_public_suffix(self.project, module, source)
         self.assertFalse((self.base / "json.py").exists())
 
@@ -315,7 +315,7 @@ class ReleaseLicenseTest(unittest.TestCase):
             warnings.simplefilter("ignore", UserWarning)
             with zipfile.ZipFile(source, "a") as archive:
                 archive.writestr("golang.org/x/net@v1.0.0/go.mod", b"duplicate")
-        with self.assertRaisesRegex(ValueError, "x/net 源码归档含重复成员"):
+        with self.assertRaisesRegex(ValueError, "x/net source archive contains duplicate members"):
             verifier.check_public_suffix(self.project, module, source)
 
     def test_psl_source_reads_are_bounded_without_extracting_zip_contents(self):
@@ -333,22 +333,22 @@ class ReleaseLicenseTest(unittest.TestCase):
     def test_packaged_ca_material_must_match_the_reviewed_source(self):
         self.entries["assets/certificates/cacert.pem"] += b"changed"
         self.write_archive()
-        self.assert_failure("APK 资源字节与本轮生成材料不同：assets/certificates/cacert.pem")
+        self.assert_failure("APK resource bytes differ from the current generated inputs: assets/certificates/cacert.pem")
 
     def test_geo_manifest_bytes_must_match_the_source(self):
         self.entries["assets/geodata/manifest.json"] += b" "
         self.write_archive()
-        self.assert_failure("APK 资源字节与本轮生成材料不同：assets/geodata/manifest.json")
+        self.assert_failure("APK resource bytes differ from the current generated inputs: assets/geodata/manifest.json")
 
     def test_generated_geo_legal_asset_must_match_the_canonical_material(self):
         self.entries["assets/geodata/licenses/GeoSite-MIT.txt"] += b"changed"
         self.write_archive()
-        self.assert_failure("APK 资源字节与本轮生成材料不同：assets/geodata/licenses/GeoSite-MIT.txt")
+        self.assert_failure("APK resource bytes differ from the current generated inputs: assets/geodata/licenses/GeoSite-MIT.txt")
 
     def test_extra_expanded_geo_copy_is_not_silently_packaged(self):
         self.entries["assets/geodata/mmdb.mmdb"] = b"unexpected expanded copy"
         self.write_archive()
-        self.assert_failure("APK 资源文件集合与本轮生成材料不同")
+        self.assert_failure("APK resource file set differs from the current generated inputs")
 
     def test_asset_byte_difference(self):
         self.entries["assets/flutter_assets/LICENSE"] += b"changed"
@@ -364,7 +364,7 @@ class ReleaseLicenseTest(unittest.TestCase):
         self.entries["assets/flutter_assets/NOTICES.Z"] = gzip.compress(
             b"Extra preamble\n" + (self.inputs / "NOTICES").read_bytes())
         self.write_archive()
-        self.assert_failure("NOTICES.Z解压后的内容与指定的NOTICES文件不同")
+        self.assert_failure("Decompressed NOTICES.Z differs from the specified NOTICES file")
 
     def test_corrupt_notices_gzip(self):
         self.entries["assets/flutter_assets/NOTICES.Z"] = b"not gzip"
@@ -375,7 +375,7 @@ class ReleaseLicenseTest(unittest.TestCase):
         with mock.patch.object(verifier, "TEXT_LIMIT", 8192):
             self.entries["assets/flutter_assets/NOTICES.Z"] = gzip.compress(b"x" * 100000)
             self.write_archive()
-            self.assert_failure("NOTICES.Z解压后的内容与指定的NOTICES文件不同")
+            self.assert_failure("Decompressed NOTICES.Z differs from the specified NOTICES file")
 
     def test_bounded_archive_entry(self):
         with mock.patch.object(verifier, "TEXT_LIMIT", 10):

@@ -1,4 +1,4 @@
-"""受控 fixture 服务的创建与关闭。"""
+"""Creation and shutdown of controlled fixture servers."""
 import contextlib
 import errno
 import ipaddress
@@ -18,7 +18,7 @@ def ipv4_host(value):
 
 
 def _dns_servers(host):
-    # TCP 与 UDP 分别分配动态端口；两种 socket 都绑定成功后才取得该端口对。
+    # Allocate dynamic TCP and UDP ports; accept a port pair only after both sockets bind successfully.
     for attempt in range(16):
         tcp = TCPServer((host, 0), DNSTCP)
         try:
@@ -108,7 +108,7 @@ class Fixture:
                 with contextlib.suppress(OSError):
                     request.shutdown(socket.SHUT_RDWR)
                 request.close()
-            # server_close等待全部请求线程，包括只收到部分HTTP头或SOCKS握手的请求。
+            # server_close waits for all request threads, including partial HTTP headers or SOCKS handshakes.
             for server in self.servers:
                 server.server_close()
             for thread in self.threads:
@@ -122,24 +122,24 @@ class Fixture:
 
 def register_parser(subparsers):
     parser = subparsers.add_parser(
-        "native-fixture", help="提供 HTTP、UDP、DNS 及限定目标的 SOCKS 测试服务",
-        description="绑定显式 IPv4 地址和动态端口，输出 JSON 事件；不写项目输入。",
-        epilog="示例：network native-fixture --self-test；network native-fixture --host 127.0.0.1 --nonce test-run-123")
-    parser.add_argument("--host", type=ipv4_host, help="显式提供服务绑定的本机 IPv4 地址")
-    parser.add_argument("--nonce", help="合成请求标识，8..48 个小写字母、数字或连字符")
-    parser.add_argument("--seconds", type=int, default=60, help="服务模式总生命周期 1..300 秒，含 close/join")
-    parser.add_argument("--self-test", action="store_true", help="仅短时 loopback 自测，不访问外网")
+        "native-fixture", help="Provide HTTP, UDP, DNS, and target-restricted SOCKS test servers",
+        description="Bind an explicit IPv4 address and dynamic ports, emit JSON events, and leave project inputs unchanged.",
+        epilog="Example: network native-fixture --self-test; network native-fixture --host 127.0.0.1 --nonce test-run-123")
+    parser.add_argument("--host", type=ipv4_host, help="Explicit local IPv4 address to bind servers to")
+    parser.add_argument("--nonce", help="Synthetic request ID of 8..48 lowercase letters, digits, or hyphens")
+    parser.add_argument("--seconds", type=int, default=60, help="Total server lifetime of 1..300 seconds, including close/join")
+    parser.add_argument("--self-test", action="store_true", help="Run a short loopback-only self-test without external network access")
     parser.set_defaults(handler=run, validate_args=validate_args)
 
 
 def validate_args(args, parser):
     if args.self_test:
         if args.host or args.nonce:
-            parser.error("--self-test 仅使用内部 loopback 环境")
+            parser.error("--self-test uses only the internal loopback environment")
     elif not args.host or not args.nonce or not re.fullmatch(r"[a-z0-9-]{8,48}", args.nonce):
-        parser.error("需要 --host 及 8..48 个小写字母、数字或连字符组成的 --nonce")
+        parser.error("Requires --host and a --nonce of 8..48 lowercase letters, digits, or hyphens")
     if not 1 <= args.seconds <= 300:
-        parser.error("--seconds 必须为 1..300 秒")
+        parser.error("--seconds must be 1..300 seconds")
 
 
 def run(args):
@@ -158,7 +158,7 @@ def run(args):
         try:
             if not stop.is_set():
                 fixture.start()
-                # 为关闭监听和等待请求线程退出预留时间。
+                # Reserve time to close listeners and join request threads.
                 reserve = min(5, args.seconds / 2)
                 stop.wait(max(0, args.seconds - reserve - (time.monotonic() - started)))
         finally:
@@ -167,5 +167,5 @@ def run(args):
         for number, handler in previous.items():
             signal.signal(number, handler)
     if time.monotonic() - started > args.seconds:
-        raise RuntimeError("所有资源已退出，但总生命周期超出指定边界")
+        raise RuntimeError("All resources exited, but the total lifetime exceeded the specified limit")
     return 0

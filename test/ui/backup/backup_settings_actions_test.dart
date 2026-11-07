@@ -1843,7 +1843,9 @@ void main() {
     expect(documents.discarded, [_first]);
   });
 
-  testWidgets('备份短标签只按当前语言测量', (tester) async {
+  testWidgets('short backup labels are measured only in the current language', (
+    tester,
+  ) async {
     await _show(
       tester,
       app,
@@ -1876,7 +1878,7 @@ void main() {
       for (final scale in [1.0, 1.3, 2.0]) {
         for (final dark in [false, true]) {
           testWidgets(
-            '备份动作在同一语言内保持位置，切换语言后按当前标签重排 $language/$width/$scale/$dark',
+            'backup actions keep their positions within a language and reflow for current labels after locale changes $language/$width/$scale/$dark',
             (tester) async {
               final locale = ValueNotifier(Locale(language));
               addTearDown(locale.dispose);

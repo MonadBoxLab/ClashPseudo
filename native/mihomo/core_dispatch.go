@@ -166,7 +166,7 @@ func (d *coreDispatcher) invoke(operation int, id int64, input, output, tun *os.
 		callErr = admissionErr
 		inputCloseErr = input.Close()
 	} else {
-		// 取消可打断FD上的backpressure，JNI仍等公开调用实际返回。
+		// Cancellation interrupts FD backpressure; JNI still waits for the public call to return.
 		cancelledOutput = make(chan struct{})
 		stopOutputCancellation = context.AfterFunc(ctx, func() { outputCancelErr = output.Close(); close(cancelledOutput) })
 		parts, readErr := coreipc.ReadParts(input)
@@ -602,7 +602,7 @@ func (d *coreDispatcher) execute(ctx context.Context, operation int, id int64, r
 	return "", errors.New("unknown core operation")
 }
 
-// detachFile只用于Go已经持有的TUN副本，交接后不保留os.File终结器。
+// detachFile only transfers a TUN duplicate already owned by Go, without retaining the os.File finalizer.
 func detachFile(file *os.File) (int, error) {
 	fd, err := syscall.Dup(int(file.Fd()))
 	closeErr := file.Close()

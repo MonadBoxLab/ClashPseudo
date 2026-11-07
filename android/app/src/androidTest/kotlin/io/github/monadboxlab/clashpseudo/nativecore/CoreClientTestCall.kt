@@ -9,7 +9,7 @@ import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.*
 
-/** 控制实际 Call 的四个退出条件，FD 由测试独立持有。 */
+/** Control the actual Call's four exit conditions; the test holds FDs independently. */
 internal class CoreClientTestCall(private val operation: Int = Contract.CORE_OPERATION_RESOURCE_UPDATE) : Closeable {
     val client = CoreClient.installed()
     val processId = "test-${UUID.randomUUID()}"
@@ -28,7 +28,7 @@ internal class CoreClientTestCall(private val operation: Int = Contract.CORE_OPE
 
     init {
         onState {
-            assertTrue("测试开始前不得有未退出的调用", calls.isEmpty())
+            assertTrue("No unfinished calls may remain before the test starts", calls.isEmpty())
             assertNull(CoreClient::class.java.getDeclaredField("connection").apply { isAccessible = true }.get(client))
             assertNull(calls.put(key, call))
             @Suppress("UNCHECKED_CAST")

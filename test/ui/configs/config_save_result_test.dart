@@ -214,108 +214,114 @@ void main() {
   final en = lookupAppLocalizations(const Locale('en'));
 
   for (final replaceEpoch in [false, true]) {
-    testWidgets('反馈确认后仍可查看详情，来源更换后关闭旧详情 epoch=$replaceEpoch', (tester) async {
+    testWidgets(
+      'details remain available after feedback acknowledgement and old details close on source replacement epoch=$replaceEpoch',
+      (tester) async {
+        final bridge = _SaveBridge();
+        final app = _controller(bridge);
+        addTearDown(app.dispose);
+        await app.refresh();
+        await _showFeedback(tester, app, page: _editor(app, fragment: false));
+        final editor = tester.state(find.byType(ConfigTextPage));
+        await tester.tap(find.text(en.save));
+        await tester.pump();
+        bridge.state = AppSnapshot(
+          phase: 'STOPPED',
+          resultId: 'save-operation',
+          resultMessage: messages.configSaveFailed.withDetail(
+            'controlled save failure',
+          ),
+          configStatus: 'notSaved',
+        );
+        await app.refresh();
+        await tester.pumpAndSettle();
+        expect(app.hasLocalFeedbackOwner, isFalse);
+        final details = find.widgetWithText(TextButton, en.errorDetails);
+        final oldDetails = tester.widget<TextButton>(details).onPressed!;
+        final oldRetry = tester
+            .widget<TextButton>(find.widgetWithText(TextButton, en.retry))
+            .onPressed!;
+        await tester.tap(details);
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsOneWidget);
+        expect(tester.state(find.byType(ConfigTextPage)), same(editor));
+        if (replaceEpoch) {
+          bridge.state = const AppSnapshot(phase: 'STOPPED', storageEpoch: 1);
+        } else {
+          (app.store! as _SaveStore).collection = ConfigCollection(
+            entries: [
+              ConfigEntry.fromJson({..._local.toJson(), 'revision': 2}),
+            ],
+          );
+        }
+        await app.refresh();
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsNothing);
+        oldDetails();
+        oldRetry();
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(bridge.submitted, 1);
+        expect(tester.state(find.byType(ConfigTextPage)), same(editor));
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
+
+  testWidgets(
+    'source text save failure acknowledges feedback only after SnackBar actually appears',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetViewInsets);
       final bridge = _SaveBridge();
       final app = _controller(bridge);
       addTearDown(app.dispose);
       await app.refresh();
       await _showFeedback(tester, app, page: _editor(app, fragment: false));
-      final editor = tester.state(find.byType(ConfigTextPage));
       await tester.tap(find.text(en.save));
       await tester.pump();
+      tester.view.viewInsets = const FakeViewPadding(bottom: 460);
+      await tester.pumpAndSettle();
       bridge.state = AppSnapshot(
         phase: 'STOPPED',
         resultId: 'save-operation',
-        resultMessage: messages.configSaveFailed.withDetail(
-          'controlled save failure',
-        ),
+        resultMessage: messages.configSaveFailed,
         configStatus: 'notSaved',
       );
       await app.refresh();
       await tester.pumpAndSettle();
-      expect(app.hasLocalFeedbackOwner, isFalse);
-      final details = find.widgetWithText(TextButton, en.errorDetails);
-      final oldDetails = tester.widget<TextButton>(details).onPressed!;
-      final oldRetry = tester
-          .widget<TextButton>(find.widgetWithText(TextButton, en.retry))
-          .onPressed!;
-      await tester.tap(details);
+      expect(bridge.submitted, 1);
+      expect(app.hasLocalFeedbackOwner, isTrue);
+      expect(find.byType(SnackBar), findsNothing);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(
+        tester.widget<CodeEditor>(find.byType(CodeEditor)).readOnly,
+        isFalse,
+      );
+      expect(
+        tester
+            .widget<TextButton>(find.widgetWithText(TextButton, en.save))
+            .onPressed,
+        isNotNull,
+      );
+      tester.view.viewInsets = const FakeViewPadding();
       await tester.pumpAndSettle();
-      expect(find.byType(AlertDialog), findsOneWidget);
-      expect(tester.state(find.byType(ConfigTextPage)), same(editor));
-      if (replaceEpoch) {
-        bridge.state = const AppSnapshot(phase: 'STOPPED', storageEpoch: 1);
-      } else {
-        (app.store! as _SaveStore).collection = ConfigCollection(
-          entries: [
-            ConfigEntry.fromJson({..._local.toJson(), 'revision': 2}),
-          ],
-        );
-      }
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.text(en.configSaveFailed), findsOneWidget);
+      expect(app.hasLocalFeedbackOwner, isFalse);
+      final notice = tester.element(find.byType(SnackBar));
       await app.refresh();
       await tester.pumpAndSettle();
-      expect(find.byType(AlertDialog), findsNothing);
-      oldDetails();
-      oldRetry();
-      await tester.pumpAndSettle();
-      expect(find.byType(AlertDialog), findsNothing);
+      expect(tester.element(find.byType(SnackBar)), same(notice));
       expect(bridge.submitted, 1);
-      expect(tester.state(find.byType(ConfigTextPage)), same(editor));
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
-    });
-  }
-
-  testWidgets('原文保存失败在 SnackBar 实际显示后才确认反馈', (tester) async {
-    tester.view.physicalSize = const Size(320, 600);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.view.resetViewInsets);
-    final bridge = _SaveBridge();
-    final app = _controller(bridge);
-    addTearDown(app.dispose);
-    await app.refresh();
-    await _showFeedback(tester, app, page: _editor(app, fragment: false));
-    await tester.tap(find.text(en.save));
-    await tester.pump();
-    tester.view.viewInsets = const FakeViewPadding(bottom: 460);
-    await tester.pumpAndSettle();
-    bridge.state = AppSnapshot(
-      phase: 'STOPPED',
-      resultId: 'save-operation',
-      resultMessage: messages.configSaveFailed,
-      configStatus: 'notSaved',
-    );
-    await app.refresh();
-    await tester.pumpAndSettle();
-    expect(bridge.submitted, 1);
-    expect(app.hasLocalFeedbackOwner, isTrue);
-    expect(find.byType(SnackBar), findsNothing);
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(
-      tester.widget<CodeEditor>(find.byType(CodeEditor)).readOnly,
-      isFalse,
-    );
-    expect(
-      tester
-          .widget<TextButton>(find.widgetWithText(TextButton, en.save))
-          .onPressed,
-      isNotNull,
-    );
-    tester.view.viewInsets = const FakeViewPadding();
-    await tester.pumpAndSettle();
-    expect(find.byType(SnackBar), findsOneWidget);
-    expect(find.text(en.configSaveFailed), findsOneWidget);
-    expect(app.hasLocalFeedbackOwner, isFalse);
-    final notice = tester.element(find.byType(SnackBar));
-    await app.refresh();
-    await tester.pumpAndSettle();
-    expect(tester.element(find.byType(SnackBar)), same(notice));
-    expect(bridge.submitted, 1);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox());
-  });
+    },
+  );
 
   for (final fragment in [false, true]) {
     testWidgets(

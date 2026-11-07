@@ -29,10 +29,10 @@ sniffer: {enable: true, sniff: {HTTP: {ports: [80], override-destination: false}
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(raw, upstream) {
-		t.Fatal("显式字段被应用缺省覆盖")
+		t.Fatal("explicit fields were overwritten by application defaults")
 	}
 	if !presence.Has("tun.mtu") || !presence.Has("mode") {
-		t.Fatal("合成字段的存在信息丢失")
+		t.Fatal("composed field presence information was lost")
 	}
 	raw, p, err := Decode([]byte("{}"), "", "", true)
 	if err != nil {
@@ -46,10 +46,10 @@ sniffer: {enable: true, sniff: {HTTP: {ports: [80], override-destination: false}
 	upstream.Tun.MTU = 1500
 	upstream.DNS.Enable = true
 	if !reflect.DeepEqual(raw, upstream) {
-		t.Fatal("除VPN需要的三个字段外，上游缺省也被修改")
+		t.Fatal("upstream defaults beyond the three fields required by VPN were changed")
 	}
 	if p.Has("tun.mtu") || p.Has("dns.enable") {
-		t.Fatal("应用缺省被记为配置来源")
+		t.Fatal("application defaults were recorded as configuration provenance")
 	}
 }
 
@@ -64,7 +64,7 @@ func TestExplicitNullsKeepPublicRawConfigSemantics(t *testing.T) {
 			t.Fatal(err)
 		}
 		if raw.Tun.Enable != upstream.Tun.Enable || raw.Tun.MTU != upstream.Tun.MTU || raw.DNS.Enable != upstream.DNS.Enable || raw.Profile != upstream.Profile {
-			t.Fatal("显式null的上游语义被改变")
+			t.Fatal("upstream semantics for explicit null were changed")
 		}
 	}
 }
@@ -75,7 +75,7 @@ func TestDefaultMappingDoesNotMutateSavedSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(body, before) {
-		t.Fatal("保存正文被修改")
+		t.Fatal("saved body was modified")
 	}
 }
 func TestRunningDefaultsOnlyUsesAnExplicitModeIntent(t *testing.T) {
@@ -87,11 +87,11 @@ func TestRunningDefaultsOnlyUsesAnExplicitModeIntent(t *testing.T) {
 			t.Fatal(err)
 		}
 		if raw.Mode.String() != tc.want {
-			t.Fatalf("mode=%s，期望%s", raw.Mode, tc.want)
+			t.Fatalf("mode=%s, want %s", raw.Mode, tc.want)
 		}
 		upstream, _ := config.UnmarshalRawConfig([]byte(tc.body))
 		if raw.Profile != upstream.Profile || p.Has("profile") || p.Has("mode") != (tc.body != "{}") {
-			t.Fatal("operation或VPN缺省改变了profile和来源信息")
+			t.Fatal("operation or VPN defaults changed the profile and provenance")
 		}
 	}
 }
@@ -119,7 +119,7 @@ func TestRunningDefaultsPreservesUnrelatedNodeValuesDuringInjection(t *testing.T
 	upstream.Tun.MTU = 1500
 	upstream.DNS.Enable = true
 	if !bytes.Equal(before, body) || !reflect.DeepEqual(raw, upstream) || p.Has("mode") || p.Has("profile") {
-		t.Fatal("无关字段或上游缺省被修改")
+		t.Fatal("unrelated fields or upstream defaults were changed")
 	}
 }
 func TestRunningDefaultsLeaveUnknownReferenceValuesForTheCore(t *testing.T) {
@@ -143,7 +143,7 @@ func TestRunningDefaultsLeaveUnknownReferenceValuesForTheCore(t *testing.T) {
 			upstream.Tun.MTU = 1500
 			upstream.DNS.Enable = true
 			if !bytes.Equal(input, before) || !reflect.DeepEqual(raw, upstream) {
-				t.Fatal("应用改变了未知字段或公开解码结果")
+				t.Fatal("application changed unknown fields or the public decoding result")
 			}
 		}
 	}
@@ -162,14 +162,14 @@ func TestRunningDefaultsUseInheritedPresenceWithoutChangingOtherAliases(t *testi
 		}
 		upstream.Tun.MTU = 1500
 		if !reflect.DeepEqual(raw, upstream) || !bytes.Equal(body, before) || !p.Has("tun.enable") || !p.Has("tun.auto-route") || p.Has("tun.mtu") || p.Has("tun.stack") {
-			t.Fatal("继承字段、alias或字段来源被改变")
+			t.Fatal("inherited fields, aliases, or field provenance were changed")
 		}
 		var fields map[string]map[string]any
 		if err := yaml.Unmarshal(body, &fields); err != nil {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(fields["template"], fields["copy"]) || len(fields["copy"]) != 3 {
-			t.Fatal("alias被缺省修改")
+			t.Fatal("alias was modified by defaults")
 		}
 	}
 }
@@ -177,10 +177,10 @@ func TestRunningDefaultsReportThePublicDecodeErrorWithoutPrevalidation(t *testin
 	for _, body := range []string{"[]", "dns: &loop [*loop]", "dns: {<<: 3}", "dns: ["} {
 		_, original := config.UnmarshalRawConfig([]byte(body))
 		if original == nil {
-			t.Fatal("测试正文未触发公开解码错误")
+			t.Fatal("test body did not trigger a public decoding error")
 		}
 		if _, _, err := Decode([]byte(body), "", "", true); err == nil || err.Error() != original.Error() {
-			t.Fatalf("原始错误丢失：%v，期望%v", err, original)
+			t.Fatalf("original error was lost: %v, want %v", err, original)
 		}
 	}
 }
@@ -200,7 +200,7 @@ func TestRunningDefaultsKeepsOriginalBytesWhenNoInjectionIsNeeded(t *testing.T) 
 			t.Fatal(err)
 		}
 		if !bytes.Equal(input, before) || !reflect.DeepEqual(raw, upstream) {
-			t.Fatal("无需补缺省时改变了正文或RawConfig")
+			t.Fatal("body or RawConfig changed when no defaults were needed")
 		}
 	}
 }
@@ -211,6 +211,6 @@ func TestPreviewLeavesVPNDefaultsToTheCore(t *testing.T) {
 	}
 	upstream, _ := config.UnmarshalRawConfig([]byte("{}"))
 	if !reflect.DeepEqual(raw, upstream) || p.Has("tun.enable") {
-		t.Fatal("PREVIEW补入了VPN缺省")
+		t.Fatal("PREVIEW applied VPN defaults")
 	}
 }

@@ -58,29 +58,29 @@ rules: ["MATCH,DIRECT"]
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatal("YAML 与公开运行配置不同")
+		t.Fatal("YAML differs from the public runtime configuration")
 	}
 	if got["global-ua"] != "false" {
-		t.Fatal("字符串类型发生变化")
+		t.Fatal("string type changed")
 	}
 	if auth, ok := got["authentication"].([]any); !ok || len(auth) != 1 || auth[0] != "fixture" {
-		t.Fatal("认证字段与公开运行配置不同")
+		t.Fatal("authentication fields differ from the public runtime configuration")
 	}
 	if got["mixed-port"] == float64(31337) {
-		t.Fatal("请求端口替代了公开运行状态")
+		t.Fatal("requested port replaced public runtime state")
 	}
 	if _, ok := got["requested"]; ok {
-		t.Fatal("运行配置包含应用包装")
+		t.Fatal("runtime configuration contains an application wrapper")
 	}
 	if _, ok := got["actual"]; ok {
-		t.Fatal("运行配置包含平台包装")
+		t.Fatal("runtime configuration contains a platform wrapper")
 	}
 	if !strings.Contains(value, "\ntun:\n") {
-		t.Fatal("TUN 配置未按 YAML 展示")
+		t.Fatal("TUN configuration is not displayed as YAML")
 	}
 	after, err := json.Marshal(e.cfg.General)
 	if err != nil || string(before) != string(after) {
-		t.Fatal("读取改变了请求配置")
+		t.Fatal("read changed the requested configuration")
 	}
 }
 
@@ -109,10 +109,10 @@ func TestRuntimeConfigReadsLiveModeAndRequiresActiveCore(t *testing.T) {
 			t.Fatal(err)
 		}
 		if result["mode"] != mode || result["mixed-port"] != 0 {
-			t.Fatal("读取没有返回实时运行状态")
+			t.Fatal("read did not return live runtime state")
 		}
 		if _, exists := result["rules"]; exists {
-			t.Fatal("运行配置不是完整配置文件")
+			t.Fatal("runtime configuration is not a complete configuration file")
 		}
 	}
 	e.Cancel()

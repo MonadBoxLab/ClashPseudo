@@ -38,7 +38,7 @@ import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** debug-only 固定 fixture；不接收路径、反射目标、代码或业务 operation。 */
+/** Fixed debug-only fixture; does not accept paths, reflection targets, code, or application operations. */
 class CoreFixtureService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private val io = Executors.newCachedThreadPool { Thread(it, "core-fixture-io") }
@@ -74,14 +74,14 @@ class CoreFixtureService : Service() {
         override fun handshake(protocol: Int): Bundle {
             sameUid()
             require(protocol == Contract.CORE_IPC_VERSION)
-            check(ready.await(10, TimeUnit.SECONDS)) { "fixture 未取得 CoreService" }
+            check(ready.await(10, TimeUnit.SECONDS)) { "Fixture did not acquire CoreService" }
             return Bundle(checkNotNull(identity)).apply { putBoolean("nativeFixture", true) }
         }
 
         override fun execute(scene: Int, input: ParcelFileDescriptor, output: ParcelFileDescriptor): Bundle {
             sameUid()
             require(scene in CoreFixtureContract.TRUST..CoreFixtureContract.TUN_HANDOFF_FAILURE)
-            check(submitted.compareAndSet(false, true)) { "每个 fixture process 只执行一个 native 场景" }
+            check(submitted.compareAndSet(false, true)) { "Each fixture process runs only one native scenario" }
             check(ready.await(10, TimeUnit.SECONDS))
             val id = checkNotNull(CoreService.instance).allocateRequestId()
             active.set(true)
@@ -90,7 +90,7 @@ class CoreFixtureService : Service() {
                     try {
                         val parts = ParcelFileDescriptor.AutoCloseInputStream(input).use(CoreParts::read)
                         val arguments = JSONObject(CoreFrames.utf8(parts.getValue(Contract.CORE_PART_REQUEST)))
-                        require(arguments.optString("home").isEmpty() && !arguments.has("path")) { "fixture 不接受调用方路径" }
+                        require(arguments.optString("home").isEmpty() && !arguments.has("path")) { "Fixture does not accept caller-supplied paths" }
                         val value = CoreFixtureNativeRun(this@CoreFixtureService,
                             checkNotNull(identity!!.getString(Contract.CORE_FIELD_PROCESS_ID)),
                             { checkNotNull(CoreService.instance).allocateRequestId() }, io, scene, arguments,
@@ -136,7 +136,7 @@ class CoreFixtureService : Service() {
                     CoreFixtureContract.CAPTURE_SERVICE -> retiredService = checkNotNull(service)
                     CoreFixtureContract.REPLAY_RETIRED_SERVICE -> {
                         val retired = checkNotNull(retiredService)
-                        check(retired !== service) { "原 Service 尚未退休" }
+                        check(retired !== service) { "The original Service has not retired" }
                         retired.onRevoke()
                         retired.onDestroy()
                     }
@@ -152,7 +152,7 @@ class CoreFixtureService : Service() {
                         owned.onStartCommand(null, 0, 3)
                         owned.onStartCommand(Intent("io.github.monadboxlab.clashpseudo.START"), 0, 4)
                         owned.onStartCommand(Intent("unrecognized"), 0, 5)
-                        check(waiting.getBoolean(owned)) { "旧 intent 撤销了当前系统恢复" }
+                        check(waiting.getBoolean(owned)) { "An old intent revoked the current system restore" }
                     }
                     CoreFixtureContract.FOREGROUND_IO_FAILURE, CoreFixtureContract.FOREGROUND_LINKAGE_FAILURE ->
                         return@onMain foregroundFailure(checkNotNull(service), action)
@@ -180,9 +180,9 @@ class CoreFixtureService : Service() {
                 }
                 val before = Os.lstat(file.path)
                 check(OsConstants.S_ISREG(before.st_mode) && before.st_nlink == 1L)
-                if (action != 1) check(before.st_dev == device && before.st_ino == inode) { "正式 route fixture 的 ownership 已变化" }
+                if (action != 1) check(before.st_dev == device && before.st_ino == inode) { "Route fixture ownership has changed" }
                 if (action == 4) {
-                    check(!NativeCore.isLoaded) { "删除 route fixture 前必须等待上一 process death" }
+                    check(!NativeCore.isLoaded) { "Wait for the previous process to die before deleting the route fixture" }
                     Os.remove(file.path)
                 } else {
                     val descriptor = Os.open(file.path, OsConstants.O_WRONLY or OsConstants.O_NOFOLLOW or OsConstants.O_NONBLOCK, 0)
@@ -206,7 +206,7 @@ class CoreFixtureService : Service() {
             main.postDelayed({ CoreProcessExit.exit(
                 this@CoreFixtureService, checkNotNull(identity!!.getString(Contract.CORE_FIELD_PROCESS_ID)), normal = false) }, remaining)
             worker.execute {
-                check(!active.get()) { "fixture 的 native 调用尚未返回" }
+                check(!active.get()) { "Fixture native call has not returned" }
                 CoreProcessExit.exit(this@CoreFixtureService,
                     checkNotNull(identity!!.getString(Contract.CORE_FIELD_PROCESS_ID)), normal = true)
             }
@@ -241,12 +241,12 @@ class CoreFixtureService : Service() {
                     }
                 }
             } catch (error: Throwable) {
-                android.util.Log.e("CoreFixture", "生产 callback 文档读取失败", error)
+                android.util.Log.e("CoreFixture", "Production callback document read failed", error)
             }
         }
     }
 
-    private fun sameUid() = check(Binder.getCallingUid() == Process.myUid()) { "fixture 只接受同 UID" }
+    private fun sameUid() = check(Binder.getCallingUid() == Process.myUid()) { "Fixture only accepts the same UID" }
     private fun <T> onMain(action: () -> T): T {
         val task = FutureTask(action)
         main.post(task)
@@ -263,12 +263,12 @@ class CoreFixtureService : Service() {
         val starting = descriptor == null
         if (starting) {
             check(status.getString(Contract.CORE_FIELD_PHASE) == Contract.CORE_PHASE_LOADING) {
-                "没有 TUN 的 revoke fixture 必须处于真实 PREPARE 的 LOADING 状态"
+                "A revoke fixture without a TUN must be in the LOADING state of an actual PREPARE"
             }
         } else {
-            check(checkNotNull(descriptor).fileDescriptor.valid()) { "onRevoke 必须关闭实际运行的 TUN 原 FD" }
+            check(checkNotNull(descriptor).fileDescriptor.valid()) { "onRevoke must close the original FD of the running TUN" }
         }
-        // STARTING 的恢复事件等待测试收到 callback 回执后再经过 core 主线程。
+        // The STARTING recovery event passes through the core main thread only after the test receives the callback receipt.
         val acknowledgement = if (starting) revokeReceiptGate() else null
         try {
             service.onRevoke()
@@ -296,7 +296,7 @@ class CoreFixtureService : Service() {
         val received = FutureTask<Unit> {
             try {
                 ParcelFileDescriptor.AutoCloseInputStream(pipe[0]).use { input ->
-                    check(input.read() == 1) { "STARTING revoke 回执没有得到测试确认" }
+                    check(input.read() == 1) { "Test did not acknowledge the STARTING revoke receipt" }
                 }
             } finally { pipe[1].close() }
         }
@@ -306,7 +306,7 @@ class CoreFixtureService : Service() {
             entered.countDown()
             received.get(10, TimeUnit.SECONDS)
         })
-        check(entered.await(10, TimeUnit.SECONDS)) { "STARTING revoke 回执 gate 没有进入 core 主线程" }
+        check(entered.await(10, TimeUnit.SECONDS)) { "STARTING revoke receipt gate did not enter the core main thread" }
         return pipe[1]
     }
 

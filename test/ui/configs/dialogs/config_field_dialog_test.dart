@@ -87,152 +87,156 @@ void main() {
 
   for (final language in ['en', 'zh']) {
     for (final scale in [1.0, 2.0]) {
-      testWidgets('URL 校验提示开合保留输入状态与动作位置 $language/$scale', (tester) async {
-        final submitted = <String>[];
-        await tester.pumpWidget(
-          MaterialApp(
-            locale: Locale(language),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            theme: AppTheme.light,
-            builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(context)
-                  .copyWith(textScaler: TextScaler.linear(scale)),
-              child: child!,
-            ),
-            home: Builder(
-              builder: (context) => Scaffold(
-                body: TextButton(
-                  onPressed: () => showDialog<void>(
-                    context: context,
-                    builder: (dialogContext) => OperationNoticeHost(
-                      onDismiss: () => Navigator.of(dialogContext).maybePop(),
-                      child: ConfigFieldDialog(
-                        source: true,
-                        initial: 'ftp://fixture.test/config#section',
-                        onSubmit: (value) async {
-                          submitted.add(value);
-                          return false;
-                        },
+      testWidgets(
+        'URL validation notice transitions preserve input state and action positions $language/$scale',
+        (tester) async {
+          final submitted = <String>[];
+          await tester.pumpWidget(
+            MaterialApp(
+              locale: Locale(language),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              theme: AppTheme.light,
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context)
+                    .copyWith(textScaler: TextScaler.linear(scale)),
+                child: child!,
+              ),
+              home: Builder(
+                builder: (context) => Scaffold(
+                  body: TextButton(
+                    onPressed: () => showDialog<void>(
+                      context: context,
+                      builder: (dialogContext) => OperationNoticeHost(
+                        onDismiss: () => Navigator.of(dialogContext).maybePop(),
+                        child: ConfigFieldDialog(
+                          source: true,
+                          initial: 'ftp://fixture.test/config#section',
+                          onSubmit: (value) async {
+                            submitted.add(value);
+                            return false;
+                          },
+                        ),
                       ),
                     ),
+                    child: const Text('Open'),
                   ),
-                  child: const Text('Open'),
                 ),
               ),
             ),
-          ),
-        );
-        await tester.tap(find.text('Open'));
-        await tester.pumpAndSettle();
-        final strings = lookupAppLocalizations(Locale(language));
-        final field = find.byType(TextField);
-        final controller = tester.widget<TextField>(field).controller!;
-        final input = tester.widget<EditableText>(find.byType(EditableText));
-        await tester.showKeyboard(field);
-        controller.value = TextEditingValue(
-          text: controller.text,
-          selection: const TextSelection(baseOffset: 6, extentOffset: 13),
-          composing: const TextRange(start: 6, end: 13),
-        );
-        await tester.pump();
-        final value = controller.value;
-        final state = tester.state(field);
-        final dialogState = tester.state(find.byType(ConfigFieldDialog));
-        final save = find.widgetWithText(TextButton, strings.saveAndUpdate);
-        final targets = [
-          field,
-          save,
-          find.widgetWithText(TextButton, strings.cancel),
-          find.text(strings.changeConfigSource),
-          find.byTooltip(strings.showUrl),
-        ];
-        final rectangles = targets.map(tester.getRect).toList();
-        expect(tester.getSize(save).height, greaterThanOrEqualTo(48));
-        expect(input.focusNode.hasFocus, isTrue);
-        Future<void> unchanged() async {
-          for (final milliseconds in [0, 16, 100, 200]) {
-            await tester.pump(Duration(milliseconds: milliseconds));
-            expect(targets.map(tester.getRect).toList(), rectangles);
-            expect(tester.state(field), same(state));
-            expect(
-              tester.state(find.byType(ConfigFieldDialog)),
-              same(dialogState),
-            );
-            expect(
-              tester.widget<TextField>(field).controller,
-              same(controller),
-            );
-            expect(controller.value, same(value));
-            expect(controller.selection, value.selection);
-            expect(controller.value.composing, value.composing);
-            expect(input.focusNode.hasFocus, isTrue);
-            expect(find.byType(AlertDialog), findsOneWidget);
-            expect(tester.takeException(), isNull);
+          );
+          await tester.tap(find.text('Open'));
+          await tester.pumpAndSettle();
+          final strings = lookupAppLocalizations(Locale(language));
+          final field = find.byType(TextField);
+          final controller = tester.widget<TextField>(field).controller!;
+          final input = tester.widget<EditableText>(find.byType(EditableText));
+          await tester.showKeyboard(field);
+          controller.value = TextEditingValue(
+            text: controller.text,
+            selection: const TextSelection(baseOffset: 6, extentOffset: 13),
+            composing: const TextRange(start: 6, end: 13),
+          );
+          await tester.pump();
+          final value = controller.value;
+          final state = tester.state(field);
+          final dialogState = tester.state(find.byType(ConfigFieldDialog));
+          final save = find.widgetWithText(TextButton, strings.saveAndUpdate);
+          final targets = [
+            field,
+            save,
+            find.widgetWithText(TextButton, strings.cancel),
+            find.text(strings.changeConfigSource),
+            find.byTooltip(strings.showUrl),
+          ];
+          final rectangles = targets.map(tester.getRect).toList();
+          expect(tester.getSize(save).height, greaterThanOrEqualTo(48));
+          expect(input.focusNode.hasFocus, isTrue);
+          Future<void> unchanged() async {
+            for (final milliseconds in [0, 16, 100, 200]) {
+              await tester.pump(Duration(milliseconds: milliseconds));
+              expect(targets.map(tester.getRect).toList(), rectangles);
+              expect(tester.state(field), same(state));
+              expect(
+                tester.state(find.byType(ConfigFieldDialog)),
+                same(dialogState),
+              );
+              expect(
+                tester.widget<TextField>(field).controller,
+                same(controller),
+              );
+              expect(controller.value, same(value));
+              expect(controller.selection, value.selection);
+              expect(controller.value.composing, value.composing);
+              expect(input.focusNode.hasFocus, isTrue);
+              expect(find.byType(AlertDialog), findsOneWidget);
+              expect(tester.takeException(), isNull);
+            }
           }
-        }
 
-        tester.widget<TextButton>(save).onPressed!();
-        await unchanged();
-        await tester.pumpAndSettle();
-        final notice = find.byType(SnackBar);
-        expect(notice, findsOneWidget);
-        expect(
-          find.descendant(of: notice, matching: find.byType(TextButton)),
-          findsNothing,
-        );
-        expect(
-          tester.getSemantics(field).getSemanticsData().validationResult,
-          SemanticsValidationResult.invalid,
-        );
-        final decoration = tester.widget<TextField>(field).decoration!;
-        expect(decoration.helper, isNull);
-        expect(decoration.error, isNull);
-        expect(decoration.errorText, isNull);
-        expect(
-          decoration.focusedBorder!.borderSide.color,
-          AppTheme.light.colorScheme.error,
-        );
-        final close = find.descendant(
-          of: notice,
-          matching: find.byIcon(Icons.close),
-        );
-        final oldClose = tester
-            .widget<IconButton>(
-              find.ancestor(of: close, matching: find.byType(IconButton)),
-            )
-            .onPressed!;
-        await tester.tap(close);
-        await unchanged();
-        await tester.pumpAndSettle();
-        expect(notice, findsNothing);
-        tester.widget<TextButton>(save).onPressed!();
-        await tester.pumpAndSettle();
-        final current = tester.element(notice);
-        oldClose();
-        await tester.pumpAndSettle();
-        expect(tester.element(notice), same(current));
-        expect(controller.value, same(value));
-        expect(submitted, isEmpty);
-        const valid = 'https://fixture.test/config#section';
-        await tester.enterText(field, valid);
-        await tester.pumpAndSettle();
-        expect(notice, findsNothing);
-        expect(targets.map(tester.getRect).toList(), rectangles);
-        expect(
-          tester.getSemantics(field).getSemanticsData().validationResult,
-          SemanticsValidationResult.none,
-        );
-        await tester.tap(save);
-        await tester.pumpAndSettle();
-        expect(submitted, [valid]);
-        expect(controller.text, valid);
-        expect(find.byType(ConfigFieldDialog), findsOneWidget);
-        await tester.tap(find.widgetWithText(TextButton, strings.cancel));
-        await tester.pumpAndSettle();
-        expect(find.byType(AlertDialog), findsNothing);
-        expect(tester.takeException(), isNull);
-      }, semanticsEnabled: true);
+          tester.widget<TextButton>(save).onPressed!();
+          await unchanged();
+          await tester.pumpAndSettle();
+          final notice = find.byType(SnackBar);
+          expect(notice, findsOneWidget);
+          expect(
+            find.descendant(of: notice, matching: find.byType(TextButton)),
+            findsNothing,
+          );
+          expect(
+            tester.getSemantics(field).getSemanticsData().validationResult,
+            SemanticsValidationResult.invalid,
+          );
+          final decoration = tester.widget<TextField>(field).decoration!;
+          expect(decoration.helper, isNull);
+          expect(decoration.error, isNull);
+          expect(decoration.errorText, isNull);
+          expect(
+            decoration.focusedBorder!.borderSide.color,
+            AppTheme.light.colorScheme.error,
+          );
+          final close = find.descendant(
+            of: notice,
+            matching: find.byIcon(Icons.close),
+          );
+          final oldClose = tester
+              .widget<IconButton>(
+                find.ancestor(of: close, matching: find.byType(IconButton)),
+              )
+              .onPressed!;
+          await tester.tap(close);
+          await unchanged();
+          await tester.pumpAndSettle();
+          expect(notice, findsNothing);
+          tester.widget<TextButton>(save).onPressed!();
+          await tester.pumpAndSettle();
+          final current = tester.element(notice);
+          oldClose();
+          await tester.pumpAndSettle();
+          expect(tester.element(notice), same(current));
+          expect(controller.value, same(value));
+          expect(submitted, isEmpty);
+          const valid = 'https://fixture.test/config#section';
+          await tester.enterText(field, valid);
+          await tester.pumpAndSettle();
+          expect(notice, findsNothing);
+          expect(targets.map(tester.getRect).toList(), rectangles);
+          expect(
+            tester.getSemantics(field).getSemanticsData().validationResult,
+            SemanticsValidationResult.none,
+          );
+          await tester.tap(save);
+          await tester.pumpAndSettle();
+          expect(submitted, [valid]);
+          expect(controller.text, valid);
+          expect(find.byType(ConfigFieldDialog), findsOneWidget);
+          await tester.tap(find.widgetWithText(TextButton, strings.cancel));
+          await tester.pumpAndSettle();
+          expect(find.byType(AlertDialog), findsNothing);
+          expect(tester.takeException(), isNull);
+        },
+        semanticsEnabled: true,
+      );
     }
   }
 

@@ -2,7 +2,6 @@ import 'package:clash_pseudo/src/l10n/app_localizations.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-// 隐私告知的完整中英文文本。
 const _englishNotice = '''Clash Pseudo is free and open source. It does not collect or report user data and does not provide any proxy nodes or subscription services.
 
 Data processing
@@ -94,17 +93,17 @@ https://github.com/MonadBoxLab/ClashPseudo
 更多请参见 GPLv3 协议。''';
 
 void main() {
-  test('英文隐私告知全文与预期文本完全一致', () {
+  test('full English privacy notice exactly matches expected text', () {
     final strings = lookupAppLocalizations(const Locale('en'));
     expect(strings.privacyNoticeBody, _englishNotice);
   });
 
-  test('中文隐私告知全文与预期文本完全一致', () {
+  test('full Chinese privacy notice exactly matches expected text', () {
     final strings = lookupAppLocalizations(const Locale('zh'));
     expect(strings.privacyNoticeBody, _chineseNotice);
   });
 
-  test('本页略过的日志数量使用带整数参数的中英文文案', () {
+  test('locally omitted log count uses English and Chinese copy with an integer argument', () {
     final en = lookupAppLocalizations(const Locale('en'));
     final zh = lookupAppLocalizations(const Locale('zh'));
     for (final count in [0, 1, 1001]) {
@@ -113,55 +112,58 @@ void main() {
     }
   });
 
-  test('DNS 操作与详情标题使用不同的中英文文案', () {
-    final en = lookupAppLocalizations(const Locale('en'));
-    final zh = lookupAppLocalizations(const Locale('zh'));
-    for (final (actualEn, actualZh, expectedEn, expectedZh) in [
-      (en.dnsQuery, zh.dnsQuery, 'Query', '查询'),
-      (
-        en.dnsRefreshCoreStatus,
-        zh.dnsRefreshCoreStatus,
-        'Refresh core status',
-        '刷新内核状态',
-      ),
-      (
-        en.dnsViewQueryResults,
-        zh.dnsViewQueryResults,
-        'View query results',
-        '查看查询结果',
-      ),
-      (en.dnsQueryResults, zh.dnsQueryResults, 'Query results', '查询结果'),
-      (en.dnsPreviousQuery, zh.dnsPreviousQuery, 'Previous query', '上次查询'),
-      (
-        en.dnsViewPreviousQuery,
-        zh.dnsViewPreviousQuery,
-        'View previous query',
-        '查看上次查询',
-      ),
-      (
-        en.dnsCacheOperationDetails,
-        zh.dnsCacheOperationDetails,
-        'Cache operation details',
-        '缓存操作详情',
-      ),
-      (en.errorDetails, zh.errorDetails, 'Error details', '错误详情'),
-      (en.technicalDetails, zh.technicalDetails, 'Technical details', '技术详情'),
-      (
-        en.copyTechnicalDetails,
-        zh.copyTechnicalDetails,
-        'Copy technical details',
-        '复制技术详情',
-      ),
-      (en.saveFailed, zh.saveFailed, 'Save failed', '保存失败'),
-    ]) {
-      expect(actualEn, expectedEn);
-      expect(actualZh, expectedZh);
-    }
-    expect(en.saveUnconfirmed, isNot(en.saveFailed));
-    expect(zh.saveUnconfirmed, isNot(zh.saveFailed));
-  });
+  test(
+    'DNS actions and detail headings use distinct English and Chinese copy',
+    () {
+      final en = lookupAppLocalizations(const Locale('en'));
+      final zh = lookupAppLocalizations(const Locale('zh'));
+      for (final (actualEn, actualZh, expectedEn, expectedZh) in [
+        (en.dnsQuery, zh.dnsQuery, 'Query', '查询'),
+        (
+          en.dnsRefreshCoreStatus,
+          zh.dnsRefreshCoreStatus,
+          'Refresh core status',
+          '刷新内核状态',
+        ),
+        (
+          en.dnsViewQueryResults,
+          zh.dnsViewQueryResults,
+          'View query results',
+          '查看查询结果',
+        ),
+        (en.dnsQueryResults, zh.dnsQueryResults, 'Query results', '查询结果'),
+        (en.dnsPreviousQuery, zh.dnsPreviousQuery, 'Previous query', '上次查询'),
+        (
+          en.dnsViewPreviousQuery,
+          zh.dnsViewPreviousQuery,
+          'View previous query',
+          '查看上次查询',
+        ),
+        (
+          en.dnsCacheOperationDetails,
+          zh.dnsCacheOperationDetails,
+          'Cache operation details',
+          '缓存操作详情',
+        ),
+        (en.errorDetails, zh.errorDetails, 'Error details', '错误详情'),
+        (en.technicalDetails, zh.technicalDetails, 'Technical details', '技术详情'),
+        (
+          en.copyTechnicalDetails,
+          zh.copyTechnicalDetails,
+          'Copy technical details',
+          '复制技术详情',
+        ),
+        (en.saveFailed, zh.saveFailed, 'Save failed', '保存失败'),
+      ]) {
+        expect(actualEn, expectedEn);
+        expect(actualZh, expectedZh);
+      }
+      expect(en.saveUnconfirmed, isNot(en.saveFailed));
+      expect(zh.saveUnconfirmed, isNot(zh.saveFailed));
+    },
+  );
 
-  test('DNS 响应显示发起查询时的名称、类型和来源', () {
+  test('DNS responses show the name, type, and source captured at query submission', () {
     final en = lookupAppLocalizations(const Locale('en'));
     final zh = lookupAppLocalizations(const Locale('zh'));
     const name = '例子.example.';

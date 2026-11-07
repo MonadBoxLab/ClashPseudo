@@ -1,4 +1,4 @@
-"""SDK 运行入口的授权边界、参数引用和异步进程身份。"""
+"""Authorization boundaries, argument quoting, and asynchronous process identity for the SDK runner."""
 import hashlib
 import tool_test_support
 from tool.cli import parse_args
@@ -132,7 +132,7 @@ class RunSdkObserverTest(unittest.TestCase):
     def test_device_configuration_change_is_not_accepted_as_the_original_device(self):
         self.change_device_after_action = True
         args = self.args()
-        with self.assertRaisesRegex(ValueError, "API／ABI"):
+        with self.assertRaisesRegex(ValueError, "API/ABI"):
             self.execute(args)
         self.assertEqual(json.loads((args.output / "results.json").read_text())["status"], "unconfirmed")
         self.assertEqual(sum(p[:2] == ["am", "instrument"] for p in self.command_parts), 1)
@@ -193,7 +193,7 @@ class RunSdkObserverTest(unittest.TestCase):
     def test_apk_mismatch_does_not_run_the_observer(self):
         args = self.args()
         args.apk_sha256 = "0" * 64
-        with self.assertRaisesRegex(ValueError, "摘要不同"):
+        with self.assertRaisesRegex(ValueError, "does not match --apk-sha256"):
             self.execute(args)
         self.assertFalse(any(p[:2] == ["am", "instrument"] for p in self.command_parts))
 

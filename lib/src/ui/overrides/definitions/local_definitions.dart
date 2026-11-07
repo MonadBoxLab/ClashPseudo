@@ -79,7 +79,8 @@ _Definitions _parseDefinitions((String, Set<LocalYamlSection>) input) {
 String _definitionPath(LocalYamlDefinition definition) =>
     '/${definition.path.map((part) => part.toString().replaceAll('~', '~0').replaceAll('/', '~1')).join('/')}';
 
-/// 捕获同一份原文及编辑目标，不生成独立的本地列表。
+/// Captures the same source text and edit target without creating a separate local
+/// list.
 class LocalDefinitionCollection {
   const LocalDefinitionCollection({
     this.identity = '',
@@ -98,7 +99,8 @@ class LocalDefinitionCollection {
   final Future<void> Function(String identity)? edit;
   final Future<void> Function(String identity)? remove;
 
-  /// 阅读锚点与编辑目标分开，revision 改变后仍可保留同一条目。
+  /// Separates the reading anchor from the edit target so the same item can survive
+  /// revision changes.
   String? readingIdentity(Map<String, dynamic> row) =>
       row.containsKey('entryId') ? row['readingDefinition'] as String? : null;
 
@@ -128,7 +130,7 @@ class LocalDefinitionCollection {
   }
 }
 
-/// 原文解析在 UI isolate 之外执行，保留现有保存 session。
+/// Parses source text outside the UI isolate while retaining the existing save session.
 class LocalDefinitions extends StatefulWidget {
   const LocalDefinitions({
     super.key,

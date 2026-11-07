@@ -1,1 +1,1 @@
-"""Android 构建与设备检查。"""
+"""Android builds and device checks."""

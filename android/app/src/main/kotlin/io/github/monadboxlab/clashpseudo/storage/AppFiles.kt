@@ -79,7 +79,7 @@ object AppFiles {
 
     fun runRecord(context: Context, inputId: String): File {
         val bytes = inputId.toByteArray(Charsets.UTF_8)
-        require(bytes.isNotEmpty() && bytes.size <= ApplicationContract.CORE_IPC_IDENTITY_BYTES) { "装载输入标识无效" }
+        require(bytes.isNotEmpty() && bytes.size <= ApplicationContract.CORE_IPC_IDENTITY_BYTES) { "Invalid preparation input identity" }
         val hash = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
         return File(work(context), "run-record-$hash.json")
     }

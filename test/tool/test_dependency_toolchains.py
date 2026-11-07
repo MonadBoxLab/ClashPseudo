@@ -1,4 +1,4 @@
-"""核对官方工具链选择、archive 安全解包及固定 cache。"""
+"""Verify official toolchain selection, safe archive extraction, and fixed caches."""
 
 import hashlib
 import tool_test_support
@@ -72,7 +72,7 @@ class ArchiveTest(unittest.TestCase):
 
     def test_absolute_and_escaping_symlinks_never_create_a_completed_cache(self):
         for target in (b"/tmp/outside", b"../../../outside"):
-            with self.subTest(target=target), self.assertRaisesRegex(ValueError, "超出安装目录"):
+            with self.subTest(target=target), self.assertRaisesRegex(ValueError, "escapes the installation directory"):
                 self.install(zip_bytes([("ndk/bin/clang", target, 0o120777)]))
             self.assertFalse(self.destination.exists())
             self.assertEqual(list(self.base.iterdir()), [])
@@ -102,7 +102,7 @@ class ArchiveTest(unittest.TestCase):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 self.install(data, changes=changes)
             self.assertFalse(self.destination.exists())
-        with mock.patch.object(tools, "LIMIT", 8), self.assertRaisesRegex(ValueError, "路径或大小无效"):
+        with mock.patch.object(tools, "LIMIT", 8), self.assertRaisesRegex(ValueError, "Invalid toolchain ZIP path or size"):
             self.install(data)
         self.assertFalse(self.destination.exists())
 
@@ -112,22 +112,22 @@ class ArchiveTest(unittest.TestCase):
         content, _ = self.install(data)
         executable = content / "ndk/bin/clang-real"
         executable.write_bytes(b"changed")
-        with self.assertRaisesRegex(ValueError, "缓存文件发生变化"):
+        with self.assertRaisesRegex(ValueError, "Toolchain cache files changed"):
             self.install(data)
         executable.write_bytes(b"original")
         executable.chmod(0o644)
-        with self.assertRaisesRegex(ValueError, "缓存文件发生变化"):
+        with self.assertRaisesRegex(ValueError, "Toolchain cache files changed"):
             self.install(data)
         executable.chmod(0o755)
         link = content / "ndk/bin/clang"
         link.unlink()
         link.symlink_to("missing")
-        with self.assertRaisesRegex(ValueError, "缓存文件发生变化"):
+        with self.assertRaisesRegex(ValueError, "Toolchain cache files changed"):
             self.install(data)
         self.assertEqual(len(self.calls), 1)
         incomplete = self.base / "incomplete"
         incomplete.mkdir()
-        with self.assertRaisesRegex(ValueError, "缓存未完成"):
+        with self.assertRaisesRegex(ValueError, "Toolchain cache is incomplete"):
             self.install(data, destination=incomplete)
         self.assertEqual(len(self.calls), 1)
 
@@ -138,7 +138,7 @@ class ArchiveTest(unittest.TestCase):
         metadata.write_text('<sdk><localPackage path="platforms;android-36"/></sdk>')
         self.install(data, changes={"package": "platforms;android-36"})
         metadata.write_text('<sdk><localPackage path="platforms;android-37"/></sdk>')
-        with self.assertRaisesRegex(ValueError, "缓存文件发生变化"):
+        with self.assertRaisesRegex(ValueError, "Toolchain cache files changed"):
             self.install(data, changes={"package": "platforms;android-36"})
         self.assertEqual(len(self.calls), 1)
 
@@ -162,7 +162,7 @@ class ArchiveTest(unittest.TestCase):
         cache.write_bytes(b"generated")
         self.install(data)
         (content / "flutter/bin/cache/engine.stamp").write_bytes(b"different engine")
-        with self.assertRaisesRegex(ValueError, "缓存文件发生变化"):
+        with self.assertRaisesRegex(ValueError, "Toolchain cache files changed"):
             self.install(data)
         self.assertEqual(len(self.calls), 1)
 
@@ -235,13 +235,13 @@ class PreparationTest(unittest.TestCase):
         outside.mkdir()
         ndk.unlink()
         ndk.symlink_to(outside)
-        with self.assertRaisesRegex(ValueError, "不属于工具链 cache"):
+        with self.assertRaisesRegex(ValueError, "does not belong to the toolchain cache"):
             self.prepare()
         self.assertEqual(ndk.resolve(), outside)
 
     def test_incompatible_ndk_fails_without_raising_the_application_min_sdk(self):
         self.minimum = 26
-        with self.assertRaisesRegex(ValueError, "不支持 API24"):
+        with self.assertRaisesRegex(ValueError, "does not support API24"):
             self.prepare()
         self.assertEqual(self.record["minSdk"], 24)
         self.assertFalse((self.root / "android/local.properties").exists())

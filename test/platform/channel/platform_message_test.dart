@@ -9,7 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('MethodChannel 边界与 typed failure 往返保留 cause、stack、suppressed、cancelError 和未知字段', () async {
+  test('MethodChannel and typed failure round trips preserve cause, stack, suppressed, cancelError, and unknown fields', () async {
     const channel = MethodChannel('fixture/structured-failure');
     const codec = StandardMethodCodec();
     final original = AppMessage.withArgs('operationAndCleanupFailed', {
@@ -82,7 +82,7 @@ void main() {
     ]);
   });
 
-  test('无效 AppMessage 结构保留在 fallback，原始 typed failure 不变', () {
+  test('invalid AppMessage structure remains in fallback without changing the original typed failure', () {
     for (final details in <Object?>[
       null,
       '旧展示文字',

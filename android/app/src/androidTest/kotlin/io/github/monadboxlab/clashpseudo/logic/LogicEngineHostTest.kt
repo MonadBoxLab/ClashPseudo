@@ -268,7 +268,7 @@ class LogicEngineHostTest {
                 AppBridge.cancelSystemRestore()
                 id.set(AppBridge, null)
                 restoreRequested = true
-                // 操作尚未结束时，先等回复处理完成，再恢复 LogicEngineHost 的字段。
+                // If the operation is still running, wait for reply processing before restoring LogicEngineHost fields.
                 restoreHost()
             }
         }
@@ -282,13 +282,13 @@ class LogicEngineHostTest {
             main { idle = AppBridge.runtimeState()["writerBusy"] == false }
             val work = manager.getWorkInfosForUniqueWork("update-reconcile").get(5, TimeUnit.SECONDS)
             if (work.isNotEmpty() && work.all { it.state.isFinished } && idle) break
-            check(android.os.SystemClock.elapsedRealtime() < deadline) { "启动任务没有退出" }
+            check(android.os.SystemClock.elapsedRealtime() < deadline) { "Startup task has not exited" }
             android.os.SystemClock.sleep(20)
         }
         lateinit var host: LogicEngineHost
         var retained = false
         fun platformHandler(engine: FlutterEngine): BinaryMessenger.BinaryMessageHandler {
-            // 使用实际 engine 已注册的 production handler 和 StandardMethodCodec。
+            // Use the production handler registered in the actual engine and StandardMethodCodec.
             val executor = engine.dartExecutor
             val messenger = executor.javaClass.getDeclaredField("dartMessenger").apply { isAccessible = true }.get(executor)
             val handlers = messenger.javaClass.getDeclaredField("messageHandlers").apply { isAccessible = true }
@@ -308,7 +308,7 @@ class LogicEngineHostTest {
         fun rejected(handler: BinaryMessenger.BinaryMessageHandler, method: String, arguments: Map<String, Any?>) {
             try {
                 invoke(handler, method, arguments)
-                fail("$method 没有拒绝过期或无 owner 请求")
+                fail("$method did not reject an expired request or a request without an owner")
             } catch (error: FlutterException) {
                 assertEquals("expired", error.code)
                 assertNotNull(AppMessage.fromMap(error.details))
@@ -323,13 +323,13 @@ class LogicEngineHostTest {
                 host = AppBridge.logic
                 host.retainPlatform(true)
                 retained = true
-                // 真实 Dart CoreRuntime._stop 首先通过无 owner snapshot 读取平台状态。
+                // The actual Dart CoreRuntime._stop first reads platform state through a snapshot without an owner.
                 host.read("stop", emptyMap(), object : MethodChannel.Result {
                     override fun success(result: Any?) { completed.complete(result) }
                     override fun error(code: String, message: String?, details: Any?) {
                         completed.completeExceptionally(AssertionError("$code/$message/$details"))
                     }
-                    override fun notImplemented() { completed.completeExceptionally(AssertionError("stop 未实现")) }
+                    override fun notImplemented() { completed.completeExceptionally(AssertionError("stop is not implemented")) }
                 })
             }
             assertNull(completed.get(30, TimeUnit.SECONDS))

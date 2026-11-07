@@ -70,7 +70,7 @@ func TestParseFailureKeepsTheErrorAndRequiresANewEngine(t *testing.T) {
 				t.Fatalf("parser rejection poisoned the engine: %+v", snapshot)
 			}
 			if err := e.Prepare(home, []byte(validConfig), "rule", func(int) bool { return true }); err == nil {
-				t.Fatal("同一Engine在parse失败后再次装载")
+				t.Fatal("same Engine loaded again after parsing failed")
 			}
 		})
 	}
@@ -110,7 +110,7 @@ func TestDecodeFailureBeforeAllocationStillConsumesTheEngine(t *testing.T) {
 				t.Fatalf("decode failure poisoned the engine: %+v", snapshot)
 			}
 			if err := e.Prepare(home, []byte(validConfig), "rule", func(int) bool { return true }); err == nil {
-				t.Fatal("同一Engine在decode失败后再次装载")
+				t.Fatal("same Engine loaded again after decoding failed")
 			}
 			requireFreshEngineProcess(t, home)
 			requireStop(t, &e)

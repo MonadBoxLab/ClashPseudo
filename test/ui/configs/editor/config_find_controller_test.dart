@@ -170,35 +170,38 @@ void main() {
     },
   );
 
-  test('查找失败保留实际错误，重试后恢复结果', () async {
-    final failure = StateError('实际扫描失败');
-    var scans = 0;
-    final (_, find) = create(
-      'marker',
-      scan: (_, _) async {
-        if (scans++ == 0) throw failure;
-        return [
-          const CodeLineSelection(
-            baseIndex: 0,
-            baseOffset: 0,
-            extentIndex: 0,
-            extentOffset: 6,
-          ),
-        ];
-      },
-    );
-    find.findInputController.text = 'marker';
-    await settleFind(find);
-    expect(find.failed, isTrue);
-    expect(find.error, same(failure));
-    expect(find.value!.result, isNull);
-    find.retry();
-    expect(find.error, isNull);
-    await settleFind(find);
-    expect(find.failed, isFalse);
-    expect(find.value!.result!.matches, hasLength(1));
-    expect(scans, 2);
-  });
+  test(
+    'find failure retains the actual error and retry restores results',
+    () async {
+      final failure = StateError('实际扫描失败');
+      var scans = 0;
+      final (_, find) = create(
+        'marker',
+        scan: (_, _) async {
+          if (scans++ == 0) throw failure;
+          return [
+            const CodeLineSelection(
+              baseIndex: 0,
+              baseOffset: 0,
+              extentIndex: 0,
+              extentOffset: 6,
+            ),
+          ];
+        },
+      );
+      find.findInputController.text = 'marker';
+      await settleFind(find);
+      expect(find.failed, isTrue);
+      expect(find.error, same(failure));
+      expect(find.value!.result, isNull);
+      find.retry();
+      expect(find.error, isNull);
+      await settleFind(find);
+      expect(find.failed, isFalse);
+      expect(find.value!.result!.matches, hasLength(1));
+      expect(scans, 2);
+    },
+  );
 
   test('closing discards an already entered scan before reopening', () async {
     final entered = Completer<void>();

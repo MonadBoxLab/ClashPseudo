@@ -93,7 +93,7 @@ void main() {
         for (final scale in [1.0, 2.0]) {
           for (final member in ['A', '测试🌐']) {
             testWidgets(
-              '策略卡片当前成员与 delay 状态保持几何稳定 $locale $dark $width $scale $member',
+              'strategy card current member and delay state keep stable geometry $locale $dark $width $scale $member',
               (tester) async {
                 tester.view.physicalSize = Size(width, 1000);
                 tester.view.devicePixelRatio = 1;
@@ -125,7 +125,8 @@ void main() {
                 await tester.idle();
                 expect(controller.loading, isFalse);
                 expect(controller.data, same(bridge.data));
-                // 等初次加载的 header 动画结束，再记录卡片几何。
+                // Wait for the initial header animation to finish before recording card
+                // geometry.
                 await tester.pumpAndSettle();
                 expect(tester.binding.transientCallbackCount, 0);
                 expect(tester.takeException(), isNull);
@@ -188,122 +189,126 @@ void main() {
 
   for (final language in ['en', 'zh']) {
     for (final scale in [1.0, 2.0]) {
-      testWidgets('delay 数值区域按字体度量，较长状态在同一区域水平阅读 $language/$scale', (
-        tester,
-      ) async {
-        await tester.pumpWidget(
-          MaterialApp(
-            locale: Locale(language),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(context)
-                  .copyWith(textScaler: TextScaler.linear(scale)),
-              child: child!,
-            ),
-            home: Scaffold(
-              body: Builder(
-                builder: (context) {
-                  final width = StrategyCardStatus.width(context);
-                  return SingleChildScrollView(
-                    child: Column(
-                      children: [
-                        for (final status in DelayMemberStatus.values)
+      testWidgets(
+        'delay value area uses font metrics and longer status scrolls horizontally in the same area $language/$scale',
+        (tester) async {
+          await tester.pumpWidget(
+            MaterialApp(
+              locale: Locale(language),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context)
+                    .copyWith(textScaler: TextScaler.linear(scale)),
+                child: child!,
+              ),
+              home: Scaffold(
+                body: Builder(
+                  builder: (context) {
+                    final width = StrategyCardStatus.width(context);
+                    return SingleChildScrollView(
+                      child: Column(
+                        children: [
+                          for (final status in DelayMemberStatus.values)
+                            StrategyCardStatus(
+                              key: ValueKey(status),
+                              slotWidth: width,
+                              result: DelayMemberResult(
+                                name: 'node',
+                                status: status,
+                                delay: status == DelayMemberStatus.success
+                                    ? 65535
+                                    : null,
+                              ),
+                            ),
                           StrategyCardStatus(
-                            key: ValueKey(status),
+                            key: const ValueKey('large-delay'),
                             slotWidth: width,
-                            result: DelayMemberResult(
+                            result: const DelayMemberResult(
                               name: 'node',
-                              status: status,
-                              delay: status == DelayMemberStatus.success
-                                  ? 65535
-                                  : null,
+                              status: DelayMemberStatus.success,
+                              delay: 123456789,
                             ),
                           ),
-                        StrategyCardStatus(
-                          key: const ValueKey('large-delay'),
-                          slotWidth: width,
-                          result: const DelayMemberResult(
-                            name: 'node',
-                            status: DelayMemberStatus.success,
-                            delay: 123456789,
+                          StrategyCardStatus(
+                            key: const ValueKey('reject'),
+                            slotWidth: width,
+                            rejected: true,
                           ),
-                        ),
-                        StrategyCardStatus(
-                          key: const ValueKey('reject'),
-                          slotWidth: width,
-                          rejected: true,
-                        ),
-                      ],
-                    ),
-                  );
-                },
+                        ],
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
-          ),
-        );
-        for (final key in [
-          for (final status in DelayMemberStatus.values) ValueKey(status),
-          const ValueKey('large-delay'),
-          const ValueKey('reject'),
-        ]) {
-          final slot = find.byKey(key);
-          final context = tester.element(slot);
-          final text = find.descendant(of: slot, matching: find.byType(Text));
-          expect(tester.getSize(slot).width, StrategyCardStatus.width(context));
-          expect(
-            tester.getSize(slot).height,
-            StrategyCardStatus.height(context),
           );
-          final numeric = TextPainter(
-            text: TextSpan(
-              text: '00000 ms',
-              style: DefaultTextStyle.of(context).style
-                  .merge(StrategyCardStatus.styleOf(context)),
-            ),
-            textDirection: Directionality.of(context),
-            textScaler: MediaQuery.textScalerOf(context),
-            maxLines: 1,
-          )..layout();
-          expect(tester.getSize(slot).width, numeric.width.ceilToDouble());
-          numeric.dispose();
-          final reader = find.descendant(
-            of: slot,
-            matching: find.byType(SingleChildScrollView),
-          );
-          expect(
-            tester.widget<SingleChildScrollView>(reader).scrollDirection,
-            Axis.horizontal,
-          );
-          final scroll = tester.state<ScrollableState>(
-            find.descendant(of: reader, matching: find.byType(Scrollable)),
-          );
-          final overflow =
-              (tester.getSize(text).width - tester.getSize(slot).width).clamp(
-                0.0,
-                double.infinity,
-              );
-          expect(scroll.position.maxScrollExtent, closeTo(overflow, .01));
-          if (overflow > 0) {
-            await tester.drag(reader, const Offset(300, 0));
-            await tester.pumpAndSettle();
-            expect(scroll.position.pixels, closeTo(overflow, .01));
+          for (final key in [
+            for (final status in DelayMemberStatus.values) ValueKey(status),
+            const ValueKey('large-delay'),
+            const ValueKey('reject'),
+          ]) {
+            final slot = find.byKey(key);
+            final context = tester.element(slot);
+            final text = find.descendant(of: slot, matching: find.byType(Text));
+            expect(
+              tester.getSize(slot).width,
+              StrategyCardStatus.width(context),
+            );
+            expect(
+              tester.getSize(slot).height,
+              StrategyCardStatus.height(context),
+            );
+            final numeric = TextPainter(
+              text: TextSpan(
+                text: '00000 ms',
+                style: DefaultTextStyle.of(context).style
+                    .merge(StrategyCardStatus.styleOf(context)),
+              ),
+              textDirection: Directionality.of(context),
+              textScaler: MediaQuery.textScalerOf(context),
+              maxLines: 1,
+            )..layout();
+            expect(tester.getSize(slot).width, numeric.width.ceilToDouble());
+            numeric.dispose();
+            final reader = find.descendant(
+              of: slot,
+              matching: find.byType(SingleChildScrollView),
+            );
+            expect(
+              tester.widget<SingleChildScrollView>(reader).scrollDirection,
+              Axis.horizontal,
+            );
+            final scroll = tester.state<ScrollableState>(
+              find.descendant(of: reader, matching: find.byType(Scrollable)),
+            );
+            final overflow =
+                (tester.getSize(text).width - tester.getSize(slot).width).clamp(
+                  0.0,
+                  double.infinity,
+                );
+            expect(scroll.position.maxScrollExtent, closeTo(overflow, .01));
+            if (overflow > 0) {
+              await tester.drag(reader, const Offset(300, 0));
+              await tester.pumpAndSettle();
+              expect(scroll.position.pixels, closeTo(overflow, .01));
+            }
+            expect(tester.widget<Text>(text).softWrap, isFalse);
+            expect(
+              tester.widget<Text>(text).overflow,
+              isNot(TextOverflow.ellipsis),
+            );
+            expect(
+              tester.widget<Text>(text).style!.fontFeatures,
+              contains(const FontFeature.tabularFigures()),
+            );
           }
-          expect(tester.widget<Text>(text).softWrap, isFalse);
-          expect(
-            tester.widget<Text>(text).overflow,
-            isNot(TextOverflow.ellipsis),
-          );
-          expect(
-            tester.widget<Text>(text).style!.fontFeatures,
-            contains(const FontFeature.tabularFigures()),
-          );
-        }
-        expect(find.text('65535 ms'), findsOneWidget);
-        expect(find.text('123456789 ms'), findsOneWidget);
-        expect(tester.takeException(), isNull);
-        await tester.pumpWidget(const SizedBox());
-      });
+          expect(find.text('65535 ms'), findsOneWidget);
+          expect(find.text('123456789 ms'), findsOneWidget);
+          expect(tester.takeException(), isNull);
+          await tester.pumpWidget(const SizedBox());
+        },
+      );
     }
   }
 

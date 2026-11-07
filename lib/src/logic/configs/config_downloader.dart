@@ -19,7 +19,8 @@ class ConfigDownloader {
     FutureOr<HttpClient> Function()? createClient,
   }) : _createClient = createClient ?? _missingClient;
 
-  static HttpClient _missingClient() => throw StateError('下载未提供 HTTP client');
+  static HttpClient _missingClient() =>
+      throw StateError('No HTTP client provided for download');
 
   final int maxBytes;
   final Duration timeout;

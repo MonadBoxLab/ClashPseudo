@@ -98,17 +98,17 @@ func invokeBytes(t *testing.T, d *coreDispatcher, operation int, id int64, body 
 		t.Fatal(err)
 	}
 	if _, err = input.Stat(); !errors.Is(err, os.ErrClosed) {
-		t.Fatal("Go未关闭input FD", err)
+		t.Fatal("Go did not close the input FD", err)
 	}
 	if _, err = output.Stat(); !errors.Is(err, os.ErrClosed) {
-		t.Fatal("Go未关闭output FD", err)
+		t.Fatal("Go did not close the output FD", err)
 	}
 	return frames, ack
 }
 func terminalFrom(t *testing.T, frames []coreipc.Frame) coreipc.Terminal {
 	t.Helper()
 	if len(frames) == 0 || frames[len(frames)-1].Kind != A.CoreIpcFrameTerminal {
-		t.Fatal("结果缺少terminal")
+		t.Fatal("result is missing the terminal")
 	}
 	var terminal coreipc.Terminal
 	if err := json.Unmarshal(frames[len(frames)-1].Payload, &terminal); err != nil {
@@ -122,7 +122,7 @@ func TestDispatcherVersionReturnsOneTerminalAndOwnsFDs(t *testing.T) {
 	frames, ack := invokeBytes(t, d, request.Operation, request.RequestID, requestBytes(t, request, nil))
 	terminal := terminalFrom(t, frames)
 	if len(frames) != 2 || frames[0].Kind != A.CoreIpcFrameData || !terminal.Complete || !terminal.Exited || terminal.Error != nil || string(ack["accepted"]) != "true" || len(d.calls) != 0 {
-		t.Fatal("统一结果或active生命周期错误", terminal, ack)
+		t.Fatal("incorrect unified result or active call lifecycle", terminal, ack)
 	}
 }
 func TestDispatcherRejectsOnlyActiveDuplicateAndAllowsOutOfOrderAndSerialSteps(t *testing.T) {
@@ -133,10 +133,10 @@ func TestDispatcherRejectsOnlyActiveDuplicateAndAllowsOutOfOrderAndSerialSteps(t
 	}
 	_, second, err := d.accept(A.CoreOperationPaths, 2, nil)
 	if err != nil {
-		t.Fatal("乱序到达被拒绝", err)
+		t.Fatal("out-of-order arrival was rejected", err)
 	}
 	if _, _, err = d.accept(A.CoreOperationVersion, 10, nil); err == nil {
-		t.Fatal("重复active ID被受理")
+		t.Fatal("duplicate active ID was accepted")
 	}
 	d.mu.Lock()
 	delete(d.calls, 10)
@@ -146,7 +146,7 @@ func TestDispatcherRejectsOnlyActiveDuplicateAndAllowsOutOfOrderAndSerialSteps(t
 	second.cancel()
 	_, third, err := d.accept(A.CoreOperationPaths, 10, nil)
 	if err != nil {
-		t.Fatal("串行native步骤不能沿用logical ID", err)
+		t.Fatal("serial native steps could not reuse the logical ID", err)
 	}
 	third.cancel()
 }
@@ -165,7 +165,7 @@ func TestDispatcherContextIdentityChecksAlsoCoverCancelAndStop(t *testing.T) {
 		current.Generation = 3
 		current.NetworkRevision = 4
 		if err := d.identity(current, operation, 2); err == nil {
-			t.Fatalf("旧inputId作用于operation=%d", operation)
+			t.Fatalf("stale inputId affected operation=%d", operation)
 		}
 		current.InputID = "loaded"
 		if err := d.identity(current, operation, 2); err != nil {
@@ -173,7 +173,7 @@ func TestDispatcherContextIdentityChecksAlsoCoverCancelAndStop(t *testing.T) {
 		}
 		current.ProcessID = "old-process"
 		if err := d.identity(current, operation, 2); err == nil {
-			t.Fatal("旧processId未被拒绝")
+			t.Fatal("stale processId was not rejected")
 		}
 	}
 }
@@ -194,7 +194,7 @@ func TestDispatcherPlatformErrorPreservesTypedCauseAndJoinedOriginalErrors(t *te
 	}
 	original := androidnet.PlatformRuntime(raw, presence)
 	if original == nil {
-		t.Fatal("公开平台检查未产生实际能力错误")
+		t.Fatal("public platform check did not produce the actual capability error")
 	}
 	for _, joined := range []bool{false, true} {
 		t.Run(map[bool]string{false: "platform", true: "joined"}[joined], func(t *testing.T) {
@@ -221,7 +221,7 @@ func TestDispatcherPlatformErrorPreservesTypedCauseAndJoinedOriginalErrors(t *te
 			}), callbacks)
 			terminal := terminalFrom(t, frames)
 			if terminal.Complete || terminal.Error == nil || terminal.Error.Code != A.CoreErrorCallFailed || !terminal.Exited || string(ack["exited"]) != "true" {
-				t.Fatal("实际能力错误未进入terminal/ack", terminal, ack)
+				t.Fatal("actual capability error was missing from terminal/ack", terminal, ack)
 			}
 			for _, encoded := range [][]byte{frames[len(frames)-1].Payload, ack["error"]} {
 				var envelope any
@@ -231,17 +231,17 @@ func TestDispatcherPlatformErrorPreservesTypedCauseAndJoinedOriginalErrors(t *te
 				text := string(encoded)
 				for _, want := range []string{`"id":"nativeConfigurationUnsupported"`, `"field":"tun.enable"`, `"id":"nativeReasonTunDisabled"`, `"detail":"tun.enable: tunDisabled"`, `tun.enable: tunDisabled`} {
 					if !strings.Contains(text, want) {
-						t.Fatalf("typed cause或原message缺失 %s: %s", want, text)
+						t.Fatalf("typed cause or original message missing %s: %s", want, text)
 					}
 				}
 				if joined && !strings.Contains(text, "original cleanup failure") {
-					t.Fatal("Join丢失原cleanup错误", text)
+					t.Fatal("Join lost the original cleanup error", text)
 				}
 			}
 		})
 	}
 	if plain := coreipc.Failure(A.CoreErrorCallFailed, errors.New("tun.enable: tunDisabled")); plain.Cause != nil {
-		t.Fatal("按任意错误文字伪造了typed descriptor", plain)
+		t.Fatal("arbitrary error text produced a fabricated typed descriptor", plain)
 	}
 }
 
@@ -274,7 +274,7 @@ func TestDispatcherProtocolUTF8IdentityAndEOFKeepActualFailures(t *testing.T) {
 	frames, _ := invokeBytes(t, &coreDispatcher{}, request.Operation, 1, body)
 	terminal := terminalFrom(t, frames)
 	if terminal.Error == nil || terminal.Error.Code != A.CoreErrorTransportInterrupted || !strings.Contains(terminal.Error.Message, "EOF") {
-		t.Fatal("EOF被当成成功", terminal)
+		t.Fatal("EOF was treated as success", terminal)
 	}
 }
 func TestDispatcherOrdinaryDataHasNoAggregateEightMiBLimit(t *testing.T) {
@@ -295,7 +295,7 @@ func TestDispatcherOrdinaryDataHasNoAggregateEightMiBLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !terminal.Complete || result.Text != string(text) || len(frames) < 3 {
-		t.Fatal("普通data仍受8MiB总量限制", terminal)
+		t.Fatal("ordinary data is still subject to an 8 MiB aggregate limit", terminal)
 	}
 }
 func TestDispatcherLogsPublishMetadataBeforePrepareAndCancelBackpressure(t *testing.T) {
@@ -317,13 +317,13 @@ func TestDispatcherLogsPublishMetadataBeforePrepareAndCancelBackpressure(t *test
 	go func() { result <- d.invoke(request.Operation, 1, input, output, nil, nativeCallbacks{}) }()
 	frame, err := coreipc.ReadFrame(receive)
 	if err != nil || frame.Kind != A.CoreIpcFrameMetadata {
-		t.Fatal("PREPARE前未立即发布logs metadata", frame, err)
+		t.Fatal("logs metadata was not published immediately before PREPARE", frame, err)
 	}
 	ML.SetLevel(ML.INFO)
 	ML.Infoln("%s", strings.Repeat("x", 1<<20))
 	var header [5]byte
 	if _, err = io.ReadFull(receive, header[:]); err != nil || header[4] != A.CoreIpcFrameRecord || binary.BigEndian.Uint32(header[:4]) < 1<<20 {
-		t.Fatal("未进入大record传输", err)
+		t.Fatal("large record transfer did not start", err)
 	}
 	watermark := validRequest(A.CoreOperationLogs, 2)
 	watermark.InputID = request.InputID
@@ -338,20 +338,20 @@ func TestDispatcherLogsPublishMetadataBeforePrepareAndCancelBackpressure(t *test
 			Next   int64  `json:"next"`
 		}
 		if len(frames) != 2 || frames[0].Kind != A.CoreIpcFrameData || json.Unmarshal(frames[0].Payload, &value) != nil || value.Next < 1 || value.Source != "process/loading" || !terminal.Complete || terminal.Source != value.Source || string(ack["exited"]) != "true" {
-			t.Error("backpressure期间watermark结果错误", frames, terminal, ack)
+			t.Error("incorrect watermark result during backpressure", frames, terminal, ack)
 		}
 	}()
 	select {
 	case <-concurrent:
 	case <-time.After(time.Second):
-		t.Fatal("watermark等待了stream backpressure")
+		t.Fatal("watermark waited for stream backpressure")
 	}
 	second := validRequest(A.CoreOperationLogs, 3)
 	second.InputID = request.InputID
 	frames, ack := invokeBytes(t, d, second.Operation, second.RequestID, requestBytes(t, second, nil))
 	terminal := terminalFrom(t, frames)
 	if terminal.Complete || terminal.Error == nil || !strings.Contains(terminal.Error.Message, "log transfer is already active") || string(ack["exited"]) != "true" {
-		t.Fatal("第二个默认consumer未被拒绝", terminal, ack)
+		t.Fatal("second default consumer was not rejected", terminal, ack)
 	}
 	if err = d.cancel(1); err != nil {
 		t.Fatal(err)
@@ -362,7 +362,7 @@ func TestDispatcherLogsPublishMetadataBeforePrepareAndCancelBackpressure(t *test
 			t.Fatal(string(ack))
 		}
 	case <-time.After(time.Second):
-		t.Fatal("取消未解除FD backpressure")
+		t.Fatal("cancellation did not release FD backpressure")
 	}
 	if err = <-sent; err != nil {
 		t.Fatal(err)
@@ -371,7 +371,7 @@ func TestDispatcherLogsPublishMetadataBeforePrepareAndCancelBackpressure(t *test
 		t.Fatal(err)
 	}
 	if len(d.calls) != 0 {
-		t.Fatal("已经退出的logs调用仍在active集合")
+		t.Fatal("completed logs call remained in the active set")
 	}
 }
 func TestDispatcherLogWatermarkDoesNotConsumeOrResetSequence(t *testing.T) {
@@ -393,7 +393,7 @@ func TestDispatcherLogWatermarkDoesNotConsumeOrResetSequence(t *testing.T) {
 				return
 			}
 			if time.Now().After(deadline) {
-				t.Fatal("日志未到达传输queue")
+				t.Fatal("log did not reach the transport queue")
 			}
 			time.Sleep(time.Millisecond)
 		}
@@ -410,23 +410,23 @@ func TestDispatcherLogWatermarkDoesNotConsumeOrResetSequence(t *testing.T) {
 		Dropped int64  `json:"dropped"`
 	}
 	if len(frames) != 2 || frames[0].Kind != A.CoreIpcFrameData || json.Unmarshal(frames[0].Payload, &watermark) != nil || watermark.Source != "process/input" || terminal.Source != watermark.Source || !terminal.Complete {
-		t.Fatal("watermark结果错误", frames, terminal)
+		t.Fatal("incorrect watermark result", frames, terminal)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	first, err := queue.Next(ctx)
 	if err != nil || first.Text != "watermark-before" || first.Seq != watermark.Next {
-		t.Fatal("watermark消费了已有记录或返回下一条序号", first, watermark, err)
+		t.Fatal("watermark consumed existing records or returned the next sequence number", first, watermark, err)
 	}
 	ML.Infoln("watermark-after")
 	waitSequence(watermark.Next)
 	second, err := queue.Next(ctx)
 	if err != nil || second.Seq <= watermark.Next || second.Text != "watermark-after" {
-		t.Fatal("后续Seq没有越过watermark", second, err)
+		t.Fatal("subsequent Seq did not exceed the watermark", second, err)
 	}
 	next, dropped := queue.Watermark()
 	if next != second.Seq || dropped != watermark.Dropped || d.logConsumer {
-		t.Fatal("watermark重置了计数或占用了consumer", next, dropped, watermark)
+		t.Fatal("watermark reset counters or occupied the consumer", next, dropped, watermark)
 	}
 }
 
@@ -440,7 +440,7 @@ func TestPlatformCallbackCauseAndSuppressedRemainStructured(t *testing.T) {
 	failure := coreipc.Failure("callFailed", err)
 	encoded, encodeErr := json.Marshal(failure)
 	if encodeErr != nil || value.Wire != "AQI=" || !value.Exited || !bytes.Contains(encoded, []byte(`"suppressed"`)) || !bytes.Contains(encoded, []byte(`"cause"`)) {
-		t.Fatal("callback值或原始cause结构丢失", string(encoded), encodeErr)
+		t.Fatal("callback value or original cause structure was lost", string(encoded), encodeErr)
 	}
 }
 func TestPlatformQueryCancellationWaitsForRealCallbackAndDoesNotRunAfterExit(t *testing.T) {
@@ -459,17 +459,17 @@ func TestPlatformQueryCancellationWaitsForRealCallbackAndDoesNotRunAfterExit(t *
 	cancel()
 	select {
 	case <-done:
-		t.Fatal("原同步callback退出前完成")
+		t.Fatal("completed before the original synchronous callback returned")
 	case <-time.After(30 * time.Millisecond):
 	}
 	close(release)
 	<-done
 	if string(body) != "actual" || !errors.Is(err, original) || calls.Load() != 1 || callbackCancellation(err) != original {
-		t.Fatal("实际结果或取消cause丢失", string(body), err)
+		t.Fatal("actual result or cancellation cause was lost", string(body), err)
 	}
 	for i := 0; i < 100; i++ {
 		ctx, cancel := context.WithCancel(context.Background())
-		body, err = invokePlatformQuery(ctx, func() []byte { return []byte("done") }, func() error { t.Error("完成后补发取消"); return nil })
+		body, err = invokePlatformQuery(ctx, func() []byte { return []byte("done") }, func() error { t.Error("cancellation was sent after completion"); return nil })
 		cancel()
 		if err != nil || string(body) != "done" {
 			t.Fatal(err)
@@ -487,7 +487,7 @@ func TestDispatcherStrategyRestoreDoesNotWriteSelectedCache(t *testing.T) {
 		}
 		command.Env = append(os.Environ(), "PSEUDO_DISPATCH_STRATEGY_TEST=1")
 		if output, err := command.CombinedOutput(); err != nil {
-			t.Fatalf("独立strategy dispatcher测试失败: %v\n%s", err, output)
+			t.Fatalf("isolated strategy dispatcher test failed: %v\n%s", err, output)
 		}
 		return
 	}
@@ -507,13 +507,13 @@ func TestDispatcherStrategyRestoreDoesNotWriteSelectedCache(t *testing.T) {
 	body := []byte("profile: {store-selected: true}\nproxy-groups:\n - {name: pick, type: select, proxies: [DIRECT, REJECT]}\nrules: ['MATCH,DIRECT']\n")
 	frames, _ := invokeBytes(t, d, prepare.Operation, prepare.RequestID, requestBytes(t, prepare, map[string][]byte{A.CorePartConfig: body, A.CorePartOverrides: []byte("[]"), A.CorePartOptions: options}), nativeCallbacks{Protect: func(int) error { return nil }})
 	if terminal := terminalFrom(t, frames); !terminal.Complete || terminal.Error != nil {
-		t.Fatal("profile装载失败", terminal)
+		t.Fatal("profile loading failed", terminal)
 	}
 	configuration := validRequest(A.CoreOperationRuntimeConfig, 50)
 	configuration.InputID, configuration.Generation, configuration.NetworkRevision = prepare.InputID, prepare.Generation, prepare.NetworkRevision
 	frames, _ = invokeBytes(t, d, configuration.Operation, configuration.RequestID, requestBytes(t, configuration, nil))
 	if terminal := terminalFrom(t, frames); !terminal.Complete || terminal.Error != nil || len(frames) != 2 {
-		t.Fatal("运行配置读取失败", terminal)
+		t.Fatal("failed to read runtime configuration", terminal)
 	}
 	var text string
 	if err := json.Unmarshal(frames[0].Payload, &text); err != nil {
@@ -521,7 +521,7 @@ func TestDispatcherStrategyRestoreDoesNotWriteSelectedCache(t *testing.T) {
 	}
 	var general map[string]any
 	if err := yaml.Unmarshal([]byte(text), &general); err != nil || general["mode"] != "rule" {
-		t.Fatal("运行配置不是预期的 YAML", err)
+		t.Fatal("runtime configuration is not the expected YAML", err)
 	}
 	for index, tc := range []struct {
 		member  string
@@ -532,18 +532,18 @@ func TestDispatcherStrategyRestoreDoesNotWriteSelectedCache(t *testing.T) {
 		request.Arguments, _ = json.Marshal(map[string]any{"group": "pick", "choice": map[string]any{"type": "select", "member": tc.member}, "restore": tc.restore})
 		frames, _ := invokeBytes(t, d, request.Operation, request.RequestID, requestBytes(t, request, nil))
 		if terminal := terminalFrom(t, frames); !terminal.Complete || terminal.Error != nil {
-			t.Fatal("strategySelect失败", terminal)
+			t.Fatal("strategySelect failed", terminal)
 		}
 		selector := tunnel.Proxies()["pick"].Adapter().(*outboundgroup.Selector)
 		if selector.Now() != tc.member {
-			t.Fatal("dispatcher未应用真实选择", selector.Now(), tc.member)
+			t.Fatal("dispatcher did not apply the actual selection", selector.Now(), tc.member)
 		}
 		selected := cachefile.Cache().SelectedMap()
 		if tc.restore && selected["pick"] != "" {
-			t.Fatal("restore写入了上游selected cache", selected)
+			t.Fatal("restore wrote to the upstream selected cache", selected)
 		}
 		if !tc.restore && selected["pick"] != tc.member {
-			t.Fatal("显式操作没有写入上游selected cache", selected)
+			t.Fatal("explicit operation did not write to the upstream selected cache", selected)
 		}
 	}
 }

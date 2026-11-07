@@ -20,7 +20,8 @@ Future<Object?> readStorageJson(File file, int limit) async {
   return jsonDecode(utf8.decode(value));
 }
 
-/// 临时文件清理失败不能覆盖写入／发布的原始错误。
+/// Temporary file cleanup failures must not replace the original write or publication
+/// error.
 Future<void> cleanupStorageTemporary(File file, {Object? cause}) async {
   try {
     if (await file.exists()) await file.delete();

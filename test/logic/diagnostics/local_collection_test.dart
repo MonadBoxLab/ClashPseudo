@@ -107,7 +107,7 @@ Future<Map> read(
 }
 
 void main() {
-  test('阅读身份不参与搜索，也不授予运行对象编辑权', () {
+  test('reading identity does not participate in search or grant runtime object editing rights', () {
     final definition = {
       ...local('/proxies/0'),
       'readingDefinition': 'private-reading-anchor',
@@ -127,175 +127,187 @@ void main() {
     expect(rows.first.containsKey('readingDefinition'), isFalse);
   });
 
-  diagnosticTest('未完整返回保留实际取消错误与 native receipt', (tester, fixture) async {
-    await fixture.warmUp(tester);
-    fixture.script(ApplicationContract.coreOperationNodes, (request) {
-      request.frame(ApplicationContract.coreIpcFrameMetadata, {
-        'source': 'source',
+  diagnosticTest(
+    'incomplete results retain actual cancellation errors and native receipt',
+    (tester, fixture) async {
+      await fixture.warmUp(tester);
+      fixture.script(ApplicationContract.coreOperationNodes, (request) {
+        request.frame(ApplicationContract.coreIpcFrameMetadata, {
+          'source': 'source',
+        });
+        request.terminal({
+          'complete': false,
+          'recordCount': 0,
+          'source': 'source',
+          'cancelError': 'actual cancellation failure',
+          'raw': 'unrelated terminal payload',
+        });
+        request.signalExit(receipt: {'status': 'actual exit'});
       });
-      request.terminal({
-        'complete': false,
-        'recordCount': 0,
-        'source': 'source',
-        'cancelError': 'actual cancellation failure',
-        'raw': 'unrelated terminal payload',
-      });
-      request.signalExit(receipt: {'status': 'actual exit'});
-    });
-    final call = await fixture.client.submit(
-      ApplicationContract.coreOperationNodes,
-      CoreIdentity(processId: diagnosticSource.processId!),
-    );
-    await expectLater(
-      CoreCollectionPage.read(call, offset: 0, limit: 50, search: ''),
-      throwsA(
-        isA<PlatformFailure>().having(
-          (failure) => failure.details,
-          'details',
-          allOf(
-            containsPair('cancelError', 'actual cancellation failure'),
-            containsPair('nativeReceipt', {'status': 'actual exit'}),
-            isNot(containsPair('raw', 'unrelated terminal payload')),
+      final call = await fixture.client.submit(
+        ApplicationContract.coreOperationNodes,
+        CoreIdentity(processId: diagnosticSource.processId!),
+      );
+      await expectLater(
+        CoreCollectionPage.read(call, offset: 0, limit: 50, search: ''),
+        throwsA(
+          isA<PlatformFailure>().having(
+            (failure) => failure.details,
+            'details',
+            allOf(
+              containsPair('cancelError', 'actual cancellation failure'),
+              containsPair('nativeReceipt', {'status': 'actual exit'}),
+              isNot(containsPair('raw', 'unrelated terminal payload')),
+            ),
           ),
         ),
-      ),
-    );
-  });
+      );
+    },
+  );
 
-  diagnosticTest('节点 stream 先关联再分页，跨页对象不重复', (tester, fixture) async {
-    await fixture.warmUp(tester);
-    final records = [
-      for (var index = 0; index < 120; index++)
-        <String, dynamic>{
-          'name': index == 99 ? 'needle' : 'node-$index',
-          'sourceKind': 'configuration',
-          'sourceName': '',
-          'type': 'Direct',
-          'udp': false,
-          'history': <Object>[],
-          if (index == 99) 'provenance': provenance('/proxies/0'),
-        },
-    ];
-    final original = jsonEncode(records);
-    final definitions = [
-      local('/proxies/0'),
-      local('/proxies/1', name: 'offline'),
-    ];
-    final first = await read(
-      fixture,
-      'nodes',
-      records,
-      definitions: definitions,
-    );
-    expect(first['total'], 121);
-    expect(first['nodes'], hasLength(50));
-    expect(
-      (first['nodes'] as List).any(
-        (row) => (row as Map).containsKey('localDefinition'),
-      ),
-      isFalse,
-    );
-    final middle = await read(
-      fixture,
-      'nodes',
-      records,
-      definitions: definitions,
-      offset: 50,
-      token: first['token'] as String,
-    );
-    expect(middle['nodes'], hasLength(50));
-    final associated = (middle['nodes'] as List).last as Map;
-    expect(associated['localDefinition'], definitions.first['localDefinition']);
-    expect(associated['type'], 'Direct');
-    expect(associated['udp'], isFalse);
-    expect(associated.containsKey('raw'), isFalse);
-    final last = await read(
-      fixture,
-      'nodes',
-      records,
-      definitions: definitions,
-      offset: 100,
-      token: first['token'] as String,
-    );
-    expect(last['nodes'], hasLength(21));
-    expect(last['nextOffset'], -1);
-    expect(((last['nodes'] as List).last as Map).containsKey('raw'), isFalse);
-    expect(jsonEncode(records), original);
-    expect(
-      fixture
-          .calls(ApplicationContract.coreOperationNodes)
-          .every(
-            (request) =>
-                !request.arguments.containsKey('definitions') &&
-                !request.arguments.containsKey('localIdentity'),
-          ),
-      isTrue,
-    );
-  });
-
-  diagnosticTest('统一搜索在关联后计数，旧本地snapshot使分页token失效', (tester, fixture) async {
-    await fixture.warmUp(tester);
-    final records = [
-      for (var index = 0; index < 110; index++)
-        <String, dynamic>{
-          'name': index == 90 ? 'needle' : 'node-$index',
-          'sourceKind': 'configuration',
-          'type': 'Direct',
-          if (index == 90) 'provenance': provenance('/proxies/0'),
-        },
-    ];
-    final definitions = [
-      local('/proxies/0'),
-      local('/proxies/1', name: 'offline'),
-    ];
-    final match = await read(
-      fixture,
-      'nodes',
-      records,
-      definitions: definitions,
-      search: ' NEEDLE ',
-    );
-    expect(match['total'], 1);
-    expect(match['nodes'], hasLength(1));
-    final offline = await read(
-      fixture,
-      'nodes',
-      records,
-      definitions: definitions,
-      search: 'offline',
-    );
-    expect(offline['total'], 1);
-    expect(
-      ((offline['nodes'] as List).single as Map).containsKey('raw'),
-      isFalse,
-    );
-    final first = await read(
-      fixture,
-      'nodes',
-      records,
-      definitions: definitions,
-    );
-    await expectLater(
-      read(
+  diagnosticTest(
+    'node stream associates before pagination without duplicating objects across pages',
+    (tester, fixture) async {
+      await fixture.warmUp(tester);
+      final records = [
+        for (var index = 0; index < 120; index++)
+          <String, dynamic>{
+            'name': index == 99 ? 'needle' : 'node-$index',
+            'sourceKind': 'configuration',
+            'sourceName': '',
+            'type': 'Direct',
+            'udp': false,
+            'history': <Object>[],
+            if (index == 99) 'provenance': provenance('/proxies/0'),
+          },
+      ];
+      final original = jsonEncode(records);
+      final definitions = [
+        local('/proxies/0'),
+        local('/proxies/1', name: 'offline'),
+      ];
+      final first = await read(
         fixture,
         'nodes',
         records,
         definitions: definitions,
-        snapshot: 'snapshot-2',
+      );
+      expect(first['total'], 121);
+      expect(first['nodes'], hasLength(50));
+      expect(
+        (first['nodes'] as List).any(
+          (row) => (row as Map).containsKey('localDefinition'),
+        ),
+        isFalse,
+      );
+      final middle = await read(
+        fixture,
+        'nodes',
+        records,
+        definitions: definitions,
         offset: 50,
         token: first['token'] as String,
-      ),
-      throwsA(isA<FormatException>()),
-    );
-  });
+      );
+      expect(middle['nodes'], hasLength(50));
+      final associated = (middle['nodes'] as List).last as Map;
+      expect(
+        associated['localDefinition'],
+        definitions.first['localDefinition'],
+      );
+      expect(associated['type'], 'Direct');
+      expect(associated['udp'], isFalse);
+      expect(associated.containsKey('raw'), isFalse);
+      final last = await read(
+        fixture,
+        'nodes',
+        records,
+        definitions: definitions,
+        offset: 100,
+        token: first['token'] as String,
+      );
+      expect(last['nodes'], hasLength(21));
+      expect(last['nextOffset'], -1);
+      expect(((last['nodes'] as List).last as Map).containsKey('raw'), isFalse);
+      expect(jsonEncode(records), original);
+      expect(
+        fixture
+            .calls(ApplicationContract.coreOperationNodes)
+            .every(
+              (request) =>
+                  !request.arguments.containsKey('definitions') &&
+                  !request.arguments.containsKey('localIdentity'),
+            ),
+        isTrue,
+      );
+    },
+  );
+
+  diagnosticTest(
+    'unified search counts after association and an old local snapshot invalidates the page token',
+    (tester, fixture) async {
+      await fixture.warmUp(tester);
+      final records = [
+        for (var index = 0; index < 110; index++)
+          <String, dynamic>{
+            'name': index == 90 ? 'needle' : 'node-$index',
+            'sourceKind': 'configuration',
+            'type': 'Direct',
+            if (index == 90) 'provenance': provenance('/proxies/0'),
+          },
+      ];
+      final definitions = [
+        local('/proxies/0'),
+        local('/proxies/1', name: 'offline'),
+      ];
+      final match = await read(
+        fixture,
+        'nodes',
+        records,
+        definitions: definitions,
+        search: ' NEEDLE ',
+      );
+      expect(match['total'], 1);
+      expect(match['nodes'], hasLength(1));
+      final offline = await read(
+        fixture,
+        'nodes',
+        records,
+        definitions: definitions,
+        search: 'offline',
+      );
+      expect(offline['total'], 1);
+      expect(
+        ((offline['nodes'] as List).single as Map).containsKey('raw'),
+        isFalse,
+      );
+      final first = await read(
+        fixture,
+        'nodes',
+        records,
+        definitions: definitions,
+      );
+      await expectLater(
+        read(
+          fixture,
+          'nodes',
+          records,
+          definitions: definitions,
+          snapshot: 'snapshot-2',
+          offset: 50,
+          token: first['token'] as String,
+        ),
+        throwsA(isA<FormatException>()),
+      );
+    },
+  );
 
   for (final (description, source) in [
-    ('同名无provenance', null),
-    ('旧revision', provenance('/proxies/0', revision: 6)),
-    ('其它entry', provenance('/proxies/0', id: 'another')),
-    ('其它path', provenance('/proxies/1')),
+    ('same name without provenance', null),
+    ('old revision', provenance('/proxies/0', revision: 6)),
+    ('another entry', provenance('/proxies/0', id: 'another')),
+    ('another path', provenance('/proxies/1')),
   ]) {
-    test('$description不授予运行项编辑权', () {
+    test('$description does not grant runtime item editing rights', () {
       final rows = DefinitionRows.merge(
         [
           {
@@ -312,60 +324,63 @@ void main() {
     });
   }
 
-  diagnosticTest('重复rules按原始path关联并保留native index和未加载原文顺序', (
-    tester,
-    fixture,
-  ) async {
-    await fixture.warmUp(tester);
-    final records = [
-      for (var index = 0; index < 70; index++)
-        <String, dynamic>{
-          'index': index,
-          'type': 'Match',
-          'payload': '',
-          'target': 'DIRECT',
-          if (index == 51) 'provenance': provenance('/rules/1'),
-          if (index == 52) 'provenance': provenance('/rules/0'),
-        },
-    ];
-    final definitions = [
-      for (var index = 0; index < 4; index++)
-        <String, dynamic>{
-          ...local('/rules/$index'),
-          'definition': 'MATCH,DIRECT',
-        },
-    ];
-    final first = await read(
-      fixture,
-      'rules',
-      records,
-      definitions: definitions,
-    );
-    expect(first['total'], 72);
-    expect((first['scopes'] as List).first['count'], 72);
-    expect((first['scopes'] as List)[1]['count'], 70);
-    expect((first['scopes'] as List)[2]['count'], 70);
-    final next = await read(
-      fixture,
-      'rules',
-      records,
-      definitions: definitions,
-      offset: 50,
-      token: first['token'] as String,
-    );
-    final rows = next['rows'] as List;
-    expect(rows[1]['index'], 51);
-    expect(rows[1]['localDefinition'], 'snapshot-1/rules/1');
-    expect(rows[2]['index'], 52);
-    expect(rows[2]['localDefinition'], 'snapshot-1/rules/0');
-    expect(rows[20]['localDefinition'], 'snapshot-1/rules/2');
-    expect(rows[21]['localDefinition'], 'snapshot-1/rules/3');
-    expect((rows[20] as Map).containsKey('index'), isFalse);
-    expect((rows[21] as Map).containsKey('index'), isFalse);
-  });
+  diagnosticTest(
+    'duplicate rules associate by original path, retaining native index and unloaded source order',
+    (tester, fixture) async {
+      await fixture.warmUp(tester);
+      final records = [
+        for (var index = 0; index < 70; index++)
+          <String, dynamic>{
+            'index': index,
+            'type': 'Match',
+            'payload': '',
+            'target': 'DIRECT',
+            if (index == 51) 'provenance': provenance('/rules/1'),
+            if (index == 52) 'provenance': provenance('/rules/0'),
+          },
+      ];
+      final definitions = [
+        for (var index = 0; index < 4; index++)
+          <String, dynamic>{
+            ...local('/rules/$index'),
+            'definition': 'MATCH,DIRECT',
+          },
+      ];
+      final first = await read(
+        fixture,
+        'rules',
+        records,
+        definitions: definitions,
+      );
+      expect(first['total'], 72);
+      expect((first['scopes'] as List).first['count'], 72);
+      expect((first['scopes'] as List)[1]['count'], 70);
+      expect((first['scopes'] as List)[2]['count'], 70);
+      final next = await read(
+        fixture,
+        'rules',
+        records,
+        definitions: definitions,
+        offset: 50,
+        token: first['token'] as String,
+      );
+      final rows = next['rows'] as List;
+      expect(rows[1]['index'], 51);
+      expect(rows[1]['localDefinition'], 'snapshot-1/rules/1');
+      expect(rows[2]['index'], 52);
+      expect(rows[2]['localDefinition'], 'snapshot-1/rules/0');
+      expect(rows[20]['localDefinition'], 'snapshot-1/rules/2');
+      expect(rows[21]['localDefinition'], 'snapshot-1/rules/3');
+      expect((rows[20] as Map).containsKey('index'), isFalse);
+      expect((rows[21] as Map).containsKey('index'), isFalse);
+    },
+  );
 
   for (final kind in ['sub', 'provider']) {
-    diagnosticTest('$kind scope不合入顶层本地rules', (tester, fixture) async {
+    diagnosticTest('$kind scope does not merge top-level local rules', (
+      tester,
+      fixture,
+    ) async {
       await fixture.warmUp(tester);
       final result = await read(
         fixture,
@@ -391,7 +406,10 @@ void main() {
     });
   }
 
-  diagnosticTest('provider节点页不合入直接本地proxy', (tester, fixture) async {
+  diagnosticTest('provider node page does not merge direct local proxies', (
+    tester,
+    fixture,
+  ) async {
     await fixture.warmUp(tester);
     final result = await read(
       fixture,
@@ -414,7 +432,7 @@ void main() {
     );
   });
 
-  test('provider kind独立且下载成员不能继承定义编辑权', () {
+  test('provider kind is independent and downloaded members cannot inherit definition editing rights', () {
     final proxy = local(
       '/proxy-providers/feed',
       kind: 'proxyProvider',

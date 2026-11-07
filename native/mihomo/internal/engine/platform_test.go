@@ -96,7 +96,7 @@ rules: ['MATCH,DIRECT']
 					t.Fatal("listener or DNS socket options changed")
 				}
 				if e.tun != nil || len(e.listenerStates.Snapshot()) != 0 {
-					t.Fatal("PREVIEW启动了外部listener")
+					t.Fatal("PREVIEW started an external listener")
 				}
 				requireStop(t, &e)
 				return
@@ -113,10 +113,10 @@ rules: ['MATCH,DIRECT']
 			if original != nil {
 				var socket *net.OpError
 				if err == nil || !errors.As(err, &socket) || !strings.Contains(err.Error(), original.Error()) {
-					t.Fatalf("实际socket错误被替换: %v; 原错误: %v", err, original)
+					t.Fatalf("actual socket error was replaced: %v; original error: %v", err, original)
 				}
 				if e.owner != nil || e.cfg != nil {
-					t.Fatal("socket创建失败后仍持有context")
+					t.Fatal("context remained owned after socket creation failed")
 				}
 			} else if err != nil {
 				t.Fatal(err)

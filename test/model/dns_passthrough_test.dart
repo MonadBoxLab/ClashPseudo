@@ -39,35 +39,38 @@ void main() {
       },
     );
 
-    test('DNS 保留记录和 stale 状态，不保留完整响应', () {
-      final value =
-          dnsReply(
-              answer: [dnsRecord(type: 'TXT', data: original)],
-            )
-            ..['futureEnvelope'] = {
-              'secret': original,
-              'boolean': false,
-              'nil': null,
-            };
-      final data = value['dns'] as Map;
-      data['message'] = {
-        'Id': 0xbeef,
-        'Authoritative': true,
-        'AuthenticatedData': true,
-        'future': [original, false, null],
-      };
-      (data['answer'] as List).single['futureRecord'] = original;
-      for (final envelope in [false, true]) {
-        value['stale'] = envelope;
-        data['stale'] = !envelope;
-        final result = DnsResponse.fromMap(value);
-        expect(result.name, 'controlled.example.');
-        expect(result.answer.single.data, original);
-        expect(result.stale, isTrue);
-      }
-    });
+    test(
+      'DNS retains records and stale state without retaining the full response',
+      () {
+        final value =
+            dnsReply(
+                answer: [dnsRecord(type: 'TXT', data: original)],
+              )
+              ..['futureEnvelope'] = {
+                'secret': original,
+                'boolean': false,
+                'nil': null,
+              };
+        final data = value['dns'] as Map;
+        data['message'] = {
+          'Id': 0xbeef,
+          'Authoritative': true,
+          'AuthenticatedData': true,
+          'future': [original, false, null],
+        };
+        (data['answer'] as List).single['futureRecord'] = original;
+        for (final envelope in [false, true]) {
+          value['stale'] = envelope;
+          data['stale'] = !envelope;
+          final result = DnsResponse.fromMap(value);
+          expect(result.name, 'controlled.example.');
+          expect(result.answer.single.data, original);
+          expect(result.stale, isTrue);
+        }
+      },
+    );
 
-    test('原生错误保留原因，畸形响应不泄露完整正文', () {
+    test('native errors retain their cause and malformed responses do not expose the full body', () {
       final native = dnsError('future-error');
       (native['dns'] as Map)
         ..['detail'] = original

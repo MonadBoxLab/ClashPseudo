@@ -133,7 +133,7 @@ class AppRuntime {
           await _execute(Map<String, dynamic>.from(arguments as Map)),
         );
       default:
-        throw UnsupportedError('AppRuntime 不支持 $method');
+        throw UnsupportedError('AppRuntime does not support $method');
     }
   }
 
@@ -530,7 +530,8 @@ class AppRuntime {
         try {
           await platform.refreshStrings();
         } catch (error, stack) {
-          // 偏好已发布；通知刷新失败不改变保存结果。
+          // Preferences are already published; notification refresh failure does not
+          // change the save result.
           return {
             'failure': failureValue(error, stack),
             'success': false,

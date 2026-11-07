@@ -149,7 +149,7 @@ rules: ['DOMAIN,same.test,DIRECT']
 	requireContributors(t, main.Rows[0].Provenance, "local")
 	requireContributors(t, main.Rows[1].Provenance, "main-id")
 	if main.Rows[0].Payload != main.Rows[1].Payload || main.Rows[1].Provenance.Contributors[0].Path != "/rules/0" || main.Rows[1].Index != 2 {
-		t.Fatal("重复rule使用了文字匹配而非原index", main)
+		t.Fatal("duplicate rule used text matching instead of the original index", main)
 	}
 	sub := readRulePage(t, &e, coreview.RuleQuery{Kind: "sub", Name: "branch"})
 	requireContributors(t, sub.Rows[0].Provenance, "local")
@@ -161,7 +161,7 @@ rules: ['DOMAIN,same.test,DIRECT']
 			return err
 		}
 		return json.Unmarshal(body, &provider)
-	}, func(any) error { t.Error("外部classical导出了替代解析record"); return nil })
+	}, func(any) error { t.Error("external classical source exported a substitute parsed record"); return nil })
 	if err == nil || !strings.Contains(err.Error(), "sourceUnavailable") {
 		t.Fatal(err)
 	}

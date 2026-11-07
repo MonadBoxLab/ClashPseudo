@@ -220,7 +220,7 @@ ${interrupted ? 'kill -TERM \$\$' : 'exit $testExit'}
     return (process: process, inventory: inventory, lcov: lcov);
   }
 
-  test('collector 成功时分别记录测试结果和完整性，未调用函数保持零命中', () async {
+  test('Successful collection records test results and completeness separately and keeps uncalled functions at zero hits', () async {
     final result = await collectFixture();
     expect(result.process.exitCode, 0, reason: '${result.process.stderr}');
     expect(result.inventory['tests'], containsPair('passed', 2));
@@ -233,7 +233,7 @@ ${interrupted ? 'kill -TERM \$\$' : 'exit $testExit'}
     expect(result.lcov, contains('FNDA:2,called'));
   });
 
-  test('断言失败保留测试退出码并合并全部有效 raw', () async {
+  test('Assertion failures preserve the test exit code and merge all valid raw reports', () async {
     final result = await collectFixture(testExit: 7);
     expect(result.process.exitCode, 7);
     expect(result.inventory['tests'], containsPair('exitCode', 7));
@@ -245,7 +245,7 @@ ${interrupted ? 'kill -TERM \$\$' : 'exit $testExit'}
     expect(result.lcov, contains('FNDA:2,called'));
   });
 
-  test('进程中断即使留下全部 raw 和完整源码分母仍标记未完成', () async {
+  test('Interrupted processes remain incomplete even with all raw reports and a complete source denominator', () async {
     final result = await collectFixture(interrupted: true);
     expect(result.process.exitCode, 143);
     expect(result.inventory['tests'], containsPair('exitCode', -15));
@@ -259,7 +259,7 @@ ${interrupted ? 'kill -TERM \$\$' : 'exit $testExit'}
     expect(result.inventory['applicationCoverageComplete'], isFalse);
   }, skip: Platform.isWindows);
 
-  test('损坏 raw 记录错误且有效 raw 仍可生成部分报告', () async {
+  test('Corrupt raw reports record errors while valid reports still produce partial coverage', () async {
     final result = await collectFixture(corrupt: true, testExit: 7);
     expect(result.process.exitCode, 7);
     expect(result.inventory['collectorComplete'], isFalse);
@@ -270,7 +270,7 @@ ${interrupted ? 'kill -TERM \$\$' : 'exit $testExit'}
     expect(result.lcov, contains('FNDA:1,called'));
   });
 
-  test('缺失 raw 不以 built-in 或完整源码分母代替 collector 完成', () async {
+  test('Missing raw reports cannot be replaced by built-in coverage or a complete source denominator', () async {
     final result = await collectFixture(missing: true);
     expect(result.process.exitCode, 1);
     expect(result.inventory['collectorComplete'], isFalse);
@@ -279,7 +279,7 @@ ${interrupted ? 'kill -TERM \$\$' : 'exit $testExit'}
     expect(result.inventory['completedIsolateReports'], 1);
   });
 
-  test('raw JSON 有效但缺少 function coverage 时仍标记损坏', () async {
+  test('Valid raw JSON without function coverage is still corrupt', () async {
     final result = await collectFixture(incomplete: true);
     expect(result.process.exitCode, 1);
     expect(result.inventory['collectorComplete'], isFalse);
@@ -289,16 +289,19 @@ ${interrupted ? 'kill -TERM \$\$' : 'exit $testExit'}
     expect(result.lcov, contains('FNDA:1,called'));
   });
 
-  test('没有 raw 目录时输出未完成清单和空报告，不采用 built-in', () async {
+  test('Missing raw directory produces an incomplete inventory and empty report without built-in coverage', () async {
     final result = await collectFixture(noRaw: true);
     expect(result.process.exitCode, 1);
     expect(result.inventory['collectorComplete'], isFalse);
     expect(result.inventory['denominatorComplete'], isFalse);
     expect(result.inventory['completedIsolateReports'], 0);
-    expect(result.inventory['rawErrors'].single, contains('raw 目录缺失'));
+    expect(
+      result.inventory['rawErrors'].single,
+      contains('Missing raw directory'),
+    );
   });
 
-  test('缺少测试终态记录时 collector 标记未完成', () async {
+  test('Collection remains incomplete without terminal test records', () async {
     final result = await collectFixture(missingEvents: true);
     expect(result.process.exitCode, 1);
     expect(result.inventory['tests'], containsPair('complete', false));
@@ -306,7 +309,7 @@ ${interrupted ? 'kill -TERM \$\$' : 'exit $testExit'}
     expect(result.inventory['collectorComplete'], isFalse);
   });
 
-  test('collector 完成与源码分母缺失分别记录', () async {
+  test('Collector completion and missing source denominator are recorded separately', () async {
     final result = await collectFixture(unmapped: true);
     expect(result.process.exitCode, 1);
     expect(result.inventory['collectorComplete'], isTrue);
@@ -316,29 +319,32 @@ ${interrupted ? 'kill -TERM \$\$' : 'exit $testExit'}
   });
 
   for (final testExit in [0, 7]) {
-    test('VM 已加载且无可执行 range 的源码单列，不生成零命中：$testExit', () async {
-      final result = await collectFixture(
-        libraryReport: 'empty',
-        testExit: testExit,
-      );
-      expect(
-        result.process.exitCode,
-        testExit,
-        reason: '${result.process.stderr}',
-      );
-      expect(result.inventory['tests'], containsPair('exitCode', testExit));
-      expect(result.inventory['sourceFiles'], contains('lib/unmapped.dart'));
-      expect(result.inventory['nonInstrumentableSourceFiles'], [
-        'lib/unmapped.dart',
-      ]);
-      expect(result.inventory['unmappedSourceFiles'], isEmpty);
-      expect(result.inventory['denominatorComplete'], isTrue);
-      expect(result.inventory['applicationCoverageComplete'], isTrue);
-      expect(result.lcov, isNot(contains('unmapped.dart')));
-    });
+    test(
+      'Loaded sources without executable VM ranges are listed separately without zero hits: $testExit',
+      () async {
+        final result = await collectFixture(
+          libraryReport: 'empty',
+          testExit: testExit,
+        );
+        expect(
+          result.process.exitCode,
+          testExit,
+          reason: '${result.process.stderr}',
+        );
+        expect(result.inventory['tests'], containsPair('exitCode', testExit));
+        expect(result.inventory['sourceFiles'], contains('lib/unmapped.dart'));
+        expect(result.inventory['nonInstrumentableSourceFiles'], [
+          'lib/unmapped.dart',
+        ]);
+        expect(result.inventory['unmappedSourceFiles'], isEmpty);
+        expect(result.inventory['denominatorComplete'], isTrue);
+        expect(result.inventory['applicationCoverageComplete'], isTrue);
+        expect(result.lcov, isNot(contains('unmapped.dart')));
+      },
+    );
   }
 
-  test('VM 已加载且有可执行位置的源码缺少 raw 时仍保留分母缺口', () async {
+  test('Loaded sources with executable locations retain denominator gaps when raw reports are missing', () async {
     final result = await collectFixture(libraryReport: 'executable');
     expect(result.process.exitCode, 1);
     expect(result.inventory['collectorComplete'], isTrue);
@@ -349,22 +355,28 @@ ${interrupted ? 'kill -TERM \$\$' : 'exit $testExit'}
     expect(result.lcov, isNot(contains('unmapped.dart')));
   });
 
-  test('VM 未加载的源码不能因 SourceReport 没有 range 而排除', () async {
-    final result = await collectFixture(libraryReport: 'unloaded');
-    expect(result.process.exitCode, 1);
-    expect(result.inventory['nonInstrumentableSourceFiles'], isEmpty);
-    expect(result.inventory['unmappedSourceFiles'], ['lib/unmapped.dart']);
-    expect(result.inventory['denominatorComplete'], isFalse);
-  });
+  test(
+    'Unloaded sources cannot be excluded because SourceReport has no ranges',
+    () async {
+      final result = await collectFixture(libraryReport: 'unloaded');
+      expect(result.process.exitCode, 1);
+      expect(result.inventory['nonInstrumentableSourceFiles'], isEmpty);
+      expect(result.inventory['unmappedSourceFiles'], ['lib/unmapped.dart']);
+      expect(result.inventory['denominatorComplete'], isFalse);
+    },
+  );
 
-  test('loader 源码报告必须属于实际完成 raw 的 isolate', () async {
-    final result = await collectFixture(libraryReport: 'foreign');
-    expect(result.process.exitCode, 1);
-    expect(result.inventory['nonInstrumentableSourceFiles'], isEmpty);
-    expect(result.inventory['unmappedSourceFiles'], ['lib/unmapped.dart']);
-    expect(result.inventory['denominatorComplete'], isFalse);
-    expect(result.inventory['sourceReportErrors'], hasLength(1));
-  });
+  test(
+    'Loader source reports must belong to isolates with completed raw reports',
+    () async {
+      final result = await collectFixture(libraryReport: 'foreign');
+      expect(result.process.exitCode, 1);
+      expect(result.inventory['nonInstrumentableSourceFiles'], isEmpty);
+      expect(result.inventory['unmappedSourceFiles'], ['lib/unmapped.dart']);
+      expect(result.inventory['denominatorComplete'], isFalse);
+      expect(result.inventory['sourceReportErrors'], hasLength(1));
+    },
+  );
 
   test('coverage rejects checkout output before creating it', () async {
     final output = '${Directory.current.path}/coverage-path-test-$pid';

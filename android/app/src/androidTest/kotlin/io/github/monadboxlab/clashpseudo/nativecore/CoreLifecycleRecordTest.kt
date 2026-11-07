@@ -52,7 +52,7 @@ class CoreLifecycleRecordTest {
     @Test fun onlyExplicitUserPrepareCanClearAnExistingRecoveryPause() = fixture { file ->
         running(file, 10)
         val lifecycle = CoreLifecycleRecord(file) { 10 }.apply { initialize(false) }
-        try { lifecycle.starting("new-process", "new-input", false); fail("系统恢复不能解除暂停") }
+        try { lifecycle.starting("new-process", "new-input", false); fail("System restore must not resume a paused state") }
         catch (error: CoreTransportException) { assertEquals(Contract.CORE_ERROR_RECOVERY_REQUIRED, error.code) }
         assertTrue(lifecycle.snapshot().recoveryRequired)
         lifecycle.starting("new-process", "new-input", true)
@@ -74,7 +74,7 @@ class CoreLifecycleRecordTest {
         val lifecycle = running(file, 10)
         lifecycle.died("old-process")
         assertEquals("running", lifecycle.snapshot().stage)
-        try { lifecycle.running("process", "old-input"); fail("旧 inputId 不得标记 running") }
+        try { lifecycle.running("process", "old-input"); fail("An old inputId must not be marked running") }
         catch (_: IllegalStateException) { }
         assertEquals("input", lifecycle.snapshot().inputId)
     }
@@ -82,7 +82,7 @@ class CoreLifecycleRecordTest {
     @Test fun pendingCleanupPreventsEveryNewPrepareIncludingUserRecovery() = fixture { file ->
         val lifecycle = running(file, 10)
         lifecycle.cleanup(true)
-        try { lifecycle.starting("new-process", "new-input", true); fail("待清理状态必须阻止装载") }
+        try { lifecycle.starting("new-process", "new-input", true); fail("Pending cleanup must prevent preparation") }
         catch (_: IllegalStateException) { }
         assertTrue(CoreLifecycleRecord(file) { 10 }.initialize(true).cleanupPending)
         lifecycle.cleanup(false)

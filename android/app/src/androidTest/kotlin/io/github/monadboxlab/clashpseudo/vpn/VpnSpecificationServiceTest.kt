@@ -77,7 +77,7 @@ class VpnSpecificationServiceTest {
             assertFalse(CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java))
             CoreIpcTestDriver.removeFixtureHome(context, value)
         }
-        // 低层 revision 回归之外，生产链实际经过 Builder 与 Attach。
+        // In addition to the low-level revision regression, the production path actually uses Builder and Attach.
         val body = """
             mode: rule
             ipv6: false
@@ -139,7 +139,7 @@ class VpnSpecificationServiceTest {
                 assertEquals(false, platform.status()["vpnRunning"])
                 observer.awaitDeath()
                 assertTrue(observer.deathConfirmed)
-                platform.await("默认进程确认失败的 core 已退出") {
+                platform.await("The default process confirms exit of the failed core") {
                     val state = io.github.monadboxlab.clashpseudo.nativecore.CoreClient.get(context).status()
                     state[Contract.CORE_FIELD_PROCESS_ID] == observer.processId &&
                         state[Contract.CORE_FIELD_PHASE] == Contract.CORE_PHASE_EXITED
@@ -166,7 +166,7 @@ class VpnSpecificationServiceTest {
 
     @Test fun formalFileRouteSetUpdatesRebuildVpnFromLatestProjection() {
         val id = "p5-route-formal-r7v4"
-        check(InstrumentationRegistry.getArguments().getString("nonce") == id) { "必须提供 nonce=p5-route-formal-r7v4 及正式恢复的配置" }
+        check(InstrumentationRegistry.getArguments().getString("nonce") == id) { "Provide nonce=p5-route-formal-r7v4 and a configuration restored through the application" }
         requireIdleAndClients()
         val body = """
             mode: rule
@@ -195,10 +195,10 @@ class VpnSpecificationServiceTest {
         var original: VpnSpecification? = null
         var failure: Throwable? = null
         fun inspect(prefix: Int, previousProcess: String?): String {
-            platform.await("正式 VPN 与 business writer 结束") {
+            platform.await("Application VPN and writer finish") {
                 val state = PseudoVpnService.session.snapshot()
                 assertNotEquals(NativeSession.Phase.UNKNOWN, state.phase)
-                if (state.phase == NativeSession.Phase.STOPPED && state.error != null) fail("正式启动失败：${state.error}")
+                if (state.phase == NativeSession.Phase.STOPPED && state.error != null) fail("Application startup failed: ${state.error}")
                 state.phase == NativeSession.Phase.RUNNING && state.configId == id &&
                     !AppBridge.pendingSystemRestore && !AppBridge.logic.busy && AppBridge.operationId == null
             }
@@ -243,7 +243,7 @@ class VpnSpecificationServiceTest {
                 assertEquals("ok", result.value.getString("status"))
                 currentFixture.awaitDeath()
                 assertTrue(currentFixture.deathConfirmed)
-                platform.await("替换 process 实际就绪") { (io.github.monadboxlab.clashpseudo.nativecore.CoreClient.get(context).status()["phase"] == Contract.CORE_PHASE_READY) &&
+                platform.await("Replacement process is actually ready") { (io.github.monadboxlab.clashpseudo.nativecore.CoreClient.get(context).status()["phase"] == Contract.CORE_PHASE_READY) &&
                     PseudoVpnService.session.snapshot().phase == NativeSession.Phase.RUNNING }
                 currentFixture = CoreIpcTestDriver.fixture().also(observers::add)
                 process = inspect(prefix, process)
@@ -255,7 +255,7 @@ class VpnSpecificationServiceTest {
                     assertEquals(id, platform.status()["configId"])
                     platform.stopFromSystemControl()
                     currentFixture.awaitDeath()
-                    platform.await("正式 Stop 与实际 business drain") { PseudoVpnService.session.snapshot().phase == NativeSession.Phase.STOPPED &&
+                    platform.await("Application Stop and actual operation drain") { PseudoVpnService.session.snapshot().phase == NativeSession.Phase.STOPPED &&
                         !AppBridge.logic.busy && AppBridge.operationId == null && !AppBridge.pendingSystemRestore &&
                         !CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java) }
                 }
@@ -270,10 +270,10 @@ class VpnSpecificationServiceTest {
     }
 
     private fun requireIdleAndClients() {
-        platform.await("business writer 空闲") { !AppBridge.logic.busy && AppBridge.operationId == null && !AppBridge.pendingSystemRestore }
+        platform.await("Application writer is idle") { !AppBridge.logic.busy && AppBridge.operationId == null && !AppBridge.pendingSystemRestore }
         assertFalse(CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java))
         assertEquals(NativeSession.Phase.STOPPED, PseudoVpnService.session.snapshot().phase)
-        assertNull("VPN 必须已授权，不能打开 grant dialog", VpnService.prepare(context))
+        assertNull("VPN must already be authorized; do not open the grant dialog", VpnService.prepare(context))
         val own = setOf(context.applicationInfo.uid, instrumentation.context.applicationInfo.uid)
         val uids = clients.map { context.packageManager.getApplicationInfo(it, 0).uid }
         assertEquals(2, uids.toSet().size)

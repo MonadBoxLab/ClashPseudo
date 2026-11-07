@@ -42,7 +42,8 @@ class StrategyCardStatus extends StatelessWidget {
     final height = painter.height;
     painter.text = TextSpan(text: ' ms', style: resolved);
     painter.layout();
-    // 数值区域容纳五位 tabular 数字与单位，较长内容在同一区域水平阅读。
+    // The value area fits five tabular digits and a unit; longer content scrolls
+    // horizontally within it.
     final width = digitWidth * 5 + painter.width;
     painter.dispose();
     return Size(width.ceilToDouble(), height.ceilToDouble());

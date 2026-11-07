@@ -36,7 +36,7 @@ type Result struct {
 	CleanupUncertain bool
 }
 
-// SocketState只报告实际socket创建与关闭，不推断协议服务已经就绪。
+// SocketState only reports actual socket creation and closure, without inferring protocol service readiness.
 type SocketState struct {
 	Name    string `json:"name"`
 	Network string `json:"network"`
@@ -161,7 +161,7 @@ type Options struct {
 	Observer *Observer
 }
 
-// listenConfig只转交上游创建的socket并执行protect，不绑定默认上游Network。
+// listenConfig only forwards sockets created upstream and applies protect; it does not bind them to the default upstream Network.
 type listenConfig struct {
 	C.InboundListenConfig
 	name      string
@@ -289,7 +289,7 @@ func recordClose(o *Observer, name, network, address string, err error) {
 	o.record(state)
 }
 
-// observedInbound的Listen只由本次hub.ApplyConfig调用一次。
+// observedInbound.Listen is called only once by this hub.ApplyConfig invocation.
 type observedInbound struct {
 	C.InboundListener
 	config   *listenConfig
@@ -318,7 +318,7 @@ func (l *observedInbound) Close() error {
 	return l.config.Close()
 }
 
-// PrepareNamed向公开BaseOption注入ListenConfigForAPI，不按协议类型建立白名单。
+// PrepareNamed injects ListenConfigForAPI into the public BaseOption without a protocol type allowlist.
 func PrepareNamed(cfg *config.Config, options Options) error {
 	for name, listener := range cfg.Listeners {
 		var wrapped *listenConfig
@@ -340,7 +340,7 @@ func PrepareNamed(cfg *config.Config, options Options) error {
 	return nil
 }
 
-// Activate仅创建装载时延后的入口，命名监听和NTP继续由hub装载。
+// Activate only creates deferred ingress resources; hub still loads named listeners and NTP.
 func Activate(cfg *config.Config, traffic C.Tunnel, opts ...Options) (result Result) {
 	var options Options
 	if len(opts) != 0 {
@@ -473,7 +473,7 @@ func activate(cfg *config.Config, traffic C.Tunnel, options Options, result *Res
 			lc.bound = make(chan error, 2)
 			result.Resources = append(result.Resources, lc)
 			dns.ReCreateServer(cfg.DNS.Listen, lc, resolver.DefaultService)
-			// 这里只等待公开构造器的两次bind/protect结果，不作为Serve就绪回执。
+			// Wait only for the public constructor's two bind/protect results, not for a Serve readiness acknowledgment.
 			if resolver.DefaultService == nil {
 				return errors.New("DNS service is disabled")
 			}

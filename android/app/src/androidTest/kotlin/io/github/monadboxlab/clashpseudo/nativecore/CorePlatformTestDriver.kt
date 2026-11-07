@@ -21,12 +21,12 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
 
-/** 复用生产 CoreClient channel、不可变 run record 和 SystemControls。 */
+/** Reuse the production CoreClient channel, immutable run record, and SystemControls. */
 class CorePlatformTestDriver(val context: Context = InstrumentationRegistry.getInstrumentation().targetContext) {
     class ChannelFailure(val code: String, message: String?, val details: Any?) : IOException(message)
     private val client get() = CoreClient.get(context)
 
-    /** 在 prepare 前保留 preview 的可见引用；测试结束后恢复原状态。 */
+    /** Hold a visible preview reference before prepare; restore the original state after the test. */
     fun keepPreviewVisible(): Closeable {
         val owner = client
         fun field(name: String) = CoreClient::class.java.getDeclaredField(name).apply { isAccessible = true }
@@ -65,7 +65,7 @@ class CorePlatformTestDriver(val context: Context = InstrumentationRegistry.getI
                 override fun error(code: String, message: String?, details: Any?) {
                     check(reply.completeExceptionally(ChannelFailure(code, message, details)))
                 }
-                override fun notImplemented() { reply.completeExceptionally(AssertionError("生产 channel 未实现 $method")) }
+                override fun notImplemented() { reply.completeExceptionally(AssertionError("Production channel does not implement $method")) }
             })
         }
         return try { reply.get(130, TimeUnit.SECONDS) }
@@ -94,7 +94,7 @@ class CorePlatformTestDriver(val context: Context = InstrumentationRegistry.getI
             return submit(Contract.CORE_OPERATION_PREPARE, identity, mapOf("purpose" to purpose,
                 "vpnIntent" to vpn, "lanIntent" to false, "explicitStart" to true, "admittedAt" to at,
                 "deadline" to at + Contract.OPERATION_ORDINARY_TIMEOUT_MS), inputId, owner)
-        } finally { assertTrue("删除本次输入暂存文件失败", stage.delete()) }
+        } finally { assertTrue("Failed to delete this run's input staging file", stage.delete()) }
     }
 
     fun query(operation: Int, arguments: Map<String, Any?> = emptyMap()): CoreIpcTestDriver.Reply = submit(operation, status(), arguments)
@@ -122,12 +122,12 @@ class CorePlatformTestDriver(val context: Context = InstrumentationRegistry.getI
                 Contract.CORE_IPC_FRAME_TERMINAL -> {
                     val terminal = JSONObject(CoreFrames.utf8(bytes))
                     val receipt = frame["nativeReceipt"] as? Map<*, *>
-                    assertEquals("coreRead 必须等待实际 onExited", true, receipt?.get("exited"))
+                    assertEquals("coreRead must wait for the actual onExited", true, receipt?.get("exited"))
                     terminal.put("nativeReceipt", JSONObject(checkNotNull(receipt)))
                     return CoreIpcTestDriver.Reply(if (data.size() == 0) JSONObject() else JSONObject(CoreFrames.utf8(data.toByteArray())),
                         terminal, records, metadata)
                 }
-                else -> error("未知 frame kind：${frame["kind"]}")
+                else -> error("Unknown frame kind: ${frame["kind"]}")
             }
         }
     }
@@ -165,7 +165,7 @@ class CorePlatformTestDriver(val context: Context = InstrumentationRegistry.getI
     fun await(label: String, timeoutMs: Long = 60_000, ready: () -> Boolean) {
         val deadline = SystemClock.elapsedRealtime() + timeoutMs
         while (!CoreIpcTestDriver.onMain(ready)) {
-            check(SystemClock.elapsedRealtime() < deadline) { "等待 $label 超时" }
+            check(SystemClock.elapsedRealtime() < deadline) { "Timed out waiting for $label" }
             Thread.sleep(25)
         }
     }

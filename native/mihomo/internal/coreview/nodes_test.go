@@ -32,13 +32,13 @@ func TestGroupsExportSelectionFieldsWithoutRawProxyJSON(t *testing.T) {
 	})
 	cfg.Proxies["choice"] = &nodeRawFixture{
 		Proxy: cfg.Proxies["choice"],
-		err:   errors.New("不应导出策略组完整 JSON"),
+		err:   errors.New("must not export the full strategy group JSON"),
 	}
 	var actual map[string]any
 	_, err = StreamGroups(cfg, nil, func(value any) error {
 		row := value.(map[string]any)
 		if _, exists := row["raw"]; exists {
-			t.Fatal("策略记录仍包含完整 raw JSON")
+			t.Fatal("strategy record still contains the full raw JSON")
 		}
 		if row["name"] == "choice" {
 			actual = row
@@ -84,11 +84,11 @@ func TestNodeProjectionKeepsPublicFieldsAndMarshalFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	if row == nil || row["type"] != "Direct" || row["udp"] != true || row["uot"] != false {
-		t.Fatal("节点字段不匹配", row)
+		t.Fatal("node fields do not match", row)
 	}
 	for _, key := range []string{"raw", "password", "future"} {
 		if _, exists := row[key]; exists {
-			t.Fatalf("节点包含不需要的字段 %s", key)
+			t.Fatalf("node contains unnecessary field %s", key)
 		}
 	}
 	encoded, err := json.Marshal(row)
@@ -104,12 +104,12 @@ func TestNodeProjectionKeepsPublicFieldsAndMarshalFailure(t *testing.T) {
 	}
 	for _, key := range []string{"history", "extra"} {
 		if !reflect.DeepEqual(actual[key], expected[key]) {
-			t.Fatalf("节点测速历史不匹配: %s", key)
+			t.Fatalf("node delay history mismatch: %s", key)
 		}
 	}
 	proxy.wire = []byte(`{not-json`)
 	if _, err := StreamNodes(cfg, nil, DiagnosticSources{}, nil, func(any) error { return nil }); err == nil {
-		t.Fatal("无效节点 JSON 未返回解码错误")
+		t.Fatal("invalid node JSON did not return a decoding error")
 	}
 	original := errors.New("original marshal failure 原文")
 	proxy.err = original

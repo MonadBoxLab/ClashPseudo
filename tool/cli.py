@@ -1,4 +1,4 @@
-"""项目工具的命令注册、参数检查和退出码。"""
+"""Command registration, argument validation, and exit codes for project tools."""
 import argparse
 import json
 import logging
@@ -21,41 +21,41 @@ class Parser(argparse.ArgumentParser):
     def parse_args(self, args=None, namespace=None):
         result, unknown = self.parse_known_args(args, namespace)
         if unknown:
-            result.command_parser.error("无法识别参数：" + " ".join(unknown))
+            result.command_parser.error("Unrecognized arguments: " + " ".join(unknown))
         return result
 
 
 def create_parser():
     parser = Parser(
         prog="python3 -I -B tool/main.py",
-        description="构建、验证及维护 Clash Pseudo；各操作通过 -h 查看参数和输出。",
-        epilog="示例：python3 -I -B tool/main.py contracts check")
-    groups = parser.add_subparsers(title="命令组")
+        description="Build, verify, and maintain Clash Pseudo; use -h on each command for arguments and outputs.",
+        epilog="Example: python3 -I -B tool/main.py contracts check")
+    groups = parser.add_subparsers(title="Command groups")
 
     from tool.dependencies import cli as dependencies, release
-    dependency_operations = groups.add_parser("dependencies", help="检查、更新依赖及直接发布").add_subparsers(title="操作")
+    dependency_operations = groups.add_parser("dependencies", help="Check and update dependencies or publish releases").add_subparsers(title="Operations")
     dependencies.register_parser(dependency_operations)
     release.register_parser(dependency_operations)
 
     from tool.android import build_core, build_sdk_observer, run_sdk_observer
-    android = groups.add_parser("android", help="构建原生库及 SDK 测试程序").add_subparsers(title="操作")
+    android = groups.add_parser("android", help="Build native libraries and SDK observers").add_subparsers(title="Operations")
     build_core.register_parser(android)
     build_sdk_observer.register_parser(android)
     run_sdk_observer.register_parser(android)
 
     from tool.artifacts import package_sources, verify_release_licenses, verify_backup, update_bundle
-    artifacts = groups.add_parser("artifacts", help="打包源码及核验分发材料、备份").add_subparsers(title="操作")
+    artifacts = groups.add_parser("artifacts", help="Package sources and verify release artifacts and backups").add_subparsers(title="Operations")
     for module in (package_sources, verify_release_licenses, verify_backup, update_bundle):
         module.register_parser(artifacts)
 
     from tool.contracts import generate
-    generate.register_parser(groups.add_parser("contracts", help="生成及检查跨语言 Contract").add_subparsers(title="操作"))
+    generate.register_parser(groups.add_parser("contracts", help="Generate and check cross-language contracts").add_subparsers(title="Operations"))
 
     from tool.network import native_fixture
-    native_fixture.register_parser(groups.add_parser("network", help="运行受控网络测试服务").add_subparsers(title="操作"))
+    native_fixture.register_parser(groups.add_parser("network", help="Run controlled network test servers").add_subparsers(title="Operations"))
 
     from tool.coverage import register_parser
-    register_parser(groups.add_parser("coverage", help="运行 Dart 覆盖率采集和汇总").add_subparsers(title="操作"))
+    register_parser(groups.add_parser("coverage", help="Collect and summarize Dart coverage").add_subparsers(title="Operations"))
     return parser
 
 
@@ -79,7 +79,7 @@ def main(argv=None):
             return 0
         return result or 0
     except KeyboardInterrupt:
-        logging.warning("操作已取消。")
+        logging.warning("Operation cancelled.")
         return 130
     except subprocess.CalledProcessError as error:
         logging.error("%s", error)

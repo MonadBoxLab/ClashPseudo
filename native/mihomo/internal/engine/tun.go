@@ -78,7 +78,7 @@ func (e *Engine) attach(fd int, revision uint64, construct tunConstructor) (err 
 	if err != nil {
 		return err
 	}
-	// 公开构造器接收FD并完成Start；应用只登记成功返回的resource。
+	// The public constructor receives the FD and completes Start; the application only registers successfully returned resources.
 	raw = -1
 	owned, err, cleanupUncertain := construct(fd, options, dnsAddresses)
 	if cleanupUncertain {

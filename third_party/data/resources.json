@@ -138,7 +138,7 @@
       "sourceCommit": "803b99b77354d910449eff3e8ecf70a6c8a524d3",
       "sourceInputs": [
         {
-          "description": "release 202611050539 构建提交中的 text/*.txt 补充输入",
+          "description": "Supplemental text/*.txt inputs from the release 202611050539 build commit",
           "sourceCommit": "e216a728bce53eaebef72b0afe5c524b12362e33"
         }
       ],
@@ -180,7 +180,7 @@
         "inputs": [
           {
             "bytes": 14402348,
-            "description": "release 202611050539 构建提交中的 text/*.txt 补充输入",
+            "description": "Supplemental text/*.txt inputs from the release 202611050539 build commit",
             "file": "geoip-e216a728bce53eaebef72b0afe5c524b12362e33.tar.gz",
             "sha256": "af251795a95eeaaa6f5ae91bec84576f8bfc5f15339f0816e4d8839c665fd890",
             "sourceCommit": "e216a728bce53eaebef72b0afe5c524b12362e33",
@@ -188,7 +188,7 @@
           }
         ],
         "kind": "geoip",
-        "processing": "V2Fly geoip 官方构建使用同一仓库 release 数据提交中的 text/*.txt 及转换器 config.json，合并 DB-IP Lite Country MMDB、内置 private 与 test 列表后生成所分发的 GeoIP.dat。",
+        "processing": "Official V2Fly geoip builds use text/*.txt from the release data commit in the same repository and the converter config.json, combining DB-IP Lite Country MMDB with the built-in private and test lists to generate the distributed GeoIP.dat.",
         "sha256": "47e1f9fb5773ac5f670a076c71c908ee11c02057b2af28fbfd2da350938e0cf5",
         "sourceCommit": "803b99b77354d910449eff3e8ecf70a6c8a524d3",
         "sourceUrl": "https://github.com/v2fly/geoip/archive/803b99b77354d910449eff3e8ecf70a6c8a524d3.tar.gz"
@@ -315,7 +315,7 @@
       },
       {
         "bytes": 426356,
-        "purpose": "AGP默认Build Tools兼容包与原始license",
+        "purpose": "Compatibility package for AGP default Build Tools and original license",
         "sha256": "fb1bd2fcd70b6116519563f1ff96cc578381e4e29237ab05ec8920f0864a7955",
         "sourceUrl": "https://dl.google.com/android/repository/repository2-3.xml"
       }
@@ -323,60 +323,60 @@
     "excluded": [
       {
         "component": "agp",
-        "reason": "没有同时满足官方 KGP 与 Gradle 范围的组合",
+        "reason": "No combination satisfies both official KGP and Gradle ranges",
         "version": "9.5.0"
       },
       {
         "component": "agp",
-        "reason": "没有同时满足官方 KGP 与 Gradle 范围的组合",
+        "reason": "No combination satisfies both official KGP and Gradle ranges",
         "version": "9.4.1"
       },
       {
         "component": "agp",
-        "reason": "没有同时满足官方 KGP 与 Gradle 范围的组合",
+        "reason": "No combination satisfies both official KGP and Gradle ranges",
         "version": "9.4.0"
       },
       {
         "component": "agp",
-        "reason": "没有同时满足官方 KGP 与 Gradle 范围的组合",
+        "reason": "No combination satisfies both official KGP and Gradle ranges",
         "version": "9.3.3"
       },
       {
         "component": "agp",
-        "reason": "没有同时满足官方 KGP 与 Gradle 范围的组合",
+        "reason": "No combination satisfies both official KGP and Gradle ranges",
         "version": "9.3.2"
       },
       {
         "agp": "9.3.1",
         "component": "gradle",
         "kotlin": "2.4.21",
-        "reason": "不满足 AGP 最低版本或 KGP 官方 Gradle 范围",
+        "reason": "Does not meet the minimum AGP version or official KGP Gradle range",
         "version": "9.8.2"
       },
       {
         "agp": "9.3.1",
         "component": "gradle",
         "kotlin": "2.4.21",
-        "reason": "不满足 AGP 最低版本或 KGP 官方 Gradle 范围",
+        "reason": "Does not meet the minimum AGP version or official KGP Gradle range",
         "version": "9.8.1"
       },
       {
         "agp": "9.3.1",
         "component": "gradle",
         "kotlin": "2.4.21",
-        "reason": "不满足 AGP 最低版本或 KGP 官方 Gradle 范围",
+        "reason": "Does not meet the minimum AGP version or official KGP Gradle range",
         "version": "9.8.0"
       },
       {
         "agp": "9.3.1",
         "component": "gradle",
         "kotlin": "2.4.21",
-        "reason": "不满足 AGP 最低版本或 KGP 官方 Gradle 范围",
+        "reason": "Does not meet the minimum AGP version or official KGP Gradle range",
         "version": "9.7.1"
       },
       {
         "component": "java",
-        "reason": "所选 Gradle 低于该 Java 的最低支持版本",
+        "reason": "Selected Gradle is below the minimum supported version for this Java release",
         "version": "27"
       }
     ],

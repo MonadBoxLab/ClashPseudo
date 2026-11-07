@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""项目工具的公共入口，支持 Python 隔离模式及任意工作目录。"""
+"""Public entry point for project tools, supporting Python isolated mode and any working directory."""
 from pathlib import Path
 import sys
 
 
 def main():
-    # 只加入入口文件所属仓库，不使用调用目录或 PYTHONPATH 定位项目包。
+    # Resolve project packages from this repository, not the working directory or PYTHONPATH.
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from tool.cli import main as run
     return run()

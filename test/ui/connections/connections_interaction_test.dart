@@ -259,33 +259,47 @@ void main() {
   }
 
   for (final reduced in [false, true]) {
-    testWidgets('连接详情只展示结构化字段，窗口变化保留阅读状态 reduced=$reduced', (tester) async {
-      tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = const Size(700, 1000);
-      addTearDown(tester.view.reset);
-      await show(tester, reduceMotion: reduced);
-      await tester.tap(find.text('one.fixture.test'));
-      await tester.pumpAndSettle();
-      final scroll = find.byKey(const ValueKey('connection-detail-scroll'));
-      final state = tester.state(find.byType(CollectionWorkspace));
-      final position = tester.state<ScrollableState>(
-        find.descendant(of: scroll, matching: find.byType(Scrollable)).first,
-      ).position;
-      expect(find.text('原始数据'), findsNothing);
-      expect(find.byKey(const ValueKey('connection-raw-reader')), findsNothing);
-      expect(find.text('one.fixture.test'), findsWidgets);
-      tester.view.physicalSize = const Size(600, 900);
-      await tester.pumpAndSettle();
-      expect(tester.state(find.byType(CollectionWorkspace)), same(state));
-      expect(
-        tester.state<ScrollableState>(
-          find.descendant(of: scroll, matching: find.byType(Scrollable)).first,
-        ).position,
-        same(position),
-      );
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    });
+    testWidgets(
+      'connection details show only structured fields and retain reading state across window changes reduced=$reduced',
+      (tester) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(700, 1000);
+        addTearDown(tester.view.reset);
+        await show(tester, reduceMotion: reduced);
+        await tester.tap(find.text('one.fixture.test'));
+        await tester.pumpAndSettle();
+        final scroll = find.byKey(const ValueKey('connection-detail-scroll'));
+        final state = tester.state(find.byType(CollectionWorkspace));
+        final position = tester
+            .state<ScrollableState>(
+              find
+                  .descendant(of: scroll, matching: find.byType(Scrollable))
+                  .first,
+            )
+            .position;
+        expect(find.text('原始数据'), findsNothing);
+        expect(
+          find.byKey(const ValueKey('connection-raw-reader')),
+          findsNothing,
+        );
+        expect(find.text('one.fixture.test'), findsWidgets);
+        tester.view.physicalSize = const Size(600, 900);
+        await tester.pumpAndSettle();
+        expect(tester.state(find.byType(CollectionWorkspace)), same(state));
+        expect(
+          tester
+              .state<ScrollableState>(
+                find
+                    .descendant(of: scroll, matching: find.byType(Scrollable))
+                    .first,
+              )
+              .position,
+          same(position),
+        );
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
   }
 
   testWidgets(

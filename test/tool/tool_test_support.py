@@ -1,4 +1,4 @@
-"""隔离模式下从测试文件位置导入项目 package。"""
+"""Import project packages relative to test files in isolated mode."""
 from pathlib import Path
 import sys
 

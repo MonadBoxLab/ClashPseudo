@@ -35,14 +35,14 @@ class CoreHostTest {
             assertTrue(driver.prepare(DIRECT.toByteArray()).terminal.getBoolean("complete"))
             val original = driver.status()
             val stopFailure = runCatching { driver.submit(Contract.CORE_OPERATION_STOP) }.exceptionOrNull()
-            assertNotNull("STOP 必须通过进程退出入口，不能留在原 context", stopFailure)
-            assertTrue(stopFailure.toString(), stopFailure!!.message.orEmpty().contains("内核请求操作或标识无效"))
+            assertNotNull("STOP must use the process exit entry point, not remain in the original context", stopFailure)
+            assertTrue(stopFailure.toString(), stopFailure!!.message.orEmpty().contains("Invalid core request operation or identity"))
             val snapshot = driver.submit(Contract.CORE_OPERATION_SNAPSHOT).await()
             assertTrue(snapshot.value.getBoolean("prepared"))
             val replacement = driver.prepare(DIRECT.toByteArray(), inputId = original.getString("inputId")!!)
             assertFalse(replacement.terminal.toString(), replacement.terminal.getBoolean("complete"))
             assertEquals("java.lang.IllegalStateException", replacement.terminal.getJSONObject("error").getString("type"))
-            assertEquals("每个内核进程只允许装载一个上下文", replacement.terminal.getJSONObject("error").getString("message"))
+            assertEquals("Each core process can prepare only one context", replacement.terminal.getJSONObject("error").getString("message"))
             assertEquals(original.getString("processId"), driver.status().getString("processId"))
             assertEquals(original.getString("inputId"), driver.status().getString("inputId"))
             assertEquals(Contract.CORE_PHASE_READY, driver.status().getString("phase"))
@@ -68,7 +68,7 @@ class CoreHostTest {
             assertEquals(Contract.CORE_ERROR_IDENTITY_MISMATCH, rejected.terminal.getJSONObject("error").getString("code"))
             assertTrue(driver.receipt(pending.id).getBoolean("exited"))
             assertFalse(driver.status().getBoolean("vpnRunning"))
-            assertTrue("metadata 拒绝不能占用唯一 context", driver.prepare(DIRECT.toByteArray()).terminal.getBoolean("complete"))
+            assertTrue("Rejecting metadata must not occupy the sole context", driver.prepare(DIRECT.toByteArray()).terminal.getBoolean("complete"))
             driver.exit()
         }
     }
@@ -103,8 +103,8 @@ class CoreHostTest {
         CoreIpcTestDriver.production().use { next ->
             assertNotEquals(old.getString("processId"), next.processId)
             val failure = runCatching { next.service.status(old) }.exceptionOrNull()
-            assertNotNull("旧 processId 必须被真实 Binder 拒绝", failure)
-            assertTrue(failure.toString(), failure!!.message.orEmpty().contains("请求属于其他内核进程"))
+            assertNotNull("The actual Binder must reject an old processId", failure)
+            assertTrue(failure.toString(), failure!!.message.orEmpty().contains("Request belongs to another core process"))
             assertEquals(next.processId, next.status().getString("processId"))
             next.exit()
         }
@@ -113,12 +113,12 @@ class CoreHostTest {
     @Test fun bundledGeoCallbackKeepsTheActualParsingAndStalePreparationFailures() {
         withGeoCallbacks { value ->
             val failure = value.getJSONObject("invalidSeed").getJSONObject("error")
-            val expected = try { JSONArray("{原文🙂"); error("无效 fixture 被解析") } catch (error: JSONException) { error }
+            val expected = try { JSONArray("{原文🙂"); error("Invalid fixture was parsed") } catch (error: JSONException) { error }
             assertEquals(expected.javaClass.name, failure.getString("type"))
             assertEquals(expected.message, failure.getString("message"))
             val stale = value.getJSONObject("staleSeed").getJSONObject("error")
             assertEquals("java.lang.IllegalStateException", stale.getString("type"))
-            assertEquals("内核资源所属上下文已结束", stale.getString("message"))
+            assertEquals("The context owning the core resource has ended", stale.getString("message"))
         }
     }
 
@@ -127,7 +127,7 @@ class CoreHostTest {
             assertEquals(1, value.getInt("published"))
             val error = value.getJSONObject("publicationError")
             assertEquals("java.lang.IllegalStateException", error.getString("type"))
-            assertEquals("内核资源所属上下文已结束", error.getString("message"))
+            assertEquals("The context owning the core resource has ended", error.getString("message"))
         }
     }
 

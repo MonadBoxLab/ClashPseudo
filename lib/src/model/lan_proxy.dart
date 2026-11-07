@@ -1,6 +1,7 @@
 import 'dart:io';
 
-/// 当前接口地址只用于选择和核对，不写入插件或备份。
+/// Current interface addresses are used only for selection and validation, not stored
+/// in plugins or backups.
 class LanInterfaceAddress {
   const LanInterfaceAddress({
     required this.address,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-/// 分别观察两层 Navigator 的实际路由栈，区分页面被自己的弹窗覆盖和页面退出。
+/// Observes both Navigator stacks to distinguish a page covered by its own popup from
+/// an exited page.
 class AppTaskNavigatorObserver extends NavigatorObserver with ChangeNotifier {
   static bool routeIsActive(
     Route<dynamic>? route, {
@@ -31,12 +32,14 @@ class AppTaskNavigatorObserver extends NavigatorObserver with ChangeNotifier {
   static final _owners = Expando<AppTaskNavigatorObserver>();
   final stack = <Route<dynamic>>[];
 
-  /// 订阅路由栈变化，包括原页面已被弹窗覆盖后的页面打开和关闭。
+  /// Subscribes to stack changes, including pages opening and closing after a popup
+  /// covers the source page.
   static Listenable? changesFor(Route<dynamic>? route) =>
       route == null ? null : _owners[route];
 
-  /// 判断业务页面是否仍为当前页面，被弹窗覆盖不视为退出。
-  /// 底层页面和弹窗中的操作仍须通过 AppTaskActivity 检查。
+  /// Checks whether the business page is current; popup coverage does not count as
+  /// exit.
+  /// Actions in the underlying page and popups still require AppTaskActivity checks.
   static bool isCurrentPage(Route<dynamic>? route) {
     if (route is! PageRoute<dynamic> ||
         !route.isActive ||
@@ -46,7 +49,8 @@ class AppTaskNavigatorObserver extends NavigatorObserver with ChangeNotifier {
     return route.isCurrent || _owners[route]?._onlyPopupsAbove(route) == true;
   }
 
-  /// 仅有 PopupRoute 覆盖时返回最上层弹窗，用于暂停原弹窗的交互。
+  /// Returns the top popup when only PopupRoutes cover the page, allowing interaction
+  /// in the original popup to pause.
   static PopupRoute<dynamic>? coveringPopup(Route<dynamic> route) {
     final observer = _owners[route];
     final top = observer?.stack.lastOrNull;

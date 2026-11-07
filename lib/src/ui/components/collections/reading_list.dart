@@ -46,10 +46,11 @@ class ReadingList extends StatefulWidget {
   /// Missing cells return null; omitting the resolver retains row measurement.
   final Rect? Function(Object id)? visualAnchorRect;
 
-  /// 列表视口顶部在调用者固定坐标系中的纵向位置，单位为逻辑像素。
-  /// 调用者应传入 Scaffold body 的实际布局位置，包含工具栏和安全区域引起的偏移。
-  /// 前后两次位置必须使用同一坐标系；仅根据位置差补偿，默认 0 表示不补偿。
-  /// 在本帧布局前调整 ScrollPosition，布局后不跳转滚动位置。
+  /// The viewport top in logical pixels within the caller's fixed coordinate system.
+  /// Pass the actual Scaffold body position, including toolbar and safe-area offsets.
+  /// Use the same coordinate system for both positions; compensate only for their
+  /// difference. The default 0 disables compensation.
+  /// Adjust ScrollPosition before layout in this frame, without jumping after layout.
   final double viewportOrigin;
 
   @override
@@ -178,7 +179,8 @@ class _ReadingListState extends State<ReadingList> {
         }
       }
       final retainedPixels = offset + _scroll.offset;
-      // 视口原点不变时检查部分可见的行，工具栏变化时保留原阅读对象。
+      // Check partially visible rows when the viewport origin is unchanged; preserve
+      // the reading anchor when the toolbar changes.
       if (anchorIndex != null &&
           originShift == 0 &&
           canRetainPixels &&

@@ -11,12 +11,12 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Future
 
 internal class CoreNativeCallException(val receipt: ByteArray, cause: Throwable) :
-    java.io.IOException("native invoke 已返回，FD 结果传输失败", cause)
+    java.io.IOException("Native invoke returned, but FD result transport failed", cause)
 
 internal class CoreNativeResultException(val result: CoreNativeTransport.Result, val error: JSONObject) :
     java.io.IOException(error.optString("message", error.toString()))
 
-/** JNI 仅 detach 自有 FD 副本；Kotlin 在返回前等待本次 FD I/O 实际结束。 */
+/** JNI only detaches its own FD copies; Kotlin waits for this call's FD I/O to finish before returning. */
 internal class CoreNativeTransport(private val context: Context, private val io: ExecutorService) {
     data class Result(val value: JSONObject, val terminal: JSONObject, val receipt: ByteArray)
     private val admission = Object()
@@ -40,7 +40,7 @@ internal class CoreNativeTransport(private val context: Context, private val io:
                     catch (close: Throwable) { failure = combine(failure, close) }
                 } finally {
                     failure = close(pipe[1], failure)
-                    failure?.let { android.util.Log.e("PseudoCore", "FD document 写入失败", it) }
+                    failure?.let { android.util.Log.e("PseudoCore", "FD document write failed", it) }
                     ended()
                 }
             }
@@ -63,7 +63,7 @@ internal class CoreNativeTransport(private val context: Context, private val io:
         } finally { if (interrupted) Thread.currentThread().interrupt() }
     }
     private fun begin(operation: Int) = synchronized(admission) {
-        check(!sealed && (!closing || operation == Contract.CORE_OPERATION_SHUTDOWN)) { "core native admission 已关闭" }
+        check(!sealed && (!closing || operation == Contract.CORE_OPERATION_SHUTDOWN)) { "Core native admission is closed" }
         active++
     }
     private fun ended() = synchronized(admission) { active--; admission.notifyAll() }
@@ -98,7 +98,7 @@ internal class CoreNativeTransport(private val context: Context, private val io:
             }
         } catch (error: Throwable) { failure = error }
         finally {
-            // Go 已返回，关闭 Kotlin reader，避免未读输入让 writer 永久停在 backpressure。
+            // Go has returned; close the Kotlin reader so unread input cannot block the writer indefinitely on backpressure.
             failure = close(input[0], failure)
             if (failure != null) failure = close(input[1], failure)
             try { await(write) } catch (error: Throwable) { failure = combine(failure, error) }
@@ -122,7 +122,7 @@ internal class CoreNativeTransport(private val context: Context, private val io:
                         when (frame.kind) {
                             Contract.CORE_IPC_FRAME_DATA -> {
                                 if (value.size().toLong() + frame.payload.size > Contract.CORE_IPC_FRAME_BYTES) {
-                                    throw CoreTransportException(Contract.CORE_ERROR_RESULT_TOO_LARGE, "内核资源装载结果超过预算")
+                                    throw CoreTransportException(Contract.CORE_ERROR_RESULT_TOO_LARGE, "Core resource preparation result exceeds the budget")
                                 }
                                 value.write(frame.payload)
                             }
@@ -131,10 +131,10 @@ internal class CoreNativeTransport(private val context: Context, private val io:
                                 val data = value.toByteArray()
                                 return@submit (if (data.isEmpty()) JSONObject() else JSONObject(CoreFrames.utf8(data))) to terminal
                             }
-                            else -> throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "平台资源调用返回了集合记录")
+                            else -> throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "Platform resource call returned collection records")
                         }
                     }
-                    @Suppress("UNREACHABLE_CODE") error("没有内核资源终态")
+                    @Suppress("UNREACHABLE_CODE") error("Missing core resource terminal frame")
                 }
             }
         } catch (error: Throwable) {

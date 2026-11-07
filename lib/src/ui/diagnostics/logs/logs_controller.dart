@@ -12,7 +12,8 @@ import '../../../model/application_contract.dart';
 
 enum CoreLogsStatus { loading, live, preview, recent, stale, empty, failed }
 
-/// 页面只保留只读快照、筛选与跟随位置；历史窗口由 AppRuntime 保存。
+/// Pages retain read-only snapshots, filters, and follow position; AppRuntime retains
+/// the history window.
 class CoreLogsController extends ChangeNotifier {
   CoreLogsController(
     this.app, {
@@ -170,7 +171,7 @@ class CoreLogsController extends ChangeNotifier {
     if (!active) {
       status = entries.isEmpty ? CoreLogsStatus.empty : CoreLogsStatus.stale;
     } else if (source != null) {
-      // 旧窗口可直接阅读，不因停止或刷新重新创建内核。
+      // Read existing windows directly without recreating the core on stop or refresh.
       _attempted = null;
       unawaited(_read());
     } else if (app.state.recoveryRequired ||

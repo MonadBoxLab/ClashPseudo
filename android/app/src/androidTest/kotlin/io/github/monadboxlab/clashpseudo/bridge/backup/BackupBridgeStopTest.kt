@@ -22,8 +22,8 @@ class BackupBridgeStopTest {
     private class Reply : MethodChannel.Result {
         val values = mutableListOf<Any?>()
         override fun success(value: Any?) { values.add(value) }
-        override fun error(code: String, message: String?, details: Any?) { fail("回复包含错误：$code") }
-        override fun notImplemented() { fail("缺少 MethodChannel 方法") }
+        override fun error(code: String, message: String?, details: Any?) { fail("Reply contains an error: $code") }
+        override fun notImplemented() { fail("Missing MethodChannel method") }
     }
 
     private fun field(name: String) = BridgeTestState.field(name)
@@ -78,7 +78,7 @@ class BackupBridgeStopTest {
                 { AppBridge.cancelSystemRestore() },
                 { field("systemRestoreOwner").get(AppBridge) as? String }, {})
             val workClass = LogicEngineHost::class.java.declaredClasses.single { it.simpleName == "Work" }
-            val reply: (Map<*, *>) -> Unit = { fail("正在执行的 restore 必须保留实际 completion waiter") }
+            val reply: (Map<*, *>) -> Unit = { fail("A running restore must retain its actual completion waiter") }
             val work = workClass.declaredConstructors.single { it.parameterTypes.size == 3 }.apply { isAccessible = true }
                 .newInstance(owner, command, reply)
             try {
@@ -115,14 +115,14 @@ class BackupBridgeStopTest {
         assertEquals(f.owner, f.backupValue("restoreStopOwner"))
         assertSame(f.stopReply, f.backupValue("restoreStopReply"))
         assertTrue(f.stopReply.values.isEmpty())
-        assertTrue("executor 尚未实际退出", f.logic.busy)
+        assertTrue("Executor has not actually exited", f.logic.busy)
     }
 
     @Test fun elapsedBudgetRejectsNewRestorePublicationBeforeTheTimerRuns() = withRestore { f ->
         val admission = f.coordinator.backupOwner(f.owner, true)
         admission.checkCurrent()
         field("operationDeadline").set(AppBridge, android.os.SystemClock.elapsedRealtime() - 1L)
-        assertThrows(CancellationException::class.java) { admission.runIfCurrent { fail("已到期的 restore 发布了数据") } }
+        assertThrows(CancellationException::class.java) { admission.runIfCurrent { fail("An expired restore published data") } }
         unchangedExecution(f)
     }
 
@@ -136,7 +136,7 @@ class BackupBridgeStopTest {
         assertEquals(0, f.refreshCancellations)
         assertEquals(f.systemOwner, field("systemRestoreOwner").get(AppBridge))
         unchangedExecution(f)
-        assertThrows(CancellationException::class.java) { admission.runIfCurrent { fail("取消后的 restore 发布了新 commit") } }
+        assertThrows(CancellationException::class.java) { admission.runIfCurrent { fail("A cancelled restore published a new commit") } }
         AppBridge.authorizationResult(1000, true)
         assertEquals(listOf(false), f.permission.values)
         val next = Reply()

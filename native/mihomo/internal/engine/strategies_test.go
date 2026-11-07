@@ -186,7 +186,7 @@ func TestRestoreStrategyReadsActualSelectionWithoutWritingCoreCache(t *testing.T
 		t.Fatal(state)
 	}
 	if !reflect.DeepEqual(cachefile.Cache().SelectedMap(), before) {
-		t.Fatal("恢复策略改写了上游selected cache")
+		t.Fatal("strategy restoration rewrote the upstream selected cache")
 	}
 }
 
@@ -290,7 +290,7 @@ func TestProfileDefaultSelectedCoreCacheAndApplicationChoices(t *testing.T) {
 			t.Fatal(err)
 		}
 	default:
-		t.Fatal("未知cache测试阶段", phase)
+		t.Fatal("unknown cache test phase", phase)
 	}
 }
 
@@ -437,7 +437,7 @@ func TestStoreFakeIPPersistsNormalPoolStateBeforeStopClearsMapper(t *testing.T) 
 			t.Fatal("inactive range change altered the public allocation offset", got, state.Next)
 		}
 	default:
-		t.Fatal("未知fake-IP测试阶段", phase)
+		t.Fatal("unknown fake-IP test phase", phase)
 	}
 }
 

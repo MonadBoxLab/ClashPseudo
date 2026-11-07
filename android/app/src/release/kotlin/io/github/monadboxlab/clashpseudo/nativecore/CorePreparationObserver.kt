@@ -2,7 +2,7 @@ package io.github.monadboxlab.clashpseudo.nativecore
 
 import android.content.Context
 
-/** 正常构建不暂停 PREPARE，也不读取 instrumentation 控制文件。 */
+/** Normal builds do not pause PREPARE or read instrumentation control files. */
 internal object CorePreparationObserver {
     @Suppress("UNUSED_PARAMETER")
     fun beforeNativePrepare(context: Context, processId: String, inputId: String, configId: String?,

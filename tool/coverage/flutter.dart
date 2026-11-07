@@ -113,7 +113,9 @@ Future<void> main(List<String> arguments) async {
     );
     final code = await process.exitCode;
     if (code != 0) {
-      stderr.writeln('$name 测试进程退出码：$code；继续处理已完成的 raw');
+      stderr.writeln(
+        '$name test process exited with code $code; processing completed raw reports',
+      );
       exitCode = code < 0 ? 128 - code : code;
     }
     await Future.wait([stdoutDone, stderrDone]);
@@ -134,7 +136,9 @@ Future<void> main(List<String> arguments) async {
         result.tests['complete'] != true ||
         reports.errors.isNotEmpty ||
         reports.completed != result.expected) {
-      throw StateError('$name 验证未完成：${result.tests}；${reports.errors}');
+      throw StateError(
+        '$name validation incomplete: ${result.tests}; ${reports.errors}',
+      );
     }
     return result.raw;
   }
@@ -247,7 +251,7 @@ Future<void> main(List<String> arguments) async {
         'lib',
       ).list(recursive: true, followLinks: false)) {
         if (entry is! File || !entry.path.endsWith('.dart')) continue;
-        // 生成的契约文件只包含编译期常量；VM 将覆盖率计入使用这些常量的业务代码。
+        // Generated contracts contain only compile-time constants; the VM attributes coverage to code using them.
         if (entry.path == 'lib/src/model/application_contract.dart' ||
             entry.path.startsWith('lib/src/l10n/app_localizations') ||
             entry.path.endsWith('.g.dart') ||
@@ -282,7 +286,7 @@ Future<void> main(List<String> arguments) async {
           'denominatorComplete': false,
           'applicationCoverageComplete': false,
           'completedIsolateReports': 0,
-          'coverageInput': '已完成 isolate 的 raw；built-in 仅用于诊断',
+          'coverageInput': 'Raw reports from completed isolates; built-in coverage is diagnostic only',
         }),
       );
       final text = StringBuffer('// ignore_for_file: unused_import\n');
@@ -294,7 +298,7 @@ Future<void> main(List<String> arguments) async {
       text.writeln("import 'package:vm_service/vm_service.dart' as vm;");
       text.writeln("import 'package:vm_service/vm_service_io.dart';");
       for (var index = 0; index < libraries.length; index++) {
-        // 隐藏具名扩展以支持延迟导入；loadLibrary 会加载整个库，包括扩展实现。
+        // Hide named extensions for deferred imports; loadLibrary loads the entire library, including extensions.
         final hidden = switch (libraries[index]) {
           'lib/src/ui/locale/message_text.dart' => ' hide AppMessageText',
           'lib/src/ui/locale/model_text.dart' =>
@@ -307,7 +311,9 @@ Future<void> main(List<String> arguments) async {
           "import 'package:clash_pseudo/${libraries[index].substring(4)}' deferred as source$index$hidden;",
         );
       }
-      text.writeln("void main() { test('加载全部应用库以确定 coverage 源码分母', () async {");
+      text.writeln(
+        "void main() { test('Load all application libraries to determine the coverage source denominator', () async {",
+      );
       for (var index = 0; index < libraries.length; index++) {
         text.writeln('await source$index.loadLibrary();');
       }
@@ -332,7 +338,7 @@ Future<void> recordSourceReport() async {
     ], forceCompile: true, reportLines: true, libraryFilters: filters);
     final loaded = (await service.getScripts(isolate)).scripts!;
     final output = File(const String.fromEnvironment('APP_COVERAGE_SOURCE_REPORT'));
-    if (await output.exists()) throw StateError('源码报告已经存在');
+    if (await output.exists()) throw StateError('Source report already exists');
     await output.writeAsString(jsonEncode({
       'collector': {
         'pid': pid, 'isolate': isolate, 'scope': 'clash_pseudo',
@@ -359,7 +365,7 @@ Future<void> recordSourceReport() async {
         'flutter_test_config.dart',
         await File('test/flutter_test_config.dart').readAsString(),
       );
-      // 收集应用覆盖率前，先通过 Flutter SDK 检查生成的导入语句。
+      // Validate generated imports with the Flutter SDK before collecting application coverage.
       final loaderCommand = [
         'test',
         '--no-pub',
@@ -466,7 +472,7 @@ Future<void> recordSourceReport() async {
           'rawErrors': errors,
           'applicationCoverageComplete':
               collectorComplete && denominatorComplete,
-          'coverageInput': '已完成 isolate 的 raw；built-in 仅用于诊断',
+          'coverageInput': 'Raw reports from completed isolates; built-in coverage is diagnostic only',
           'functionUnit':
               'entry source line; multiple functions on one line may merge',
           'branchUnit': 'VM branch source line; not automatic condition/decision coverage',
@@ -474,15 +480,17 @@ Future<void> recordSourceReport() async {
       );
       if (!collectorComplete) {
         stderr.writeln(
-          'collector 未完成：有效 raw $completedReports/${result.expected}；'
-          '测试终态 ${result.tests['complete']}；${errors.join('; ')}',
+          'Collector incomplete: valid raw reports $completedReports/${result.expected};'
+          'terminal test state ${result.tests['complete']};${errors.join('; ')}',
         );
       }
       if (missing.isNotEmpty) {
-        stderr.writeln('源码分母缺失：${missing.join(', ')}');
+        stderr.writeln('Missing source denominator: ${missing.join(', ')}');
       }
       if (sourceFacts.errors.isNotEmpty) {
-        stderr.writeln('VM 源码报告无效：${sourceFacts.errors.join('; ')}');
+        stderr.writeln(
+          'Invalid VM source report: ${sourceFacts.errors.join('; ')}',
+        );
       }
       if ((!collectorComplete || !denominatorComplete) && exitCode == 0) {
         exitCode = 1;
@@ -535,16 +543,20 @@ Future<Map<String, Object?>> _testOutcome(File events, int code) async {
       number++;
       try {
         final event = jsonDecode(line) as Map<String, dynamic>;
-        if (success != null) throw const FormatException('done 之后仍有事件');
+        if (success != null) {
+          throw const FormatException('Event received after done');
+        }
         switch (event['type']) {
           case 'testStart':
             if (!started.add((event['test'] as Map)['id'] as int)) {
-              throw const FormatException('重复 testStart');
+              throw const FormatException('Duplicate testStart');
             }
           case 'testDone':
             final id = event['testID'] as int;
             if (!started.contains(id) || !finished.add(id)) {
-              throw const FormatException('testDone 没有对应的唯一 testStart');
+              throw const FormatException(
+                'testDone has no unique matching testStart',
+              );
             }
             if (event['hidden'] == true) {
               hidden++;
@@ -555,7 +567,7 @@ Future<Map<String, Object?>> _testOutcome(File events, int code) async {
             } else if (['failure', 'error'].contains(event['result'])) {
               failed++;
             } else {
-              throw const FormatException('未知 testDone 结果');
+              throw const FormatException('Unknown testDone result');
             }
           case 'done':
             success = event['success'] as bool;
@@ -608,7 +620,7 @@ _readRaw(Directory directory, {required String scope}) async {
     return (
       merged: merged,
       completed: 0,
-      errors: ['raw 目录缺失：${directory.path}'],
+      errors: ['Missing raw directory: ${directory.path}'],
       identities: identities,
     );
   }
@@ -617,7 +629,9 @@ _readRaw(Directory directory, {required String scope}) async {
   for (final file in files) {
     try {
       if (file is! File || !file.path.endsWith('.json')) {
-        throw const FormatException('raw 目录含有未完成或未知文件');
+        throw const FormatException(
+          'Raw directory contains incomplete or unknown files',
+        );
       }
       final report =
           jsonDecode(await file.readAsString()) as Map<String, dynamic>;
@@ -628,21 +642,23 @@ _readRaw(Directory directory, {required String scope}) async {
           collector['scope'] != scope ||
           collector['pid'] is! int ||
           collector['isolate'] is! String) {
-        throw const FormatException('raw 缺少完整的 collector 元数据');
+        throw const FormatException(
+          'Raw report lacks complete collector metadata',
+        );
       }
       final identity = '${collector['pid']}:${collector['isolate']}';
       if (identities.contains(identity)) {
-        throw FormatException('重复的 isolate 报告：$identity');
+        throw FormatException('Duplicate isolate report: $identity');
       }
       final scripts = (report['coverage'] as List).cast<Map<String, dynamic>>();
       for (final script in scripts) {
         if (script['source'] is! String) {
-          throw const FormatException('raw 缺少源码 URI');
+          throw const FormatException('Raw report lacks source URIs');
         }
         for (final key in ['hits', 'funcHits', 'funcNames', 'branchHits']) {
           final values = script[key];
           if (values is! List || values.length.isOdd) {
-            throw FormatException('$key 不是完整的成对记录');
+            throw FormatException('$key does not contain complete pairs');
           }
           for (var index = 0; index < values.length; index += 2) {
             final line = values[index];
@@ -652,7 +668,9 @@ _readRaw(Directory directory, {required String scope}) async {
                 (key == 'funcNames'
                     ? value is! String
                     : value is! int || value < 0)) {
-              throw FormatException('$key 含有无效行号或值');
+              throw FormatException(
+                '$key contains invalid line numbers or values',
+              );
             }
           }
         }
@@ -671,7 +689,7 @@ _readRaw(Directory directory, {required String scope}) async {
       errors.add('${file.path}: $error');
     }
   }
-  if (files.isEmpty) errors.add('raw 目录为空：${directory.path}');
+  if (files.isEmpty) errors.add('Raw directory is empty: ${directory.path}');
   return (
     merged: merged,
     completed: completed,
@@ -700,13 +718,15 @@ Future<({Set<String> files, List<String> errors})> _nonInstrumentableSources(
         ) ||
         jsonEncode(collector['libraryFilters']) !=
             jsonEncode(['package:clash_pseudo/'])) {
-      throw const FormatException('源码报告没有对应的完整 loader isolate');
+      throw const FormatException(
+        'Source report has no matching completed loader isolate',
+      );
     }
     final loaded = (value['loadedScripts'] as List)
         .cast<Map<String, dynamic>>();
     final report = value['sourceReport'] as Map<String, dynamic>;
     if (report['type'] != 'SourceReport') {
-      throw const FormatException('缺少 VM SourceReport');
+      throw const FormatException('Missing VM SourceReport');
     }
     final scripts = (report['scripts'] as List).cast<Map<String, dynamic>>();
     final ranged = <String>{};

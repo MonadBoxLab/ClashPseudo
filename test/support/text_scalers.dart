@@ -1,6 +1,6 @@
 import 'package:flutter/painting.dart';
 
-/// 通用布局场景：小字号放大两倍，其余字号放大 1.7 倍。
+/// General layout scenario: small fonts scale by 2 and other fonts by 1.7.
 class NonlinearTextScaler extends TextScaler {
   const NonlinearTextScaler();
 

@@ -1,4 +1,4 @@
-"""受控完整配置；不依赖外部订阅、GeoIP 或公共 DNS。"""
+"""Controlled complete configurations without external subscriptions, GeoIP, or public DNS."""
 
 
 def provider(fixture):

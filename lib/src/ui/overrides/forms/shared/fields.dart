@@ -24,7 +24,8 @@ const definitionMaxSeconds = 9223372036;
 const definitionMaxMilliseconds = 9223372036854;
 const _unset = '\u0000unset';
 
-/// 校验只改变输入边框与语义，不为错误说明增加正文高度。
+/// Validation changes only input borders and semantics without adding content height
+/// for error text.
 class DefinitionFieldValidation extends StatelessWidget {
   const DefinitionFieldValidation({
     super.key,

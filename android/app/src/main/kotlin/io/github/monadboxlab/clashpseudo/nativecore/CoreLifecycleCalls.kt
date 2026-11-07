@@ -8,7 +8,7 @@ import io.github.monadboxlab.clashpseudo.bridge.AppBridge
 import io.github.monadboxlab.clashpseudo.message.AppMessage
 import io.github.monadboxlab.clashpseudo.vpn.PseudoVpnService
 
-/** 备份、清理和重连共用的进程退出入口，沿原命令的受理期限。 */
+/** Shared process exit entry point for backup, cleanup, and reconnect, using the original command's admission deadline. */
 class CoreLifecycleCalls(private val context: Context) {
     fun stop(reply: MethodChannel.Result, internalReconnect: Boolean = false) {
         if (!internalReconnect && PseudoVpnService.alwaysOnState() == true) {
@@ -32,7 +32,7 @@ class CoreLifecycleCalls(private val context: Context) {
         val captured = client.status()
         if (captured[Contract.CORE_FIELD_PROCESS_ID] != processId || captured[Contract.CORE_FIELD_INPUT_ID] != inputId) return
         client.exit(processId, admittedAt, deadline, "stop") { error ->
-            if (error != null) android.util.Log.e("PseudoSchedule", "取消 STARTING 后未确认 core 退出", error)
+            if (error != null) android.util.Log.e("PseudoSchedule", "Core exit is unconfirmed after cancelling STARTING", error)
         }
     }
 

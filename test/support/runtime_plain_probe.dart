@@ -67,9 +67,12 @@ Future<void> main() async {
     ) as Map;
     require(
       memory['valid'] == true && (memory['processRssBytes'] as int) >= 0,
-      'app RSS 未返回',
+      'app RSS was not returned',
     );
-    require(port.calls.isEmpty, 'app RSS 读取了 core status 或启动了进程');
+    require(
+      port.calls.isEmpty,
+      'app RSS read core status or started a process',
+    );
     final result = await runtime.handle('execute', {
       'owner': 'plain-operation',
       'admittedAt': 7,
@@ -78,14 +81,17 @@ Future<void> main() async {
       'field': 'appearance',
       'value': 'dark',
     }) as Map;
-    require(result['success'] == true, '无 Binding 的 Store 保存失败：$result');
+    require(
+      result['success'] == true,
+      'Store save without Binding failed: $result',
+    );
     final saved = jsonDecode(
       await File('${directory.path}/preferences.json').readAsString(),
     ) as Map;
-    require(saved['appearance'] == 'dark', 'Actions 没有保存偏好');
+    require(saved['appearance'] == 'dark', 'Actions did not save preferences');
     require(
       !port.calls.contains(ApplicationContract.coreChannelHandshake),
-      '保存启动了 core',
+      'Save started the core',
     );
     port.hangStatus = false;
     var rejected = false;
@@ -94,13 +100,13 @@ Future<void> main() async {
     } on PlatformFailure catch (error) {
       rejected = error.code == ApplicationContract.coreErrorIdentityMismatch;
     }
-    require(rejected, 'core memory 未拒绝已退出身份');
+    require(rejected, 'core memory did not reject an exited identity');
     require(
       !port.calls.contains(ApplicationContract.coreChannelHandshake),
-      'core memory 创建了进程',
+      'core memory created a process',
     );
     stdout.writeln(
-      'plain Dart runtime: app RSS、Actions/Store 保存与 existing-core 身份检查通过',
+      'plain Dart runtime: app RSS, Actions/Store save, and existing-core identity checks passed',
     );
   } finally {
     runtime.dispose();

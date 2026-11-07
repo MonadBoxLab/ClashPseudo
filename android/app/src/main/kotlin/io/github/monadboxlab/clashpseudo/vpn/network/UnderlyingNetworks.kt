@@ -14,7 +14,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicReference
 
-/** 本次装载捕获的系统网络；回调不再读取后来的网络快照。 */
+/** The system network captured for this preparation; callbacks do not read later network snapshots. */
 internal data class UnderlyingSnapshot(val network: Network?, val servers: List<String>,
     val privateDns: String, val revision: Long,
     val privateDnsServerName: String? = null,

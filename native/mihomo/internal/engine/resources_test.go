@@ -335,7 +335,7 @@ sub-rules:
 		}
 	}
 	if strings.Join(subScopes, ",") != "z-sub,a-sub,m-sub" {
-		t.Errorf("sub-rules声明顺序发生变化: %v", subScopes)
+		t.Errorf("sub-rules declaration order changed: %v", subScopes)
 	}
 	if strings.Join(scopes, ",") != strings.Join(rules, ",") || strings.Join(scopes, ",") != "z-rules,a-rules,m-rules" {
 		t.Errorf("rule scopes lost declaration order: %v", scopes)
@@ -418,7 +418,7 @@ func TestResourcesGeoProjectionSeparatesFileTimeFromUpdateTime(t *testing.T) {
 	}
 	for _, item := range result.Resources {
 		if item.Kind == "geo" && (item.LastAttempt != nil || item.LastResult != "" || item.LastSuccessfulCheck != nil) {
-			t.Error("Go保留了应用Geo历史", item)
+			t.Error("Go retained application Geo history", item)
 		}
 	}
 

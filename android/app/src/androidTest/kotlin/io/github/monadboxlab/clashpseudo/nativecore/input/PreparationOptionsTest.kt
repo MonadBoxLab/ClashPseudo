@@ -45,7 +45,7 @@ class PreparationOptionsTest {
         assertEquals(maximum, input(composition).preparationOptions("PREVIEW", 1, JSONObject()).size)
         try {
             input(composition + "x").preparationOptions("PREVIEW", 1, JSONObject())
-            fail("超过预算的一个 encoded byte 被受理")
+            fail("An encoded byte over budget was admitted")
         } catch (expected: IllegalStateException) {
             assertEquals("Native preparation options exceed UTF-8 JSON limit", expected.message)
         }
@@ -60,7 +60,7 @@ class PreparationOptionsTest {
             assertTrue(input(unit.repeat(count)).preparationOptions("RUNNING", 1, JSONObject()).size <= maximum)
             try {
                 input(unit.repeat(count + 1)).preparationOptions("RUNNING", 1, JSONObject())
-                fail("encoded expansion 超过预算仍被受理")
+                fail("Encoded expansion over budget was admitted")
             } catch (expected: IllegalStateException) {
                 assertEquals("Native preparation options exceed UTF-8 JSON limit", expected.message)
             }

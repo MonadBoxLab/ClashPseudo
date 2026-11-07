@@ -20,7 +20,8 @@ import 'strategies/delay_batches.dart';
 import 'overrides/lan_proxy_settings.dart';
 import '../platform/core/core_input.dart';
 
-/// 唯一 AppRuntime 的内核操作协调，不参与界面草稿与导航生命周期。
+/// Coordinates core operations for the sole AppRuntime, independently of UI drafts and
+/// navigation.
 class CoreRuntime implements RuntimeCore {
   CoreRuntime(this.platform, {required this.changed, required this.client}) {
     dns = DnsOperations(_begin, changed: changed);
@@ -85,7 +86,8 @@ class CoreRuntime implements RuntimeCore {
       if (reply.isCompleted || (budget != null && clock!.elapsed >= budget!)) {
         throw expired();
       }
-      // 提交后由 receipt 和实际退出决定结果，取消不能覆盖 native 的结果。
+      // After submission, the receipt and actual exit determine the result;
+      // cancellation cannot override the native result.
       queued = false;
       deadlineTimer?.cancel();
     }
@@ -127,7 +129,7 @@ class CoreRuntime implements RuntimeCore {
         deadlineTimer?.cancel();
         clock?.stop();
         await cancellation?.cancel();
-        // 业务应答可以提前结束，slot 只随实际 work 释放。
+        // The reply may finish early; release the slot only when the actual work exits.
         _readFlights.remove(method);
       }
     }();
@@ -506,19 +508,22 @@ class CoreRuntime implements RuntimeCore {
     );
     if (method == 'setMode' &&
         !const ['rule', 'global', 'direct'].contains(arguments['mode'])) {
-      throw FormatException('运行模式无效', arguments['mode']);
+      throw FormatException('Invalid runtime mode', arguments['mode']);
     }
     if (const ['start', 'prepareStrategies'].contains(method) &&
         arguments['mode'] != null &&
         !const ['rule', 'global', 'direct'].contains(arguments['mode'])) {
-      throw FormatException('运行模式无效', arguments['mode']);
+      throw FormatException('Invalid runtime mode', arguments['mode']);
     }
     if (const ['dnsQuery', 'cancelDnsQuery'].contains(method)) {
       final queryOwner = arguments['queryOwner'];
       if (queryOwner is! String ||
           queryOwner.isEmpty ||
           utf8.encode(queryOwner).length > 128) {
-        throw const DnsFailure('invalidRequest', detail: 'DNS queryOwner 无效');
+        throw const DnsFailure(
+          'invalidRequest',
+          detail: 'Invalid DNS queryOwner',
+        );
       }
     }
     switch (method) {
@@ -658,7 +663,7 @@ class CoreRuntime implements RuntimeCore {
                 throw PlatformFailure(
                   code: ApplicationContract.coreErrorCallFailed,
                   details: {
-                    'message': '内核返回的模式无效',
+                    'message': 'Core returned an invalid mode',
                     if (actual is String || actual is num || actual is bool)
                       'actual': actual,
                   },
@@ -714,7 +719,9 @@ class CoreRuntime implements RuntimeCore {
                   } else if (frame.terminal) {
                     terminal = frame.object;
                   } else {
-                    throw const FormatException('资源导出包含无效帧');
+                    throw const FormatException(
+                      'Resource export contains an invalid frame',
+                    );
                   }
                 }
                 if (terminal != null) terminal = await call.finish(terminal);
@@ -728,7 +735,7 @@ class CoreRuntime implements RuntimeCore {
                     token.isEmpty ||
                     metadata['source'] != token) {
                   throw _exportFailure(
-                    '资源导出来源变化或未完整返回',
+                    'Resource export source changed or export is incomplete',
                     metadata,
                     terminal,
                     resources.length,
@@ -769,7 +776,9 @@ class CoreRuntime implements RuntimeCore {
               _requireSuccess(result);
               final resultValue = result.value;
               if (method == 'runtimeConfig' && resultValue is! String) {
-                throw const FormatException('运行配置不是文本');
+                throw const FormatException(
+                  'Runtime configuration is not text',
+                );
               }
               final value = method == 'runtimeConfig'
                   ? <String, dynamic>{'configuration': resultValue}
@@ -821,7 +830,9 @@ class CoreRuntime implements RuntimeCore {
                     deadline is! int ||
                     admittedAt < 0 ||
                     deadline < admittedAt) {
-                  throw const FormatException('连接采样没有有效的原受理时钟');
+                  throw const FormatException(
+                    'Connection sample has no valid original admission timestamp',
+                  );
                 }
                 final originalDeadline = timing['deadline']!;
                 final end = deadline < originalDeadline
@@ -879,7 +890,7 @@ class CoreRuntime implements RuntimeCore {
               });
             });
           default:
-            throw UnsupportedError('AppRuntime 不支持 $method');
+            throw UnsupportedError('AppRuntime does not support $method');
         }
     }
   }
@@ -1133,7 +1144,9 @@ class CoreRuntime implements RuntimeCore {
         } else if (frame.terminal) {
           terminal = frame.object;
         } else {
-          throw const FormatException('策略导出包含无效帧');
+          throw const FormatException(
+            'Strategy export contains an invalid frame',
+          );
         }
       }
       if (terminal != null) terminal = await call.finish(terminal);
@@ -1146,7 +1159,12 @@ class CoreRuntime implements RuntimeCore {
           (terminal['source'] as String).isEmpty ||
           metadata['source'] != null &&
               metadata['source'] != terminal['source']) {
-        throw _exportFailure('策略导出未完整返回', metadata, terminal, records);
+        throw _exportFailure(
+          'Strategy export is incomplete',
+          metadata,
+          terminal,
+          records,
+        );
       }
       stale = !source.matchesIdentity((await platform.snapshot()).core);
     } catch (error, stack) {
@@ -1177,7 +1195,9 @@ class CoreRuntime implements RuntimeCore {
     final parts = (record['overrides'] as List).cast<Map>();
     final part = parts.where((part) => part['role'] == 'lanProxy').single;
     final settings = LanProxySettings.fromBody(part['body'] as String);
-    if (settings.addresses.isEmpty) throw const FormatException('请选择局域网接口地址');
+    if (settings.addresses.isEmpty) {
+      throw const FormatException('Select a LAN interface address');
+    }
     final current = await client.localInterfaces();
     final addresses = (current['addresses'] as List).cast<Map>();
     return [
@@ -1193,7 +1213,12 @@ class CoreRuntime implements RuntimeCore {
                     row['selectable'] == true,
               )
               .firstOrNull;
-          if (found == null) throw FormatException('所选局域网接口地址已失效', address);
+          if (found == null) {
+            throw FormatException(
+              'Selected LAN interface address is no longer valid',
+              address,
+            );
+          }
           return <String, Object?>{
             'listenerName': LanProxySettings.listenerName(
               address,
@@ -1229,7 +1254,7 @@ class CoreRuntime implements RuntimeCore {
         inputId.isEmpty ||
         record['id'] != arguments['id'] ||
         record['revision'] != arguments['revision']) {
-      throw const FormatException('装载记录身份不匹配');
+      throw const FormatException('Loaded input identity does not match');
     }
     StrategyChoice.decode(record['choices']);
     final lanInterfaces = await _lanInterfaces(record, preview: preview);
@@ -1373,7 +1398,8 @@ class CoreRuntime implements RuntimeCore {
         }
       }
       await cleanUp();
-      // 只有 CANCEL 确认原工作尚未开始，才允许在 drain 前交付清理错误。
+      // Report cleanup errors before drain only when CANCEL confirms the original work
+      // has not started.
       if (started == false && cleanupFailure != null && !reply.isCompleted) {
         reply.completeError(cleanupFailure!, cleanupStack);
       }
@@ -1505,7 +1531,8 @@ class CoreRuntime implements RuntimeCore {
         await cancellation?.cancel();
       }
     }();
-    // 业务应答与实际 work 共用原 operation；提前应答不解除执行占用。
+    // The reply and actual work share the original operation; an early reply does not
+    // release its slot.
     authority.retainUntil(work);
     return reply.future;
   }
@@ -1529,7 +1556,7 @@ class CoreRuntime implements RuntimeCore {
             group.type != choice.type ||
             !group.selectable ||
             choice.member != null && !group.hasMember(choice.member!)) {
-          _unrestored[name] = '策略组或成员已变化';
+          _unrestored[name] = 'Strategy group or member changed';
           continue;
         }
         final unchanged = choice.type.automatic
@@ -1566,7 +1593,7 @@ class CoreRuntime implements RuntimeCore {
           (choice.type.automatic
               ? actual.fixed != (choice.member ?? '')
               : actual.now != choice.member)) {
-        _unrestored[item.key as String] = '策略选择未确认';
+        _unrestored[item.key as String] = 'Strategy selection is unconfirmed';
       }
     }
   }
@@ -1716,7 +1743,7 @@ class CoreRuntime implements RuntimeCore {
         value['dropped'] is! int ||
         (value['dropped'] as int) < 0) {
       throw FormatException(
-        '日志 watermark 无效: ${{'expectedSource': window, if (value['source'] is String) 'source': value['source'], if (value['source'] is! String) 'sourceType': value['source'].runtimeType.toString(), if (value['next'] is int) 'next': value['next'], if (value['next'] is! int) 'nextType': value['next'].runtimeType.toString(), if (value['dropped'] is int) 'dropped': value['dropped'], if (value['dropped'] is! int) 'droppedType': value['dropped'].runtimeType.toString(), if (value['error'] != null) 'error': value['error']}}',
+        'Invalid log watermark: ${{'expectedSource': window, if (value['source'] is String) 'source': value['source'], if (value['source'] is! String) 'sourceType': value['source'].runtimeType.toString(), if (value['next'] is int) 'next': value['next'], if (value['next'] is! int) 'nextType': value['next'].runtimeType.toString(), if (value['dropped'] is int) 'dropped': value['dropped'], if (value['dropped'] is! int) 'droppedType': value['dropped'].runtimeType.toString(), if (value['error'] != null) 'error': value['error']}}',
       );
     }
     logs.clear(
@@ -1870,7 +1897,7 @@ class CoreRuntime implements RuntimeCore {
         throw PlatformFailure(
           code: ApplicationContract.coreErrorCallFailed,
           details: {
-            'message': '内核返回的模式无效',
+            'message': 'Core returned an invalid mode',
             if (value is String || value is num || value is bool)
               'actual': value,
           },
@@ -1981,7 +2008,7 @@ class CoreRuntime implements RuntimeCore {
         (value['processRssBytes'] as int) < 0 ||
         value['sampledAt'] is! int) {
       throw FormatException(
-        '内核内存读取失败: ${{if (value['valid'] is bool) 'valid': value['valid'], if (value['valid'] is! bool) 'validType': value['valid'].runtimeType.toString(), if (value['processRssBytes'] is int) 'processRssBytes': value['processRssBytes'], if (value['processRssBytes'] is! int) 'processRssBytesType': value['processRssBytes'].runtimeType.toString(), if (value['sampledAt'] is int) 'sampledAt': value['sampledAt'], if (value['sampledAt'] is! int) 'sampledAtType': value['sampledAt'].runtimeType.toString(), if (value['error'] != null) 'error': value['error']}}',
+        'Core memory read failed: ${{if (value['valid'] is bool) 'valid': value['valid'], if (value['valid'] is! bool) 'validType': value['valid'].runtimeType.toString(), if (value['processRssBytes'] is int) 'processRssBytes': value['processRssBytes'], if (value['processRssBytes'] is! int) 'processRssBytesType': value['processRssBytes'].runtimeType.toString(), if (value['sampledAt'] is int) 'sampledAt': value['sampledAt'], if (value['sampledAt'] is! int) 'sampledAtType': value['sampledAt'].runtimeType.toString(), if (value['error'] != null) 'error': value['error']}}',
       );
     }
     return {

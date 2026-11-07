@@ -11,7 +11,7 @@ import java.nio.file.attribute.PosixFilePermissions
 
 plugins {
     id("com.android.application")
-    // Flutter插件在Android插件之后接入。
+    // Apply the Flutter plugin after the Android plugin.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
@@ -73,7 +73,7 @@ android {
                 abiFilters += nativeAbis
             }
         }
-        // 版本沿Flutter构建元数据。
+        // Use the version from Flutter build metadata.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         buildConfigField("String", "MIHOMO_VERSION", "\"${mihomoVersion.get()}\"")
@@ -126,7 +126,7 @@ android {
             val bytes = Base64.getDecoder().decode(environmentSigning[0].get())
             try {
                 require(bytes.isNotEmpty()) { "Signing keystore is empty" }
-                // POSIX 显式限为 0600；其他平台沿用 JVM 临时文件的限权默认值。
+                // Explicitly use mode 0600 on POSIX; elsewhere, use the JVM's restricted temporary-file defaults.
                 val permissions = if (FileSystems.getDefault().supportedFileAttributeViews().contains("posix")) {
                     arrayOf(PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")))
                 } else emptyArray()
@@ -153,7 +153,7 @@ android {
                     throw failure
                 }
             } finally {
-                // 限权属性或临时文件创建失败同样擦除已解码材料。
+                // Erase decoded material even if permission attributes or temporary-file creation fail.
                 bytes.fill(0)
             }
         }
@@ -241,7 +241,7 @@ val prepareBundledLegalAssets by tasks.registering(Exec::class) {
     commandLine("python3", "-I", "-B", toolEntry, "dependencies", "prepare-build",
         "--project", sourceRoot)
 }
-// 源码目录的旧 payload 不参与构建；所有变体消费同一 release 记录。
+// Exclude legacy payloads in source directories; all variants use the same release record.
 android.sourceSets.getByName("main").assets.setSrcDirs(listOf(bundledOutput.resolve("assets")))
 android.sourceSets.getByName("main").java.srcDir(bundledOutput.resolve("kotlin"))
 tasks.configureEach {
@@ -286,7 +286,7 @@ if (validationCoverage) {
             description = "Merge current debug JVM data and explicitly exported device coverage"
             dependsOn("testDebugUnitTest")
             sourceDirectories.from("src/main/kotlin")
-            // 分母使用下方明确选择的应用主源码。
+            // Use the application main sources selected below as the coverage denominator.
             classDirectories.from(classFiles.asFileTree.matching {
                 include("io/github/monadboxlab/clashpseudo/**")
                 exclude("**/R.class", "**/R$*.class", "**/BuildConfig.class", "**/debug/**")

@@ -81,84 +81,89 @@ void main() {
 
   for (final brightness in Brightness.values) {
     for (final brand in BrandColor.values) {
-      testWidgets('日志级别和正文使用可读主题色 $brightness $brand', (tester) async {
-        tester.view.physicalSize = const Size(1000, 1200);
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
-        final bridge = LogBridge();
-        final app = logApp(bridge);
-        addTearDown(app.dispose);
-        final theme = AppTheme.forBrightness(brightness, brand);
-        final palette = theme.extension<HomePalette>()!;
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: theme,
-            locale: const Locale('en'),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            home: CoreLogsPage(app: app),
-          ),
-        );
-        logController(tester).setLevel('debug');
-        const levels = ['debug', 'info', 'warning', 'error', 'unknown'];
-        bridge.replies.first.complete(
-          logResponse(
-            core(1),
-            entries: [
-              for (var i = 0; i < levels.length; i++)
-                entry(i + 1, levels[i], '正文-${levels[i]}-🙂'),
-            ],
-            next: levels.length,
-            total: levels.length,
-          ),
-        );
-        await tester.pump();
-        await tester.pump();
-        final expected = {
-          'debug': palette.muted,
-          'info': palette.cobalt,
-          'warning': palette.warning,
-          'error': theme.colorScheme.error,
-          'unknown': palette.ink,
-        };
-        expect(expected.values.take(4).toSet(), hasLength(4));
-        for (final level in levels) {
-          final body = tester.widget<SelectableText>(
-            find.byWidgetPredicate(
-              (widget) =>
-                  widget is SelectableText && widget.data == '正文-$level-🙂',
+      testWidgets(
+        'log levels and text use readable theme colors $brightness $brand',
+        (tester) async {
+          tester.view.physicalSize = const Size(1000, 1200);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          final bridge = LogBridge();
+          final app = logApp(bridge);
+          addTearDown(app.dispose);
+          final theme = AppTheme.forBrightness(brightness, brand);
+          final palette = theme.extension<HomePalette>()!;
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: theme,
+              locale: const Locale('en'),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              home: CoreLogsPage(app: app),
             ),
           );
-          final color = expected[level]!;
-          expect(body.style!.color, color);
-          final background = theme.scaffoldBackgroundColor.computeLuminance();
-          final foreground = color.computeLuminance();
-          final ratio = foreground > background
-              ? (foreground + .05) / (background + .05)
-              : (background + .05) / (foreground + .05);
-          expect(ratio, greaterThanOrEqualTo(4.5));
-          final metadata = tester.widget<Text>(
-            find.byWidgetPredicate(
-              (widget) =>
-                  widget is Text &&
-                  widget.textSpan?.toPlainText().endsWith(
-                        ' · ${level.toUpperCase()}',
-                      ) ==
-                      true,
+          logController(tester).setLevel('debug');
+          const levels = ['debug', 'info', 'warning', 'error', 'unknown'];
+          bridge.replies.first.complete(
+            logResponse(
+              core(1),
+              entries: [
+                for (var i = 0; i < levels.length; i++)
+                  entry(i + 1, levels[i], '正文-${levels[i]}-🙂'),
+              ],
+              next: levels.length,
+              total: levels.length,
             ),
           );
-          final span = metadata.textSpan! as TextSpan;
-          expect((span.children!.single as TextSpan).style!.color, color);
-          expect(metadata.style!.color, theme.colorScheme.onSurface);
-        }
-        expect(tester.takeException(), isNull);
-        await tester.pumpWidget(const SizedBox.shrink());
-      });
+          await tester.pump();
+          await tester.pump();
+          final expected = {
+            'debug': palette.muted,
+            'info': palette.cobalt,
+            'warning': palette.warning,
+            'error': theme.colorScheme.error,
+            'unknown': palette.ink,
+          };
+          expect(expected.values.take(4).toSet(), hasLength(4));
+          for (final level in levels) {
+            final body = tester.widget<SelectableText>(
+              find.byWidgetPredicate(
+                (widget) =>
+                    widget is SelectableText && widget.data == '正文-$level-🙂',
+              ),
+            );
+            final color = expected[level]!;
+            expect(body.style!.color, color);
+            final background = theme.scaffoldBackgroundColor.computeLuminance();
+            final foreground = color.computeLuminance();
+            final ratio = foreground > background
+                ? (foreground + .05) / (background + .05)
+                : (background + .05) / (foreground + .05);
+            expect(ratio, greaterThanOrEqualTo(4.5));
+            final metadata = tester.widget<Text>(
+              find.byWidgetPredicate(
+                (widget) =>
+                    widget is Text &&
+                    widget.textSpan?.toPlainText().endsWith(
+                          ' · ${level.toUpperCase()}',
+                        ) ==
+                        true,
+              ),
+            );
+            final span = metadata.textSpan! as TextSpan;
+            expect((span.children!.single as TextSpan).style!.color, color);
+            expect(metadata.style!.color, theme.colorScheme.onSurface);
+          }
+          expect(tester.takeException(), isNull);
+          await tester.pumpWidget(const SizedBox.shrink());
+        },
+      );
     }
   }
 
-  testWidgets('日志自动读取保持搜索和阅读位置', (tester) async {
+  testWidgets('automatic log reads preserve search and reading position', (
+    tester,
+  ) async {
     final bridge = LogBridge();
     final app = logApp(bridge);
     addTearDown(app.dispose);
@@ -186,7 +191,9 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('日志读取恢复后拒绝旧提示的详情与重试', (tester) async {
+  testWidgets('log read recovery rejects details and retry from old notices', (
+    tester,
+  ) async {
     final bridge = LogBridge();
     final app = logApp(bridge);
     addTearDown(app.dispose);
@@ -220,228 +227,176 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('日志连续错误只提示一次，成功后开启新周期并保持搜索与阅读位置', (tester) async {
-    final bridge = LogBridge();
-    final app = logApp(bridge);
-    addTearDown(app.dispose);
-    await tester.pumpWidget(logsWidget(app));
-    bridge.replies.first.complete(
-      logResponse(
-        core(1),
-        entries: [
-          for (var seq = 1; seq <= 100; seq++)
-            entry(seq, 'info', 'row-$seq ${'content ' * (seq % 4 + 1)}'),
-        ],
-        next: 100,
-        total: 100,
-      ),
-    );
-    await tester.pump();
-    await tester.enterText(find.byType(TextField), 'row');
-    await tester.showKeyboard(find.byType(TextField));
-    final field = tester.widget<TextField>(find.byType(TextField));
-    final draft = const TextEditingValue(
-      text: 'row',
-      selection: TextSelection(baseOffset: 1, extentOffset: 3),
-      composing: TextRange(start: 0, end: 3),
-    );
-    field.controller!.value = draft;
-    final controller = logController(tester);
-    controller.setFollow(false);
-    final scroll = tester.widget<Scrollbar>(find.byType(Scrollbar)).controller!;
-    scroll.jumpTo(scroll.position.maxScrollExtent * .4);
-    for (var frame = 0; frame < 12; frame++) {
+  testWidgets(
+    'consecutive log errors show one notice; success starts a new cycle while preserving search and reading position',
+    (tester) async {
+      final bridge = LogBridge();
+      final app = logApp(bridge);
+      addTearDown(app.dispose);
+      await tester.pumpWidget(logsWidget(app));
+      bridge.replies.first.complete(
+        logResponse(
+          core(1),
+          entries: [
+            for (var seq = 1; seq <= 100; seq++)
+              entry(seq, 'info', 'row-$seq ${'content ' * (seq % 4 + 1)}'),
+          ],
+          next: 100,
+          total: 100,
+        ),
+      );
       await tester.pump();
-    }
-    final viewport = tester.getRect(find.byType(Scrollbar));
-    final anchor = tester
-        .widgetList<SelectableText>(find.byType(SelectableText))
-        .firstWhere((widget) {
-          final rect = tester.getRect(find.byWidget(widget));
-          return rect.bottom > viewport.top && rect.top < viewport.bottom;
-        })
-        .data!;
-    final reading = find.byWidgetPredicate(
-      (widget) => widget is SelectableText && widget.data == anchor,
-    );
-    final anchors = [find.byType(TextField), find.byType(Scrollbar), reading];
-    final rects = anchors.map(tester.getRect).toList();
-    final refresh = controller.refresh();
-    await tester.pump();
-    bridge.replies.last.completeError(StateError('first-log-read-original'));
-    await refresh;
-    for (var frame = 0; frame < 20; frame++) {
-      await tester.pump(const Duration(milliseconds: 16));
+      await tester.enterText(find.byType(TextField), 'row');
+      await tester.showKeyboard(find.byType(TextField));
+      final field = tester.widget<TextField>(find.byType(TextField));
+      final draft = const TextEditingValue(
+        text: 'row',
+        selection: TextSelection(baseOffset: 1, extentOffset: 3),
+        composing: TextRange(start: 0, end: 3),
+      );
+      field.controller!.value = draft;
+      final controller = logController(tester);
+      controller.setFollow(false);
+      final scroll = tester
+          .widget<Scrollbar>(find.byType(Scrollbar))
+          .controller!;
+      scroll.jumpTo(scroll.position.maxScrollExtent * .4);
+      for (var frame = 0; frame < 12; frame++) {
+        await tester.pump();
+      }
+      final viewport = tester.getRect(find.byType(Scrollbar));
+      final anchor = tester
+          .widgetList<SelectableText>(find.byType(SelectableText))
+          .firstWhere((widget) {
+            final rect = tester.getRect(find.byWidget(widget));
+            return rect.bottom > viewport.top && rect.top < viewport.bottom;
+          })
+          .data!;
+      final reading = find.byWidgetPredicate(
+        (widget) => widget is SelectableText && widget.data == anchor,
+      );
+      final anchors = [find.byType(TextField), find.byType(Scrollbar), reading];
+      final rects = anchors.map(tester.getRect).toList();
+      final refresh = controller.refresh();
+      await tester.pump();
+      bridge.replies.last.completeError(StateError('first-log-read-original'));
+      await refresh;
+      for (var frame = 0; frame < 20; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        for (var i = 0; i < anchors.length; i++) {
+          expect(tester.getRect(anchors[i]), rects[i]);
+        }
+        expect(field.controller!.value, draft);
+        expect(field.focusNode!.hasFocus, isTrue);
+        expect(tester.testTextInput.isVisible, isTrue);
+        expect(controller.follow, isFalse);
+        expect(tester.takeException(), isNull);
+      }
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.byType(AlertDialog), findsNothing);
+      final strings = lookupAppLocalizations(const Locale('en'));
+      final oldRetry = tester
+          .widget<TextButton>(
+            find.descendant(
+              of: find.byType(SnackBar),
+              matching: find.widgetWithText(TextButton, strings.retry),
+            ),
+          )
+          .onPressed!;
+      final close = find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.byIcon(Icons.close),
+      );
+      expect(
+        tester
+            .getSize(
+              find.ancestor(of: close, matching: find.byType(IconButton)),
+            )
+            .shortestSide,
+        greaterThanOrEqualTo(48),
+      );
+      await tester.tap(close);
+      await pumpFrames(tester);
+      expect(find.byType(SnackBar), findsNothing);
+      final count = bridge.requests.length;
+      oldRetry();
+      expect(bridge.requests, hasLength(count));
+      if (!controller.loading) controller.refresh();
+      await tester.pump();
+      bridge.replies.last.completeError(StateError('same-period-next-read'));
+      await pumpFrames(tester);
+      expect(find.byType(SnackBar), findsNothing);
+      if (!controller.loading) controller.refresh();
+      await tester.pump();
+      bridge.replies.last.complete(logResponse(core(1), next: 100, total: 100));
+      await tester.pump();
+      expect(controller.readError, isNull);
+      expect(controller.readErrorSource, isNull);
+      if (!controller.loading) controller.refresh();
+      await tester.pump();
+      bridge.replies.last.completeError(StateError('new-period-original'));
+      await pumpFrames(tester);
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(field.controller!.value, draft);
+      expect(field.focusNode!.hasFocus, isTrue);
       for (var i = 0; i < anchors.length; i++) {
         expect(tester.getRect(anchors[i]), rects[i]);
       }
-      expect(field.controller!.value, draft);
-      expect(field.focusNode!.hasFocus, isTrue);
-      expect(tester.testTextInput.isVisible, isTrue);
-      expect(controller.follow, isFalse);
-      expect(tester.takeException(), isNull);
-    }
-    expect(find.byType(SnackBar), findsOneWidget);
-    expect(find.byType(AlertDialog), findsNothing);
-    final strings = lookupAppLocalizations(const Locale('en'));
-    final oldRetry = tester
-        .widget<TextButton>(
-          find.descendant(
-            of: find.byType(SnackBar),
-            matching: find.widgetWithText(TextButton, strings.retry),
-          ),
-        )
-        .onPressed!;
-    final close = find.descendant(
-      of: find.byType(SnackBar),
-      matching: find.byIcon(Icons.close),
-    );
-    expect(
-      tester
-          .getSize(find.ancestor(of: close, matching: find.byType(IconButton)))
-          .shortestSide,
-      greaterThanOrEqualTo(48),
-    );
-    await tester.tap(close);
-    await pumpFrames(tester);
-    expect(find.byType(SnackBar), findsNothing);
-    final count = bridge.requests.length;
-    oldRetry();
-    expect(bridge.requests, hasLength(count));
-    if (!controller.loading) controller.refresh();
-    await tester.pump();
-    bridge.replies.last.completeError(StateError('same-period-next-read'));
-    await pumpFrames(tester);
-    expect(find.byType(SnackBar), findsNothing);
-    if (!controller.loading) controller.refresh();
-    await tester.pump();
-    bridge.replies.last.complete(logResponse(core(1), next: 100, total: 100));
-    await tester.pump();
-    expect(controller.readError, isNull);
-    expect(controller.readErrorSource, isNull);
-    if (!controller.loading) controller.refresh();
-    await tester.pump();
-    bridge.replies.last.completeError(StateError('new-period-original'));
-    await pumpFrames(tester);
-    expect(find.byType(SnackBar), findsOneWidget);
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(field.controller!.value, draft);
-    expect(field.focusNode!.hasFocus, isTrue);
-    for (var i = 0; i < anchors.length; i++) {
-      expect(tester.getRect(anchors[i]), rects[i]);
-    }
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 
-  testWidgets('清空失败保留同次原结果，后续读取错误不替换已显示提示的详情', (tester) async {
-    final bridge = LogBridge();
-    final app = logApp(bridge);
-    addTearDown(app.dispose);
-    await tester.pumpWidget(logsWidget(app));
-    bridge.replies.first.complete(
-      logResponse(
-        core(1),
-        entries: [entry(1, 'warning', 'retained-clear-failure-row')],
-        next: 1,
-        total: 1,
-        dropped: 3,
-      ),
-    );
-    await tester.pump();
-    await tester.pump();
-    final controller = logController(tester);
-    final retained = controller.entries;
-    final watermark = controller.cleared;
-    final row = find.text('retained-clear-failure-row');
-    final anchors = [find.byType(TextField), find.byType(Scrollbar), row];
-    final rects = anchors.map(tester.getRect).toList();
-    final strings = lookupAppLocalizations(const Locale('en'));
-    await tester.tap(find.byTooltip(strings.logClear));
-    expect(bridge.requests.last['clear'], isTrue);
-    bridge.replies.last.completeError(
-      StateError('clear-original-detail: fixture-secret'),
-    );
-    await pumpFrames(tester);
-    expect(controller.entries, same(retained));
-    expect(controller.cleared, watermark);
-    expect(controller.entries.single['text'], 'retained-clear-failure-row');
-    expect(controller.dropped, 3);
-    expect(find.byType(AlertDialog), findsNothing);
-    final notice = tester.widget<SnackBar>(find.byType(SnackBar));
-    await tester.pump(const Duration(milliseconds: 1010));
-    bridge.replies.last.completeError(StateError('later-poll-detail'));
-    await pumpFrames(tester);
-    expect(tester.widget<SnackBar>(find.byType(SnackBar)), same(notice));
-    expect(
-      controller.readError!.technicalDetail(
-        lookupAppLocalizations(const Locale('en')),
-      ),
-      contains('later-poll-detail'),
-    );
-    for (var i = 0; i < anchors.length; i++) {
-      expect(tester.getRect(anchors[i]), rects[i]);
-    }
-    await openLogNoticeDetails(tester);
-    final technical = find.byKey(const ValueKey('operation-technical-details'));
-    await tester.ensureVisible(technical);
-    await tester.tap(technical);
-    await pumpFrames(tester);
-    final text = tester
-        .widget<SelectableText>(
-          find.byKey(const ValueKey('operation-technical-text')),
-        )
-        .data!;
-    expect(text, contains('clear-original-detail: fixture-secret'));
-    expect(text, isNot(contains('later-poll-detail')));
-    expect(controller.entries, same(retained));
-    expect(controller.cleared, watermark);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
-
-  for (final replacement in ['identity', 'window', 'epoch']) {
-    testWidgets('日志旧来源pending失败不提示为新来源 $replacement', (tester) async {
+  testWidgets(
+    'clear failure retains its original result and later read errors do not replace displayed notice details',
+    (tester) async {
       final bridge = LogBridge();
-      final app = EpochLogApp(bridge);
+      final app = logApp(bridge);
       addTearDown(app.dispose);
       await tester.pumpWidget(logsWidget(app));
-      final oldSource = (
-        app.storageEpoch,
-        app.state.logSource!.identity,
-        app.state.logSource!.logWindow,
+      bridge.replies.first.complete(
+        logResponse(
+          core(1),
+          entries: [entry(1, 'warning', 'retained-clear-failure-row')],
+          next: 1,
+          total: 1,
+          dropped: 3,
+        ),
       );
-      final source = replacement == 'identity'
-          ? logSource(core(2))
-          : logSource(
-              core(1),
-              window: replacement == 'window' ? 'replacement-window' : '1',
-            );
-      if (replacement == 'epoch') app.epoch++;
-      app.publish(
-        AppSnapshot(phase: 'RUNNING', core: source, logSource: source),
-      );
-      bridge.replies.first.completeError(
-        StateError('old-source-pending-failure'),
-      );
-      await pumpFrames(tester);
-      final controller = logController(tester);
-      expect(
-        controller.readError!.detail,
-        contains('old-source-pending-failure'),
-      );
-      expect(controller.readErrorSource, oldSource);
-      expect(find.byType(SnackBar), findsNothing);
-      expect(find.byType(AlertDialog), findsNothing);
-      if (!controller.loading) controller.refresh();
       await tester.pump();
-      bridge.replies.last.completeError(StateError('current-source-failure'));
+      await tester.pump();
+      final controller = logController(tester);
+      final retained = controller.entries;
+      final watermark = controller.cleared;
+      final row = find.text('retained-clear-failure-row');
+      final anchors = [find.byType(TextField), find.byType(Scrollbar), row];
+      final rects = anchors.map(tester.getRect).toList();
+      final strings = lookupAppLocalizations(const Locale('en'));
+      await tester.tap(find.byTooltip(strings.logClear));
+      expect(bridge.requests.last['clear'], isTrue);
+      bridge.replies.last.completeError(
+        StateError('clear-original-detail: fixture-secret'),
+      );
       await pumpFrames(tester);
-      expect(controller.readErrorSource, (
-        app.storageEpoch,
-        source.identity,
-        source.logWindow,
-      ));
-      expect(find.byType(SnackBar), findsOneWidget);
+      expect(controller.entries, same(retained));
+      expect(controller.cleared, watermark);
+      expect(controller.entries.single['text'], 'retained-clear-failure-row');
+      expect(controller.dropped, 3);
+      expect(find.byType(AlertDialog), findsNothing);
+      final notice = tester.widget<SnackBar>(find.byType(SnackBar));
+      await tester.pump(const Duration(milliseconds: 1010));
+      bridge.replies.last.completeError(StateError('later-poll-detail'));
+      await pumpFrames(tester);
+      expect(tester.widget<SnackBar>(find.byType(SnackBar)), same(notice));
+      expect(
+        controller.readError!.technicalDetail(
+          lookupAppLocalizations(const Locale('en')),
+        ),
+        contains('later-poll-detail'),
+      );
+      for (var i = 0; i < anchors.length; i++) {
+        expect(tester.getRect(anchors[i]), rects[i]);
+      }
       await openLogNoticeDetails(tester);
       final technical = find.byKey(
         const ValueKey('operation-technical-details'),
@@ -454,13 +409,82 @@ void main() {
             find.byKey(const ValueKey('operation-technical-text')),
           )
           .data!;
-      expect(text, contains('current-source-failure'));
-      expect(text, isNot(contains('old-source-pending-failure')));
+      expect(text, contains('clear-original-detail: fixture-secret'));
+      expect(text, isNot(contains('later-poll-detail')));
+      expect(controller.entries, same(retained));
+      expect(controller.cleared, watermark);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
-    });
+    },
+  );
 
-    testWidgets('日志来源变化撤销旧提示操作 $replacement', (tester) async {
+  for (final replacement in ['identity', 'window', 'epoch']) {
+    testWidgets(
+      'pending old-source log failure is not shown for the new source $replacement',
+      (tester) async {
+        final bridge = LogBridge();
+        final app = EpochLogApp(bridge);
+        addTearDown(app.dispose);
+        await tester.pumpWidget(logsWidget(app));
+        final oldSource = (
+          app.storageEpoch,
+          app.state.logSource!.identity,
+          app.state.logSource!.logWindow,
+        );
+        final source = replacement == 'identity'
+            ? logSource(core(2))
+            : logSource(
+                core(1),
+                window: replacement == 'window' ? 'replacement-window' : '1',
+              );
+        if (replacement == 'epoch') app.epoch++;
+        app.publish(
+          AppSnapshot(phase: 'RUNNING', core: source, logSource: source),
+        );
+        bridge.replies.first.completeError(
+          StateError('old-source-pending-failure'),
+        );
+        await pumpFrames(tester);
+        final controller = logController(tester);
+        expect(
+          controller.readError!.detail,
+          contains('old-source-pending-failure'),
+        );
+        expect(controller.readErrorSource, oldSource);
+        expect(find.byType(SnackBar), findsNothing);
+        expect(find.byType(AlertDialog), findsNothing);
+        if (!controller.loading) controller.refresh();
+        await tester.pump();
+        bridge.replies.last.completeError(StateError('current-source-failure'));
+        await pumpFrames(tester);
+        expect(controller.readErrorSource, (
+          app.storageEpoch,
+          source.identity,
+          source.logWindow,
+        ));
+        expect(find.byType(SnackBar), findsOneWidget);
+        await openLogNoticeDetails(tester);
+        final technical = find.byKey(
+          const ValueKey('operation-technical-details'),
+        );
+        await tester.ensureVisible(technical);
+        await tester.tap(technical);
+        await pumpFrames(tester);
+        final text = tester
+            .widget<SelectableText>(
+              find.byKey(const ValueKey('operation-technical-text')),
+            )
+            .data!;
+        expect(text, contains('current-source-failure'));
+        expect(text, isNot(contains('old-source-pending-failure')));
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+
+    testWidgets('log source change revokes old notice actions $replacement', (
+      tester,
+    ) async {
       final bridge = LogBridge();
       final app = EpochLogApp(bridge);
       addTearDown(app.dispose);
@@ -767,102 +791,107 @@ void main() {
   });
 
   for (final initiallyReduced in [false, true]) {
-    testWidgets('日志错误不移动表单，用户打开完整原文 reduced=$initiallyReduced', (tester) async {
-      tester.view.physicalSize = const Size(320, 640);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      final bridge = LogBridge();
-      final app = logApp(bridge);
-      final reduced = ValueNotifier(initiallyReduced);
-      addTearDown(app.dispose);
-      addTearDown(reduced.dispose);
-      await tester.pumpWidget(
-        MaterialApp(
-          navigatorObservers: [AppTaskNavigatorObserver()],
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          builder: (context, child) => ValueListenableBuilder<bool>(
-            valueListenable: reduced,
-            child: child,
-            builder: (context, reduced, child) => MediaQuery(
-              data: MediaQuery.of(context).copyWith(
-                textScaler: const TextScaler.linear(2),
-                disableAnimations: reduced,
+    testWidgets(
+      'log errors do not move the form and users can open the full original text reduced=$initiallyReduced',
+      (tester) async {
+        tester.view.physicalSize = const Size(320, 640);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final bridge = LogBridge();
+        final app = logApp(bridge);
+        final reduced = ValueNotifier(initiallyReduced);
+        addTearDown(app.dispose);
+        addTearDown(reduced.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            navigatorObservers: [AppTaskNavigatorObserver()],
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            builder: (context, child) => ValueListenableBuilder<bool>(
+              valueListenable: reduced,
+              child: child,
+              builder: (context, reduced, child) => MediaQuery(
+                data: MediaQuery.of(context).copyWith(
+                  textScaler: const TextScaler.linear(2),
+                  disableAnimations: reduced,
+                ),
+                child: child!,
               ),
-              child: child!,
             ),
+            home: CoreLogsPage(app: app),
           ),
-          home: CoreLogsPage(app: app),
-        ),
-      );
-      final failure = StateError(
-        List.filled(
-          300,
-          '原文 https://user:pass@fixture.test/?token=fixture',
-        ).join('\n'),
-      );
-      final anchors = [find.byType(TextField), find.byType(AppBar)];
-      final rects = anchors.map(tester.getRect).toList();
-      bridge.replies.first.completeError(failure);
-      for (var frame = 0; frame < 20; frame++) {
-        await tester.pump(const Duration(milliseconds: 16));
-        for (var i = 0; i < anchors.length; i++) {
-          expect(tester.getRect(anchors[i]), rects[i]);
+        );
+        final failure = StateError(
+          List.filled(
+            300,
+            '原文 https://user:pass@fixture.test/?token=fixture',
+          ).join('\n'),
+        );
+        final anchors = [find.byType(TextField), find.byType(AppBar)];
+        final rects = anchors.map(tester.getRect).toList();
+        bridge.replies.first.completeError(failure);
+        for (var frame = 0; frame < 20; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+          for (var i = 0; i < anchors.length; i++) {
+            expect(tester.getRect(anchors[i]), rects[i]);
+          }
+          expect(find.byKey(const ValueKey('log-read-error')), findsNothing);
+          expect(
+            find.byKey(const ValueKey('log-read-error-motion')),
+            findsNothing,
+          );
+          expect(find.byType(AlertDialog), findsNothing);
+          expect(find.textContaining(failure.toString()), findsNothing);
+          expect(tester.takeException(), isNull);
         }
-        expect(find.byKey(const ValueKey('log-read-error')), findsNothing);
-        expect(
-          find.byKey(const ValueKey('log-read-error-motion')),
-          findsNothing,
-        );
-        expect(find.byType(AlertDialog), findsNothing);
+        final input = tester
+            .widget<TextField>(find.byType(TextField))
+            .controller;
+        await pumpFrames(tester);
+        await openLogNoticeDetails(tester);
         expect(find.textContaining(failure.toString()), findsNothing);
-        expect(tester.takeException(), isNull);
-      }
-      final input = tester.widget<TextField>(find.byType(TextField)).controller;
-      await pumpFrames(tester);
-      await openLogNoticeDetails(tester);
-      expect(find.textContaining(failure.toString()), findsNothing);
-      expect(find.byType(AlertDialog), findsOneWidget);
-      final technicalDetails = find.descendant(
-        of: find.byType(AlertDialog),
-        matching: find.byKey(const ValueKey('operation-technical-details')),
-      );
-      await tester.ensureVisible(technicalDetails);
-      await pumpFrames(tester);
-      expect(technicalDetails.hitTestable(), findsOneWidget);
-      await tester.tap(technicalDetails);
-      await pumpFrames(tester);
-      expect(find.textContaining(failure.toString()), findsOneWidget);
-      final reading = find.byKey(const ValueKey('operation-technical-text'));
-      final scrollFinder = find
-          .ancestor(of: reading, matching: find.byType(Scrollable))
-          .first;
-      final scroll = tester.state<ScrollableState>(scrollFinder);
-      expect(scroll.position.maxScrollExtent, greaterThan(0));
-      await tester.drag(scrollFinder, const Offset(0, -100));
-      await tester.pump();
-      expect(scroll.position.pixels, greaterThan(0));
-      final offset = scroll.position.pixels;
-      final readingState = tester.state(reading);
-      for (final value in [!initiallyReduced, initiallyReduced]) {
-        reduced.value = value;
-        await tester.pump();
-        expect(tester.state(reading), same(readingState));
-        expect(tester.state(scrollFinder), same(scroll));
-        expect(scroll.position.pixels, closeTo(offset, .5));
-        expect(
-          tester
-              .widget<TextField>(find.byType(TextField, skipOffstage: false))
-              .controller,
-          same(input),
+        expect(find.byType(AlertDialog), findsOneWidget);
+        final technicalDetails = find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.byKey(const ValueKey('operation-technical-details')),
         );
+        await tester.ensureVisible(technicalDetails);
+        await pumpFrames(tester);
+        expect(technicalDetails.hitTestable(), findsOneWidget);
+        await tester.tap(technicalDetails);
+        await pumpFrames(tester);
         expect(find.textContaining(failure.toString()), findsOneWidget);
+        final reading = find.byKey(const ValueKey('operation-technical-text'));
+        final scrollFinder = find
+            .ancestor(of: reading, matching: find.byType(Scrollable))
+            .first;
+        final scroll = tester.state<ScrollableState>(scrollFinder);
+        expect(scroll.position.maxScrollExtent, greaterThan(0));
+        await tester.drag(scrollFinder, const Offset(0, -100));
+        await tester.pump();
+        expect(scroll.position.pixels, greaterThan(0));
+        final offset = scroll.position.pixels;
+        final readingState = tester.state(reading);
+        for (final value in [!initiallyReduced, initiallyReduced]) {
+          reduced.value = value;
+          await tester.pump();
+          expect(tester.state(reading), same(readingState));
+          expect(tester.state(scrollFinder), same(scroll));
+          expect(scroll.position.pixels, closeTo(offset, .5));
+          expect(
+            tester
+                .widget<TextField>(find.byType(TextField, skipOffstage: false))
+                .controller,
+            same(input),
+          );
+          expect(find.textContaining(failure.toString()), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        }
         expect(tester.takeException(), isNull);
-      }
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox.shrink());
-    });
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
   }
 
   testWidgets(
@@ -1693,108 +1722,114 @@ void main() {
       controller.setVisible(false);
     });
 
-    testWidgets('日志保留原文和真实错误，不展示完整响应', (tester) async {
-      final bridge = LogBridge();
-      final app = logApp(bridge);
-      addTearDown(app.dispose);
-      await tester.pumpWidget(
-        MaterialApp(
-          navigatorObservers: [AppTaskNavigatorObserver()],
-          locale: const Locale('en'),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: CoreLogsPage(app: app),
-        ),
-      );
-      final row = {
-        ...entry(1, 'future-level', 'original: fixture-secret'),
-        'future': [false, 0, null, <Object?>[]],
-      };
-      final value = logResponse(core(1), entries: [row], next: 1);
-      value['unknown-envelope'] = '${'x' * 20000}tail';
-      bridge.replies.first.complete(value);
-      await tester.pump();
-      final controller = tester
-          .widgetList<ListenableBuilder>(find.byType(ListenableBuilder))
-          .map((widget) => widget.listenable)
-          .whereType<CoreLogsController>()
-          .single;
-      expect(find.text('original: fixture-secret'), findsOneWidget);
-      expect(find.byIcon(Icons.data_object), findsNothing);
-      expect(find.byIcon(Icons.refresh), findsNothing);
-      expect(
-        controller.entries.single,
-        entry(1, 'future-level', 'original: fixture-secret'),
-      );
-      String? copied;
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        SystemChannels.platform,
-        (call) async {
-          if (call.method == 'Clipboard.setData') {
-            copied = (call.arguments as Map)['text'] as String;
-          }
-          return null;
-        },
-      );
-      addTearDown(
-        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+    testWidgets(
+      'logs retain original text and actual errors without displaying the full response',
+      (tester) async {
+        final bridge = LogBridge();
+        final app = logApp(bridge);
+        addTearDown(app.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            navigatorObservers: [AppTaskNavigatorObserver()],
+            locale: const Locale('en'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: CoreLogsPage(app: app),
+          ),
+        );
+        final row = {
+          ...entry(1, 'future-level', 'original: fixture-secret'),
+          'future': [false, 0, null, <Object?>[]],
+        };
+        final value = logResponse(core(1), entries: [row], next: 1);
+        value['unknown-envelope'] = '${'x' * 20000}tail';
+        bridge.replies.first.complete(value);
+        await tester.pump();
+        final controller = tester
+            .widgetList<ListenableBuilder>(find.byType(ListenableBuilder))
+            .map((widget) => widget.listenable)
+            .whereType<CoreLogsController>()
+            .single;
+        expect(find.text('original: fixture-secret'), findsOneWidget);
+        expect(find.byIcon(Icons.data_object), findsNothing);
+        expect(find.byIcon(Icons.refresh), findsNothing);
+        expect(
+          controller.entries.single,
+          entry(1, 'future-level', 'original: fixture-secret'),
+        );
+        String? copied;
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
           SystemChannels.platform,
-          null,
-        ),
-      );
-      await tester.pump(const Duration(milliseconds: 610));
-      bridge.replies.last.completeError(
-        PlatformFailure(
-          code: 'native',
-          message: 'original-log-bridge-cause',
-          details: messages.androidErrorNativeReadUnavailable
-              .withDetail('original-log-native-cause: fixture-secret')
-              .toMap(),
-        ),
-      );
-      await tester.pump();
-      expect(
-        controller.readError?.detail,
-        contains('original-log-native-cause: fixture-secret'),
-      );
-      await tester.pump();
-      expect(
-        find.textContaining('original-log-native-cause: fixture-secret'),
-        findsNothing,
-      );
-      await pumpFrames(tester);
-      expect(find.byType(AlertDialog), findsNothing);
-      await openLogNoticeDetails(tester);
-      final technicalDetails = find.descendant(
-        of: find.byType(AlertDialog),
-        matching: find.byKey(const ValueKey('operation-technical-details')),
-      );
-      await tester.ensureVisible(technicalDetails);
-      await pumpFrames(tester);
-      expect(technicalDetails.hitTestable(), findsOneWidget);
-      await tester.tap(technicalDetails);
-      await pumpFrames(tester);
-      expect(
-        find.textContaining('original-log-native-cause: fixture-secret'),
-        findsOneWidget,
-      );
-      expect(find.textContaining('original-log-bridge-cause'), findsOneWidget);
-      final technicalText = tester
-          .widget<SelectableText>(
-            find.byKey(const ValueKey('operation-technical-text')),
-          )
-          .data;
-      final copy = find.byKey(const ValueKey('operation-technical-copy'));
-      await tester.ensureVisible(copy);
-      await pumpFrames(tester);
-      expect(copy.hitTestable(), findsOneWidget);
-      await tester.tap(copy);
-      await tester.pump();
-      expect(copied, technicalText);
-      expect(copied, contains('original-log-native-cause: fixture-secret'));
-      expect(copied, contains('original-log-bridge-cause'));
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    });
+          (call) async {
+            if (call.method == 'Clipboard.setData') {
+              copied = (call.arguments as Map)['text'] as String;
+            }
+            return null;
+          },
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            SystemChannels.platform,
+            null,
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 610));
+        bridge.replies.last.completeError(
+          PlatformFailure(
+            code: 'native',
+            message: 'original-log-bridge-cause',
+            details: messages.androidErrorNativeReadUnavailable
+                .withDetail('original-log-native-cause: fixture-secret')
+                .toMap(),
+          ),
+        );
+        await tester.pump();
+        expect(
+          controller.readError?.detail,
+          contains('original-log-native-cause: fixture-secret'),
+        );
+        await tester.pump();
+        expect(
+          find.textContaining('original-log-native-cause: fixture-secret'),
+          findsNothing,
+        );
+        await pumpFrames(tester);
+        expect(find.byType(AlertDialog), findsNothing);
+        await openLogNoticeDetails(tester);
+        final technicalDetails = find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.byKey(const ValueKey('operation-technical-details')),
+        );
+        await tester.ensureVisible(technicalDetails);
+        await pumpFrames(tester);
+        expect(technicalDetails.hitTestable(), findsOneWidget);
+        await tester.tap(technicalDetails);
+        await pumpFrames(tester);
+        expect(
+          find.textContaining('original-log-native-cause: fixture-secret'),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('original-log-bridge-cause'),
+          findsOneWidget,
+        );
+        final technicalText = tester
+            .widget<SelectableText>(
+              find.byKey(const ValueKey('operation-technical-text')),
+            )
+            .data;
+        final copy = find.byKey(const ValueKey('operation-technical-copy'));
+        await tester.ensureVisible(copy);
+        await pumpFrames(tester);
+        expect(copy.hitTestable(), findsOneWidget);
+        await tester.tap(copy);
+        await tester.pump();
+        expect(copied, technicalText);
+        expect(copied, contains('original-log-native-cause: fixture-secret'));
+        expect(copied, contains('original-log-bridge-cause'));
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
   });
 }

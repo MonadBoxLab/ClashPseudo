@@ -52,7 +52,7 @@ func providersCurrent(cfg *config.Config, stamps []proxyStamp) bool {
 	return true
 }
 
-// StreamNodes 逐条导出节点的类型、能力和测速历史。
+// StreamNodes exports each node's type, capabilities, and delay history.
 func StreamNodes(cfg *config.Config, p *configinput.Provenance, sources DiagnosticSources, source *string, emit func(any) error) (string, error) {
 	if source != nil && len(*source) > 4096 {
 		return "", errors.New("proxy provider source is too long")
@@ -191,7 +191,7 @@ type identityProviderStamp struct {
 	version  uint32
 }
 
-// identityProviders读取嵌套provider的公开identity和version，同一provider只访问一次。
+// identityProviders reads public identities and versions of nested providers, visiting each provider once.
 func identityProviders(proxy C.Proxy) []identityProviderStamp {
 	var stamps []identityProviderStamp
 	seen := make(map[P.ProxyProvider]bool)
@@ -226,7 +226,7 @@ func GroupSourceIdentity(proxy C.Proxy) string {
 }
 
 func MemberIdentity(source string, proxy C.Proxy) string {
-	// MemberIdentity关联当前group、provider version及实际proxy对象。
+	// MemberIdentity ties together the current group, provider version, and actual proxy object.
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%s/%p/%s/%s", source, proxy, proxy.Name(), proxy.Type())))
 	return hex.EncodeToString(sum[:])
 }

@@ -277,7 +277,7 @@ void main() {
   });
   tearDown(() => directory.delete(recursive: true));
 
-  test('公开 Selector 类型的实际选择在插件更新重连后保留', () async {
+  test('actual selection of public Selector types survives plugin update reconnect', () async {
     platform.strategyRawType = 'Selector';
     platform.loadParts([part]);
     (platform.loaded['choices'] as Map)['Proxy']['member'] = 'B';

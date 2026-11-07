@@ -31,7 +31,8 @@ abstract interface class RuntimeCore {
   Future<Map<String, dynamic>?> inputFor(CoreSnapshot source);
 }
 
-/// 复用应用的平台操作方法；channel 与 core 均由调用方注入。
+/// Reuses application platform operations with caller-injected channel and core
+/// interfaces.
 class AppPlatform {
   AppPlatform({
     required this.port,
@@ -160,7 +161,8 @@ class AppPlatform {
     checkCancellation();
   }
 
-  /// 提交 native 前检查本地取消，不再等待平台调用。
+  /// Checks local cancellation before native submission without awaiting another
+  /// platform call.
   void checkCancellation() {
     if (_cancelled.isCompleted) {
       throw PlatformFailure(
@@ -185,7 +187,9 @@ class AppPlatform {
     final admitted = admittedAt ?? state?['operationAdmittedAt'];
     final end = deadline ?? state?['operationDeadline'];
     if (admitted is! int || end is! int || admitted < 0 || end < admitted) {
-      throw const FormatException('操作没有有效的原受理时钟');
+      throw const FormatException(
+        'Operation has no valid original admission timestamp',
+      );
     }
     return {'admittedAt': admitted, 'deadline': end};
   }

@@ -126,7 +126,7 @@ func TestDNSDisableAndExplicitEmptyHijackAreRealCapabilities(t *testing.T) {
 				err := e.PrepareWithOptions(t.TempDir(), []byte(body), "rule", func(int) bool { return true }, PrepareOptions{Purpose: "RUNNING", VPNIntent: true, Generation: 1, Composition: "disabled"})
 				var limit *androidnet.PlatformError
 				if !errors.As(err, &limit) || limit.Reason != "dnsHijackConflict" || e.cfg != nil || e.owner != nil || e.failed {
-					t.Fatalf("DNS关闭与公开TUN邻接DNS冲突未返回实际能力错误: %v", err)
+					t.Fatalf("disabled DNS conflict with public TUN adjacent DNS did not return the actual capability error: %v", err)
 				}
 				return
 			}
@@ -153,7 +153,7 @@ func TestDNSDisableAndExplicitEmptyHijackAreRealCapabilities(t *testing.T) {
 				t.Fatal("an empty/missing disabled hijack was replaced")
 			}
 			if tc.enabled && !slices.Equal(e.spec.DNSServers, []string{"198.18.0.2"}) {
-				t.Fatal("Builder未投影公开TUN实际使用的邻接DNS", e.spec.DNSServers)
+				t.Fatal("Builder did not project the adjacent DNS actually used by the public TUN", e.spec.DNSServers)
 			}
 		})
 	}
@@ -209,7 +209,7 @@ func TestVPNSpecProjectsPublicZeroMTUAs9000(t *testing.T) {
 	var e Engine
 	prepareWithVPNOptions(t, &e, t.TempDir(), "ipv6: false\ntun: {mtu: 0}\nrules: ['MATCH,DIRECT']\n", PrepareOptions{})
 	if e.cfg.General.Tun.MTU != 0 || e.spec.MTU != 9000 {
-		t.Fatal("显式MTU0未保留或Builder与公开TUN默认值不一致", e.cfg.General.Tun.MTU, e.spec.MTU)
+		t.Fatal("explicit MTU 0 was not preserved or Builder differs from public TUN defaults", e.cfg.General.Tun.MTU, e.spec.MTU)
 	}
 }
 

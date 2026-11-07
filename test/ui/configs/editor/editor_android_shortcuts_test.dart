@@ -86,7 +86,7 @@ void main() {
         ),
       ),
     );
-    // 移动端通过 onKeyEvent 处理 Backspace 和 Enter。
+    // Mobile handles Backspace and Enter through onKeyEvent.
     expect(focus.onKeyEvent, isNotNull);
     editor.focusNode!.requestFocus();
     await tester.pump();

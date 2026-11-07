@@ -5,7 +5,7 @@ import 'package:clash_pseudo/src/logic/overrides/lan_proxy_settings.dart';
 import 'package:clash_pseudo/src/model/lan_proxy.dart';
 
 void main() {
-  test('默认 mixed 监听在同端口提供 TCP 与 UDP，且不要求认证', () {
+  test('default mixed listener serves TCP and UDP on the same port without authentication', () {
     final body = LanProxySettings(addresses: ['192.168.1.2']).applyTo('');
     final root = loadYaml(body) as YamlMap;
     final listener = (root['listeners'] as YamlList).single as YamlMap;
@@ -16,7 +16,7 @@ void main() {
     expect(listener['users'], isEmpty);
   });
 
-  test('修改端口和 UDP 时保留未知字段、用户认证和其他监听', () {
+  test('changing port and UDP preserves unknown fields, authentication, and other listeners', () {
     final name = LanProxySettings.listenerName('192.168.1.2');
     final original =
         '''# 保留说明
@@ -48,7 +48,7 @@ listeners:
     expect(rows.first['udp'], false);
   });
 
-  test('IPv6 scope 沿正文和复制地址保留', () {
+  test('IPv6 scope is preserved in source text and copied addresses', () {
     const address = 'fe80::1234%wlan0';
     final settings = LanProxySettings(addresses: [address]);
     final body = settings.applyTo('');
@@ -56,7 +56,7 @@ listeners:
     expect(lanEndpoint(address, 7890), '[fe80::1234%wlan0]:7890');
   });
 
-  test('通配、回环和重复地址不能由表单保存', () {
+  test('the form cannot save wildcard, loopback, or duplicate addresses', () {
     for (final address in ['0.0.0.0', '::', '127.0.0.1', '::1', '*']) {
       expect(
         () => LanProxySettings(addresses: [address]),
@@ -69,7 +69,7 @@ listeners:
     );
   });
 
-  test('表单不能表示的监听保留原文，不重建默认配置', () {
+  test('listeners unsupported by the form retain source text without rebuilding default configuration', () {
     final name = LanProxySettings.listenerName('192.168.1.2');
     final body =
         '''listeners:
@@ -86,7 +86,7 @@ listeners:
     );
   });
 
-  test('未知接口需要确认，已识别蜂窝与 VPN 不可选', () {
+  test('unknown interfaces require confirmation and recognized cellular or VPN interfaces cannot be selected', () {
     const unknown = LanInterfaceAddress(
       address: '192.168.10.1',
       interfaceName: 'other0',

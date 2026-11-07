@@ -35,7 +35,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
-/** 每次只执行一个固定场景；所有 native FD 均属于当前 :core。 */
+/** Run one fixed scenario at a time; all native FDs belong to the current :core process. */
 internal class CoreFixtureNativeRun(
     private val context: Context,
     private val processId: String,
@@ -56,7 +56,7 @@ internal class CoreFixtureNativeRun(
     private var geoSnapshot = 0
 
     fun run(): JSONObject {
-        check(home.mkdir()) { "无法创建 fixture 目录" }
+        check(home.mkdir()) { "Cannot create the fixture directory" }
         observations.put("home", home.path).put("processId", processId).put("inputId", inputId)
             .put("pid", android.os.Process.myPid())
         if (scene == CoreFixtureContract.FD_REUSE) {
@@ -91,7 +91,7 @@ internal class CoreFixtureNativeRun(
                 CoreFixtureContract.PREPARATION_FAILURE -> prepare(checkNotNull(config), vpn = false)
                 CoreFixtureContract.GEO_CALLBACK -> geoCallback()
                 CoreFixtureContract.OUTPUT_HANDOFF_FAILURE, CoreFixtureContract.TUN_HANDOFF_FAILURE -> descriptorHandoffFailure()
-                else -> error("未知 fixture 场景：$scene")
+                else -> error("Unknown fixture scenario: $scene")
             }
         } finally {
             observations.put("callbacks", callbacks.observation())
@@ -108,7 +108,7 @@ internal class CoreFixtureNativeRun(
     private fun writeCoverage(name: String, probe: Boolean): JSONObject {
         require(name.length <= 240 && Regex("validation-native-[a-zA-Z0-9-]+\\.profraw").matches(name))
         val file = File(context.filesDir, name)
-        check(!file.exists()) { "coverage 文件已存在" }
+        check(!file.exists()) { "Coverage file already exists" }
         val result = JSONObject().put("newFile", true).put("processId", processId)
         if (probe) {
             val values = JSONArray()
@@ -165,7 +165,7 @@ internal class CoreFixtureNativeRun(
     }
 
     private fun prepare(body: ByteArray, vpn: Boolean): JSONObject {
-        check(!prepared) { "每个 fixture process 只装载一个 context" }
+        check(!prepared) { "Each fixture process prepares only one context" }
         prepared = true
         val purpose = if (vpn) Contract.CORE_PURPOSE_RUNNING else Contract.CORE_PURPOSE_PREVIEW
         val options = JSONObject().put("purpose", purpose).put("generation", 1)
@@ -202,7 +202,7 @@ internal class CoreFixtureNativeRun(
             .put("attachedState", call(Contract.CORE_OPERATION_SNAPSHOT))
     }
 
-    /** 直接观察 JNI 所取得的独立副本，原始 PFD 不参与 detach。 */
+    /** Observe the independent copy acquired by JNI directly; do not detach the original PFD. */
     private fun invokeAttach(tun: ParcelFileDescriptor, revision: Long): JSONObject {
         val id = allocate()
         val input = ParcelFileDescriptor.createPipe()
@@ -340,7 +340,7 @@ internal class CoreFixtureNativeRun(
         observations.put("oldOwnedAfterClose", owns(fd, identity))
     }
 
-    /** JNI 调用覆写后的 detachFd；成功交接仍由 framework 转移真实 FD。 */
+    /** JNI calls the overridden detachFd; the framework still transfers the actual FD on a successful handoff. */
     @Keep
     private class HandoffDescriptor(
         descriptor: ParcelFileDescriptor,
@@ -401,7 +401,7 @@ internal class CoreFixtureNativeRun(
             }
             try {
                 val id = allocate()
-                // 小请求在交接前写完并关闭 writer；reject_handoff 不会进入 Go 或生成 frames。
+                // Write the small request and close the writer before handoff; reject_handoff does not enter Go or produce frames.
                 ParcelFileDescriptor.AutoCloseOutputStream(input[1]).use { target ->
                     CoreParts.write(target, mapOf(Contract.CORE_PART_REQUEST to
                         request(Contract.CORE_OPERATION_ATTACH, id, JSONObject())))
@@ -436,11 +436,11 @@ internal class CoreFixtureNativeRun(
                 }
                 observations.put("beforeJavaClose", beforeClose)
                 for (index in descriptors.indices.filter { descriptors[it].transferred }.sortedBy { numbers[it] }) {
-                    // 仅复制到当前空闲的 number；占用时不使用 dup2 覆盖其他 owner。
+                    // Duplicate only into an available FD number; do not use dup2 to overwrite another owner.
                     val fd = Os.fcntlInt(replacementSource.fileDescriptor, OsConstants.F_DUPFD_CLOEXEC, numbers[index])
                     val replacement = ParcelFileDescriptor.adoptFd(fd)
                     replacements += replacement
-                    check(fd == numbers[index]) { "待复用的 FD number 已被其他资源占用：${numbers[index]}，实际取得 $fd" }
+                    check(fd == numbers[index]) { "FD number ${numbers[index]} is held by another resource; acquired $fd instead" }
                 }
             } catch (error: Throwable) {
                 failure = error
@@ -473,14 +473,14 @@ internal class CoreFixtureNativeRun(
         observations.put("specification", projected)
         check(projected.getJSONObject("terminal").getBoolean("complete")) { projected.toString() }
         val specification = value(projected)
-        require(Os.readlink("/proc/self/fd/0") == "/dev/null") { "FD0 不属于 fixture stdin" }
+        require(Os.readlink("/proc/self/fd/0") == "/dev/null") { "FD0 does not belong to fixture stdin" }
         val marker = File(home, "owned-zero-input").apply { writeBytes(byteArrayOf()) }
         ParcelFileDescriptor.open(marker, ParcelFileDescriptor.MODE_READ_WRITE).use { original ->
             val identity = Os.fstat(original.fileDescriptor)
             require(Os.readlink("/proc/self/fd/0") == "/dev/null")
             ParcelFileDescriptor.adoptFd(0).close()
             val fd = Os.fcntlInt(original.fileDescriptor, OsConstants.F_DUPFD_CLOEXEC, 0)
-            if (fd != 0) { ParcelFileDescriptor.adoptFd(fd).close(); error("FD0 已被其他资源取得") }
+            if (fd != 0) { ParcelFileDescriptor.adoptFd(fd).close(); error("FD0 was acquired by another resource") }
             val zero = ParcelFileDescriptor.adoptFd(fd)
             observations.put("zeroFd", zero.fd).put("zeroOwnedBefore", owns(0, identity))
             observations.put("attach", invokeAttach(zero, specification.getLong("revision")))
@@ -537,7 +537,7 @@ internal class CoreFixtureNativeRun(
                 val end = SystemClock.elapsedRealtime() + 10_000
                 val expected = GeoFixtureFiles.read(directory, fixture.getJSONObject("after").getString(kind))
                 while (!File(home, GEO_FILES.getValue(kind)).readBytes().contentEquals(expected)) {
-                    check(SystemClock.elapsedRealtime() < end) { "上游自动 Geo 更新未结束" }; Thread.sleep(10)
+                    check(SystemClock.elapsedRealtime() < end) { "Upstream automatic Geo update has not finished" }; Thread.sleep(10)
                 }
                 observations.put("automaticResources", records(Contract.CORE_OPERATION_RESOURCES))
             } else observations.put("first", call(Contract.CORE_OPERATION_RESOURCE_UPDATE, query))
@@ -605,7 +605,7 @@ internal class CoreFixtureNativeRun(
                 var current: JSONObject
                 do { current = call(Contract.CORE_OPERATION_VPN_SPEC)
                     if (value(current).getLong("revision") < expected) Thread.sleep(25)
-                    check(SystemClock.elapsedRealtime() < end) { "route revision 未更新" }
+                    check(SystemClock.elapsedRealtime() < end) { "Route revision was not updated" }
                 } while (value(current).getLong("revision") < expected)
                 specs.put(current)
                 if (!attached) for (stale in if (prefix == 31) listOf(initial) else listOf(initial, 2L)) {
@@ -673,10 +673,10 @@ internal class CoreFixtureNativeRun(
             if (scene == CoreFixtureContract.REFUSE_PROTECT) return failure(IOException("Injected protect callback refusal"))
             return JSONObject().put("ok", true).put("error", JSONObject.NULL).toString().toByteArray()
         }
-        @Keep fun systemDns(requestId: Long, wire: ByteArray): ByteArray = failure(IOException("fixture 不提供系统 raw DNS"))
-        @Keep fun systemLookup(requestId: Long, host: String, family: Int): ByteArray = failure(IOException("fixture 不提供系统主机查询"))
+        @Keep fun systemDns(requestId: Long, wire: ByteArray): ByteArray = failure(IOException("Fixture does not provide system raw DNS"))
+        @Keep fun systemLookup(requestId: Long, host: String, family: Int): ByteArray = failure(IOException("Fixture does not provide system host lookup"))
         @Keep fun cancelSystemDns(requestId: Long): ByteArray = JSONObject().put("cancelled", true).put("exited", true).toString().toByteArray()
-        @Keep fun seedGeo(request: ByteArray): ByteArray = failure(IOException("fixture 的 geox-url 已显式设置，不应请求随包 Geo"))
+        @Keep fun seedGeo(request: ByteArray): ByteArray = failure(IOException("Fixture geox-url is explicitly set; bundled Geo must not be requested"))
         @Keep fun specificationChanged(revision: Long, changed: Boolean) { synchronized(changes) { changes.put(JSONObject().put("revision", revision).put("changed", changed)) } }
         fun observation(): JSONObject = JSONObject().put("calls", calls.get()).put("invalidSocket", invalidSocket?.let(CoreErrors::json) ?: JSONObject.NULL)
         private fun failure(error: Throwable): ByteArray = JSONObject().put("ok", false).put("error", CoreErrors.json(error)).toString().toByteArray(Charsets.UTF_8)
@@ -689,7 +689,7 @@ internal class CoreFixtureNativeRun(
     }
 }
 
-/** Geo fixture 的数据库和逐阶段原字节留在本次私有 cache 目录；FD 回复只传文件指纹。 */
+/** Keep Geo fixture databases and raw bytes from each stage in this run's private cache directory; FD replies carry only file fingerprints. */
 object GeoFixtureFiles {
     private const val MAX_BYTES = 64L * 1024 * 1024
     private val directoryName = Regex("validation-geo-p5-load-geo-[a-z0-9-]{4,32}")
@@ -697,18 +697,18 @@ object GeoFixtureFiles {
 
     fun directory(context: Context, fixture: JSONObject): File {
         val name = fixture.getString("directory")
-        require(directoryName.matches(name)) { "Geo fixture cache 目录无效" }
+        require(directoryName.matches(name)) { "Invalid Geo fixture cache directory" }
         val root = context.cacheDir.canonicalFile
         val directory = File(root, name)
         require(OsConstants.S_ISDIR(Os.lstat(directory.path).st_mode) && directory.canonicalFile == directory) {
-            "Geo fixture 必须是本次私有 cache 下的实际目录"
+            "Geo fixture must be an actual directory in this run's private cache"
         }
         return directory
     }
 
     private fun file(directory: File, name: String): File {
         require(directoryName.matches(directory.name) && fileName.matches(name) && !name.contains("..")) {
-            "Geo fixture 文件名无效"
+            "Invalid Geo fixture filename"
         }
         require(OsConstants.S_ISDIR(Os.lstat(directory.path).st_mode) && directory.canonicalFile == directory)
         return File(directory, name).also { require(it.parentFile == directory) }
@@ -724,10 +724,10 @@ object GeoFixtureFiles {
             val stat = Os.fstat(descriptor)
             require(OsConstants.S_ISREG(stat.st_mode) && stat.st_nlink == 1L && stat.st_size == size)
             val bytes = FileInputStream(descriptor).use { it.readBytes() }
-            require(bytes.size.toLong() == size && sha256(bytes) == hash) { "Geo fixture 原字节指纹不一致" }
+            require(bytes.size.toLong() == size && sha256(bytes) == hash) { "Geo fixture raw byte fingerprint mismatch" }
             return bytes
         } finally {
-            // Android FileInputStream(FileDescriptor) 不取得该 descriptor 的 ownership。
+            // Android FileInputStream(FileDescriptor) does not take ownership of the descriptor.
             Os.close(descriptor)
         }
     }
@@ -741,7 +741,7 @@ object GeoFixtureFiles {
         try {
             FileOutputStream(descriptor).use { it.write(bytes); it.flush(); it.fd.sync() }
         } finally {
-            // Android FileOutputStream(FileDescriptor) 不取得该 descriptor 的 ownership。
+            // Android FileOutputStream(FileDescriptor) does not take ownership of the descriptor.
             Os.close(descriptor)
         }
         return JSONObject().put("file", name).put("bytes", bytes.size).put("sha256", sha256(bytes)).toString()

@@ -217,7 +217,7 @@ func TestDNSCacheClearCapturesSystemSnapshotBeforeWaitingForPublicCall(t *testin
 	finished := make(chan string, 1)
 	go func() { finished <- e.ClearDNSCache() }()
 	<-entered
-	// Network变化由平台撤销本次owner；已受理cache调用仍等待其捕获的公开调用返回。
+	// The platform revokes this owner on network changes; accepted cache calls still wait for their captured public call to return.
 	e.Cancel()
 	releaseOnce.Do(func() { close(release) })
 	if value := dnsObject(t, <-finished); value["error"] != nil || value["status"] != "completed" || value["stale"] != true || value["resolverActive"] != true || value["systemResolverActive"] != true {

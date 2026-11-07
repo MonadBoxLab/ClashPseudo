@@ -167,7 +167,7 @@ rules:
 			peer := os.NewFile(uintptr(pair[1]), "external-TUN-packet-peer")
 			defer peer.Close()
 			if err := e.attach(pair[0], e.spec.Revision, func(fd int, options LC.Tun, dnsAddresses []netip.AddrPort) (tunResource, error, bool) {
-				// Unix socket没有TUN接口名；Linux system/mixed fixture使用真实lo进行kernel forwarding。
+				// Unix sockets have no TUN interface name; Linux system/mixed fixtures use the real lo interface for kernel forwarding.
 				if name == "system" || name == "mixed" {
 					options.Device = "lo"
 				}
@@ -202,7 +202,7 @@ rules:
 			if _, err := peer.Write(ipv4UDPPacket(t, net.ParseIP("198.18.0.1"), net.ParseIP("192.0.2.5"), 41003, deniedPort, []byte("must-not-arrive"))); err != nil {
 				t.Fatal(err)
 			}
-			// 等待本次真实rule decision的log record。
+			// Wait for the log record of this actual rule decision.
 			matched := false
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			for !matched {

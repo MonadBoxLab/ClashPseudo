@@ -44,7 +44,7 @@ type classicalFixture struct {
 }
 
 func (p classicalFixture) VehicleType() P.VehicleType { return p.vehicle }
-func (p classicalFixture) Vehicle() P.Vehicle         { panic("classical stream不得读取Vehicle.Path") }
+func (p classicalFixture) Vehicle() P.Vehicle         { panic("classical stream must not read Vehicle.Path") }
 func (p classicalFixture) Strategy() any              { return p.strategy }
 func (p classicalFixture) Behavior() P.RuleBehavior   { return P.Classical }
 func (p classicalFixture) Count() int                 { return 1 }
@@ -54,10 +54,10 @@ func TestClassicalStreamNeverReadsCacheOrConfigurationFallback(t *testing.T) {
 			for _, vehicle := range []P.VehicleType{P.File, P.HTTP} {
 				provider := classicalFixture{vehicle: vehicle, strategy: &struct{}{}}
 				cfg := &config.Config{RuleProviders: map[string]P.RuleProvider{"classical": provider}}
-				_, err := StreamRules(cfg, nil, RuleQuery{Kind: "provider", Name: "classical"}, func(any) error { t.Fatal("不可枚举的classical来源产生了替代规则"); return nil })
+				_, err := StreamRules(cfg, nil, RuleQuery{Kind: "provider", Name: "classical"}, func(any) error { t.Fatal("non-enumerable classical source produced substitute rules"); return nil })
 				var actual RuleReadError
 				if !errors.As(err, &actual) || !strings.HasPrefix(actual.Error(), "sourceUnavailable:") {
-					t.Fatal("未保留公开API不可枚举的实际状态", err)
+					t.Fatal("actual non-enumerable state of the public API was not preserved", err)
 				}
 			}
 		})
@@ -68,7 +68,7 @@ func TestRuleStreamKeepsActualConsumerErrors(t *testing.T) {
 	original := errors.New("consumer original cause")
 	_, err := StreamRules(cfg, nil, RuleQuery{Kind: "main"}, func(any) error { return original })
 	if !errors.Is(err, original) {
-		t.Fatal("consumer原始cause被替换", err)
+		t.Fatal("consumer's original cause was replaced", err)
 	}
 }
 

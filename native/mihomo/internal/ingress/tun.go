@@ -12,7 +12,7 @@ import (
 
 type Tun = sing_tun.Listener
 
-// NewTun在公开构造器调用前接收FD所有权。构造失败后的内部FD归属由进程退出收尾。
+// NewTun takes FD ownership before calling the public constructor. Process exit resolves internal FD ownership after construction failure.
 func NewTun(fd int, options LC.Tun, _ []netip.AddrPort, traffic C.Tunnel) (*Tun, error, bool) {
 	return newTun(fd, options, traffic, func(options LC.Tun, traffic C.Tunnel) (*Tun, error) { return sing_tun.New(options, traffic) })
 }
@@ -25,7 +25,7 @@ func newTun(fd int, options LC.Tun, traffic C.Tunnel, construct func(LC.Tun, C.T
 		return nil, err, false
 	}
 	options.FileDescriptor = fd
-	// Android Builder已经处理路由与底层网络，不启动Linux网络监视器。
+	// Android Builder already handles routes and the underlying network; do not start the Linux network monitor.
 	options.AutoRoute, options.AutoDetectInterface = false, false
 	sing_tun.EnforceBindInterface = true
 	listener, err := construct(options, traffic)

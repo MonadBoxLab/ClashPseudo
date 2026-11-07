@@ -1,4 +1,4 @@
-"""受控服务必须关闭已接收的真实 socket 并等待处理线程退出。"""
+"""Controlled servers must close accepted sockets and join handler threads."""
 import errno
 import tool_test_support
 from pathlib import Path

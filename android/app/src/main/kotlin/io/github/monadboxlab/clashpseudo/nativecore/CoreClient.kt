@@ -40,7 +40,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 
-/** 默认进程唯一的内核连接；所有状态转换在串行线程执行。 */
+/** The sole core connection in the default process; all state transitions run on a serial thread. */
 class CoreClient private constructor(private val context: Context) {
     val lifecycle = CoreLifecycleRecord.forApplication(context)
     private val main = Handler(Looper.getMainLooper())
@@ -95,9 +95,9 @@ class CoreClient private constructor(private val context: Context) {
     private inner class Binding : ServiceConnection {
         var bound = false
         override fun onServiceConnected(name: ComponentName, binder: IBinder) { state.post { connected(this, binder) } }
-        override fun onServiceDisconnected(name: ComponentName) { state.post { communicationLost(this, IOException("内核服务连接已中断")) } }
-        override fun onBindingDied(name: ComponentName) { state.post { communicationLost(this, IOException("内核服务绑定已失效")) } }
-        override fun onNullBinding(name: ComponentName) { state.post { communicationLost(this, IOException("内核服务没有返回控制接口")) } }
+        override fun onServiceDisconnected(name: ComponentName) { state.post { communicationLost(this, IOException("Core service connection was interrupted")) } }
+        override fun onBindingDied(name: ComponentName) { state.post { communicationLost(this, IOException("Core service binding is no longer valid")) } }
+        override fun onNullBinding(name: ComponentName) { state.post { communicationLost(this, IOException("Core service did not return a control interface")) } }
     }
     private class Connection(val binding: Binding, val remote: ICoreService, val binder: IBinder, val death: IBinder.DeathRecipient) {
         var processId = ""
@@ -161,7 +161,7 @@ class CoreClient private constructor(private val context: Context) {
                 return@post
             }
             if (current == null && (calls.isNotEmpty() || documentReads.isNotEmpty())) {
-                main.post { reply(null, IOException("旧 core process 的本地 FD I/O 尚未结束")) }
+                main.post { reply(null, IOException("Local FD I/O for the old core process has not finished")) }
                 return@post
             }
             handshakeWaiters.add(reply)
@@ -170,7 +170,7 @@ class CoreClient private constructor(private val context: Context) {
                 val next = Binding()
                 binding = next
                 next.bound = context.bindService(Intent(context, CoreService::class.java), next, Context.BIND_AUTO_CREATE)
-                if (!next.bound) throw IOException("Android 未建立内核服务连接")
+                if (!next.bound) throw IOException("Android did not establish the core service connection")
             } catch (error: Throwable) { failHandshake(error) }
         }
     }
@@ -228,7 +228,7 @@ class CoreClient private constructor(private val context: Context) {
             val snapshot = connected.remote.handshake(Contract.CORE_IPC_VERSION, callback)
             CoreControl.check(snapshot)
             val processId = snapshot.getString(Contract.CORE_FIELD_PROCESS_ID)
-                ?: throw IOException("内核 Handshake 没有 processId")
+                ?: throw IOException("Core handshake is missing processId")
             connected.processId = processId
             CoreControl.identity(snapshot, processId)
             acceptStatus(connected, connected.remote.status(identity(processId)))
@@ -296,7 +296,7 @@ class CoreClient private constructor(private val context: Context) {
             snapshot.remove("details")
             if (owner == null || owner.confirmedDead || snapshot.getString(Contract.CORE_FIELD_PROCESS_ID) != owner.processId) {
                 details?.close()
-                main.post { reply(IOException("runtime event 属于旧 core process")) }
+                main.post { reply(IOException("Runtime event belongs to an old core process")) }
             } else if (details == null) main.post { reply(null) }
             else {
                 val sequence = ++owner.statusSequence
@@ -319,7 +319,7 @@ class CoreClient private constructor(private val context: Context) {
     private fun acceptStatus(owner: Connection, snapshot: Bundle, complete: (Throwable?) -> Unit = {}) {
         val details = snapshot.getParcelable<ParcelFileDescriptor>("details")
         snapshot.remove("details")
-        if (connection !== owner || owner.confirmedDead) { details?.close(); complete(IOException("core status 属于旧连接")); return }
+        if (connection !== owner || owner.confirmedDead) { details?.close(); complete(IOException("Core status belongs to an old connection")); return }
         if (owner.processId.isNotEmpty()) CoreControl.identity(snapshot, owner.processId)
         val sequence = ++owner.statusSequence
         val value = snapshot.map() + if (details == null) mapOf(Contract.CORE_FIELD_ERROR to null) else emptyMap()
@@ -367,14 +367,14 @@ class CoreClient private constructor(private val context: Context) {
             Contract.CORE_FIELD_PHASE to Contract.CORE_PHASE_COMMUNICATION_LOST,
             Contract.CORE_FIELD_ERROR to CoreErrors.json(error, Contract.CORE_ERROR_COMMUNICATION_LOST).toString()))
         failHandshake(error)
-        // 仍等待已注册的 DeathRecipient callback；断连不解除原请求、锁或退出等待。
+        // Keep waiting for the registered DeathRecipient callback; disconnection does not release requests, locks, or exit waiters.
     }
 
     private fun died(owner: Connection) {
         if (connection !== owner || !owner.deathLinked || owner.confirmedDead) return
         owner.confirmedDead = true
         val processId = owner.processId
-        val failure = CoreTransportException(Contract.CORE_ERROR_PROCESS_EXITED, "内核已退出")
+        val failure = CoreTransportException(Contract.CORE_ERROR_PROCESS_EXITED, "Core has exited")
         calls.values.filter { it.processId == processId }.forEach { call ->
             call.failure = mergeFailure(call.failure, failure)
             call.nativeExited = true
@@ -448,15 +448,15 @@ class CoreClient private constructor(private val context: Context) {
         state.post {
             val owner = connection
             try {
-                check(owner != null && !owner.confirmedDead && captured[Contract.CORE_FIELD_PROCESS_ID] == owner.processId) { "请求不属于当前内核进程" }
+                check(owner != null && !owner.confirmedDead && captured[Contract.CORE_FIELD_PROCESS_ID] == owner.processId) { "Request does not belong to the current core process" }
                 require(operation != null)
                 val record = lifecycle.snapshot()
                 if (record.processId == owner.processId && record.stage == Contract.CORE_PHASE_STOPPING &&
                     operation != Contract.CORE_OPERATION_CANCEL) {
-                    throw CoreTransportException(Contract.CORE_ERROR_IDENTITY_MISMATCH, "已取消或正在退出的内核上下文不再受理业务请求")
+                    throw CoreTransportException(Contract.CORE_ERROR_IDENTITY_MISMATCH, "A cancelled or exiting core context no longer admits application requests")
                 }
-                require((captured[Contract.CORE_FIELD_PROTOCOL] as? Number)?.toInt() == Contract.CORE_IPC_VERSION) { "core protocol 不匹配" }
-                require((captured[Contract.CORE_FIELD_NETWORK_REVISION] as? Number)?.toLong() == (statusValue[Contract.CORE_FIELD_NETWORK_REVISION] as? Number)?.toLong()) { "core Network revision 不匹配" }
+                require((captured[Contract.CORE_FIELD_PROTOCOL] as? Number)?.toInt() == Contract.CORE_IPC_VERSION) { "Core protocol mismatch" }
+                require((captured[Contract.CORE_FIELD_NETWORK_REVISION] as? Number)?.toLong() == (statusValue[Contract.CORE_FIELD_NETWORK_REVISION] as? Number)?.toLong()) { "Core Network revision mismatch" }
                 val generation = (captured[Contract.CORE_FIELD_GENERATION] as? Number)?.toLong() ?: 0L
                 val composition = captured[Contract.CORE_FIELD_COMPOSITION] as? String
                 val request = JSONObject().put("arguments", JSONObject(body.filterKeys { it != "parts" }))
@@ -490,12 +490,12 @@ class CoreClient private constructor(private val context: Context) {
                     val accepted = input[0].use { source -> output[1].use { target -> owner.remote.submit(control, source, target) } }
                     CoreControl.check(accepted)
                     val id = accepted.getLong(Contract.CORE_FIELD_REQUEST_ID)
-                    if (!accepted.getBoolean(Contract.CORE_FIELD_ACCEPTED) || id <= 0L) throw IOException("内核未受理请求")
+                    if (!accepted.getBoolean(Contract.CORE_FIELD_ACCEPTED) || id <= 0L) throw IOException("Core did not admit the request")
                     request.put(Contract.CORE_FIELD_REQUEST_ID, id)
                     val acceptedParts = parts + (Contract.CORE_PART_REQUEST to request.toString().toByteArray(Charsets.UTF_8))
                     val call = Call(owner.processId, id, operation, inputId,
                         composition, generation, request.optLong(Contract.CORE_FIELD_NETWORK_REVISION), input[1], output[0], arguments["owner"] as? String)
-                    check(calls.putIfAbsent(owner.processId to id, call) == null) { "core requestId 重复" }
+                    check(calls.putIfAbsent(owner.processId to id, call) == null) { "Duplicate core requestId" }
                     io.execute {
                         try { ParcelFileDescriptor.AutoCloseOutputStream(input[1]).use { CoreParts.write(it, acceptedParts) } }
                         catch (error: Throwable) { call.failure = error; state.post { emitCallFailure(call, error) } }
@@ -518,7 +518,7 @@ class CoreClient private constructor(private val context: Context) {
             if (inputId != null) {
                 val file = AppFiles.runRecord(context, inputId)
                 val raw = JSONObject(CoreFrames.utf8(CorePrivateFiles.read(file, AppFiles.MAX_RUN_RECORD_BYTES)
-                    ?: throw IOException("装载输入记录不存在")))
+                    ?: throw IOException("Preparation input record does not exist")))
                 val input = CoreInput.read(raw, raw.getString("id"), CoreInput.integerRevision(raw.get("revision")), raw.optStringOrNull("mode"))
                 parts[Contract.CORE_PART_CONFIG] = input.body
                 parts[Contract.CORE_PART_OVERRIDES] = input.overrides
@@ -529,7 +529,7 @@ class CoreClient private constructor(private val context: Context) {
             } else {
                 val supplied = arguments["parts"] as? Map<*, *> ?: (arguments["arguments"] as? Map<*, *>)?.get("parts") as? Map<*, *> ?: payload.optJSONObject("parts")?.let { json -> json.keys().asSequence().associateWith { json.get(it) } }.orEmpty()
                 supplied.forEach { (key, value) ->
-                    val bytes = when (value) { is ByteArray -> value; is String -> value.toByteArray(Charsets.UTF_8); else -> throw IllegalArgumentException("内核输入分段不是原始字节") }
+                    val bytes = when (value) { is ByteArray -> value; is String -> value.toByteArray(Charsets.UTF_8); else -> throw IllegalArgumentException("Core input part is not raw bytes") }
                     parts[key.toString()] = bytes
                 }
             }
@@ -549,9 +549,9 @@ class CoreClient private constructor(private val context: Context) {
 
     private fun read(processId: String, requestId: Long, result: MethodChannel.Result) {
         val call = calls[processId to requestId]
-        if (call == null) { failed(result, CoreTransportException(Contract.CORE_ERROR_IDENTITY_MISMATCH, "内核请求不存在或已结束")); return }
+        if (call == null) { failed(result, CoreTransportException(Contract.CORE_ERROR_IDENTITY_MISMATCH, "Core request does not exist or has finished")); return }
         synchronized(call) {
-            if (call.reading) { failed(result, IllegalStateException("同一内核请求已有读取操作")); return }
+            if (call.reading) { failed(result, IllegalStateException("A read is already in progress for this core request")); return }
             call.reading = true
         }
         io.execute {
@@ -575,7 +575,7 @@ class CoreClient private constructor(private val context: Context) {
                 }
                 if (frame.kind == Contract.CORE_IPC_FRAME_TERMINAL) {
                     call.terminal = true
-                    // Go 已写终态仍可能尚未从 JNI 返回，先等待独立真实退出回执。
+                    // Go may write the terminal frame before returning from JNI; wait for the separate exit receipt first.
                     awaitActualExit(call)
                     call.failure?.let { throw it }
                     call.output.close()
@@ -588,7 +588,7 @@ class CoreClient private constructor(private val context: Context) {
             } catch (error: Throwable) {
                 var failure = mergeFailure(call.failure, error)
                 try { call.output.close() } catch (close: Throwable) { failure = mergeFailure(failure, close) }
-                // 原结果 FD 中断不等于 JNI 返回；仍等 receipt FD 实际结束或对应 DeathRecipient。
+                // An interrupted result FD does not mean JNI has returned; wait for the receipt FD to finish or the matching DeathRecipient.
                 awaitActualExit(call)
                 failure = call.failure?.let { mergeFailure(it, failure) } ?: failure
                 val actual = call.nativeReceipt?.let { CoreNativeCallException(it.toString().toByteArray(Charsets.UTF_8), failure) } ?: failure
@@ -606,12 +606,12 @@ class CoreClient private constructor(private val context: Context) {
             val owner = connection
             val target = calls[processId to requestId]
             if (owner == null || owner.processId != processId || owner.confirmedDead || target == null) {
-                main.post { failed(result, CoreTransportException(Contract.CORE_ERROR_IDENTITY_MISMATCH, "取消请求属于旧内核进程或调用")) }
+                main.post { failed(result, CoreTransportException(Contract.CORE_ERROR_IDENTITY_MISMATCH, "Cancel request belongs to an old core process or call")) }
                 return@post
             }
             if (target.operation == Contract.CORE_OPERATION_PREPARE) {
                 try {
-                    // 撤销后续业务权限；原调用、receipt 和 lease 继续等待实际退出。
+                    // Revoke authority for further application requests; keep the original call, receipt, and lease until actual exit.
                     val record = lifecycle.snapshot()
                     if (record.processId != processId || record.stage != Contract.CORE_PHASE_STOPPING)
                         lifecycle.requestExit(processId, "reconnect")
@@ -629,7 +629,7 @@ class CoreClient private constructor(private val context: Context) {
                 "arguments" to mapOf("targetRequestId" to requestId)), object : MethodChannel.Result {
                 override fun success(admission: Any?) {
                     val id = ((admission as? Map<*, *>)?.get(Contract.CORE_FIELD_REQUEST_ID) as? Number)?.toLong()
-                    if (id == null) { failed(result, IOException("CANCEL 未受理")); return }
+                    if (id == null) { failed(result, IOException("CANCEL was not admitted")); return }
                     val bytes = java.io.ByteArrayOutputStream()
                     var started: Boolean? = null
                     fun cancellationFailure(code: String, message: String?, details: Any?) {
@@ -663,7 +663,7 @@ class CoreClient private constructor(private val context: Context) {
                                             val actual = JSONObject(CoreFrames.utf8(bytes.toByteArray())).objectMap()
                                             result.success(actual + if (started == null) emptyMap() else mapOf(Contract.CORE_FIELD_STARTED to started))
                                         }
-                                        else -> throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "CANCEL 返回了非 DATA frame")
+                                        else -> throw CoreTransportException(Contract.CORE_ERROR_TRANSPORT_INTERRUPTED, "CANCEL returned a non-DATA frame")
                                     }
                                 } catch (error: Throwable) {
                                     cancellationFailure((error as? CoreTransportException)?.code ?: Contract.CORE_ERROR_CALL_FAILED,
@@ -705,11 +705,11 @@ class CoreClient private constructor(private val context: Context) {
             if (owner == null) {
                 val gate = CoreResourceGate.forApplication(context).tryAcquire()
                 if (gate == null) {
-                    if (SystemClock.elapsedRealtime() >= deadline) main.post { reply(IOException("内核退出尚未确认")) }
+                    if (SystemClock.elapsedRealtime() >= deadline) main.post { reply(IOException("Core exit is unconfirmed")) }
                     else handshake { snapshot, error ->
                         val actualId = snapshot?.get(Contract.CORE_FIELD_PROCESS_ID) as? String
-                        if (error != null || actualId == null) reply(error ?: IOException("内核身份未确认"))
-                        else if (processId.isNotEmpty() && processId != actualId) reply(IOException("退出请求属于旧内核进程"))
+                        if (error != null || actualId == null) reply(error ?: IOException("Core identity is unconfirmed"))
+                        else if (processId.isNotEmpty() && processId != actualId) reply(IOException("Exit request belongs to an old core process"))
                         else exit(actualId, admittedAt, deadline, reason, reply)
                     }
                 } else {
@@ -719,7 +719,7 @@ class CoreClient private constructor(private val context: Context) {
                 }
                 return@post
             }
-            if (owner.processId != processId) { main.post { reply(IOException("退出请求属于旧内核进程")) }; return@post }
+            if (owner.processId != processId) { main.post { reply(IOException("Exit request belongs to an old core process")) }; return@post }
             try {
                 if (lifecycle.snapshot().processId == processId) lifecycle.requestExit(processId, reason)
                 awaitExitDeadline(processId, deadline, reply)
@@ -740,7 +740,7 @@ class CoreClient private constructor(private val context: Context) {
         exitWaiters[reply] = processId
         state.postDelayed({
             if (exitWaiters.remove(reply) != null) {
-                val error = IOException("退出请求的原受理期限已到，core process 或本地 FD I/O 尚未结束")
+                val error = IOException("The exit request's original admission deadline has expired; the core process or local FD I/O has not finished")
                 main.post { reply(error) }
             }
         }, (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0L) + Contract.OPERATION_UI_GRACE_MS)
@@ -777,12 +777,12 @@ class CoreClient private constructor(private val context: Context) {
                 require(path != null && id != null)
                 val source = File(path)
                 check(source.parentFile?.absoluteFile?.normalize() == AppFiles.work(context).absoluteFile.normalize() &&
-                    (source.name.startsWith("run-input-") || source.name == AppFiles.systemInput(context).name)) { "装载输入暂存路径无效" }
-                val bytes = CorePrivateFiles.read(source, AppFiles.MAX_RUN_RECORD_BYTES) ?: throw IOException("装载输入暂存文件不存在")
+                    (source.name.startsWith("run-input-") || source.name == AppFiles.systemInput(context).name)) { "Invalid preparation input staging path" }
+                val bytes = CorePrivateFiles.read(source, AppFiles.MAX_RUN_RECORD_BYTES) ?: throw IOException("Preparation input staging file does not exist")
                 val raw = JSONObject(CoreFrames.utf8(bytes))
                 CoreInput.read(raw, raw.getString("id"), CoreInput.integerRevision(raw.get("revision")), raw.optStringOrNull("mode"))
                 val target = AppFiles.runRecord(context, id)
-                check(!target.exists()) { "不可变装载记录已经存在" }
+                check(!target.exists()) { "Immutable preparation record already exists" }
                 var publicationError: Throwable? = null
                 try { CorePrivateFiles.write(target, bytes) }
                 catch (error: CoreRecordPublicationException) { publicationError = error }
@@ -799,7 +799,7 @@ class CoreClient private constructor(private val context: Context) {
             try {
                 require(id != null)
                 val file = AppFiles.runRecord(context, id)
-                if (CorePrivateFiles.read(file, AppFiles.MAX_RUN_RECORD_BYTES) == null) throw IOException("实际装载输入记录不存在")
+                if (CorePrivateFiles.read(file, AppFiles.MAX_RUN_RECORD_BYTES) == null) throw IOException("Actual preparation input record does not exist")
                 CorePrivateFiles.sync(file.parentFile!!)
                 main.post { result.success(mapOf("saved" to true, "durable" to true, "path" to file.path, Contract.CORE_FIELD_INPUT_ID to id)) }
             } catch (error: Throwable) { main.post { failed(result, error) } }
@@ -881,6 +881,6 @@ class CoreClient private constructor(private val context: Context) {
         fun get(context: Context): CoreClient = instance ?: synchronized(this) {
             instance ?: CoreClient(context.applicationContext).also { instance = it }
         }
-        fun installed(): CoreClient = checkNotNull(instance) { "默认进程内核连接尚未安装" }
+        fun installed(): CoreClient = checkNotNull(instance) { "The core connection in the default process is not installed" }
     }
 }

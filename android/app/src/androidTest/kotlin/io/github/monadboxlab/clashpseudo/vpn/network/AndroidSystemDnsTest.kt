@@ -13,7 +13,7 @@ class AndroidSystemDnsTest {
     private class Fixture {
         val callbacks = AtomicInteger()
         val dns = AndroidSystemDns(UnderlyingSnapshot(null, emptyList(), "unavailable", 7),
-            Executor { callbacks.incrementAndGet(); throw AssertionError("没有 captured Network 时不能提交系统 callback") })
+            Executor { callbacks.incrementAndGet(); throw AssertionError("Must not submit a system callback without a captured Network") })
         fun raw(id: Long, wire: ByteArray = byteArrayOf(1)) = json(dns.raw(id, wire))
         fun cancel(id: Long) = json(dns.cancel(id))
         fun assertIdle() { assertTrue(dns.idle); assertEquals(0, callbacks.get()) }

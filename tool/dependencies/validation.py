@@ -1,4 +1,4 @@
-"""使用固定候选运行测试，并为分发准备 release APK 与对应源码。"""
+"""Run tests against a fixed candidate and prepare release APKs and corresponding sources for distribution."""
 
 import contextlib
 import gzip
@@ -35,7 +35,7 @@ def _command(arguments, root, environment, output, report, label):
     entry = {"name": label, "command": list(map(str, arguments)), "log": log.name}
     report["steps"].append(entry)
     started = time.monotonic()
-    logging.info("开始：%s；日志：%s", label, log)
+    logging.info("Starting: %s; log: %s", label, log)
     with log.open("w", encoding="utf-8") as stream:
         stream.write(json.dumps(entry["command"], ensure_ascii=False) + "\n")
         stream.flush()
@@ -48,8 +48,8 @@ def _command(arguments, root, environment, output, report, label):
                 print(line, file=sys.stderr, end="", flush=True)
             returncode = process.wait()
     entry["exitCode"] = returncode
-    require(returncode == 0, f"{label} 失败（{returncode}），原始输出：{log}")
-    logging.info("完成：%s，耗时 %.1f 秒", label, time.monotonic() - started)
+    require(returncode == 0, f"{label} failed ({returncode}); raw output: {log}")
+    logging.info("Completed: %s in %.1f seconds", label, time.monotonic() - started)
 
 
 def _operation(function, output, report, label):
@@ -57,7 +57,7 @@ def _operation(function, output, report, label):
     entry = {"name": label, "log": log.name, "exitCode": 1}
     report["steps"].append(entry)
     started = time.monotonic()
-    logging.info("开始：%s；日志：%s", label, log)
+    logging.info("Starting: %s; log: %s", label, log)
     with log.open("w", encoding="utf-8") as stream, \
             contextlib.redirect_stdout(stream), contextlib.redirect_stderr(stream):
         try:
@@ -66,13 +66,13 @@ def _operation(function, output, report, label):
             print(str(error), file=stream)
             raise
     entry["exitCode"] = 0
-    logging.info("完成：%s，耗时 %.1f 秒", label, time.monotonic() - started)
+    logging.info("Completed: %s in %.1f seconds", label, time.monotonic() - started)
     return result
 
 
 def _output_paths(project, output):
     root, output = Path(project).resolve(), Path(output).resolve()
-    require(not output.is_relative_to(root), "验证材料须保存在项目之外")
+    require(not output.is_relative_to(root), "Verification artifacts must be saved outside the project")
     output.mkdir(parents=True)
     return root, output
 
@@ -86,7 +86,7 @@ def _prepare(root, toolchain_cache):
     environment = {**os.environ, **environment, "GOTOOLCHAIN": "local", "GOWORK": "off"}
     go = shutil.which("go", path=environment["PATH"])
     flutter = shutil.which("flutter", path=environment["PATH"])
-    require(go and flutter, "固定工具链缺少 Go 或 Flutter")
+    require(go and flutter, "Fixed toolchains are missing Go or Flutter")
     return environment, Updater(root, go=go, flutter=flutter, env=environment)
 
 
@@ -111,7 +111,7 @@ def validate(project, output, *, toolchain_cache=None):
         for label, arguments in commands:
             _command(arguments, root, environment, output, report, label)
             _save(report_path, report)
-        require(input_identity(root) == report["inputs"], "测试期间候选输入发生变化")
+        require(input_identity(root) == report["inputs"], "Candidate inputs changed during tests")
         report["status"] = "verified"
     except Exception as error:
         report["error"] = str(error)
@@ -129,10 +129,10 @@ def release_apks(root):
     for item in metadata["elements"]:
         abi = next((entry["value"] for entry in item["filters"] if entry["filterType"] == "ABI"), "universal")
         path = (metadata_path.parent / item["outputFile"]).resolve()
-        require(path.is_relative_to(metadata_path.parent.resolve()), "APK 输出路径越界")
-        require(abi not in apks, "APK 输出重复：" + abi)
+        require(path.is_relative_to(metadata_path.parent.resolve()), "APK output path escapes its directory")
+        require(abi not in apks, "Duplicate APK output: " + abi)
         apks[abi] = path
-    require(set(apks) == {"universal", *ABIS}, "release 构建须生成通用及三个分 ABI APK")
+    require(set(apks) == {"universal", *ABIS}, "Release build must produce a universal APK and three ABI-specific APKs")
     return apks
 
 
@@ -160,7 +160,7 @@ def build_release(project, output, *, commit, toolchain_cache=None):
     report_path = output / "build.json"
     try:
         environment, updater = _prepare(root, toolchain_cache)
-        require(run(["git", "rev-parse", "HEAD"], root).strip() == commit, "构建提交与候选提交不同")
+        require(run(["git", "rev-parse", "HEAD"], root).strip() == commit, "Build commit differs from the candidate commit")
         report.update(inputs=input_identity(root), commit=commit, version=application_version(root),
                       mihomo=updater.go_run("list", "-mod=readonly", "-m", "-f", "{{.Version}}",
                                            "github.com/metacubex/mihomo").strip())
@@ -184,7 +184,7 @@ def build_release(project, output, *, commit, toolchain_cache=None):
                 sums.append(hashlib.file_digest(stream, "sha256").hexdigest() + "  " + name + "\n")
         (output / "SHA256SUMS").write_text("".join(sums), encoding="utf-8")
         report["assets"].append("SHA256SUMS")
-        require(input_identity(root) == report["inputs"], "构建期间候选输入发生变化")
+        require(input_identity(root) == report["inputs"], "Candidate inputs changed during the build")
         report["status"] = "built"
     except Exception as error:
         report["error"] = str(error)

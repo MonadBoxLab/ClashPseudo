@@ -5,7 +5,7 @@ import android.os.ParcelFileDescriptor
 import androidx.annotation.Keep
 import io.github.monadboxlab.clashpseudo.app.AppProcess
 
-/** 只在 :core 完成进程校验后加载；默认进程不引用此对象。 */
+/** Load only after verifying the :core process; the default process does not reference this object. */
 @Keep
 object NativeCore {
     @Volatile private var loaded = false

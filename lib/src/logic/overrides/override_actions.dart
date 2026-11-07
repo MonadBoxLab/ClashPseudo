@@ -371,7 +371,7 @@ class OverrideActions {
     return _message(messages.overrideSettingsSaved);
   }
 
-  /// 保存定期更新设置，保留当前运行输入。
+  /// Saves scheduled update settings while preserving the current runtime input.
   Future<AppMessage> _setUpdate(
     List<OverrideEntry> entries,
     OverrideEntry? existing,

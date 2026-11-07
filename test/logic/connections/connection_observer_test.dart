@@ -97,8 +97,8 @@ void main() {
   for (final incomplete in [true, false]) {
     testWidgets(
       incomplete
-          ? '原始 complete=false 样本经 ConnectionObserver 后显示失败并保留历史'
-          : '超过 activeLimit 的样本经 ConnectionObserver 后显示失败并保留历史',
+          ? 'ConnectionObserver reports failure for a complete=false sample while retaining history'
+          : 'ConnectionObserver reports failure for a sample exceeding activeLimit while retaining history',
       (tester) async {
         final bridge = ObservationBridge();
         final observer = ConnectionObserver(bridge)..updateState(bridge.state);

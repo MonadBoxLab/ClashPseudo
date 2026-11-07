@@ -130,7 +130,7 @@ void main() {
     await directory.delete(recursive: true);
   });
 
-  test('LAN 保存经真实 AppRuntime 返回顶层成功，snapshot 按 resultSuccess 读取', () async {
+  test('LAN save through actual AppRuntime returns top-level success and snapshot reads resultSuccess', () async {
     final result = await execute({
       'action': 'saveLanProxy',
       'name': 'Local network proxy',
@@ -170,7 +170,7 @@ void main() {
     expect(snapshot.savedRevision, saved.revision);
   });
 
-  test('LAN 保存后 enable 的实际应用失败仍返回 false，不按 saved 状态改为成功', () async {
+  test('actual enable failure after LAN save returns false rather than treating saved state as success', () async {
     final saved = await execute({
       'action': 'saveLanProxy',
       'name': 'Local network proxy',
@@ -187,7 +187,8 @@ void main() {
       'revision': saved['savedRevision'],
       'enabled': true,
     });
-    // 当前没有已选配置；设置保存成功与实际启动失败分别保留。
+    // No configuration is selected; retain settings save success and actual start
+    // failure separately.
     expect(result['success'], isFalse);
     expect(result['overrideStatus'], 'applyFailed');
     expect(result['targetId'], saved['targetId']);
@@ -210,7 +211,7 @@ void main() {
     );
   });
 
-  test('LAN 保存后的 directory sync warning 保留 saved 与失败反馈', () async {
+  test('directory sync warning after LAN save retains saved state and failure feedback', () async {
     durable = false;
     final result = await execute({
       'action': 'saveLanProxy',

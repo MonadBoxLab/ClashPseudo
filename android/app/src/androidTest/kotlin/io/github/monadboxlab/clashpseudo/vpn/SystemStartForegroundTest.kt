@@ -32,13 +32,13 @@ class SystemStartForegroundTest {
         CoreIpcTestDriver.assertNoGoInApplication()
         assertEquals(NativeSession.Phase.STOPPED, PseudoVpnService.session.snapshot().phase)
         assertFalse(CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java))
-        assertNull("使用现有 VPN 授权，不打开授权界面", VpnService.prepare(context))
+        assertNull("Use existing VPN authorization without opening the authorization UI", VpnService.prepare(context))
         val notification = context.getSystemService(NotificationManager::class.java)
         assertTrue(notification.activeNotifications.none { it.id == 1 })
         val activity = instrumentation.startActivitySync(
             Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         try {
-            platform.await("UI 启动后的 writer 结束") { AppBridge.operationId == null && !AppBridge.logic.busy }
+            platform.await("Writer finishes after UI startup") { AppBridge.operationId == null && !AppBridge.logic.busy }
             CoreIpcTestDriver.fixture().use { observer ->
                 platform.handshake()
                 val original = IOException("内核资源释放未确认\nAuthorization: Bearer fixture")
@@ -49,9 +49,9 @@ class SystemStartForegroundTest {
                         .getRunningServices(100).any {
                             it.service == ComponentName(context, PseudoVpnService::class.java) && it.foreground
                         }
-                    platform.await("实际 SDK foreground 状态", ready = ::foreground)
+                    platform.await("Actual SDK foreground state", ready = ::foreground)
                     CoreIpcTestDriver.injectCommunicationFailure(context, original)
-                    platform.await("通信中断的 UNKNOWN 状态") {
+                    platform.await("UNKNOWN state after communication loss") {
                         PseudoVpnService.session.snapshot().phase == NativeSession.Phase.UNKNOWN
                     }
                     val unknown = PseudoVpnService.session.snapshot()
@@ -68,25 +68,25 @@ class SystemStartForegroundTest {
                     } else {
                         observer.debug.serviceControl(CoreFixtureContract.CLOSE_RESOURCES)
                     }
-                    platform.await("foreground 资源移除") { !foreground() }
-                    platform.await("本次通知移除") { notification.activeNotifications.none { it.id == 1 } }
-                    platform.await("系统启动请求结束") { !AppBridge.pendingSystemRestore }
+                    platform.await("Foreground resources are removed") { !foreground() }
+                    platform.await("This notification is removed") { notification.activeNotifications.none { it.id == 1 } }
+                    platform.await("System startup request finishes") { !AppBridge.pendingSystemRestore }
                     val after = PseudoVpnService.session.snapshot()
                     assertEquals(NativeSession.Phase.UNKNOWN, after.phase)
                     assertEquals(unknown.generation, after.generation)
                     assertEquals(unknown.error, after.error)
                     assertEquals(status["error"], platform.status()["error"])
                     assertFalse(observer.debug.serviceControl(CoreFixtureContract.SERVICE_STATE).getBoolean("nativeLoaded"))
-                    assertFalse("foreground 移除不是 process death", observer.deathConfirmed)
+                    assertFalse("Foreground removal is not process death", observer.deathConfirmed)
                     assertTrue(observer.binder.isBinderAlive)
                     CoreIpcTestDriver.assertNoGoInApplication()
                 }
                 observer.exit()
-                platform.await("DeathRecipient 确认后的 STOPPED 状态") {
+                platform.await("STOPPED state after DeathRecipient confirmation") {
                     PseudoVpnService.session.snapshot().phase == NativeSession.Phase.STOPPED &&
                         CoreClient.get(context).status()["phase"] == Contract.CORE_PHASE_EXITED
                 }
-                platform.await("本次 Service 销毁") {
+                platform.await("This Service is destroyed") {
                     !CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java)
                 }
             }

@@ -1,4 +1,4 @@
-"""子进程执行与显式环境。"""
+"""Subprocess execution with explicit environments."""
 import logging
 import os
 import shlex
@@ -12,14 +12,14 @@ def run(command, cwd, env=None):
     command = list(map(str, command))
     label = shlex.join([os.path.basename(command[0]), *command[1:]])
     started = time.monotonic()
-    logger.info("执行：%s", label)
+    logger.info("Running: %s", label)
     process = subprocess.run(
         command, cwd=cwd,
         env={**os.environ, "GOTOOLCHAIN": "local", "GOWORK": "off", "GIT_OPTIONAL_LOCKS": "0", **(env or {})},
         text=True, capture_output=True, check=False,
     )
     if process.returncode:
-        raise ValueError(f"命令失败（{process.returncode}）：{' '.join(map(str, command))}\n"
+        raise ValueError(f"Command failed ({process.returncode}): {' '.join(map(str, command))}\n"
                          + process.stdout + process.stderr)
-    logger.info("命令完成，耗时 %.1f 秒：%s", time.monotonic() - started, label)
+    logger.info("Command completed in %.1f seconds: %s", time.monotonic() - started, label)
     return process.stdout

@@ -76,99 +76,110 @@ void main() {
   AppSnapshot running(String process) =>
       AppSnapshot(phase: 'RUNNING', generation: 1, core: source(process));
 
-  testWidgets('core 长时间未返回时 app 每秒独立更新，core slot 到真实回复前不释放', (tester) async {
-    final bridge = MemoryBridge()
-      ..corePending = Completer<Map<String, dynamic>>();
-    final app = TrafficApp(bridge)..state = running('memory-core');
-    final view = TrafficController(app)..setVisible(true);
-    await tester.pump();
-    expect(view.appRssBytes, 123456789);
-    expect(bridge.coreReads, 1);
-    for (var second = 0; second < 20; second++) {
-      bridge.rss = 1000000 + second;
+  testWidgets(
+    'app updates independently each second while core is pending and core slot stays occupied until the actual reply',
+    (tester) async {
+      final bridge = MemoryBridge()
+        ..corePending = Completer<Map<String, dynamic>>();
+      final app = TrafficApp(bridge)..state = running('memory-core');
+      final view = TrafficController(app)..setVisible(true);
+      await tester.pump();
+      expect(view.appRssBytes, 123456789);
+      expect(bridge.coreReads, 1);
+      for (var second = 0; second < 20; second++) {
+        bridge.rss = 1000000 + second;
+        await tester.pump(const Duration(seconds: 1));
+        expect(view.appRssBytes, bridge.rss);
+      }
+      expect(bridge.memoryReads, 21);
+      expect(bridge.coreReads, 1);
+      expect(view.coreRssBytes, isNull);
+      expect(view.coreMemoryError, isNotNull);
+      expect(view.appMemoryError, isNull);
+      view.dispose();
+      bridge.corePending!.complete({
+        'valid': true,
+        'processId': 'memory-core',
+        'processRssBytes': 12,
+        'sampledAt': DateTime.now().millisecondsSinceEpoch,
+      });
+      await tester.pump();
+      app.dispose();
+    },
+  );
+
+  testWidgets(
+    'invalid core memory sample retains identity differences without displaying the full response',
+    (tester) async {
+      final bridge = MemoryBridge()
+        ..corePending = Completer<Map<String, dynamic>>();
+      final app = TrafficApp(bridge)..state = running('memory-core');
+      final view = TrafficController(app)..setVisible(true);
+      bridge.corePending!.complete({
+        'valid': true,
+        'processId': 'other-core',
+        'processRssBytes': 123,
+        'sampledAt': DateTime.now().millisecondsSinceEpoch,
+        'unused': {'private': 'memory-response-only'},
+      });
+      await tester.pump();
+      final detail = view.coreMemoryError!.detail!;
+      expect(detail, contains('expectedProcessId: memory-core'));
+      expect(detail, contains('processId: other-core'));
+      expect(detail, contains('processRssBytes: 123'));
+      expect(detail, isNot(contains('memory-response-only')));
+      expect(view.coreRssBytes, isNull);
+      view.dispose();
+      app.dispose();
+    },
+  );
+
+  testWidgets(
+    'stop and replacement clear old core identity immediately, reject late replies, and retain app updates',
+    (tester) async {
+      final bridge = MemoryBridge();
+      final app = TrafficApp(bridge)..state = running('first-core');
+      final view = TrafficController(app)..setVisible(true);
+      await tester.pump();
+      expect(view.coreRssBytes, 64000000);
+      bridge.corePending = Completer<Map<String, dynamic>>();
       await tester.pump(const Duration(seconds: 1));
-      expect(view.appRssBytes, bridge.rss);
-    }
-    expect(bridge.memoryReads, 21);
-    expect(bridge.coreReads, 1);
-    expect(view.coreRssBytes, isNull);
-    expect(view.coreMemoryError, isNotNull);
-    expect(view.appMemoryError, isNull);
-    view.dispose();
-    bridge.corePending!.complete({
-      'valid': true,
-      'processId': 'memory-core',
-      'processRssBytes': 12,
-      'sampledAt': DateTime.now().millisecondsSinceEpoch,
-    });
-    await tester.pump();
-    app.dispose();
-  });
+      expect(bridge.coreReads, 2);
+      final late = bridge.corePending!;
+      app.state = running('replacement-core');
+      app.changed();
+      expect(view.coreRssBytes, isNull);
+      expect(view.appRssBytes, 123456789);
+      await tester.pump(const Duration(seconds: 1));
+      expect(bridge.coreReads, 2);
+      expect(bridge.memoryReads, 3);
+      bridge.corePending = null;
+      late.complete({
+        'valid': true,
+        'processId': 'first-core',
+        'processRssBytes': 999,
+        'sampledAt': DateTime.now().millisecondsSinceEpoch,
+      });
+      await tester.pump();
+      expect(view.coreRssBytes, isNull);
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(bridge.coreReads, 3);
+      expect(view.coreRssBytes, 64000000);
+      app.state = const AppSnapshot(phase: 'STOPPED');
+      app.changed();
+      expect(view.coreMemoryRunning, isFalse);
+      expect(view.coreRssBytes, isNull);
+      await tester.pump(const Duration(seconds: 2));
+      expect(bridge.coreReads, 3);
+      expect(view.appRssBytes, 123456789);
+      view.dispose();
+      app.dispose();
+    },
+  );
 
-  testWidgets('无效 core 内存采样保留身份差异，不展示完整响应', (tester) async {
-    final bridge = MemoryBridge()
-      ..corePending = Completer<Map<String, dynamic>>();
-    final app = TrafficApp(bridge)..state = running('memory-core');
-    final view = TrafficController(app)..setVisible(true);
-    bridge.corePending!.complete({
-      'valid': true,
-      'processId': 'other-core',
-      'processRssBytes': 123,
-      'sampledAt': DateTime.now().millisecondsSinceEpoch,
-      'unused': {'private': 'memory-response-only'},
-    });
-    await tester.pump();
-    final detail = view.coreMemoryError!.detail!;
-    expect(detail, contains('expectedProcessId: memory-core'));
-    expect(detail, contains('processId: other-core'));
-    expect(detail, contains('processRssBytes: 123'));
-    expect(detail, isNot(contains('memory-response-only')));
-    expect(view.coreRssBytes, isNull);
-    view.dispose();
-    app.dispose();
-  });
-
-  testWidgets('停止与替换立即清旧 core 身份，拒绝迟到回复且保留 app 更新', (tester) async {
-    final bridge = MemoryBridge();
-    final app = TrafficApp(bridge)..state = running('first-core');
-    final view = TrafficController(app)..setVisible(true);
-    await tester.pump();
-    expect(view.coreRssBytes, 64000000);
-    bridge.corePending = Completer<Map<String, dynamic>>();
-    await tester.pump(const Duration(seconds: 1));
-    expect(bridge.coreReads, 2);
-    final late = bridge.corePending!;
-    app.state = running('replacement-core');
-    app.changed();
-    expect(view.coreRssBytes, isNull);
-    expect(view.appRssBytes, 123456789);
-    await tester.pump(const Duration(seconds: 1));
-    expect(bridge.coreReads, 2);
-    expect(bridge.memoryReads, 3);
-    bridge.corePending = null;
-    late.complete({
-      'valid': true,
-      'processId': 'first-core',
-      'processRssBytes': 999,
-      'sampledAt': DateTime.now().millisecondsSinceEpoch,
-    });
-    await tester.pump();
-    expect(view.coreRssBytes, isNull);
-    await tester.pump(const Duration(milliseconds: 1));
-    expect(bridge.coreReads, 3);
-    expect(view.coreRssBytes, 64000000);
-    app.state = const AppSnapshot(phase: 'STOPPED');
-    app.changed();
-    expect(view.coreMemoryRunning, isFalse);
-    expect(view.coreRssBytes, isNull);
-    await tester.pump(const Duration(seconds: 2));
-    expect(bridge.coreReads, 3);
-    expect(view.appRssBytes, 123456789);
-    view.dispose();
-    app.dispose();
-  });
-
-  testWidgets('app/core 单项失败与 freshness 互不覆盖', (tester) async {
+  testWidgets('app/core failures and freshness remain independent', (
+    tester,
+  ) async {
     final bridge = MemoryBridge();
     final app = TrafficApp(bridge)..state = running('memory-core');
     final view = TrafficController(app)..setVisible(true);

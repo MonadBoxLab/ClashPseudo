@@ -1,4 +1,4 @@
-"""使用 NDK 构建 Android 原生库，完成编译后替换对应 ABI 的产物。"""
+"""Build Android native libraries with the NDK and replace each ABI output after compilation."""
 import argparse
 import os
 from pathlib import Path
@@ -19,14 +19,14 @@ ABI_TARGETS = {
 
 def api_level(value):
     if not re.fullmatch(r"[0-9]+", str(value)) or int(value) < 24:
-        raise argparse.ArgumentTypeError("Android API 必须为至少 24 的整数")
+        raise argparse.ArgumentTypeError("Android API must be an integer of at least 24")
     return int(value)
 
 
 def abi_list(value):
     values = value.split(",") if isinstance(value, str) else list(value)
     if not values or any(abi not in ABI_TARGETS for abi in values):
-        raise argparse.ArgumentTypeError("ABI 必须为逗号分隔的 armeabi-v7a、arm64-v8a 或 x86_64")
+        raise argparse.ArgumentTypeError("ABIs must be a comma-separated list of armeabi-v7a, arm64-v8a, or x86_64")
     return list(dict.fromkeys(values))
 
 
@@ -34,20 +34,20 @@ def build(project, ndk, api, output, abis, *, coverage=False, env=None):
     project, ndk, output = Path(project).resolve(), Path(ndk).resolve(), Path(output).absolute()
     api, abis = api_level(api), abi_list(abis)
     if not (project / "pubspec.yaml").is_file() or not (project / "native/mihomo/go.mod").is_file():
-        raise ValueError("缺少应用项目目录")
+        raise ValueError("Application project directory is missing")
     if (platform.system(), platform.machine()) != ("Linux", "x86_64"):
-        raise ValueError("原生构建只支持 Linux x86_64，不自动安装工具链")
+        raise ValueError("Native builds support only Linux x86_64; toolchains are not installed automatically")
     environment = dict(os.environ if env is None else env)
     go = shutil.which("go", path=environment.get("PATH", os.defpath))
     if go is None:
-        raise ValueError("找不到 Go 可执行文件")
+        raise ValueError("Go executable not found")
     compilers = {
         abi: ndk / "toolchains/llvm/prebuilt/linux-x86_64/bin" / f"{ABI_TARGETS[abi][1]}{api}-clang"
         for abi in abis
     }
     for compiler in compilers.values():
         if not compiler.is_file() or not os.access(compiler, os.X_OK):
-            raise ValueError("缺少 NDK 编译器：" + str(compiler))
+            raise ValueError("NDK compiler not found: " + str(compiler))
     from tool.contracts.generate import generate
     generate(project, check=True, env=environment)
     environment.update(GOTOOLCHAIN="local", CGO_ENABLED="1", GOOS="android")
@@ -93,25 +93,25 @@ def build(project, ndk, api, output, abis, *, coverage=False, env=None):
 
 
 def _go_quote(value):
-    # Go 的 quoted.Split 接受整段单引号或双引号，不采用 shell 转义。
+    # Go quoted.Split accepts whole single- or double-quoted strings, not shell escaping.
     if "'" not in value:
         return "'" + value + "'"
     if '"' not in value:
         return '"' + value + '"'
-    raise ValueError("Go 编译参数不能同时包含单引号和双引号")
+    raise ValueError("Go compiler arguments cannot contain both single and double quotes")
 
 
 def register_parser(subparsers):
     parser = subparsers.add_parser(
-        "build-core", help="构建 Android 三种 ABI 的原生库",
-        description="生成 libmihomo_bridge.so；逐 ABI 在 staging 完成编译后替换旧库，不修改依赖输入。",
-        epilog="示例：android build-core --ndk /opt/android/ndk/30 --output /tmp/native-libs")
-    parser.add_argument("--project", type=Path, default=ROOT, help="应用项目目录")
-    parser.add_argument("--ndk", type=Path, required=True, help="Android NDK 目录")
-    parser.add_argument("--api", type=api_level, default=24, help="Android API 级别")
-    parser.add_argument("--output", type=Path, required=True, help="原生库输出目录，按 ABI 建立子目录")
-    parser.add_argument("--abis", type=abi_list, default=list(ABI_TARGETS), help="逗号分隔的 ABI 列表，默认三种 ABI")
-    parser.add_argument("--coverage", action="store_true", help="添加 JNI coverage，仅用于测试构建")
+        "build-core", help="Build Android native libraries for three ABIs",
+        description="Generate libmihomo_bridge.so; stage each ABI build before replacing its library, without changing dependency inputs.",
+        epilog="Example: android build-core --ndk /opt/android/ndk/30 --output /tmp/native-libs")
+    parser.add_argument("--project", type=Path, default=ROOT, help="Application project directory")
+    parser.add_argument("--ndk", type=Path, required=True, help="Android NDK directory")
+    parser.add_argument("--api", type=api_level, default=24, help="Android API level")
+    parser.add_argument("--output", type=Path, required=True, help="Native library output directory with ABI subdirectories")
+    parser.add_argument("--abis", type=abi_list, default=list(ABI_TARGETS), help="Comma-separated ABI list, defaulting to all three ABIs")
+    parser.add_argument("--coverage", action="store_true", help="Enable JNI coverage for test builds only")
     parser.set_defaults(handler=run)
 
 

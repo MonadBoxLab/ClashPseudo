@@ -27,7 +27,7 @@ class CoreDocumentTransportTest {
             transport.document(bytes).use { descriptor ->
                 assertTrue(descriptor.canDetectErrors())
                 assertTrue(started.await(10, TimeUnit.SECONDS))
-                assertFalse("尚未读取的实际 pipe 仍持有 writer", transport.idle)
+                assertFalse("The unread actual pipe must still hold the writer", transport.idle)
                 assertFalse(transport.sealIfIdle())
                 ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { input ->
                     assertArrayEquals(bytes, CoreDocuments.read(input))
@@ -64,7 +64,7 @@ class CoreDocumentTransportTest {
             io.submit {}.get(10, TimeUnit.SECONDS)
             transport.awaitIdle(SystemClock.elapsedRealtime() + 10_000)
             assertTrue(transport.idle)
-            assertTrue("EPIPE 必须由 document writer 记录并结束，不能逃到线程的 uncaught handler：$failures", failures.isEmpty())
+            assertTrue("The document writer must record EPIPE and finish without reaching the thread's uncaught handler: $failures", failures.isEmpty())
             val receipt = "{\"exited\":true,\"unknown\":\"完整回执\"}".toByteArray(Charsets.UTF_8)
             transport.document(receipt).use { descriptor ->
                 ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { input ->

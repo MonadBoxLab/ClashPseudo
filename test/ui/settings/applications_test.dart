@@ -316,26 +316,54 @@ void main() {
   );
 
   for (final listFailure in [true, false]) {
-    testWidgets('Applications旧错误详情在状态epoch先变化时失效 $listFailure', (tester) async {
-      final bridge = AccessBridge()..fail = listFailure;
+    testWidgets(
+      'old Applications error details expire when state epoch changes first $listFailure',
+      (tester) async {
+        final bridge = AccessBridge()..fail = listFailure;
+        final app = AccessApp(bridge);
+        addTearDown(app.dispose);
+        await show(tester, ApplicationsPage(app: app));
+        await tester.pumpAndSettle();
+        if (!listFailure) {
+          await tester.tap(find.byKey(const ValueKey('access-only')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const ValueKey('applications-save')));
+          await tester.pumpAndSettle();
+        }
+        final strings = AppLocalizations.of(
+          tester.element(find.byType(ApplicationsPage)),
+        );
+        final details = find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.widgetWithText(TextButton, strings.errorDetails),
+        );
+        final oldDetails = tester.widget<TextButton>(details).onPressed!;
+        final previous = app.state;
+        app.state = AppSnapshot(
+          phase: previous.phase,
+          generation: previous.generation,
+          core: previous.core,
+          storageEpoch: previous.storageEpoch + 1,
+        );
+        oldDetails();
+        await tester.pump();
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(app.commands, isEmpty);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets(
+    'late Applications list errors do not cross an earlier state epoch change',
+    (tester) async {
+      final pending = Completer<List<Map<String, dynamic>>>();
+      final bridge = AccessBridge()..listReply = pending;
       final app = AccessApp(bridge);
       addTearDown(app.dispose);
       await show(tester, ApplicationsPage(app: app));
-      await tester.pumpAndSettle();
-      if (!listFailure) {
-        await tester.tap(find.byKey(const ValueKey('access-only')));
-        await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const ValueKey('applications-save')));
-        await tester.pumpAndSettle();
-      }
-      final strings = AppLocalizations.of(
-        tester.element(find.byType(ApplicationsPage)),
-      );
-      final details = find.descendant(
-        of: find.byType(SnackBar),
-        matching: find.widgetWithText(TextButton, strings.errorDetails),
-      );
-      final oldDetails = tester.widget<TextButton>(details).onPressed!;
+      await tester.pump();
+      expect(bridge.listCalls, 1);
       final previous = app.state;
       app.state = AppSnapshot(
         phase: previous.phase,
@@ -343,93 +371,39 @@ void main() {
         core: previous.core,
         storageEpoch: previous.storageEpoch + 1,
       );
-      oldDetails();
-      await tester.pump();
+      pending.completeError(StateError('retired applications original'));
+      await tester.pumpAndSettle();
+      expect(find.byType(SnackBar), findsNothing);
       expect(find.byType(AlertDialog), findsNothing);
       expect(app.commands, isEmpty);
       expect(tester.takeException(), isNull);
-    });
-  }
-
-  testWidgets('Applications列表迟到错误不跨越先变化的状态epoch', (tester) async {
-    final pending = Completer<List<Map<String, dynamic>>>();
-    final bridge = AccessBridge()..listReply = pending;
-    final app = AccessApp(bridge);
-    addTearDown(app.dispose);
-    await show(tester, ApplicationsPage(app: app));
-    await tester.pump();
-    expect(bridge.listCalls, 1);
-    final previous = app.state;
-    app.state = AppSnapshot(
-      phase: previous.phase,
-      generation: previous.generation,
-      core: previous.core,
-      storageEpoch: previous.storageEpoch + 1,
-    );
-    pending.completeError(StateError('retired applications original'));
-    await tester.pumpAndSettle();
-    expect(find.byType(SnackBar), findsNothing);
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(app.commands, isEmpty);
-    expect(tester.takeException(), isNull);
-  });
+    },
+  );
 
   for (final succeeds in [true, false]) {
-    testWidgets('应用列表详情打开期间保留在途读取：成功=$succeeds', (tester) async {
-      final pending = Completer<List<Map<String, dynamic>>>();
-      final bridge = AccessBridge()..listReply = pending;
-      final app = AccessApp(bridge);
-      addTearDown(app.dispose);
-      await show(tester, ApplicationsPage(app: app));
-      await tester.pump();
-      final field = find.byType(TextField);
-      await tester.showKeyboard(field);
-      final focus = tester.widget<TextField>(field).focusNode!;
-      await tester.enterText(field, 'Alpha');
-      await tester.pump(const Duration(seconds: 5));
-      await tester.pumpAndSettle();
-      expect(focus.hasFocus, isTrue, reason: '打开详情之前保留搜索焦点');
-      final strings = AppLocalizations.of(
-        tester.element(find.byType(ApplicationsPage)),
-      );
-      await tester.tap(
-        find.descendant(
-          of: find.byType(SnackBar),
-          matching: find.text(strings.errorDetails),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.byType(AlertDialog), findsOneWidget);
-      app.publish(app.state);
-      if (succeeds) {
-        pending.complete(bridge.installed);
-      } else {
-        pending.completeError(StateError('实际应用列表读取失败'));
-      }
-      await tester.pumpAndSettle();
-      expect(find.byType(AlertDialog), findsOneWidget);
-      expect(bridge.listCalls, 1);
-      await tester.tap(
-        find.descendant(
-          of: find.byType(AlertDialog),
-          matching: find.text(strings.close),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(bridge.listCalls, 1);
-      expect(tester.widget<TextField>(field).controller!.text, 'Alpha');
-      expect(focus.hasFocus, isTrue);
-      if (succeeds) {
+    testWidgets(
+      'application list details retain in-flight reads while open: success=$succeeds',
+      (tester) async {
+        final pending = Completer<List<Map<String, dynamic>>>();
+        final bridge = AccessBridge()..listReply = pending;
+        final app = AccessApp(bridge);
+        addTearDown(app.dispose);
+        await show(tester, ApplicationsPage(app: app));
+        await tester.pump();
+        final field = find.byType(TextField);
+        await tester.showKeyboard(field);
+        final focus = tester.widget<TextField>(field).focusNode!;
+        await tester.enterText(field, 'Alpha');
+        await tester.pump(const Duration(seconds: 5));
+        await tester.pumpAndSettle();
         expect(
-          find.descendant(
-            of: find.byKey(const ValueKey('application-app.alpha')),
-            matching: find.text('Alpha'),
-          ),
-          findsOneWidget,
+          focus.hasFocus,
+          isTrue,
+          reason: 'Search focus remains before opening details',
         );
-        expect(find.byType(SnackBar), findsNothing);
-      } else {
-        expect(find.byType(SnackBar), findsOneWidget);
+        final strings = AppLocalizations.of(
+          tester.element(find.byType(ApplicationsPage)),
+        );
         await tester.tap(
           find.descendant(
             of: find.byType(SnackBar),
@@ -437,15 +411,54 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsOneWidget);
+        app.publish(app.state);
+        if (succeeds) {
+          pending.complete(bridge.installed);
+        } else {
+          pending.completeError(StateError('实际应用列表读取失败'));
+        }
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsOneWidget);
+        expect(bridge.listCalls, 1);
         await tester.tap(
-          find.byKey(const ValueKey('operation-technical-details')),
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.text(strings.close),
+          ),
         );
         await tester.pumpAndSettle();
-        expect(find.textContaining('实际应用列表读取失败'), findsOneWidget);
-      }
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    });
+        expect(bridge.listCalls, 1);
+        expect(tester.widget<TextField>(field).controller!.text, 'Alpha');
+        expect(focus.hasFocus, isTrue);
+        if (succeeds) {
+          expect(
+            find.descendant(
+              of: find.byKey(const ValueKey('application-app.alpha')),
+              matching: find.text('Alpha'),
+            ),
+            findsOneWidget,
+          );
+          expect(find.byType(SnackBar), findsNothing);
+        } else {
+          expect(find.byType(SnackBar), findsOneWidget);
+          await tester.tap(
+            find.descendant(
+              of: find.byType(SnackBar),
+              matching: find.text(strings.errorDetails),
+            ),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(
+            find.byKey(const ValueKey('operation-technical-details')),
+          );
+          await tester.pumpAndSettle();
+          expect(find.textContaining('实际应用列表读取失败'), findsOneWidget);
+        }
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
   }
 
   testWidgets(
@@ -654,7 +667,8 @@ void main() {
           expect(tester.widget<ChoiceChip>(only).selected, isTrue);
         }
         if (duringConfirmation) {
-          // storageEpoch 变化已关闭旧弹窗，缓存的确认回调仍不能提交。
+          // storageEpoch change has closed the old popup; its cached confirmation
+          // callback still cannot submit.
           oldConfirm!();
           await tester.pumpAndSettle();
         }
@@ -874,82 +888,87 @@ void main() {
 
   for (final language in ['zh', 'en']) {
     for (final scale in [1.0, 2.0]) {
-      testWidgets('应用范围读取进度和失败保持行与控件几何 $language $scale', (tester) async {
-        tester.view.physicalSize = const Size(390, 1600);
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.reset);
-        final bridge = AccessBridge();
-        final app = AccessApp(bridge);
-        addTearDown(app.dispose);
-        await show(
-          tester,
-          MediaQuery(
-            data: MediaQueryData.fromView(tester.view)
-                .copyWith(textScaler: TextScaler.linear(scale)),
-            child: ApplicationsPage(app: app),
-          ),
-          locale: Locale(language),
-        );
-        await tester.pumpAndSettle();
-        final strings = AppLocalizations.of(
-          tester.element(find.byType(ApplicationsPage)),
-        );
-        final row = find.byKey(const ValueKey('application-app.alpha'));
-        final search = find.byType(TextField);
-        final policy = find.byKey(const ValueKey('applications-policy-status'));
-        final save = find.byKey(const ValueKey('applications-save'));
-        final before = [
-          tester.getRect(row),
-          tester.getRect(search),
-          tester.getRect(policy),
-          tester.getRect(save),
-        ];
-        final state = tester.state(find.byType(ApplicationsPage));
-        void stable() {
-          expect([
+      testWidgets(
+        'application scope read progress and failures preserve row and control geometry $language $scale',
+        (tester) async {
+          tester.view.physicalSize = const Size(390, 1600);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.reset);
+          final bridge = AccessBridge();
+          final app = AccessApp(bridge);
+          addTearDown(app.dispose);
+          await show(
+            tester,
+            MediaQuery(
+              data: MediaQueryData.fromView(tester.view)
+                  .copyWith(textScaler: TextScaler.linear(scale)),
+              child: ApplicationsPage(app: app),
+            ),
+            locale: Locale(language),
+          );
+          await tester.pumpAndSettle();
+          final strings = AppLocalizations.of(
+            tester.element(find.byType(ApplicationsPage)),
+          );
+          final row = find.byKey(const ValueKey('application-app.alpha'));
+          final search = find.byType(TextField);
+          final policy = find.byKey(
+            const ValueKey('applications-policy-status'),
+          );
+          final save = find.byKey(const ValueKey('applications-save'));
+          final before = [
             tester.getRect(row),
             tester.getRect(search),
             tester.getRect(policy),
             tester.getRect(save),
-          ], before);
-          expect(tester.state(find.byType(ApplicationsPage)), same(state));
-          expect(tester.takeException(), isNull);
-        }
+          ];
+          final state = tester.state(find.byType(ApplicationsPage));
+          void stable() {
+            expect([
+              tester.getRect(row),
+              tester.getRect(search),
+              tester.getRect(policy),
+              tester.getRect(save),
+            ], before);
+            expect(tester.state(find.byType(ApplicationsPage)), same(state));
+            expect(tester.takeException(), isNull);
+          }
 
-        final pending = bridge.listReply =
-            Completer<List<Map<String, dynamic>>>();
-        packageChanged(app, 'app.alpha');
-        await tester.pump();
-        stable();
-        expect(find.byType(CircularProgressIndicator), findsNothing);
-        bridge.listReply = null;
-        pending.completeError(StateError('list original cause'));
-        await tester.pumpAndSettle();
-        stable();
-        expect(find.byType(AlertDialog), findsNothing);
-        expect(
-          find.descendant(
-            of: find.byType(SnackBar),
-            matching: find.text(strings.applicationListFailed),
-          ),
-          findsOneWidget,
-        );
-        await tester.tap(
-          find.descendant(
-            of: find.byType(SnackBar),
-            matching: find.byIcon(Icons.close),
-          ),
-        );
-        await tester.pumpAndSettle();
-        bridge.fail = true;
-        app.setForeground(false);
-        app.setForeground(true);
-        await tester.pumpAndSettle();
-        stable();
-        expect(find.byType(SnackBar), findsOneWidget);
-        expect(app.commands, isEmpty);
-        await tester.pumpWidget(const SizedBox());
-      });
+          final pending = bridge.listReply =
+              Completer<List<Map<String, dynamic>>>();
+          packageChanged(app, 'app.alpha');
+          await tester.pump();
+          stable();
+          expect(find.byType(CircularProgressIndicator), findsNothing);
+          bridge.listReply = null;
+          pending.completeError(StateError('list original cause'));
+          await tester.pumpAndSettle();
+          stable();
+          expect(find.byType(AlertDialog), findsNothing);
+          expect(
+            find.descendant(
+              of: find.byType(SnackBar),
+              matching: find.text(strings.applicationListFailed),
+            ),
+            findsOneWidget,
+          );
+          await tester.tap(
+            find.descendant(
+              of: find.byType(SnackBar),
+              matching: find.byIcon(Icons.close),
+            ),
+          );
+          await tester.pumpAndSettle();
+          bridge.fail = true;
+          app.setForeground(false);
+          app.setForeground(true);
+          await tester.pumpAndSettle();
+          stable();
+          expect(find.byType(SnackBar), findsOneWidget);
+          expect(app.commands, isEmpty);
+          await tester.pumpWidget(const SizedBox());
+        },
+      );
     }
   }
 
@@ -1381,63 +1400,69 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('package 变化合并读取并只失效对应 icon', (tester) async {
-    final bridge = AccessBridge()
-      ..installed = [
-        {'package': 'app.alpha', 'label': 'Alpha', 'updatedAt': 1},
+  testWidgets(
+    'package changes coalesce reads and invalidate only the matching icon',
+    (tester) async {
+      final bridge = AccessBridge()
+        ..installed = [
+          {'package': 'app.alpha', 'label': 'Alpha', 'updatedAt': 1},
+          {'package': 'app.beta', 'label': 'Beta', 'updatedAt': 1},
+        ];
+      final app = AccessApp(bridge);
+      addTearDown(app.dispose);
+      await show(tester, ApplicationsPage(app: app));
+      await tester.pumpAndSettle();
+      expect(bridge.icons.where((name) => name == 'app.alpha').length, 1);
+      expect(bridge.icons.where((name) => name == 'app.beta').length, 1);
+
+      final pending = bridge.listReply =
+          Completer<List<Map<String, dynamic>>>();
+      packageChanged(app, 'app.alpha');
+      await tester.pump();
+      expect(bridge.listCalls, 2);
+      expect(bridge.icons.where((name) => name == 'app.alpha').length, 2);
+      expect(bridge.icons.where((name) => name == 'app.beta').length, 1);
+      packageChanged(app, 'app.beta');
+      packageChanged(app, 'app.alpha');
+      expect(bridge.listCalls, 2);
+      bridge.listReply = null;
+      bridge.installed = [
+        {'package': 'app.alpha', 'label': 'Alpha updated', 'updatedAt': 2},
         {'package': 'app.beta', 'label': 'Beta', 'updatedAt': 1},
       ];
-    final app = AccessApp(bridge);
-    addTearDown(app.dispose);
-    await show(tester, ApplicationsPage(app: app));
-    await tester.pumpAndSettle();
-    expect(bridge.icons.where((name) => name == 'app.alpha').length, 1);
-    expect(bridge.icons.where((name) => name == 'app.beta').length, 1);
+      pending.complete([
+        {'package': 'obsolete.app', 'label': 'Obsolete', 'updatedAt': 1},
+      ]);
+      await tester.pumpAndSettle();
+      expect(bridge.listCalls, 3);
+      expect(find.text('Alpha updated'), findsOneWidget);
+      expect(find.text('Obsolete'), findsNothing);
+      expect(bridge.icons.where((name) => name == 'app.beta').length, 2);
 
-    final pending = bridge.listReply = Completer<List<Map<String, dynamic>>>();
-    packageChanged(app, 'app.alpha');
-    await tester.pump();
-    expect(bridge.listCalls, 2);
-    expect(bridge.icons.where((name) => name == 'app.alpha').length, 2);
-    expect(bridge.icons.where((name) => name == 'app.beta').length, 1);
-    packageChanged(app, 'app.beta');
-    packageChanged(app, 'app.alpha');
-    expect(bridge.listCalls, 2);
-    bridge.listReply = null;
-    bridge.installed = [
-      {'package': 'app.alpha', 'label': 'Alpha updated', 'updatedAt': 2},
-      {'package': 'app.beta', 'label': 'Beta', 'updatedAt': 1},
-    ];
-    pending.complete([
-      {'package': 'obsolete.app', 'label': 'Obsolete', 'updatedAt': 1},
-    ]);
-    await tester.pumpAndSettle();
-    expect(bridge.listCalls, 3);
-    expect(find.text('Alpha updated'), findsOneWidget);
-    expect(find.text('Obsolete'), findsNothing);
-    expect(bridge.icons.where((name) => name == 'app.beta').length, 2);
-
-    final alphaCalls = bridge.icons.where((name) => name == 'app.alpha').length;
-    final betaCalls = bridge.icons.where((name) => name == 'app.beta').length;
-    bridge.installed = [
-      {'package': 'app.alpha', 'label': 'Alpha updated', 'updatedAt': 2},
-      {'package': 'app.beta', 'label': 'Beta updated', 'updatedAt': 2},
-    ];
-    app.setForeground(false);
-    app.setForeground(true);
-    await tester.pumpAndSettle();
-    expect(find.text('Beta updated'), findsOneWidget);
-    expect(
-      bridge.icons.where((name) => name == 'app.alpha').length,
-      alphaCalls,
-    );
-    expect(
-      bridge.icons.where((name) => name == 'app.beta').length,
-      betaCalls + 1,
-    );
-    expect(app.commands, isEmpty);
-    await tester.pumpWidget(const SizedBox());
-  });
+      final alphaCalls = bridge.icons
+          .where((name) => name == 'app.alpha')
+          .length;
+      final betaCalls = bridge.icons.where((name) => name == 'app.beta').length;
+      bridge.installed = [
+        {'package': 'app.alpha', 'label': 'Alpha updated', 'updatedAt': 2},
+        {'package': 'app.beta', 'label': 'Beta updated', 'updatedAt': 2},
+      ];
+      app.setForeground(false);
+      app.setForeground(true);
+      await tester.pumpAndSettle();
+      expect(find.text('Beta updated'), findsOneWidget);
+      expect(
+        bridge.icons.where((name) => name == 'app.alpha').length,
+        alphaCalls,
+      );
+      expect(
+        bridge.icons.where((name) => name == 'app.beta').length,
+        betaCalls + 1,
+      );
+      expect(app.commands, isEmpty);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   testWidgets('installation changes keep a surviving application anchored', (
     tester,

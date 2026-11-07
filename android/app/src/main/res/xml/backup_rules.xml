@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
-    <!-- 仅备份三个正式业务文件；安装级隐私标记位于 SDK 不备份的 noBackupFilesDir。 -->
+    <!-- Back up only the three application data files; the installation privacy marker stays in noBackupFilesDir, which the SDK excludes from backup. -->
     <include domain="file" path="configurations/configurations.json" />
     <include domain="file" path="configurations/preferences.json" />
     <include domain="file" path="configurations/overrides.json" />

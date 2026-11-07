@@ -37,7 +37,8 @@ Future<List<Color>> _samples(WidgetTester tester, List<Offset> points) async {
   final boundary = tester.renderObject<RenderRepaintBoundary>(
     find.byKey(_image),
   );
-  // 帧末的状态通知可能再次请求绘制；不推进动画时间，先完成该次绘制。
+  // End-of-frame state notifications may request another paint; complete it without
+  // advancing animation time.
   if (boundary.debugNeedsPaint) await tester.pump();
   expect(boundary.debugNeedsPaint, isFalse);
   return (await tester.runAsync(() async {

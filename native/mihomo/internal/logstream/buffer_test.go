@@ -46,18 +46,18 @@ func TestLogsCloseWaitsForActualSubscriptionDrain(t *testing.T) {
 	select {
 	case <-closed:
 		close(release)
-		t.Fatal("unsubscribe实际返回前Close已经返回")
+		t.Fatal("Close returned before unsubscribe returned")
 	case <-time.After(2100 * time.Millisecond):
 	}
 	close(release)
 	select {
 	case <-closed:
 	case <-time.After(5 * time.Second):
-		t.Fatal("unsubscribe返回后Close未结束")
+		t.Fatal("Close did not finish after unsubscribe returned")
 	}
 	entries := drain(t, buffer)
 	if len(entries) != 1 || entries[0].Text != "actual final tail" {
-		t.Fatal("Close丢失实际尾部日志")
+		t.Fatal("Close lost actual trailing logs")
 	}
 	buffer.Close()
 }
@@ -73,17 +73,17 @@ func TestClosingLogsPreservesQueuedTailAndIsIdempotent(t *testing.T) {
 	buffer.Close()
 	entries := drain(t, buffer)
 	if len(entries) != 150 {
-		t.Fatalf("尾部日志数=%d", len(entries))
+		t.Fatalf("trailing log count=%d", len(entries))
 	}
 	for index, entry := range entries {
 		if entry.Text != strconv.Itoa(index) {
-			t.Fatal("日志重复或顺序改变")
+			t.Fatal("logs were duplicated or reordered")
 		}
 	}
 	select {
 	case <-unsubscribed:
 	default:
-		t.Fatal("collector没有unsubscribe")
+		t.Fatal("collector did not unsubscribe")
 	}
 }
 func TestLogsDropOldestWithinLimits(t *testing.T) {
@@ -93,11 +93,11 @@ func TestLogsDropOldestWithinLimits(t *testing.T) {
 	}
 	next, dropped := buffer.Watermark()
 	if len(buffer.entries) != A.LogEntries || dropped != 50 || next != int64(A.LogEntries+50) {
-		t.Fatal("队列条数或watermark错误")
+		t.Fatal("incorrect queue count or watermark")
 	}
 	entry, err := buffer.Next(context.Background())
 	if err != nil || entry.Seq != 51 {
-		t.Fatal("没有整条淘汰最旧日志", err)
+		t.Fatal("oldest log was not evicted as a whole", err)
 	}
 }
 func TestLogBufferPreservesCredentialLikeText(t *testing.T) {
@@ -120,11 +120,11 @@ func TestLogBufferPreservesCredentialLikeText(t *testing.T) {
 		}
 		var actual LogEntry
 		if err = json.Unmarshal(encoded, &actual); err != nil || actual.Text != text {
-			t.Fatal("传输改变了原始合成日志", err)
+			t.Fatal("transport changed the original synthetic log", err)
 		}
 	}
 	if len(buffer.entries) != 0 || buffer.bytes != 0 {
-		t.Fatal("已经传出的日志仍被保留")
+		t.Fatal("logs were retained after delivery")
 	}
 }
 func TestLogsEnforceTotalByteLimit(t *testing.T) {
@@ -136,17 +136,17 @@ func TestLogsEnforceTotalByteLimit(t *testing.T) {
 	}
 	next, dropped := buffer.Watermark()
 	if buffer.bytes > A.CoreIpcQueueBytes || len(buffer.entries) == 0 || dropped == 0 || next != count {
-		t.Fatal("队列超出byte预算或未整条淘汰")
+		t.Fatal("queue exceeded its byte budget or did not evict whole records")
 	}
 	sum := 0
 	for _, entry := range buffer.entries {
 		sum += entry.bytes
 	}
 	if sum != buffer.bytes {
-		t.Fatal("byte统计与实际传输帧不符")
+		t.Fatal("byte count differs from actual transport frames")
 	}
 	if buffer.bytes+len(text)+5 <= A.CoreIpcQueueBytes {
-		t.Fatal("队列提前淘汰日志")
+		t.Fatal("queue evicted logs early")
 	}
 }
 func TestLogsSkipOnlyWholeOversizedMessagesAndAdvanceCursor(t *testing.T) {
@@ -159,15 +159,15 @@ func TestLogsSkipOnlyWholeOversizedMessagesAndAdvanceCursor(t *testing.T) {
 		buffer.add(ML.Event{LogLevel: ML.INFO, Payload: "last"})
 		next, dropped := buffer.Watermark()
 		if next != 4 || dropped < 1 {
-			t.Fatal("超限日志未推进watermark")
+			t.Fatal("oversized log did not advance the watermark")
 		}
 		for len(buffer.entries) > 0 {
 			entry, _ := buffer.Next(context.Background())
 			if entry.Seq == 2 {
-				t.Fatal("超限日志被截断后传出")
+				t.Fatal("oversized log was truncated and delivered")
 			}
 			if entry.Seq == 3 && entry.Text != text {
-				t.Fatal("合法消息被截断")
+				t.Fatal("valid message was truncated")
 			}
 		}
 	}
@@ -178,21 +178,21 @@ func TestLogsConsumptionReleasesReferencesWithMonotonicWatermark(t *testing.T) {
 	old := buffer.entries[:1]
 	entry, err := buffer.Next(context.Background())
 	if err != nil || entry.Text != "old" || old[0].Text != "" || buffer.bytes != 0 {
-		t.Fatal("消费后仍保留日志引用", err)
+		t.Fatal("log references were retained after consumption", err)
 	}
 	buffer.add(ML.Event{LogLevel: ML.INFO, Payload: "new"})
 	next, dropped := buffer.Watermark()
 	if next != 2 || dropped != 0 {
-		t.Fatal("消费重置了watermark")
+		t.Fatal("consumption reset the watermark")
 	}
 	entry, _ = buffer.Next(context.Background())
 	if entry.Seq != 2 || entry.Text != "new" {
-		t.Fatal("消费后复用旧Seq")
+		t.Fatal("old Seq was reused after consumption")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err = buffer.Next(ctx); !errors.Is(err, context.Canceled) {
-		t.Fatal("空队列不响应取消", err)
+		t.Fatal("empty queue did not respond to cancellation", err)
 	}
 }
 func TestLogsCloseDuringPublishingAndAllowNewSubscription(t *testing.T) {
@@ -211,7 +211,7 @@ func TestLogsCloseDuringPublishingAndAllowNewSubscription(t *testing.T) {
 		select {
 		case <-published:
 		case <-time.After(5 * time.Second):
-			t.Fatal("Close阻塞publisher")
+			t.Fatal("Close blocked the publisher")
 		}
 		_ = drain(t, buffer)
 	}

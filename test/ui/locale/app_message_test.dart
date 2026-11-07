@@ -75,7 +75,7 @@ void main() {
   final zh = lookupAppLocalizations(const Locale('zh'));
   tearDown(() => setMessageLanguage(AppLanguage.system));
 
-  test('清理结果分别解析完成、部分失败与尚未选择，不回退为未知操作', () {
+  test('cleanup results resolve completion, partial failure, and missing selection without falling back to unknown operation', () {
     for (final (id, english, chinese) in [
       (
         'coreCleanupCompleted',
@@ -115,7 +115,7 @@ void main() {
     }
   });
 
-  test('内核读取失败保留中英文摘要及完整技术原文', () {
+  test('core read failures retain English and Chinese summaries and complete technical text', () {
     const detail =
         'Log read is still pending\n原始错误 / cache.db\nCaused by: native';
     const original = AppMessage('coreReadFailed', detail: detail);
@@ -505,7 +505,7 @@ void main() {
     });
   }
 
-  test('本地条目的删除确认使用所属文案', () {
+  test('local item deletion confirmation uses its own copy', () {
     expect(
       en.localCustomDeleteConfirm,
       contains('existing references will not be changed'),
@@ -1250,7 +1250,7 @@ void main() {
     );
   });
 
-  test('本地插件名称保留中英文文案', () {
+  test('local plugin names retain English and Chinese copy', () {
     expect(en.localCustomTitle, 'Local customizations');
     expect(zh.localCustomTitle, '本地自定义');
   });
@@ -2209,7 +2209,7 @@ void main() {
   for (final scale in [1.0, 2.0]) {
     for (final success in [false, true]) {
       testWidgets(
-        '${success ? 'SnackBar' : '长错误主动详情'} 切换语言后保留原结果且不重复提交 scale=$scale',
+        '${success ? 'SnackBar' : 'user-opened long error details'} retains the original result across locale changes without resubmission scale=$scale',
         (tester) async {
           tester.view.physicalSize = const Size(320, 568);
           tester.view.devicePixelRatio = 1;

@@ -100,7 +100,8 @@ class _CleanupApp extends AppController {
     overrideErrorMessage = const AppMessage('overridesUnreadable');
   }
 
-  // 测试控制器从当前快照读取 storageEpoch；配置和插件读取错误仍使用构造时设置的值。
+  // The test controller reads storageEpoch from the current snapshot; configuration and
+  // plugin errors keep their constructor values.
   @override
   int get storageEpoch => state.storageEpoch;
 
@@ -446,7 +447,8 @@ void main() {
         .first;
     expect(tester.widget<IgnorePointer>(shield).ignoring, isFalse);
     final started = tester.binding.clock.now();
-    // SDK 插值在 duration 之后完成；spinner 不属于等待全部动画结束的条件。
+    // SDK interpolation finishes after duration; exclude the spinner when waiting for
+    // animations to settle.
     final elapsed = route.transitionDuration + const Duration(microseconds: 1);
     await tester.pump(elapsed);
     expect(tester.binding.clock.now().difference(started), elapsed);
@@ -529,312 +531,341 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('清理结果等待实际呈现才 acknowledge，恢复窗口后不重复反馈', (tester) async {
-    await show(
-      tester,
-      home: OperationNoticeHost(child: admissionPage(canStart: () => true)),
-    );
-    await beginCache(tester);
-    await tester.pump(const Duration(milliseconds: 250));
-    final owner = app.localFeedbackOwner!;
-    expect(owner.value, isTrue);
-    var released = 0;
-    owner.addListener(() {
-      if (!owner.value) released++;
-    });
-    tester.view.physicalSize = const Size(360, 120);
-    await tester.pump();
-    failedResult();
-    await _pumpNoticeFrames(tester);
-    expect(find.byType(SnackBar), findsNothing);
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(app.hasLocalFeedbackOwner, isTrue);
-    expect(owner.value, isTrue);
-    expect(released, 0);
-    expect(
-      tester
-          .widget<ListTile>(
-            find.descendant(of: cacheAction(), matching: find.byType(ListTile)),
-          )
-          .onTap,
-      isNotNull,
-    );
-    tester.view.physicalSize = const Size(360, 900);
-    await _pumpNoticeFrames(tester);
-    expect(find.byType(SnackBar), findsOneWidget);
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(app.hasLocalFeedbackOwner, isFalse);
-    expect(owner.value, isFalse);
-    expect(released, 1);
-    await _closeNotice(tester);
-    await app.refresh();
-    await _pumpNoticeFrames(tester);
-    expect(find.byType(SnackBar), findsNothing);
-    expect(bridge.commands, hasLength(1));
-    expect(app.state.coreCleanup['files'], [
-      {
-        'path': 'cache.db',
-        'completed': false,
-        'error': const AppMessage(
+  testWidgets(
+    'cleanup results acknowledge only after actual presentation without repeating feedback when the window resumes',
+    (tester) async {
+      await show(
+        tester,
+        home: OperationNoticeHost(child: admissionPage(canStart: () => true)),
+      );
+      await beginCache(tester);
+      await tester.pump(const Duration(milliseconds: 250));
+      final owner = app.localFeedbackOwner!;
+      expect(owner.value, isTrue);
+      var released = 0;
+      owner.addListener(() {
+        if (!owner.value) released++;
+      });
+      tester.view.physicalSize = const Size(360, 120);
+      await tester.pump();
+      failedResult();
+      await _pumpNoticeFrames(tester);
+      expect(find.byType(SnackBar), findsNothing);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(app.hasLocalFeedbackOwner, isTrue);
+      expect(owner.value, isTrue);
+      expect(released, 0);
+      expect(
+        tester
+            .widget<ListTile>(
+              find.descendant(
+                of: cacheAction(),
+                matching: find.byType(ListTile),
+              ),
+            )
+            .onTap,
+        isNotNull,
+      );
+      tester.view.physicalSize = const Size(360, 900);
+      await _pumpNoticeFrames(tester);
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(app.hasLocalFeedbackOwner, isFalse);
+      expect(owner.value, isFalse);
+      expect(released, 1);
+      await _closeNotice(tester);
+      await app.refresh();
+      await _pumpNoticeFrames(tester);
+      expect(find.byType(SnackBar), findsNothing);
+      expect(bridge.commands, hasLength(1));
+      expect(app.state.coreCleanup['files'], [
+        {
+          'path': 'cache.db',
+          'completed': false,
+          'error': const AppMessage(
+            'coreCleanupFailed',
+            detail: 'cleanup-result-original',
+          ).toMap(),
+        },
+      ]);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'cleanup results display in order without blocking later operations',
+    (tester) async {
+      final strings = lookupAppLocalizations(locale.value);
+      await show(
+        tester,
+        home: OperationNoticeHost(child: admissionPage(canStart: () => true)),
+      );
+      await beginCache(tester);
+      app.complete(
+        success: false,
+        message: const AppMessage('coreCleanupFailed', detail: 'first failure'),
+      );
+      await _pumpNoticeFrames(tester);
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(app.hasLocalFeedbackOwner, isFalse);
+
+      await beginCache(tester);
+      expect(bridge.commands, hasLength(2));
+      app.complete(
+        success: false,
+        message: const AppMessage(
           'coreCleanupFailed',
-          detail: 'cleanup-result-original',
-        ).toMap(),
-      },
-    ]);
-    expect(tester.takeException(), isNull);
-  });
+          detail: 'second failure',
+        ),
+      );
+      await _pumpNoticeFrames(tester);
+      expect(app.hasLocalFeedbackOwner, isTrue);
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(await _readFailure(tester), contains('first failure'));
+      await tester.tap(find.widgetWithText(TextButton, strings.close));
+      await _pumpNoticeFrames(tester);
+      for (var frame = 0; frame < 40 && app.hasLocalFeedbackOwner; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(app.hasLocalFeedbackOwner, isFalse);
+      expect(await _readFailure(tester), contains('second failure'));
+      await tester.tap(find.widgetWithText(TextButton, strings.close));
+      await _pumpNoticeFrames(tester);
+      expect(find.byType(SnackBar), findsNothing);
+      expect(bridge.commands, hasLength(2));
+      expect(tester.takeException(), isNull);
+    },
+  );
 
-  testWidgets('多个清理结果按顺序显示，不阻塞后续操作', (tester) async {
-    final strings = lookupAppLocalizations(locale.value);
-    await show(
-      tester,
-      home: OperationNoticeHost(child: admissionPage(canStart: () => true)),
-    );
-    await beginCache(tester);
-    app.complete(
-      success: false,
-      message: const AppMessage('coreCleanupFailed', detail: 'first failure'),
-    );
-    await _pumpNoticeFrames(tester);
-    expect(find.byType(SnackBar), findsOneWidget);
-    expect(app.hasLocalFeedbackOwner, isFalse);
+  testWidgets(
+    'storage page cleanup failure shows one notice and retains file results',
+    (tester) async {
+      app.configErrorMessage = null;
+      app.overrideErrorMessage = null;
+      await show(
+        tester,
+        home: OperationNoticeHost(child: StorageDataPage(app: app)),
+      );
+      await beginCache(tester);
+      failedResult();
+      await _pumpNoticeFrames(tester);
+      expect(find.byType(SnackBar), findsOneWidget);
+      final details = await _readFailure(tester);
+      expect(details, contains('cleanup-result-original'));
+      expect(details, contains('cache.db'));
+      final strings = lookupAppLocalizations(locale.value);
+      await tester.tap(find.widgetWithText(TextButton, strings.close));
+      await tester.pumpAndSettle();
+      expect(find.byType(SnackBar), findsNothing);
+      expect(bridge.commands, hasLength(1));
+      expect(tester.takeException(), isNull);
+    },
+  );
 
-    await beginCache(tester);
-    expect(bridge.commands, hasLength(2));
-    app.complete(
-      success: false,
-      message: const AppMessage('coreCleanupFailed', detail: 'second failure'),
-    );
-    await _pumpNoticeFrames(tester);
-    expect(app.hasLocalFeedbackOwner, isTrue);
-    expect(find.byType(SnackBar), findsOneWidget);
-    expect(await _readFailure(tester), contains('first failure'));
-    await tester.tap(find.widgetWithText(TextButton, strings.close));
-    await _pumpNoticeFrames(tester);
-    for (var frame = 0; frame < 40 && app.hasLocalFeedbackOwner; frame++) {
-      await tester.pump(const Duration(milliseconds: 16));
-    }
-    expect(find.byType(SnackBar), findsOneWidget);
-    expect(app.hasLocalFeedbackOwner, isFalse);
-    expect(await _readFailure(tester), contains('second failure'));
-    await tester.tap(find.widgetWithText(TextButton, strings.close));
-    await _pumpNoticeFrames(tester);
-    expect(find.byType(SnackBar), findsNothing);
-    expect(bridge.commands, hasLength(2));
-    expect(tester.takeException(), isNull);
-  });
+  testWidgets(
+    'cleanup notices and user-opened details retire on epoch change and restoring old values does not re-enable old actions',
+    (tester) async {
+      await show(tester, home: admissionPage(canStart: () => true));
+      await beginCache(tester);
+      failedResult();
+      await _pumpNoticeFrames(tester);
+      expect(find.byType(AlertDialog), findsNothing);
+      final strings = lookupAppLocalizations(locale.value);
+      final oldDetails = tester
+          .widget<TextButton>(
+            find.descendant(
+              of: find.byType(SnackBar),
+              matching: find.widgetWithText(TextButton, strings.errorDetails),
+            ),
+          )
+          .onPressed!;
+      final original = app.state;
+      app.publish(const AppSnapshot(phase: 'STOPPED', storageEpoch: 42));
+      app.publish(original);
+      oldDetails();
+      await _pumpNoticeFrames(tester);
+      expect(find.byType(SnackBar), findsNothing);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(bridge.commands, hasLength(1));
+      await beginCache(tester);
+      failedResult();
+      await pumpCacheResult(tester);
+      final close = find.widgetWithText(TextButton, strings.close);
+      final oldClose = tester.widget<TextButton>(close).onPressed!;
+      final route = ModalRoute.of(tester.element(close))!;
+      final second = app.state;
+      app.publish(const AppSnapshot(phase: 'STOPPED', storageEpoch: 42));
+      app.publish(second);
+      oldClose();
+      await tester.pump();
+      expect(route.isActive, isFalse);
+      expect(bridge.commands, hasLength(2));
+      expect(app.hasLocalFeedbackOwner, isFalse);
+      expect(bridge.exits, 0);
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
-  testWidgets('存储页的清理失败只提示一次并保留文件结果', (tester) async {
-    app.configErrorMessage = null;
-    app.overrideErrorMessage = null;
-    await show(
-      tester,
-      home: OperationNoticeHost(child: StorageDataPage(app: app)),
-    );
-    await beginCache(tester);
-    failedResult();
-    await _pumpNoticeFrames(tester);
-    expect(find.byType(SnackBar), findsOneWidget);
-    final details = await _readFailure(tester);
-    expect(details, contains('cleanup-result-original'));
-    expect(details, contains('cache.db'));
-    final strings = lookupAppLocalizations(locale.value);
-    await tester.tap(find.widgetWithText(TextButton, strings.close));
-    await tester.pumpAndSettle();
-    expect(find.byType(SnackBar), findsNothing);
-    expect(bridge.commands, hasLength(1));
-    expect(tester.takeException(), isNull);
-  });
+  testWidgets(
+    'initial admission reads live canStart and rejects invalid cached taps without rebuilding',
+    (tester) async {
+      var allowed = true;
+      var reads = 0;
+      await show(
+        tester,
+        home: admissionPage(
+          canStart: () {
+            reads++;
+            return allowed;
+          },
+        ),
+      );
+      expect(reads, 0);
+      final tile = find.descendant(
+        of: find.byType(CoreCleanupAction),
+        matching: find.byType(ListTile),
+      );
+      final tap = tester.widget<ListTile>(tile).onTap!;
+      allowed = false;
+      tap();
+      await tester.idle();
+      expect(reads, 1);
+      expect(bridge.commands, isEmpty);
+      expect(bridge.exits, 0);
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+    },
+  );
 
-  testWidgets('清理提示与主动详情在 epoch 改变后退休，恢复旧值不启用旧action', (tester) async {
-    await show(tester, home: admissionPage(canStart: () => true));
-    await beginCache(tester);
-    failedResult();
-    await _pumpNoticeFrames(tester);
-    expect(find.byType(AlertDialog), findsNothing);
-    final strings = lookupAppLocalizations(locale.value);
-    final oldDetails = tester
-        .widget<TextButton>(
-          find.descendant(
-            of: find.byType(SnackBar),
-            matching: find.widgetWithText(TextButton, strings.errorDetails),
-          ),
-        )
-        .onPressed!;
-    final original = app.state;
-    app.publish(const AppSnapshot(phase: 'STOPPED', storageEpoch: 42));
-    app.publish(original);
-    oldDetails();
-    await _pumpNoticeFrames(tester);
-    expect(find.byType(SnackBar), findsNothing);
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(bridge.commands, hasLength(1));
-    await beginCache(tester);
-    failedResult();
-    await pumpCacheResult(tester);
-    final close = find.widgetWithText(TextButton, strings.close);
-    final oldClose = tester.widget<TextButton>(close).onPressed!;
-    final route = ModalRoute.of(tester.element(close))!;
-    final second = app.state;
-    app.publish(const AppSnapshot(phase: 'STOPPED', storageEpoch: 42));
-    app.publish(second);
-    oldClose();
-    await tester.pump();
-    expect(route.isActive, isFalse);
-    expect(bridge.commands, hasLength(2));
-    expect(app.hasLocalFeedbackOwner, isFalse);
-    expect(bridge.exits, 0);
-    await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('首次受理读取实时 canStart，不重建也拒绝失效的 cached tap', (tester) async {
-    var allowed = true;
-    var reads = 0;
-    await show(
-      tester,
-      home: admissionPage(
-        canStart: () {
-          reads++;
-          return allowed;
-        },
-      ),
-    );
-    expect(reads, 0);
-    final tile = find.descendant(
-      of: find.byType(CoreCleanupAction),
-      matching: find.byType(ListTile),
-    );
-    final tap = tester.widget<ListTile>(tile).onTap!;
-    allowed = false;
-    tap();
-    await tester.idle();
-    expect(reads, 1);
-    expect(bridge.commands, isEmpty);
-    expect(bridge.exits, 0);
-    await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsNothing);
-  });
-
-  testWidgets('canStart 仅读取一次，弹窗期间变为 false 不阻止已受理结果和 Close', (tester) async {
-    var allowed = true;
-    var reads = 0;
-    await show(
-      tester,
-      navigatorObservers: [AppTaskNavigatorObserver()],
-      home: admissionPage(
-        canStart: () {
-          reads++;
-          return allowed;
-        },
-      ),
-    );
-    final target = find.byKey(const ValueKey('storage-cleanup-files'));
-    await tester.tap(target);
-    await pumpPopupEntrance(
-      tester,
-      find.widgetWithText(
-        FilledButton,
-        lookupAppLocalizations(locale.value).coreCleanupDeleteSelected,
-      ),
-      source: target,
-    );
-    expect(reads, 1);
-    final strings = lookupAppLocalizations(locale.value);
-    final confirm = find.widgetWithText(
-      FilledButton,
-      strings.coreCleanupDeleteSelected,
-    );
-    allowed = false;
-    tester.widget<FilledButton>(confirm).onPressed!();
-    // 只完成 Route 的结果 Future，不等待重建或 reverse 动画的首帧。
-    await tester.idle();
-    expect(bridge.commands.single, {
-      'paths': ['cache.db'],
-      'restart': false,
-      'action': 'scheduleCoreCleanup',
-      'storageEpoch': 41,
-    });
-    expect(reads, 1);
-    failedResult();
-    await pumpCacheResult(tester);
-    expect(find.text(strings.operationNotCompleted), findsOneWidget);
-    expect(app.hasLocalFeedbackOwner, isFalse);
-    expect(reads, 1);
-    final exit = find.widgetWithText(TextButton, strings.close);
-    tester.widget<TextButton>(exit).onPressed!();
-    await tester.idle();
-    expect(bridge.exits, 0);
-    expect(reads, 1);
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-  });
-
-  for (final retired in ['task', 'route', 'selection']) {
-    testWidgets('canStart 不能恢复因 $retired 退休的确认弹窗', (tester) async {
-      var taskCurrent = true;
-      var selectionCurrent = true;
+  testWidgets(
+    'canStart is read once; becoming false while the popup is open does not block admitted results or Close',
+    (tester) async {
+      var allowed = true;
       var reads = 0;
       await show(
         tester,
         navigatorObservers: [AppTaskNavigatorObserver()],
-        home: const Scaffold(body: Text('cleanup launcher')),
-      );
-      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
-      final route = MaterialPageRoute<void>(
-        builder: (_) => admissionPage(
+        home: admissionPage(
           canStart: () {
             reads++;
-            return true;
+            return allowed;
           },
-          taskCurrent: () => taskCurrent,
-          selectionCurrent: () => selectionCurrent,
         ),
       );
-      unawaited(navigator.push(route));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('storage-cleanup-files')));
+      final target = find.byKey(const ValueKey('storage-cleanup-files'));
+      await tester.tap(target);
       await pumpPopupEntrance(
         tester,
         find.widgetWithText(
           FilledButton,
           lookupAppLocalizations(locale.value).coreCleanupDeleteSelected,
         ),
-        source: find.byKey(const ValueKey('storage-cleanup-files')),
+        source: target,
       );
+      expect(reads, 1);
       final strings = lookupAppLocalizations(locale.value);
       final confirm = find.widgetWithText(
         FilledButton,
         strings.coreCleanupDeleteSelected,
       );
-      final oldConfirm = tester.widget<FilledButton>(confirm).onPressed!;
-      switch (retired) {
-        case 'task':
-          taskCurrent = false;
-        case 'route':
-          navigator.removeRoute(route);
-        case 'selection':
-          selectionCurrent = false;
-      }
-      oldConfirm();
+      allowed = false;
+      tester.widget<FilledButton>(confirm).onPressed!();
+      // Complete only the Route result Future without awaiting a rebuild or the first
+      // reverse-animation frame.
       await tester.idle();
-      expect(bridge.commands, isEmpty);
-      // 先让 owner 检查退休原确认，再恢复状态；恢复不能受理旧确认。
-      await app.refresh();
-      await tester.pump();
-      taskCurrent = true;
-      selectionCurrent = true;
-      oldConfirm();
-      await tester.idle();
+      expect(bridge.commands.single, {
+        'paths': ['cache.db'],
+        'restart': false,
+        'action': 'scheduleCoreCleanup',
+        'storageEpoch': 41,
+      });
       expect(reads, 1);
-      expect(bridge.commands, isEmpty);
-      expect(bridge.exits, 0);
+      failedResult();
+      await pumpCacheResult(tester);
+      expect(find.text(strings.operationNotCompleted), findsOneWidget);
       expect(app.hasLocalFeedbackOwner, isFalse);
-      navigator.pop();
+      expect(reads, 1);
+      final exit = find.widgetWithText(TextButton, strings.close);
+      tester.widget<TextButton>(exit).onPressed!();
+      await tester.idle();
+      expect(bridge.exits, 0);
+      expect(reads, 1);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-    });
+    },
+  );
+
+  for (final retired in ['task', 'route', 'selection']) {
+    testWidgets(
+      'canStart cannot restore a confirmation popup retired by $retired',
+      (tester) async {
+        var taskCurrent = true;
+        var selectionCurrent = true;
+        var reads = 0;
+        await show(
+          tester,
+          navigatorObservers: [AppTaskNavigatorObserver()],
+          home: const Scaffold(body: Text('cleanup launcher')),
+        );
+        final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+        final route = MaterialPageRoute<void>(
+          builder: (_) => admissionPage(
+            canStart: () {
+              reads++;
+              return true;
+            },
+            taskCurrent: () => taskCurrent,
+            selectionCurrent: () => selectionCurrent,
+          ),
+        );
+        unawaited(navigator.push(route));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('storage-cleanup-files')));
+        await pumpPopupEntrance(
+          tester,
+          find.widgetWithText(
+            FilledButton,
+            lookupAppLocalizations(locale.value).coreCleanupDeleteSelected,
+          ),
+          source: find.byKey(const ValueKey('storage-cleanup-files')),
+        );
+        final strings = lookupAppLocalizations(locale.value);
+        final confirm = find.widgetWithText(
+          FilledButton,
+          strings.coreCleanupDeleteSelected,
+        );
+        final oldConfirm = tester.widget<FilledButton>(confirm).onPressed!;
+        switch (retired) {
+          case 'task':
+            taskCurrent = false;
+          case 'route':
+            navigator.removeRoute(route);
+          case 'selection':
+            selectionCurrent = false;
+        }
+        oldConfirm();
+        await tester.idle();
+        expect(bridge.commands, isEmpty);
+        // Let the owner check retire the original confirmation before restoring state;
+        // restoration cannot admit it again.
+        await app.refresh();
+        await tester.pump();
+        taskCurrent = true;
+        selectionCurrent = true;
+        oldConfirm();
+        await tester.idle();
+        expect(reads, 1);
+        expect(bridge.commands, isEmpty);
+        expect(bridge.exits, 0);
+        expect(app.hasLocalFeedbackOwner, isFalse);
+        navigator.pop();
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
   for (final boundary in [
@@ -847,7 +878,7 @@ void main() {
     'popup',
   ]) {
     testWidgets(
-      '实际 popup 保留立即返回结果，迟到 Builder 与 $boundary 不改变 Route ownership',
+      'actual popup retains immediate results; late Builder and $boundary do not change Route ownership',
       (tester) async {
         app = _ImmediateCleanupApp(bridge);
         addTearDown(app.dispose);
@@ -942,7 +973,7 @@ void main() {
           of: action,
           matching: find.byType(CircularProgressIndicator, skipOffstage: false),
         );
-        // 确认弹窗保留操作锁，但尚未开始业务 I/O。
+        // The confirmation popup holds the operation lock before business I/O starts.
         expect(spinner, findsNothing);
         expect(
           tester
@@ -952,7 +983,8 @@ void main() {
               .onTap,
           isNull,
         );
-        // SDK isDone 要求 elapsed > duration；业务操作不等待该条件。
+        // SDK isDone requires elapsed > duration; business operations do not wait for
+        // it.
         final entranceStarted = tester.binding.clock.now();
         final entranceElapsed =
             confirmation.transitionDuration + const Duration(microseconds: 1);
@@ -995,7 +1027,8 @@ void main() {
         );
         expectShield(confirmation, active: true);
         oldConfirm();
-        // 提交不等待确认退出动画；失败先显示 SnackBar，详情仅由用户打开。
+        // Submission does not await confirmation exit animation; failures show SnackBar
+        // first and details open only on user request.
         await tester.idle();
         expect(bridge.commands, hasLength(1));
         expect(confirmation.isActive, isFalse);
@@ -1037,7 +1070,8 @@ void main() {
             .onPressed!;
         expect(confirmationContext.mounted, isTrue);
         expect(confirmation.animation!.status, AnimationStatus.reverse);
-        // 新弹窗安装后再次调用旧 SDK Builder；旧 Builder 不能重新认领 Route。
+        // Invoke the old SDK Builder after installing a new popup; the old Builder
+        // cannot reclaim the Route.
         expect(
           rebuildConfirmation(confirmationContext),
           isA<StatefulBuilder>(),
@@ -1123,7 +1157,8 @@ void main() {
         if (boundary == 'close' || boundary == 'dismiss') {
           expect(result.isCurrent, isFalse);
           expect(result.animation!.status, AnimationStatus.reverse);
-          // reverse 期间两个旧 SDK Builder 尚未卸载，不能重新认领 Route 或操作新页面。
+          // Both old SDK Builders remain mounted during reverse but cannot reclaim the
+          // Route or act on the new page.
           final independent = FocusedPageRoute<void>(
             builder: (_) => const Scaffold(body: Text('after cleanup result')),
           );
@@ -1186,7 +1221,11 @@ void main() {
           oldConfirm();
           exit();
           await tester.idle();
-          expect(bridge.exits, 0, reason: '恢复来源不能重新启用旧 Close');
+          expect(
+            bridge.exits,
+            0,
+            reason: 'Restoring the source must not re-enable the old Close',
+          );
           expect(bridge.commands, hasLength(1));
           expect(independent.isCurrent, isTrue);
           expect(result.isCurrent, isFalse);
@@ -1200,7 +1239,7 @@ void main() {
 
   for (final boundary in ['action', 'popup', 'host']) {
     testWidgets(
-      '实际呈现释放 owner，主动详情退休后 cached Close 不访问已卸载页面，boundary=$boundary',
+      'actual presentation releases owner; cached Close does not access an unmounted page after user-opened details retire boundary=$boundary',
       (tester) async {
         var present = true;
         late StateSetter updateSource;
@@ -1369,207 +1408,39 @@ void main() {
     );
   }
 
-  testWidgets('清理 spinner 和操作锁只等待实际 submit Future', (tester) async {
-    await show(tester, home: admissionPage(canStart: () => true));
-    final target = cacheAction();
-    final state = tester.state(target);
-    final bounds = tester.getRect(target);
-    ListTile tile() => tester.widget<ListTile>(
-      find.descendant(of: target, matching: find.byType(ListTile)),
-    );
-    final start = tile().onTap!;
-    final progress = find.descendant(
-      of: target,
-      matching: find.byType(CircularProgressIndicator),
-    );
-    final strings = lookupAppLocalizations(locale.value);
-    await beginCache(tester);
-    var submissionReturned = false;
-    AppSnapshot? returnedResult;
-    unawaited(
-      app.submittedResult!.then((value) {
-        returnedResult = value;
-        submissionReturned = true;
-      }),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 181));
-    expect(submissionReturned, isFalse);
-    expect(app.state.resultId, isNull);
-    expect(app.hasLocalFeedbackOwner, isTrue);
-    expect(progress, findsOneWidget);
-    expect(tester.widget<CircularProgressIndicator>(progress).value, isNull);
-    expect(TickerMode.valuesOf(tester.element(progress)).enabled, isTrue);
-    final fade = tester
-        .widget<FadeTransition>(
-          find
-              .ancestor(of: progress, matching: find.byType(FadeTransition))
-              .first,
-        )
-        .opacity;
-    expect(fade.value, 1);
-    expect(tile().onTap, isNull);
-    expect(tester.getRect(target), bounds);
-    start();
-    await tester.idle();
-    expect(bridge.commands, hasLength(1));
-    expect(bridge.exits, 0);
-
-    app.complete();
-    await tester.idle();
-    expect(submissionReturned, isTrue);
-    expect(returnedResult, same(app.state));
-    expect(app.state.resultSuccess, isTrue);
-    expect(app.hasLocalFeedbackOwner, isTrue);
-    await tester.pump();
-    expect(
-      tester
-          .widget<AnimatedSwitcher>(
-            find.descendant(
-              of: target,
-              matching: find.byType(AnimatedSwitcher),
-            ),
-          )
-          .child,
-      isA<Icon>(),
-    );
-    expect(fade.status, AnimationStatus.reverse);
-    expect(fade.value, 1);
-    expect(tile().onTap, isNotNull);
-    await pumpCacheResult(tester);
-    expect(app.hasLocalFeedbackOwner, isFalse);
-    expect(progress, findsNothing);
-    expect(tile().onTap, isNotNull);
-    expect(tester.state(target), same(state));
-    expect(tester.getRect(target), bounds);
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(
-      find.descendant(
-        of: find.byType(SnackBar),
-        matching: find.text(strings.coreCleanupCompleted),
-      ),
-      findsOneWidget,
-    );
-    final close = tester
-        .widget<IconButton>(
-          find.descendant(
-            of: find.byType(SnackBar),
-            matching: find.byType(IconButton),
-          ),
-        )
-        .onPressed!;
-    close();
-    await tester.idle();
-    expect(app.hasLocalFeedbackOwner, isFalse);
-    final navigator = tester.state<NavigatorState>(find.byType(Navigator));
-    final independent = FocusedPageRoute<void>(
-      builder: (_) => const Scaffold(body: Text('cleanup independent page')),
-    );
-    unawaited(navigator.push(independent));
-    close();
-    await tester.idle();
-    expect(independent.isCurrent, isTrue);
-    expect(bridge.commands, hasLength(1));
-    expect(bridge.exits, 0);
-    navigator.pop();
-    await tester.pumpAndSettle();
-    expect(progress, findsNothing);
-    expect(tile().onTap, isNotNull);
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(tester.state(target), same(state));
-    expect(tester.getRect(target), bounds);
-    expect(bridge.commands, hasLength(1));
-    expect(bridge.exits, 0);
-    expect(tester.takeException(), isNull);
-  });
-
-  for (final reduced in [false, true]) {
-    testWidgets('清理事实和 Close 不等待 DialogRoute 或 spinner 动画 reduced=$reduced', (
-      tester,
-    ) async {
-      await show(
-        tester,
-        disableAnimations: reduced,
-        home: Scaffold(
-          body: ListView(
-            children: [
-              CoreCleanupAction(
-                key: const ValueKey('cleanup-motion'),
-                app: app,
-                request: const {'scope': 'cache'},
-                title: (strings) => strings.coreCleanupSelect,
-                description: (strings) => strings.coreCleanupSelectionNotice,
-                icon: Icons.delete_sweep_outlined,
-                subject: 'cache.db',
-              ),
-              const Text('Following action'),
-            ],
-          ),
-        ),
-      );
-      final target = find.byKey(const ValueKey('cleanup-motion'));
+  testWidgets(
+    'cleanup spinner and operation lock wait only for the actual submit Future',
+    (tester) async {
+      await show(tester, home: admissionPage(canStart: () => true));
+      final target = cacheAction();
       final state = tester.state(target);
-      final before = tester.getRect(target);
-      final strings = lookupAppLocalizations(locale.value);
-      await tester.tap(target);
-      await tester.pump();
-      final confirmation = ModalRoute.of(
-        tester.element(find.byType(AlertDialog)),
-      )!;
+      final bounds = tester.getRect(target);
+      ListTile tile() => tester.widget<ListTile>(
+        find.descendant(of: target, matching: find.byType(ListTile)),
+      );
+      final start = tile().onTap!;
       final progress = find.descendant(
         of: target,
         matching: find.byType(CircularProgressIndicator),
       );
-      expect(progress, findsNothing);
-      expect(app.submittedResult, isNull);
-      final shield = find
-          .ancestor(
-            of: find.byType(AlertDialog),
-            matching: find.byType(IgnorePointer),
-          )
-          .first;
-      expect(tester.widget<IgnorePointer>(shield).ignoring, isFalse);
-      if (reduced) {
-        expect(confirmation.animation!.value, 1);
-        expect(confirmation.animation!.status, AnimationStatus.completed);
-      } else {
-        expect(confirmation.animation!.value, 0);
-        await tester.pump(const Duration(milliseconds: 40));
-        expect(confirmation.animation!.value, inExclusiveRange(0, 1));
-        expect(progress, findsNothing);
-        expect(app.submittedResult, isNull);
-        final started = tester.binding.clock.now();
-        final remainder =
-            confirmation.transitionDuration -
-            const Duration(milliseconds: 40) +
-            const Duration(microseconds: 1);
-        await tester.pump(remainder);
-        expect(tester.binding.clock.now().difference(started), remainder);
-        expect(confirmation.animation!.status, AnimationStatus.completed);
-        expect(confirmation.animation!.value, 1);
-      }
-      tester
-          .widget<FilledButton>(
-            find.widgetWithText(
-              FilledButton,
-              strings.coreCleanupDeleteSelected,
-            ),
-          )
-          .onPressed!();
-      await tester.idle();
-      expect(bridge.commands.single['action'], 'scheduleCoreCleanup');
-      expect(bridge.commands.single['storageEpoch'], 41);
-      expect(bridge.exits, 0);
+      final strings = lookupAppLocalizations(locale.value);
+      await beginCache(tester);
       var submissionReturned = false;
+      AppSnapshot? returnedResult;
       unawaited(
-        app.submittedResult!.then((_) {
+        app.submittedResult!.then((value) {
+          returnedResult = value;
           submissionReturned = true;
         }),
       );
-      await tester.idle();
-      expect(submissionReturned, isFalse);
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 181));
+      expect(submissionReturned, isFalse);
+      expect(app.state.resultId, isNull);
+      expect(app.hasLocalFeedbackOwner, isTrue);
       expect(progress, findsOneWidget);
+      expect(tester.widget<CircularProgressIndicator>(progress).value, isNull);
+      expect(TickerMode.valuesOf(tester.element(progress)).enabled, isTrue);
       final fade = tester
           .widget<FadeTransition>(
             find
@@ -1577,74 +1448,249 @@ void main() {
                 .first,
           )
           .opacity;
-      expect(fade.value, reduced ? 1 : 0);
-      expect(tester.widget<CircularProgressIndicator>(progress).value, isNull);
-      expect(TickerMode.valuesOf(tester.element(progress)).enabled, isTrue);
-      expect(app.hasLocalFeedbackOwner, isTrue);
-      await tester.pump(const Duration(milliseconds: 40));
-      expect(fade.value, reduced ? 1 : inExclusiveRange(0, 1));
-      expect(submissionReturned, isFalse);
-      if (!reduced) {
-        expect(confirmation.animation!.value, inExclusiveRange(0, 1));
-      }
-      failedResult();
-      await tester.pump();
-      await tester.pump();
+      expect(fade.value, 1);
+      expect(tile().onTap, isNull);
+      expect(tester.getRect(target), bounds);
+      start();
+      await tester.idle();
+      expect(bridge.commands, hasLength(1));
+      expect(bridge.exits, 0);
+
+      app.complete();
+      await tester.idle();
       expect(submissionReturned, isTrue);
-      expect(app.state.resultSuccess, isFalse);
+      expect(returnedResult, same(app.state));
+      expect(app.state.resultSuccess, isTrue);
       expect(app.hasLocalFeedbackOwner, isTrue);
+      await tester.pump();
       expect(
         tester
-            .widget<ListTile>(
-              find.descendant(of: target, matching: find.byType(ListTile)),
+            .widget<AnimatedSwitcher>(
+              find.descendant(
+                of: target,
+                matching: find.byType(AnimatedSwitcher),
+              ),
             )
-            .onTap,
-        isNotNull,
+            .child,
+        isA<Icon>(),
       );
-      expect(bridge.exits, 0);
-      await _pumpNoticeFrames(tester);
-      expect(find.byType(AlertDialog), findsNothing);
+      expect(fade.status, AnimationStatus.reverse);
+      expect(fade.value, 1);
+      expect(tile().onTap, isNotNull);
+      await pumpCacheResult(tester);
       expect(app.hasLocalFeedbackOwner, isFalse);
-      final details = find.descendant(
-        of: find.byType(SnackBar),
-        matching: find.widgetWithText(TextButton, strings.errorDetails),
-      );
-      expect(details.hitTestable(), findsOneWidget);
-      await tester.tap(details);
-      await tester.pump();
-      final result = find.ancestor(
-        of: find.text(strings.operationNotCompleted),
-        matching: find.byType(AlertDialog),
-      );
-      expect(result, findsOneWidget);
-      final route = ModalRoute.of(tester.element(result))!;
-      await tester.pump(const Duration(milliseconds: 40));
-      expect(route.animation!.value, reduced ? 1 : inExclusiveRange(0, 1));
-      expect(tester.getRect(target), before);
-      await tester.tap(
-        find.descendant(
-          of: result,
-          matching: find.widgetWithText(TextButton, strings.close),
-        ),
-      );
-      await tester.pump();
-      expect(bridge.exits, 0);
-      if (!reduced) expect(route.animation!.value, inExclusiveRange(0, 1));
+      expect(progress, findsNothing);
+      expect(tile().onTap, isNotNull);
       expect(tester.state(target), same(state));
-      await tester.pumpAndSettle();
+      expect(tester.getRect(target), bounds);
       expect(find.byType(AlertDialog), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.text(strings.coreCleanupCompleted),
+        ),
+        findsOneWidget,
+      );
+      final close = tester
+          .widget<IconButton>(
+            find.descendant(
+              of: find.byType(SnackBar),
+              matching: find.byType(IconButton),
+            ),
+          )
+          .onPressed!;
+      close();
+      await tester.idle();
       expect(app.hasLocalFeedbackOwner, isFalse);
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      final independent = FocusedPageRoute<void>(
+        builder: (_) => const Scaffold(body: Text('cleanup independent page')),
+      );
+      unawaited(navigator.push(independent));
+      close();
+      await tester.idle();
+      expect(independent.isCurrent, isTrue);
       expect(bridge.commands, hasLength(1));
+      expect(bridge.exits, 0);
+      navigator.pop();
+      await tester.pumpAndSettle();
+      expect(progress, findsNothing);
+      expect(tile().onTap, isNotNull);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(tester.state(target), same(state));
+      expect(tester.getRect(target), bounds);
+      expect(bridge.commands, hasLength(1));
+      expect(bridge.exits, 0);
       expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    });
+    },
+  );
+
+  for (final reduced in [false, true]) {
+    testWidgets(
+      'cleanup facts and Close do not wait for DialogRoute or spinner animations reduced=$reduced',
+      (tester) async {
+        await show(
+          tester,
+          disableAnimations: reduced,
+          home: Scaffold(
+            body: ListView(
+              children: [
+                CoreCleanupAction(
+                  key: const ValueKey('cleanup-motion'),
+                  app: app,
+                  request: const {'scope': 'cache'},
+                  title: (strings) => strings.coreCleanupSelect,
+                  description: (strings) => strings.coreCleanupSelectionNotice,
+                  icon: Icons.delete_sweep_outlined,
+                  subject: 'cache.db',
+                ),
+                const Text('Following action'),
+              ],
+            ),
+          ),
+        );
+        final target = find.byKey(const ValueKey('cleanup-motion'));
+        final state = tester.state(target);
+        final before = tester.getRect(target);
+        final strings = lookupAppLocalizations(locale.value);
+        await tester.tap(target);
+        await tester.pump();
+        final confirmation = ModalRoute.of(
+          tester.element(find.byType(AlertDialog)),
+        )!;
+        final progress = find.descendant(
+          of: target,
+          matching: find.byType(CircularProgressIndicator),
+        );
+        expect(progress, findsNothing);
+        expect(app.submittedResult, isNull);
+        final shield = find
+            .ancestor(
+              of: find.byType(AlertDialog),
+              matching: find.byType(IgnorePointer),
+            )
+            .first;
+        expect(tester.widget<IgnorePointer>(shield).ignoring, isFalse);
+        if (reduced) {
+          expect(confirmation.animation!.value, 1);
+          expect(confirmation.animation!.status, AnimationStatus.completed);
+        } else {
+          expect(confirmation.animation!.value, 0);
+          await tester.pump(const Duration(milliseconds: 40));
+          expect(confirmation.animation!.value, inExclusiveRange(0, 1));
+          expect(progress, findsNothing);
+          expect(app.submittedResult, isNull);
+          final started = tester.binding.clock.now();
+          final remainder =
+              confirmation.transitionDuration -
+              const Duration(milliseconds: 40) +
+              const Duration(microseconds: 1);
+          await tester.pump(remainder);
+          expect(tester.binding.clock.now().difference(started), remainder);
+          expect(confirmation.animation!.status, AnimationStatus.completed);
+          expect(confirmation.animation!.value, 1);
+        }
+        tester
+            .widget<FilledButton>(
+              find.widgetWithText(
+                FilledButton,
+                strings.coreCleanupDeleteSelected,
+              ),
+            )
+            .onPressed!();
+        await tester.idle();
+        expect(bridge.commands.single['action'], 'scheduleCoreCleanup');
+        expect(bridge.commands.single['storageEpoch'], 41);
+        expect(bridge.exits, 0);
+        var submissionReturned = false;
+        unawaited(
+          app.submittedResult!.then((_) {
+            submissionReturned = true;
+          }),
+        );
+        await tester.idle();
+        expect(submissionReturned, isFalse);
+        await tester.pump();
+        expect(progress, findsOneWidget);
+        final fade = tester
+            .widget<FadeTransition>(
+              find
+                  .ancestor(of: progress, matching: find.byType(FadeTransition))
+                  .first,
+            )
+            .opacity;
+        expect(fade.value, reduced ? 1 : 0);
+        expect(
+          tester.widget<CircularProgressIndicator>(progress).value,
+          isNull,
+        );
+        expect(TickerMode.valuesOf(tester.element(progress)).enabled, isTrue);
+        expect(app.hasLocalFeedbackOwner, isTrue);
+        await tester.pump(const Duration(milliseconds: 40));
+        expect(fade.value, reduced ? 1 : inExclusiveRange(0, 1));
+        expect(submissionReturned, isFalse);
+        if (!reduced) {
+          expect(confirmation.animation!.value, inExclusiveRange(0, 1));
+        }
+        failedResult();
+        await tester.pump();
+        await tester.pump();
+        expect(submissionReturned, isTrue);
+        expect(app.state.resultSuccess, isFalse);
+        expect(app.hasLocalFeedbackOwner, isTrue);
+        expect(
+          tester
+              .widget<ListTile>(
+                find.descendant(of: target, matching: find.byType(ListTile)),
+              )
+              .onTap,
+          isNotNull,
+        );
+        expect(bridge.exits, 0);
+        await _pumpNoticeFrames(tester);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(app.hasLocalFeedbackOwner, isFalse);
+        final details = find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.widgetWithText(TextButton, strings.errorDetails),
+        );
+        expect(details.hitTestable(), findsOneWidget);
+        await tester.tap(details);
+        await tester.pump();
+        final result = find.ancestor(
+          of: find.text(strings.operationNotCompleted),
+          matching: find.byType(AlertDialog),
+        );
+        expect(result, findsOneWidget);
+        final route = ModalRoute.of(tester.element(result))!;
+        await tester.pump(const Duration(milliseconds: 40));
+        expect(route.animation!.value, reduced ? 1 : inExclusiveRange(0, 1));
+        expect(tester.getRect(target), before);
+        await tester.tap(
+          find.descendant(
+            of: result,
+            matching: find.widgetWithText(TextButton, strings.close),
+          ),
+        );
+        await tester.pump();
+        expect(bridge.exits, 0);
+        if (!reduced) expect(route.animation!.value, inExclusiveRange(0, 1));
+        expect(tester.state(target), same(state));
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(app.hasLocalFeedbackOwner, isFalse);
+        expect(bridge.commands, hasLength(1));
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
   }
 
   for (final language in ['en', 'zh']) {
     for (final scale in [1.0, 2.0]) {
       for (final multiple in [false, true]) {
         testWidgets(
-          '候选清理逐项选择文件并保留 provider，language=$language scale=$scale multiple=$multiple',
+          'cleanup candidates allow per-file selection and preserve providers language=$language scale=$scale multiple=$multiple',
           (tester) async {
             await show(tester, language: language, scale: scale);
             final strings = lookupAppLocalizations(Locale(language));
@@ -1748,909 +1794,975 @@ void main() {
     }
   }
 
-  testWidgets('storageEpoch 改变后旧确认 callback 不提交也不恢复', (tester) async {
-    await show(tester);
-    final target = cacheAction();
-    await reveal(tester, target);
-    await tester.tap(target);
-    final confirm = find.widgetWithText(
-      FilledButton,
-      lookupAppLocalizations(locale.value).coreCleanupDeleteSelected,
-    );
-    await pumpPopupEntrance(tester, confirm, source: target);
-    tester.widget<CheckboxListTile>(fileCandidate('cache.db')).onChanged!(true);
-    await tester.pump();
-    final callback = tester.widget<FilledButton>(confirm).onPressed!;
-    final route = ModalRoute.of(tester.element(confirm))!;
-    app.publish(const AppSnapshot(phase: 'STOPPED', storageEpoch: 42));
-    callback();
-    await tester.idle();
-    expect(bridge.commands, isEmpty);
-    app.publish(const AppSnapshot(phase: 'STOPPED', storageEpoch: 41));
-    callback();
-    await tester.pumpAndSettle();
-    expect(bridge.commands, isEmpty);
-    expect(bridge.exits, 0);
-    expect(route.isActive, isFalse);
-    expect(app.hasLocalFeedbackOwner, isFalse);
-  });
+  testWidgets(
+    'old confirmation callback neither submits nor recovers after storageEpoch changes',
+    (tester) async {
+      await show(tester);
+      final target = cacheAction();
+      await reveal(tester, target);
+      await tester.tap(target);
+      final confirm = find.widgetWithText(
+        FilledButton,
+        lookupAppLocalizations(locale.value).coreCleanupDeleteSelected,
+      );
+      await pumpPopupEntrance(tester, confirm, source: target);
+      tester.widget<CheckboxListTile>(fileCandidate('cache.db')).onChanged!(
+        true,
+      );
+      await tester.pump();
+      final callback = tester.widget<FilledButton>(confirm).onPressed!;
+      final route = ModalRoute.of(tester.element(confirm))!;
+      app.publish(const AppSnapshot(phase: 'STOPPED', storageEpoch: 42));
+      callback();
+      await tester.idle();
+      expect(bridge.commands, isEmpty);
+      app.publish(const AppSnapshot(phase: 'STOPPED', storageEpoch: 41));
+      callback();
+      await tester.pumpAndSettle();
+      expect(bridge.commands, isEmpty);
+      expect(bridge.exits, 0);
+      expect(route.isActive, isFalse);
+      expect(app.hasLocalFeedbackOwner, isFalse);
+    },
+  );
 
-  testWidgets('dismiss 结果后 cached Close 不执行第二次关闭或退出应用', (tester) async {
-    await show(tester);
-    await beginCache(tester);
-    failedResult();
-    await pumpCacheResult(tester);
-    final button = find.widgetWithText(
-      TextButton,
-      lookupAppLocalizations(locale.value).close,
-    );
-    final oldExit = tester.widget<TextButton>(button).onPressed!;
-    Navigator.of(tester.element(button)).pop();
-    oldExit();
-    await tester.pump();
-    expect(bridge.exits, 0);
-    expect(app.state.coreCleanup['status'], 'failed');
-    expect(button.hitTestable(), findsNothing);
-    await tester.pumpAndSettle();
-    expect(find.byType(StorageDataPage), findsOneWidget);
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(bridge.commands, hasLength(1));
-  });
-
-  testWidgets('新文件请求不被旧结果的 Close callback 改写', (tester) async {
-    await show(tester);
-    await beginCache(tester);
-    failedResult();
-    await pumpCacheResult(tester);
-    app.publish(
-      const AppSnapshot(
-        phase: 'STOPPED',
-        storageEpoch: 41,
-        coreCleanup: {
-          'status': 'scheduled',
-          'scope': 'files',
-          'paths': ['GeoSite.dat'],
-        },
-      ),
-    );
-    await tester.pump();
-    await tester.tap(
-      find.widgetWithText(
+  testWidgets(
+    'cached Close after result dismissal does not close twice or exit the app',
+    (tester) async {
+      await show(tester);
+      await beginCache(tester);
+      failedResult();
+      await pumpCacheResult(tester);
+      final button = find.widgetWithText(
         TextButton,
         lookupAppLocalizations(locale.value).close,
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(bridge.exits, 0);
-    expect(app.state.coreCleanup['paths'], ['GeoSite.dat']);
-    expect(bridge.commands, hasLength(1));
-  });
-
-  testWidgets('来源失效时不等待重建，直接拒绝 cached cleanup callback', (tester) async {
-    var current = true;
-    await show(
-      tester,
-      home: Scaffold(
-        body: ListView(
-          children: [
-            CoreCleanupAction(
-              key: const ValueKey('storage-cleanup-files'),
-              app: app,
-              request: const {'scope': 'cache'},
-              isCurrent: () => current,
-              title: (strings) => strings.coreCleanupSelect,
-              description: (strings) => strings.coreCleanupSelectionNotice,
-              icon: Icons.delete_sweep_outlined,
-            ),
-          ],
-        ),
-      ),
-    );
-    final tile = find.descendant(
-      of: find.byType(CoreCleanupAction),
-      matching: find.byType(ListTile),
-    );
-    final oldTap = tester.widget<ListTile>(tile).onTap!;
-    current = false;
-    oldTap();
-    await tester.pumpAndSettle();
-    expect(bridge.commands, isEmpty);
-    expect(bridge.exits, 0);
-    expect(find.byType(AlertDialog), findsNothing);
-  });
-
-  for (final success in [false, true]) {
-    testWidgets('FocusedPageRoute 仅认领实际确认和结果弹窗，success=$success', (
-      tester,
-    ) async {
-      var popupChecks = 0;
-      await show(
-        tester,
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: TextButton(
-              onPressed: () => Navigator.of(context).push<void>(
-                FocusedPageRoute(
-                  builder: (_) => Scaffold(
-                    body: Builder(
-                      builder: (origin) => ListView(
-                        children: [
-                          CoreCleanupAction(
-                            key: const ValueKey('storage-cleanup-files'),
-                            app: app,
-                            request: const {'scope': 'cache'},
-                            isCurrent: () => AppTaskActivity.isActive(origin),
-                            isCurrentWithPopup: (popup) {
-                              popupChecks++;
-                              return AppTaskActivity.isActive(
-                                origin,
-                                ownedPopup: popup,
-                              );
-                            },
-                            title: (strings) => strings.coreCleanupSelect,
-                            description: (strings) =>
-                                strings.coreCleanupSelectionNotice,
-                            icon: Icons.delete_sweep_outlined,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              child: const Text('open cleanup'),
-            ),
-          ),
-        ),
       );
-      await tester.tap(find.text('open cleanup'));
-      await tester.pumpAndSettle();
-      await beginCache(tester);
-      expect(bridge.commands, hasLength(1));
-      const failure = AppMessage(
-        'coreCleanupFailed',
-        detail: 'schedule original\nCaused by: worker\nSuppressed: close 原文🙂',
-      );
-      app.complete(
-        success: success,
-        message: success ? const AppMessage('coreCleanupCompleted') : failure,
-      );
-      await pumpCacheResult(tester, message: true);
-      final strings = lookupAppLocalizations(locale.value);
-      expect(app.hasLocalFeedbackOwner, isFalse);
-      expect(popupChecks, greaterThan(0));
-      if (success) {
-        expect(find.byType(AlertDialog), findsNothing);
-        expect(
-          find.descendant(
-            of: find.byType(SnackBar),
-            matching: find.text(strings.coreCleanupCompleted),
-          ),
-          findsOneWidget,
-        );
-        await _closeNotice(tester);
-      } else {
-        expect(find.text(strings.operationFinished), findsNothing);
-        final details = await _readFailure(tester);
-        expect(details, contains(failure.resolve(strings)));
-        expect(details, contains('cache.db · ${strings.cleanupFileFailed}'));
-        await tester.tap(find.widgetWithText(TextButton, strings.close));
-        await tester.pumpAndSettle();
-      }
+      final oldExit = tester.widget<TextButton>(button).onPressed!;
+      Navigator.of(tester.element(button)).pop();
+      oldExit();
+      await tester.pump();
       expect(bridge.exits, 0);
-      expect(app.hasLocalFeedbackOwner, isFalse);
+      expect(app.state.coreCleanup['status'], 'failed');
+      expect(button.hitTestable(), findsNothing);
+      await tester.pumpAndSettle();
+      expect(find.byType(StorageDataPage), findsOneWidget);
       expect(find.byType(AlertDialog), findsNothing);
-      expect(tester.takeException(), isNull);
-    });
-  }
+      expect(bridge.commands, hasLength(1));
+    },
+  );
 
-  for (final configurations in [true, false]) {
-    testWidgets('集合删除显示实际失败结果，不显示成功，configurations=$configurations', (
-      tester,
-    ) async {
+  testWidgets(
+    'old result Close callback does not overwrite a new file request',
+    (tester) async {
       await show(tester);
-      final clear = find.byKey(
-        ValueKey(
-          'storage-clear-${configurations ? 'configurations' : 'overrides'}',
-        ),
-      );
-      await reveal(tester, clear);
-      await tester.tap(clear);
-      await tester.pumpAndSettle();
-      final strings = lookupAppLocalizations(locale.value);
-      await tester.tap(find.widgetWithText(FilledButton, strings.delete));
-      await tester.pumpAndSettle();
-      expect(
-        bridge.commands.single['action'],
-        configurations ? 'clearConfigurations' : 'clearOverrides',
-      );
-      expect(find.byType(AlertDialog), findsNothing);
-      const failure = AppMessage(
-        'operationNotCompletedRetry',
-        detail: 'delete original\nCaused by: fsync\nSuppressed: close 原文🙂',
-      );
+      await beginCache(tester);
+      failedResult();
+      await pumpCacheResult(tester);
       app.publish(
         const AppSnapshot(
           phase: 'STOPPED',
           storageEpoch: 41,
-          resultId: 'cleanup-1',
-          resultSuccess: false,
-          resultMessage: failure,
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(await _readFailure(tester), failure.resolve(strings));
-      expect(app.state.resultSuccess, isFalse);
-      expect(bridge.exits, 0);
-    });
-  }
-
-  testWidgets('取消文件清理确认不提交命令，也不退出应用', (tester) async {
-    await show(tester);
-    final target = find.byKey(const ValueKey('storage-cleanup-files'));
-    await reveal(tester, target);
-    await tester.tap(target);
-    await pumpPopupEntrance(
-      tester,
-      find.widgetWithText(
-        FilledButton,
-        lookupAppLocalizations(locale.value).coreCleanupDeleteSelected,
-      ),
-      source: target,
-    );
-    await tester.tap(
-      find.widgetWithText(
-        TextButton,
-        lookupAppLocalizations(locale.value).cancel,
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(bridge.commands, isEmpty);
-    expect(bridge.exits, 0);
-    expect(app.hasLocalFeedbackOwner, isFalse);
-  });
-
-  testWidgets('清理失败保留 Stop 原错误，已打开的结果与技术详情随 locale 更新', (tester) async {
-    await show(
-      tester,
-      home: OperationNoticeHost(child: StorageDataPage(app: app)),
-    );
-    await beginCache(tester);
-    const original =
-        'https://user:password@fixture.test/?token=完整🙂\nStop IOException 原文';
-    app.complete(
-      success: false,
-      message: const AppMessage('coreCleanupFailed', detail: original),
-    );
-    await pumpCacheResult(tester);
-    var strings = lookupAppLocalizations(locale.value);
-    final summary = find
-        .descendant(
-          of: find.byType(AlertDialog),
-          matching: find.byType(SelectableText),
-        )
-        .first;
-    expect(
-      tester.widget<SelectableText>(summary).data,
-      strings.coreCleanupFailed,
-    );
-    expect(find.textContaining(original), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('operation-technical-details')));
-    await tester.pumpAndSettle();
-    final technical = find.byKey(const ValueKey('operation-technical-text'));
-    expect(tester.widget<SelectableText>(technical).data, contains(original));
-    expect(
-      tester.widget<SelectableText>(technical).data,
-      contains('cache.db · ${strings.cleanupFileFailed}'),
-    );
-    final resultRoute = ModalRoute.of(
-      tester.element(find.text(strings.operationNotCompleted)),
-    )!;
-    locale.value = const Locale('zh');
-    await tester.pump();
-    strings = lookupAppLocalizations(locale.value);
-    expect(
-      ModalRoute.of(tester.element(find.text(strings.operationNotCompleted))),
-      same(resultRoute),
-    );
-    expect(resultRoute.animation!.status, AnimationStatus.completed);
-    expect(
-      tester.widget<SelectableText>(summary).data,
-      strings.coreCleanupFailed,
-    );
-    expect(tester.widget<SelectableText>(technical).data, contains(original));
-    expect(
-      tester.widget<SelectableText>(technical).data,
-      contains('cache.db · ${strings.cleanupFileFailed}'),
-    );
-    expect(bridge.exits, 0);
-    await tester.tap(find.widgetWithText(TextButton, strings.close));
-    await tester.pumpAndSettle();
-    expect(bridge.exits, 0);
-    expect(find.byType(SnackBar), findsNothing);
-  });
-
-  testWidgets('文件清理失败保留完整原错误，不退出应用', (tester) async {
-    await show(tester);
-    await beginCache(tester);
-    const failure = AppMessage(
-      'coreCleanupFailed',
-      detail:
-          'rename IOException https://user:password@fixture.test/?token=原文🙂',
-    );
-    app.complete(success: false, message: failure);
-    await pumpCacheResult(tester, message: true);
-    final strings = lookupAppLocalizations(locale.value);
-    final details = await _readFailure(tester);
-    expect(details, contains(failure.resolve(strings)));
-    expect(details, contains('cache.db · ${strings.cleanupFileFailed}'));
-    expect(bridge.exits, 0);
-    expect(
-      find.text(lookupAppLocalizations(locale.value).operationFinished),
-      findsNothing,
-    );
-    await tester.tap(
-      find.widgetWithText(
-        TextButton,
-        lookupAppLocalizations(locale.value).close,
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(find.byType(SnackBar), findsNothing);
-    expect(app.hasLocalFeedbackOwner, isFalse);
-  });
-
-  testWidgets('受理失败仅显示一次，并保留 typed error 和完整平台错误结构', (tester) async {
-    const original = AppMessage(
-      'coreCleanupFailed',
-      detail: 'executor rejected 原文🙂',
-    );
-    bridge.submitFailure = PlatformFailure(
-      code: 'coreCleanup',
-      details: original.toMap(),
-    );
-    await show(tester);
-    await beginCache(tester);
-    await pumpCacheResult(tester, message: true);
-    expect(find.byType(AlertDialog), findsOneWidget);
-    expect(
-      await _readFailure(tester),
-      original
-          .withDetail(bridge.submitFailure)
-          .resolve(lookupAppLocalizations(locale.value)),
-    );
-    expect(bridge.exits, 0);
-    await tester.tap(
-      find.widgetWithText(
-        TextButton,
-        lookupAppLocalizations(locale.value).close,
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsNothing);
-  });
-
-  testWidgets('后台完成等待交互恢复才显示结果，不退出应用', (tester) async {
-    await show(tester);
-    await beginCache(tester);
-    app.setForeground(false);
-    app.complete();
-    await tester.pump(const Duration(seconds: 1));
-    expect(bridge.exits, 0);
-    expect(find.byType(AlertDialog), findsNothing);
-    app.setForeground(true);
-    await pumpCacheResult(tester);
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(
-      find.descendant(
-        of: find.byType(SnackBar),
-        matching: find.text(
-          lookupAppLocalizations(locale.value).coreCleanupCompleted,
-        ),
-      ),
-      findsOneWidget,
-    );
-    expect(bridge.commands, hasLength(1));
-    await _closeNotice(tester);
-    expect(bridge.exits, 0);
-  });
-
-  testWidgets('离开清理页面后交还实际全局反馈，不退出另一个页面', (tester) async {
-    await show(
-      tester,
-      home: Navigator(
-        observers: [AppTaskNavigatorObserver()],
-        onGenerateRoute: (_) =>
-            FocusedPageRoute<void>(builder: (_) => StorageDataPage(app: app)),
-      ),
-    );
-    await beginCache(tester);
-    final navigator = tester.state<NavigatorState>(find.byType(Navigator).last);
-    unawaited(
-      navigator.push<void>(
-        MaterialPageRoute(
-          builder: (_) => const Scaffold(body: Text('another page')),
-        ),
-      ),
-    );
-    await tester.pump(const Duration(milliseconds: 400));
-    app.complete();
-    await tester.pumpAndSettle();
-    expect(find.text('another page'), findsOneWidget);
-    expect(bridge.exits, 0);
-    expect(app.hasLocalFeedbackOwner, isFalse);
-    expect(find.byType(SnackBar), findsOneWidget);
-    expect(
-      find.text(lookupAppLocalizations(locale.value).coreCleanupCompleted),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets('卸载执行中的清理组件不取消操作，也不退出应用', (tester) async {
-    await show(tester);
-    await beginCache(tester);
-    await tester.pumpWidget(const SizedBox.shrink());
-    expect(app.hasLocalFeedbackOwner, isFalse);
-    app.complete();
-    await tester.pump();
-    expect(bridge.commands, hasLength(1));
-    expect(bridge.exits, 0);
-    expect(tester.takeException(), isNull);
-  });
-
-  for (final status in ['scheduled', 'failed', 'completed']) {
-    testWidgets('存储页区分清理状态 $status，仍允许本地集合删除', (tester) async {
-      const original =
-          'delete IOException https://user:password@fixture.test/?token=原文🙂';
-      app.publish(
-        AppSnapshot(
-          phase: 'STOPPED',
-          storageEpoch: 41,
           coreCleanup: {
-            'ready': status == 'completed',
-            'status': status,
+            'status': 'scheduled',
             'scope': 'files',
-            'paths': ['cache.db'],
-            'files': [
-              {
-                'path': 'cache.db',
-                'completed': status == 'completed',
-                if (status == 'failed')
-                  'error': const AppMessage(
-                    'coreCleanupFailed',
-                    detail: original,
-                  ).toMap(),
-              },
-            ],
-            if (status == 'failed')
-              'error': const AppMessage(
-                'coreCleanupFailed',
-                detail: original,
-              ).toMap(),
+            'paths': ['GeoSite.dat'],
           },
         ),
       );
-      if (status == 'failed') {
-        app.configErrorMessage = null;
-        app.overrideErrorMessage = null;
-      }
+      await tester.pump();
+      await tester.tap(
+        find.widgetWithText(
+          TextButton,
+          lookupAppLocalizations(locale.value).close,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(bridge.exits, 0);
+      expect(app.state.coreCleanup['paths'], ['GeoSite.dat']);
+      expect(bridge.commands, hasLength(1));
+    },
+  );
+
+  testWidgets(
+    'source invalidation rejects cached cleanup callbacks without waiting for rebuild',
+    (tester) async {
+      var current = true;
       await show(
         tester,
-        dismissNotice: status != 'failed',
-        home: status == 'failed'
-            ? OperationNoticeHost(child: StorageDataPage(app: app))
-            : null,
+        home: Scaffold(
+          body: ListView(
+            children: [
+              CoreCleanupAction(
+                key: const ValueKey('storage-cleanup-files'),
+                app: app,
+                request: const {'scope': 'cache'},
+                isCurrent: () => current,
+                title: (strings) => strings.coreCleanupSelect,
+                description: (strings) => strings.coreCleanupSelectionNotice,
+                icon: Icons.delete_sweep_outlined,
+              ),
+            ],
+          ),
+        ),
       );
-      final state = find.byKey(const ValueKey('storage-core-cleanup-state'));
-      final strings = lookupAppLocalizations(locale.value);
-      if (status == 'failed') {
-        expect(state, findsNothing);
-        expect(find.text(strings.coreCleanupFailed), findsOneWidget);
-        expect(find.textContaining(original), findsNothing);
-        final detail = await _readFailure(tester);
-        expect(detail, contains(original));
-        expect(detail, contains('cache.db · ${strings.cleanupFileFailed}'));
-        await tester.tap(
-          find.widgetWithText(TextButton, strings.close).hitTestable(),
-        );
-        await tester.pumpAndSettle();
-      } else {
-        await reveal(tester, state);
-        final title = status == 'completed'
-            ? strings.coreCleanupCompleted
-            : strings.coreCleanupScheduled;
-        expect((tester.widget<ListTile>(state).title! as Text).data, title);
-      }
-      expect(
-        find.byKey(const ValueKey('storage-core-cleanup-exit')),
-        findsNothing,
+      final tile = find.descendant(
+        of: find.byType(CoreCleanupAction),
+        matching: find.byType(ListTile),
       );
-      expect(bridge.exits, 0);
+      final oldTap = tester.widget<ListTile>(tile).onTap!;
+      current = false;
+      oldTap();
+      await tester.pumpAndSettle();
       expect(bridge.commands, isEmpty);
-      final clear = find.byKey(const ValueKey('storage-clear-configurations'));
-      await reveal(tester, clear);
-      expect(tester.widget<ListTile>(clear).onTap, isNotNull);
-    });
+      expect(bridge.exits, 0);
+      expect(find.byType(AlertDialog), findsNothing);
+    },
+  );
+
+  for (final success in [false, true]) {
+    testWidgets(
+      'FocusedPageRoute claims only actual confirmation and result popups success=$success',
+      (tester) async {
+        var popupChecks = 0;
+        await show(
+          tester,
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => Navigator.of(context).push<void>(
+                  FocusedPageRoute(
+                    builder: (_) => Scaffold(
+                      body: Builder(
+                        builder: (origin) => ListView(
+                          children: [
+                            CoreCleanupAction(
+                              key: const ValueKey('storage-cleanup-files'),
+                              app: app,
+                              request: const {'scope': 'cache'},
+                              isCurrent: () => AppTaskActivity.isActive(origin),
+                              isCurrentWithPopup: (popup) {
+                                popupChecks++;
+                                return AppTaskActivity.isActive(
+                                  origin,
+                                  ownedPopup: popup,
+                                );
+                              },
+                              title: (strings) => strings.coreCleanupSelect,
+                              description: (strings) =>
+                                  strings.coreCleanupSelectionNotice,
+                              icon: Icons.delete_sweep_outlined,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                child: const Text('open cleanup'),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('open cleanup'));
+        await tester.pumpAndSettle();
+        await beginCache(tester);
+        expect(bridge.commands, hasLength(1));
+        const failure = AppMessage(
+          'coreCleanupFailed',
+          detail:
+              'schedule original\nCaused by: worker\nSuppressed: close 原文🙂',
+        );
+        app.complete(
+          success: success,
+          message: success ? const AppMessage('coreCleanupCompleted') : failure,
+        );
+        await pumpCacheResult(tester, message: true);
+        final strings = lookupAppLocalizations(locale.value);
+        expect(app.hasLocalFeedbackOwner, isFalse);
+        expect(popupChecks, greaterThan(0));
+        if (success) {
+          expect(find.byType(AlertDialog), findsNothing);
+          expect(
+            find.descendant(
+              of: find.byType(SnackBar),
+              matching: find.text(strings.coreCleanupCompleted),
+            ),
+            findsOneWidget,
+          );
+          await _closeNotice(tester);
+        } else {
+          expect(find.text(strings.operationFinished), findsNothing);
+          final details = await _readFailure(tester);
+          expect(details, contains(failure.resolve(strings)));
+          expect(details, contains('cache.db · ${strings.cleanupFileFailed}'));
+          await tester.tap(find.widgetWithText(TextButton, strings.close));
+          await tester.pumpAndSettle();
+        }
+        expect(bridge.exits, 0);
+        expect(app.hasLocalFeedbackOwner, isFalse);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
-  testWidgets('重选候选失败保留原错误与既有文件请求', (tester) async {
-    final failure = StateError('exit worker IOException 原文🙂');
-    bridge.candidatesFailure = failure;
-    const original = {
-      'ready': false,
-      'status': 'failed',
-      'scope': 'files',
-      'paths': ['GeoSite.dat'],
-    };
-    app.publish(
-      const AppSnapshot(
-        phase: 'STOPPED',
-        storageEpoch: 41,
-        coreCleanup: original,
-      ),
+  for (final configurations in [true, false]) {
+    testWidgets(
+      'collection deletion shows actual failure instead of success configurations=$configurations',
+      (tester) async {
+        await show(tester);
+        final clear = find.byKey(
+          ValueKey(
+            'storage-clear-${configurations ? 'configurations' : 'overrides'}',
+          ),
+        );
+        await reveal(tester, clear);
+        await tester.tap(clear);
+        await tester.pumpAndSettle();
+        final strings = lookupAppLocalizations(locale.value);
+        await tester.tap(find.widgetWithText(FilledButton, strings.delete));
+        await tester.pumpAndSettle();
+        expect(
+          bridge.commands.single['action'],
+          configurations ? 'clearConfigurations' : 'clearOverrides',
+        );
+        expect(find.byType(AlertDialog), findsNothing);
+        const failure = AppMessage(
+          'operationNotCompletedRetry',
+          detail: 'delete original\nCaused by: fsync\nSuppressed: close 原文🙂',
+        );
+        app.publish(
+          const AppSnapshot(
+            phase: 'STOPPED',
+            storageEpoch: 41,
+            resultId: 'cleanup-1',
+            resultSuccess: false,
+            resultMessage: failure,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(await _readFailure(tester), failure.resolve(strings));
+        expect(app.state.resultSuccess, isFalse);
+        expect(bridge.exits, 0);
+      },
     );
-    await show(tester);
-    final target = cacheAction();
-    await reveal(tester, target);
-    await tester.tap(target);
-    await pumpCacheResult(tester, message: true);
-    expect(
-      await _readFailure(tester),
-      const AppMessage('coreCleanupFailed')
-          .withDetail(failure)
-          .resolve(lookupAppLocalizations(locale.value)),
-    );
-    expect(find.textContaining(failure.toString()), findsOneWidget);
-    expect(app.state.coreCleanup, original);
-    expect(bridge.commands, isEmpty);
-    expect(bridge.exits, 0);
-  });
+  }
 
-  for (final status in ['scheduled', 'failed']) {
-    testWidgets('明确选择文件替换 $status 请求，取消时保留原请求', (tester) async {
-      final original = {
-        'ready': false,
-        'status': status,
-        'scope': 'files',
-        'paths': ['GeoSite.dat'],
-      };
-      app.publish(
-        AppSnapshot(phase: 'STOPPED', storageEpoch: 41, coreCleanup: original),
-      );
+  testWidgets(
+    'cancelling file cleanup confirmation neither submits a command nor exits the app',
+    (tester) async {
       await show(tester);
-      final strings = lookupAppLocalizations(locale.value);
       final target = find.byKey(const ValueKey('storage-cleanup-files'));
       await reveal(tester, target);
       await tester.tap(target);
       await pumpPopupEntrance(
         tester,
-        find.widgetWithText(FilledButton, strings.coreCleanupDeleteSelected),
+        find.widgetWithText(
+          FilledButton,
+          lookupAppLocalizations(locale.value).coreCleanupDeleteSelected,
+        ),
         source: target,
       );
+      await tester.tap(
+        find.widgetWithText(
+          TextButton,
+          lookupAppLocalizations(locale.value).cancel,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(bridge.commands, isEmpty);
+      expect(bridge.exits, 0);
+      expect(app.hasLocalFeedbackOwner, isFalse);
+    },
+  );
+
+  testWidgets(
+    'cleanup failure retains the original Stop error and open results and technical details follow locale changes',
+    (tester) async {
+      await show(
+        tester,
+        home: OperationNoticeHost(child: StorageDataPage(app: app)),
+      );
+      await beginCache(tester);
+      const original =
+          'https://user:password@fixture.test/?token=完整🙂\nStop IOException 原文';
+      app.complete(
+        success: false,
+        message: const AppMessage('coreCleanupFailed', detail: original),
+      );
+      await pumpCacheResult(tester);
+      var strings = lookupAppLocalizations(locale.value);
+      final summary = find
+          .descendant(
+            of: find.byType(AlertDialog),
+            matching: find.byType(SelectableText),
+          )
+          .first;
+      expect(
+        tester.widget<SelectableText>(summary).data,
+        strings.coreCleanupFailed,
+      );
+      expect(find.textContaining(original), findsNothing);
+      await tester.tap(
+        find.byKey(const ValueKey('operation-technical-details')),
+      );
+      await tester.pumpAndSettle();
+      final technical = find.byKey(const ValueKey('operation-technical-text'));
+      expect(tester.widget<SelectableText>(technical).data, contains(original));
+      expect(
+        tester.widget<SelectableText>(technical).data,
+        contains('cache.db · ${strings.cleanupFileFailed}'),
+      );
+      final resultRoute = ModalRoute.of(
+        tester.element(find.text(strings.operationNotCompleted)),
+      )!;
+      locale.value = const Locale('zh');
+      await tester.pump();
+      strings = lookupAppLocalizations(locale.value);
+      expect(
+        ModalRoute.of(tester.element(find.text(strings.operationNotCompleted))),
+        same(resultRoute),
+      );
+      expect(resultRoute.animation!.status, AnimationStatus.completed);
+      expect(
+        tester.widget<SelectableText>(summary).data,
+        strings.coreCleanupFailed,
+      );
+      expect(tester.widget<SelectableText>(technical).data, contains(original));
+      expect(
+        tester.widget<SelectableText>(technical).data,
+        contains('cache.db · ${strings.cleanupFileFailed}'),
+      );
+      expect(bridge.exits, 0);
+      await tester.tap(find.widgetWithText(TextButton, strings.close));
+      await tester.pumpAndSettle();
+      expect(bridge.exits, 0);
+      expect(find.byType(SnackBar), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'file cleanup failure retains the complete original error without exiting the app',
+    (tester) async {
+      await show(tester);
+      await beginCache(tester);
+      const failure = AppMessage(
+        'coreCleanupFailed',
+        detail:
+            'rename IOException https://user:password@fixture.test/?token=原文🙂',
+      );
+      app.complete(success: false, message: failure);
+      await pumpCacheResult(tester, message: true);
+      final strings = lookupAppLocalizations(locale.value);
+      final details = await _readFailure(tester);
+      expect(details, contains(failure.resolve(strings)));
+      expect(details, contains('cache.db · ${strings.cleanupFileFailed}'));
+      expect(bridge.exits, 0);
+      expect(
+        find.text(lookupAppLocalizations(locale.value).operationFinished),
+        findsNothing,
+      );
+      await tester.tap(
+        find.widgetWithText(
+          TextButton,
+          lookupAppLocalizations(locale.value).close,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(SnackBar), findsNothing);
+      expect(app.hasLocalFeedbackOwner, isFalse);
+    },
+  );
+
+  testWidgets(
+    'admission failure displays once and retains typed error and complete platform error structure',
+    (tester) async {
+      const original = AppMessage(
+        'coreCleanupFailed',
+        detail: 'executor rejected 原文🙂',
+      );
+      bridge.submitFailure = PlatformFailure(
+        code: 'coreCleanup',
+        details: original.toMap(),
+      );
+      await show(tester);
+      await beginCache(tester);
+      await pumpCacheResult(tester, message: true);
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(
+        await _readFailure(tester),
+        original
+            .withDetail(bridge.submitFailure)
+            .resolve(lookupAppLocalizations(locale.value)),
+      );
+      expect(bridge.exits, 0);
+      await tester.tap(
+        find.widgetWithText(
+          TextButton,
+          lookupAppLocalizations(locale.value).close,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'background completion waits for interaction to resume before showing results and does not exit the app',
+    (tester) async {
+      await show(tester);
+      await beginCache(tester);
+      app.setForeground(false);
+      app.complete();
+      await tester.pump(const Duration(seconds: 1));
+      expect(bridge.exits, 0);
+      expect(find.byType(AlertDialog), findsNothing);
+      app.setForeground(true);
+      await pumpCacheResult(tester);
+      expect(find.byType(AlertDialog), findsNothing);
       expect(
         find.descendant(
-          of: find.byType(AlertDialog),
-          matching: find.text(strings.coreCleanupSelect),
+          of: find.byType(SnackBar),
+          matching: find.text(
+            lookupAppLocalizations(locale.value).coreCleanupCompleted,
+          ),
         ),
         findsOneWidget,
       );
-      expect(app.state.coreCleanup, original);
-      await tester.tap(find.widgetWithText(TextButton, strings.cancel));
+      expect(bridge.commands, hasLength(1));
+      await _closeNotice(tester);
+      expect(bridge.exits, 0);
+    },
+  );
+
+  testWidgets(
+    'leaving the cleanup page returns actual feedback to the global owner without exiting another page',
+    (tester) async {
+      await show(
+        tester,
+        home: Navigator(
+          observers: [AppTaskNavigatorObserver()],
+          onGenerateRoute: (_) =>
+              FocusedPageRoute<void>(builder: (_) => StorageDataPage(app: app)),
+        ),
+      );
+      await beginCache(tester);
+      final navigator = tester.state<NavigatorState>(
+        find.byType(Navigator).last,
+      );
+      unawaited(
+        navigator.push<void>(
+          MaterialPageRoute(
+            builder: (_) => const Scaffold(body: Text('another page')),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      app.complete();
       await tester.pumpAndSettle();
+      expect(find.text('another page'), findsOneWidget);
+      expect(bridge.exits, 0);
+      expect(app.hasLocalFeedbackOwner, isFalse);
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(
+        find.text(lookupAppLocalizations(locale.value).coreCleanupCompleted),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets(
+    'unmounting active cleanup widgets neither cancels the operation nor exits the app',
+    (tester) async {
+      await show(tester);
+      await beginCache(tester);
+      await tester.pumpWidget(const SizedBox.shrink());
+      expect(app.hasLocalFeedbackOwner, isFalse);
+      app.complete();
+      await tester.pump();
+      expect(bridge.commands, hasLength(1));
+      expect(bridge.exits, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  for (final status in ['scheduled', 'failed', 'completed']) {
+    testWidgets(
+      'storage page distinguishes cleanup state $status and still allows local collection deletion',
+      (tester) async {
+        const original =
+            'delete IOException https://user:password@fixture.test/?token=原文🙂';
+        app.publish(
+          AppSnapshot(
+            phase: 'STOPPED',
+            storageEpoch: 41,
+            coreCleanup: {
+              'ready': status == 'completed',
+              'status': status,
+              'scope': 'files',
+              'paths': ['cache.db'],
+              'files': [
+                {
+                  'path': 'cache.db',
+                  'completed': status == 'completed',
+                  if (status == 'failed')
+                    'error': const AppMessage(
+                      'coreCleanupFailed',
+                      detail: original,
+                    ).toMap(),
+                },
+              ],
+              if (status == 'failed')
+                'error': const AppMessage(
+                  'coreCleanupFailed',
+                  detail: original,
+                ).toMap(),
+            },
+          ),
+        );
+        if (status == 'failed') {
+          app.configErrorMessage = null;
+          app.overrideErrorMessage = null;
+        }
+        await show(
+          tester,
+          dismissNotice: status != 'failed',
+          home: status == 'failed'
+              ? OperationNoticeHost(child: StorageDataPage(app: app))
+              : null,
+        );
+        final state = find.byKey(const ValueKey('storage-core-cleanup-state'));
+        final strings = lookupAppLocalizations(locale.value);
+        if (status == 'failed') {
+          expect(state, findsNothing);
+          expect(find.text(strings.coreCleanupFailed), findsOneWidget);
+          expect(find.textContaining(original), findsNothing);
+          final detail = await _readFailure(tester);
+          expect(detail, contains(original));
+          expect(detail, contains('cache.db · ${strings.cleanupFileFailed}'));
+          await tester.tap(
+            find.widgetWithText(TextButton, strings.close).hitTestable(),
+          );
+          await tester.pumpAndSettle();
+        } else {
+          await reveal(tester, state);
+          final title = status == 'completed'
+              ? strings.coreCleanupCompleted
+              : strings.coreCleanupScheduled;
+          expect((tester.widget<ListTile>(state).title! as Text).data, title);
+        }
+        expect(
+          find.byKey(const ValueKey('storage-core-cleanup-exit')),
+          findsNothing,
+        );
+        expect(bridge.exits, 0);
+        expect(bridge.commands, isEmpty);
+        final clear = find.byKey(
+          const ValueKey('storage-clear-configurations'),
+        );
+        await reveal(tester, clear);
+        expect(tester.widget<ListTile>(clear).onTap, isNotNull);
+      },
+    );
+  }
+
+  testWidgets(
+    'candidate reselection failure retains the original error and existing file request',
+    (tester) async {
+      final failure = StateError('exit worker IOException 原文🙂');
+      bridge.candidatesFailure = failure;
+      const original = {
+        'ready': false,
+        'status': 'failed',
+        'scope': 'files',
+        'paths': ['GeoSite.dat'],
+      };
+      app.publish(
+        const AppSnapshot(
+          phase: 'STOPPED',
+          storageEpoch: 41,
+          coreCleanup: original,
+        ),
+      );
+      await show(tester);
+      final target = cacheAction();
+      await reveal(tester, target);
+      await tester.tap(target);
+      await pumpCacheResult(tester, message: true);
+      expect(
+        await _readFailure(tester),
+        const AppMessage('coreCleanupFailed')
+            .withDetail(failure)
+            .resolve(lookupAppLocalizations(locale.value)),
+      );
+      expect(find.textContaining(failure.toString()), findsOneWidget);
       expect(app.state.coreCleanup, original);
       expect(bridge.commands, isEmpty);
       expect(bridge.exits, 0);
-      await tester.tap(target);
-      await pumpPopupEntrance(
-        tester,
-        find.widgetWithText(FilledButton, strings.coreCleanupDeleteSelected),
-        source: target,
+    },
+  );
+
+  for (final status in ['scheduled', 'failed']) {
+    testWidgets(
+      'explicit file selection replaces the $status request and cancellation retains the original request',
+      (tester) async {
+        final original = {
+          'ready': false,
+          'status': status,
+          'scope': 'files',
+          'paths': ['GeoSite.dat'],
+        };
+        app.publish(
+          AppSnapshot(
+            phase: 'STOPPED',
+            storageEpoch: 41,
+            coreCleanup: original,
+          ),
+        );
+        await show(tester);
+        final strings = lookupAppLocalizations(locale.value);
+        final target = find.byKey(const ValueKey('storage-cleanup-files'));
+        await reveal(tester, target);
+        await tester.tap(target);
+        await pumpPopupEntrance(
+          tester,
+          find.widgetWithText(FilledButton, strings.coreCleanupDeleteSelected),
+          source: target,
+        );
+        expect(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.text(strings.coreCleanupSelect),
+          ),
+          findsOneWidget,
+        );
+        expect(app.state.coreCleanup, original);
+        await tester.tap(find.widgetWithText(TextButton, strings.cancel));
+        await tester.pumpAndSettle();
+        expect(app.state.coreCleanup, original);
+        expect(bridge.commands, isEmpty);
+        expect(bridge.exits, 0);
+        await tester.tap(target);
+        await pumpPopupEntrance(
+          tester,
+          find.widgetWithText(FilledButton, strings.coreCleanupDeleteSelected),
+          source: target,
+        );
+        expect(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.text(strings.coreCleanupSelect),
+          ),
+          findsOneWidget,
+        );
+        expect(app.state.coreCleanup, original);
+        tester.widget<CheckboxListTile>(fileCandidate('cache.db')).onChanged!(
+          true,
+        );
+        await tester.pump();
+        await tester.tap(
+          find.widgetWithText(FilledButton, strings.coreCleanupDeleteSelected),
+        );
+        await tester.pump();
+        expect(bridge.commands.single, {
+          'action': 'scheduleCoreCleanup',
+          'paths': ['cache.db'],
+          'restart': false,
+          'storageEpoch': 41,
+        });
+        app.complete();
+        await pumpCacheResult(tester);
+        expect(app.state.coreCleanup['status'], 'completed');
+        expect(app.state.coreCleanup['paths'], ['cache.db']);
+        await _closeNotice(tester);
+        expect(bridge.exits, 0);
+      },
+    );
+  }
+
+  testWidgets(
+    'admitted resource confirmation retains original identity and paths after core identity changes',
+    (tester) async {
+      const source = CoreSnapshot(
+        generation: 7,
+        phase: 'READY',
+        composition: '["loaded",7]',
+        configId: 'loaded',
+        revision: 2,
+        purpose: 'RUNNING',
       );
-      expect(
-        find.descendant(
-          of: find.byType(AlertDialog),
-          matching: find.text(strings.coreCleanupSelect),
-        ),
-        findsOneWidget,
+      const path = '/fixture/mihomo/GeoSite.dat';
+      bridge.rows = [
+        {
+          'kind': 'geo',
+          'name': 'GeoSite',
+          'vehicleType': 'HTTP',
+          'source': 'https://fixture.test/original',
+          'path': path,
+          'updateSupported': true,
+        },
+      ];
+      app.publish(
+        const AppSnapshot(phase: 'RUNNING', core: source, storageEpoch: 41),
       );
-      expect(app.state.coreCleanup, original);
-      tester.widget<CheckboxListTile>(fileCandidate('cache.db')).onChanged!(
-        true,
+      await show(tester, home: ResourcesPage(app: app));
+      await tester.tap(find.widgetWithText(ListTile, 'GeoSite'));
+      await tester.pumpAndSettle();
+      final delete = find.byKey(const ValueKey('resource-delete-file'));
+      await tester.ensureVisible(delete);
+      await tester.tap(delete);
+      final strings = lookupAppLocalizations(locale.value);
+      final confirm = find.widgetWithText(
+        FilledButton,
+        strings.coreCleanupDeleteSelected,
       );
-      await tester.pump();
-      await tester.tap(
-        find.widgetWithText(FilledButton, strings.coreCleanupDeleteSelected),
-      );
-      await tester.pump();
+      await pumpPopupEntrance(tester, confirm, source: delete);
+      expect(find.text(path), findsOneWidget);
+      tester.widget<FilledButton>(confirm).onPressed!();
+      await tester.idle();
       expect(bridge.commands.single, {
         'action': 'scheduleCoreCleanup',
-        'paths': ['cache.db'],
+        'paths': [path.replaceFirst('/fixture/mihomo/', '')],
         'restart': false,
         'storageEpoch': 41,
       });
-      app.complete();
-      await pumpCacheResult(tester);
-      expect(app.state.coreCleanup['status'], 'completed');
-      expect(app.state.coreCleanup['paths'], ['cache.db']);
-      await _closeNotice(tester);
+      app.publish(
+        const AppSnapshot(
+          phase: 'RUNNING',
+          core: CoreSnapshot(
+            generation: 8,
+            phase: 'READY',
+            composition: '["replacement",8]',
+            configId: 'replacement',
+            revision: 3,
+            purpose: 'RUNNING',
+          ),
+          storageEpoch: 42,
+        ),
+      );
+      expect(bridge.commands, hasLength(1));
+      const original = AppMessage(
+        'coreCleanupFailed',
+        detail: 'Resource context changed 原文🙂',
+      );
+      app.complete(success: false, message: original);
+      await tester.pumpAndSettle();
+      expect(await _readFailure(tester), original.resolve(strings));
       expect(bridge.exits, 0);
-    });
-  }
+      expect(find.text(strings.operationFinished), findsNothing);
+      await tester.tap(find.widgetWithText(TextButton, strings.close));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+  );
 
-  testWidgets('内核身份改变后已受理资源确认保留原身份与路径', (tester) async {
-    const source = CoreSnapshot(
-      generation: 7,
-      phase: 'READY',
-      composition: '["loaded",7]',
-      configId: 'loaded',
-      revision: 2,
-      purpose: 'RUNNING',
-    );
-    const path = '/fixture/mihomo/GeoSite.dat';
-    bridge.rows = [
-      {
-        'kind': 'geo',
-        'name': 'GeoSite',
-        'vehicleType': 'HTTP',
-        'source': 'https://fixture.test/original',
-        'path': path,
-        'updateSupported': true,
-      },
-    ];
-    app.publish(
-      const AppSnapshot(phase: 'RUNNING', core: source, storageEpoch: 41),
-    );
-    await show(tester, home: ResourcesPage(app: app));
-    await tester.tap(find.widgetWithText(ListTile, 'GeoSite'));
-    await tester.pumpAndSettle();
-    final delete = find.byKey(const ValueKey('resource-delete-file'));
-    await tester.ensureVisible(delete);
-    await tester.tap(delete);
-    final strings = lookupAppLocalizations(locale.value);
-    final confirm = find.widgetWithText(
-      FilledButton,
-      strings.coreCleanupDeleteSelected,
-    );
-    await pumpPopupEntrance(tester, confirm, source: delete);
-    expect(find.text(path), findsOneWidget);
-    tester.widget<FilledButton>(confirm).onPressed!();
-    await tester.idle();
-    expect(bridge.commands.single, {
-      'action': 'scheduleCoreCleanup',
-      'paths': [path.replaceFirst('/fixture/mihomo/', '')],
-      'restart': false,
-      'storageEpoch': 41,
-    });
-    app.publish(
-      const AppSnapshot(
+  testWidgets(
+    'core identity changes immediately reject unadmitted old resource paths and identity',
+    (tester) async {
+      const source = CoreSnapshot(
+        generation: 7,
+        phase: 'READY',
+        composition: '["loaded",7]',
+        configId: 'loaded',
+        revision: 2,
+        purpose: 'RUNNING',
+      );
+      const path = '/fixture/mihomo/GeoSite.dat';
+      bridge.rows = [
+        {'kind': 'geo', 'name': 'GeoSite', 'vehicleType': 'HTTP', 'path': path},
+      ];
+      const original = AppSnapshot(
         phase: 'RUNNING',
-        core: CoreSnapshot(
-          generation: 8,
-          phase: 'READY',
-          composition: '["replacement",8]',
-          configId: 'replacement',
-          revision: 3,
-          purpose: 'RUNNING',
-        ),
-        storageEpoch: 42,
-      ),
-    );
-    expect(bridge.commands, hasLength(1));
-    const original = AppMessage(
-      'coreCleanupFailed',
-      detail: 'Resource context changed 原文🙂',
-    );
-    app.complete(success: false, message: original);
-    await tester.pumpAndSettle();
-    expect(await _readFailure(tester), original.resolve(strings));
-    expect(bridge.exits, 0);
-    expect(find.text(strings.operationFinished), findsNothing);
-    await tester.tap(find.widgetWithText(TextButton, strings.close));
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('内核身份改变时立即拒绝尚未受理的旧资源路径和身份', (tester) async {
-    const source = CoreSnapshot(
-      generation: 7,
-      phase: 'READY',
-      composition: '["loaded",7]',
-      configId: 'loaded',
-      revision: 2,
-      purpose: 'RUNNING',
-    );
-    const path = '/fixture/mihomo/GeoSite.dat';
-    bridge.rows = [
-      {'kind': 'geo', 'name': 'GeoSite', 'vehicleType': 'HTTP', 'path': path},
-    ];
-    const original = AppSnapshot(
-      phase: 'RUNNING',
-      core: source,
-      storageEpoch: 41,
-    );
-    app.publish(original);
-    await show(tester, home: ResourcesPage(app: app));
-    await tester.tap(find.widgetWithText(ListTile, 'GeoSite'));
-    await tester.pumpAndSettle();
-    final delete = find.byKey(const ValueKey('resource-delete-file'));
-    await tester.ensureVisible(delete);
-    final sourceRoute = ModalRoute.of(tester.element(delete))!;
-    expect(sourceRoute.isCurrent, isTrue);
-    await tester.tap(delete);
-    final strings = lookupAppLocalizations(locale.value);
-    final confirm = find.widgetWithText(
-      FilledButton,
-      strings.coreCleanupDeleteSelected,
-    );
-    await pumpPopupEntrance(tester, confirm, source: delete);
-    expect(find.text(path), findsOneWidget);
-    final route = ModalRoute.of(tester.element(confirm))!;
-    final oldConfirm = tester.widget<FilledButton>(confirm).onPressed!;
-    app.publish(
-      const AppSnapshot(
-        phase: 'RUNNING',
-        core: CoreSnapshot(
-          generation: 8,
-          phase: 'READY',
-          composition: '["replacement",8]',
-          configId: 'replacement',
-          revision: 3,
-          purpose: 'RUNNING',
-        ),
-        storageEpoch: 42,
-      ),
-    );
-    oldConfirm();
-    await tester.idle();
-    expect(bridge.commands, isEmpty);
-    expect(bridge.exits, 0);
-    expect(route, isNot(same(sourceRoute)));
-    await tester.pump();
-    expect(route.isActive, isFalse);
-    expect(route.isCurrent, isFalse);
-    expect(route.animation!.status, AnimationStatus.reverse);
-    expect(sourceRoute.isActive, isTrue);
-    expect(sourceRoute.isCurrent, isTrue);
-    await tester.pump();
-    expect(find.text(path), findsOneWidget);
-    app.publish(original);
-    oldConfirm();
-    await tester.idle();
-    expect(bridge.commands, isEmpty);
-    expect(bridge.exits, 0);
-    expect(app.hasLocalFeedbackOwner, isFalse);
-    expect(route.isActive, isFalse);
-    expect(route.isCurrent, isFalse);
-    expect(sourceRoute.isActive, isTrue);
-    expect(sourceRoute.isCurrent, isTrue);
-    await tester.pumpAndSettle();
-    expect(
-      ModalRoute.of(tester.element(find.byType(ResourcesPage))),
-      same(sourceRoute),
-    );
-    expect(sourceRoute.isCurrent, isTrue);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('实际 Stop 结果退休同 generation 来源，并将 completed 事实交还全局', (
-    tester,
-  ) async {
-    const source = CoreSnapshot(
-      generation: 7,
-      phase: 'READY',
-      composition: '["loaded",7]',
-      configId: 'loaded',
-      revision: 2,
-      purpose: 'RUNNING',
-    );
-    const path = '/fixture/mihomo/GeoSite.dat';
-    bridge.rows = [
-      {'kind': 'geo', 'name': 'GeoSite', 'vehicleType': 'HTTP', 'path': path},
-    ];
-    app.publish(
-      const AppSnapshot(phase: 'RUNNING', core: source, storageEpoch: 41),
-    );
-    await show(tester, home: ResourcesPage(app: app));
-    await tester.tap(find.widgetWithText(ListTile, 'GeoSite'));
-    await tester.pumpAndSettle();
-    final delete = find.byKey(const ValueKey('resource-delete-file'));
-    await tester.ensureVisible(delete);
-    final detailScaffold = Scaffold.of(tester.element(delete));
-    final scaffolds = tester
-        .stateList<ScaffoldState>(find.byType(Scaffold))
-        .toList();
-    expect(scaffolds, hasLength(2));
-    final masterScaffold = scaffolds.singleWhere(
-      (scaffold) => !identical(scaffold, detailScaffold),
-    );
-    final detailPane = find.byElementPredicate(
-      (element) => identical(element, detailScaffold.context),
-    );
-    expect(delete.hitTestable(), findsOneWidget);
-    await tester.tap(delete);
-    final strings = lookupAppLocalizations(locale.value);
-    final confirm = find.widgetWithText(
-      FilledButton,
-      strings.coreCleanupDeleteSelected,
-    );
-    await pumpPopupEntrance(tester, confirm, source: delete);
-    expect(find.text(path), findsOneWidget);
-    final oldConfirm = tester.widget<FilledButton>(confirm).onPressed!;
-    oldConfirm();
-    await tester.idle();
-    expect(bridge.commands.single, {
-      'action': 'scheduleCoreCleanup',
-      'paths': [path.replaceFirst('/fixture/mihomo/', '')],
-      'restart': false,
-      'storageEpoch': 41,
-    });
-    // 发布 Stop 成功后的 STOPPED 快照：清空内核身份字段，保留 generation。
-    // 直接提供最终 completed 结果，不先发布 RELEASING 快照。
-    app.publish(
-      const AppSnapshot(
-        phase: 'STOPPED',
+        core: source,
         storageEpoch: 41,
-        core: CoreSnapshot(generation: 7),
-        resultId: 'cleanup-1',
-        resultSuccess: true,
-        resultMessage: AppMessage('coreCleanupCompleted'),
-        coreCleanup: {
-          'ready': false,
-          'status': 'completed',
-          'scope': 'files',
-          'paths': ['GeoSite.dat'],
-        },
-      ),
-    );
-    expect(app.state.core.generation, source.generation);
-    expect(app.state.core.phase, 'EMPTY');
-    expect(app.state.core.purpose, isNull);
-    expect(app.state.core.configId, isNull);
-    expect(app.state.core.revision, isNull);
-    expect(app.state.core.composition, isNull);
-    expect(app.state.core.logWindow, isNull);
-    expect(source.matchesIdentity(app.state.core), isFalse);
-    expect(app.state.storageEpoch, 41);
-    expect(app.state.coreCleanup['status'], 'completed');
-    oldConfirm();
-    await tester.idle();
-    expect(bridge.commands, hasLength(1));
-    expect(bridge.exits, 0);
-    expect(app.hasLocalFeedbackOwner, isFalse);
-    await tester.pumpAndSettle();
-    expect(app.state.resultSuccess, isTrue);
-    expect(app.state.coreCleanup['status'], 'completed');
-    expect(
-      tester.stateList<ScaffoldState>(find.byType(Scaffold)),
-      unorderedEquals([masterScaffold, detailScaffold]),
-    );
-    final snackBars = find.byType(SnackBar);
-    expect(snackBars, findsNWidgets(2));
-    final copies = tester.widgetList<SnackBar>(snackBars).toList();
-    expect(copies.first, same(copies.last));
-    expect(copies.first.key, isNotNull);
-    expect(copies.first.key, same(copies.last.key));
-    expect(
-      snackBars.evaluate().map((element) => Scaffold.of(element)),
-      unorderedEquals([masterScaffold, detailScaffold]),
-    );
-    final scheduledInDetail = find.descendant(
-      of: detailPane,
-      matching: find.text(strings.coreCleanupCompleted),
-    );
-    expect(scheduledInDetail, findsOneWidget);
-    expect(scheduledInDetail.hitTestable(), findsOneWidget);
-    expect(find.text(strings.operationFinished), findsNothing);
-    expect(find.text(strings.coreCleanupScheduled), findsNothing);
-    expect(find.widgetWithText(TextButton, strings.close), findsNothing);
-    ScaffoldMessenger.of(detailScaffold.context).removeCurrentSnackBar();
-    await tester.pump(const Duration(milliseconds: 1));
-    expect(find.byType(SnackBar), findsNothing);
-    expect(find.text(strings.coreCleanupCompleted), findsNothing);
-    expect(bridge.exits, 0);
-    expect(tester.takeException(), isNull);
-  });
+      );
+      app.publish(original);
+      await show(tester, home: ResourcesPage(app: app));
+      await tester.tap(find.widgetWithText(ListTile, 'GeoSite'));
+      await tester.pumpAndSettle();
+      final delete = find.byKey(const ValueKey('resource-delete-file'));
+      await tester.ensureVisible(delete);
+      final sourceRoute = ModalRoute.of(tester.element(delete))!;
+      expect(sourceRoute.isCurrent, isTrue);
+      await tester.tap(delete);
+      final strings = lookupAppLocalizations(locale.value);
+      final confirm = find.widgetWithText(
+        FilledButton,
+        strings.coreCleanupDeleteSelected,
+      );
+      await pumpPopupEntrance(tester, confirm, source: delete);
+      expect(find.text(path), findsOneWidget);
+      final route = ModalRoute.of(tester.element(confirm))!;
+      final oldConfirm = tester.widget<FilledButton>(confirm).onPressed!;
+      app.publish(
+        const AppSnapshot(
+          phase: 'RUNNING',
+          core: CoreSnapshot(
+            generation: 8,
+            phase: 'READY',
+            composition: '["replacement",8]',
+            configId: 'replacement',
+            revision: 3,
+            purpose: 'RUNNING',
+          ),
+          storageEpoch: 42,
+        ),
+      );
+      oldConfirm();
+      await tester.idle();
+      expect(bridge.commands, isEmpty);
+      expect(bridge.exits, 0);
+      expect(route, isNot(same(sourceRoute)));
+      await tester.pump();
+      expect(route.isActive, isFalse);
+      expect(route.isCurrent, isFalse);
+      expect(route.animation!.status, AnimationStatus.reverse);
+      expect(sourceRoute.isActive, isTrue);
+      expect(sourceRoute.isCurrent, isTrue);
+      await tester.pump();
+      expect(find.text(path), findsOneWidget);
+      app.publish(original);
+      oldConfirm();
+      await tester.idle();
+      expect(bridge.commands, isEmpty);
+      expect(bridge.exits, 0);
+      expect(app.hasLocalFeedbackOwner, isFalse);
+      expect(route.isActive, isFalse);
+      expect(route.isCurrent, isFalse);
+      expect(sourceRoute.isActive, isTrue);
+      expect(sourceRoute.isCurrent, isTrue);
+      await tester.pumpAndSettle();
+      expect(
+        ModalRoute.of(tester.element(find.byType(ResourcesPage))),
+        same(sourceRoute),
+      );
+      expect(sourceRoute.isCurrent, isTrue);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'actual Stop result retires the same-generation source and returns completed facts to the global owner',
+    (tester) async {
+      const source = CoreSnapshot(
+        generation: 7,
+        phase: 'READY',
+        composition: '["loaded",7]',
+        configId: 'loaded',
+        revision: 2,
+        purpose: 'RUNNING',
+      );
+      const path = '/fixture/mihomo/GeoSite.dat';
+      bridge.rows = [
+        {'kind': 'geo', 'name': 'GeoSite', 'vehicleType': 'HTTP', 'path': path},
+      ];
+      app.publish(
+        const AppSnapshot(phase: 'RUNNING', core: source, storageEpoch: 41),
+      );
+      await show(tester, home: ResourcesPage(app: app));
+      await tester.tap(find.widgetWithText(ListTile, 'GeoSite'));
+      await tester.pumpAndSettle();
+      final delete = find.byKey(const ValueKey('resource-delete-file'));
+      await tester.ensureVisible(delete);
+      final detailScaffold = Scaffold.of(tester.element(delete));
+      final scaffolds = tester
+          .stateList<ScaffoldState>(find.byType(Scaffold))
+          .toList();
+      expect(scaffolds, hasLength(2));
+      final masterScaffold = scaffolds.singleWhere(
+        (scaffold) => !identical(scaffold, detailScaffold),
+      );
+      final detailPane = find.byElementPredicate(
+        (element) => identical(element, detailScaffold.context),
+      );
+      expect(delete.hitTestable(), findsOneWidget);
+      await tester.tap(delete);
+      final strings = lookupAppLocalizations(locale.value);
+      final confirm = find.widgetWithText(
+        FilledButton,
+        strings.coreCleanupDeleteSelected,
+      );
+      await pumpPopupEntrance(tester, confirm, source: delete);
+      expect(find.text(path), findsOneWidget);
+      final oldConfirm = tester.widget<FilledButton>(confirm).onPressed!;
+      oldConfirm();
+      await tester.idle();
+      expect(bridge.commands.single, {
+        'action': 'scheduleCoreCleanup',
+        'paths': [path.replaceFirst('/fixture/mihomo/', '')],
+        'restart': false,
+        'storageEpoch': 41,
+      });
+      // Publish the STOPPED snapshot after successful Stop, clearing core identity fields
+      // while retaining generation.
+      // Provide the final completed result directly without publishing a RELEASING
+      // snapshot first.
+      app.publish(
+        const AppSnapshot(
+          phase: 'STOPPED',
+          storageEpoch: 41,
+          core: CoreSnapshot(generation: 7),
+          resultId: 'cleanup-1',
+          resultSuccess: true,
+          resultMessage: AppMessage('coreCleanupCompleted'),
+          coreCleanup: {
+            'ready': false,
+            'status': 'completed',
+            'scope': 'files',
+            'paths': ['GeoSite.dat'],
+          },
+        ),
+      );
+      expect(app.state.core.generation, source.generation);
+      expect(app.state.core.phase, 'EMPTY');
+      expect(app.state.core.purpose, isNull);
+      expect(app.state.core.configId, isNull);
+      expect(app.state.core.revision, isNull);
+      expect(app.state.core.composition, isNull);
+      expect(app.state.core.logWindow, isNull);
+      expect(source.matchesIdentity(app.state.core), isFalse);
+      expect(app.state.storageEpoch, 41);
+      expect(app.state.coreCleanup['status'], 'completed');
+      oldConfirm();
+      await tester.idle();
+      expect(bridge.commands, hasLength(1));
+      expect(bridge.exits, 0);
+      expect(app.hasLocalFeedbackOwner, isFalse);
+      await tester.pumpAndSettle();
+      expect(app.state.resultSuccess, isTrue);
+      expect(app.state.coreCleanup['status'], 'completed');
+      expect(
+        tester.stateList<ScaffoldState>(find.byType(Scaffold)),
+        unorderedEquals([masterScaffold, detailScaffold]),
+      );
+      final snackBars = find.byType(SnackBar);
+      expect(snackBars, findsNWidgets(2));
+      final copies = tester.widgetList<SnackBar>(snackBars).toList();
+      expect(copies.first, same(copies.last));
+      expect(copies.first.key, isNotNull);
+      expect(copies.first.key, same(copies.last.key));
+      expect(
+        snackBars.evaluate().map((element) => Scaffold.of(element)),
+        unorderedEquals([masterScaffold, detailScaffold]),
+      );
+      final scheduledInDetail = find.descendant(
+        of: detailPane,
+        matching: find.text(strings.coreCleanupCompleted),
+      );
+      expect(scheduledInDetail, findsOneWidget);
+      expect(scheduledInDetail.hitTestable(), findsOneWidget);
+      expect(find.text(strings.operationFinished), findsNothing);
+      expect(find.text(strings.coreCleanupScheduled), findsNothing);
+      expect(find.widgetWithText(TextButton, strings.close), findsNothing);
+      ScaffoldMessenger.of(detailScaffold.context).removeCurrentSnackBar();
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(find.byType(SnackBar), findsNothing);
+      expect(find.text(strings.coreCleanupCompleted), findsNothing);
+      expect(bridge.exits, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   for (final (kind, vehicle, name, path) in const [
     (
@@ -2673,170 +2785,178 @@ void main() {
     ),
     ('geo', 'File', 'GeoSite', '/fixture/mihomo/GeoSite.dat'),
   ]) {
-    testWidgets('资源路径保持完整，provider 不提供文件删除，类型= $kind $vehicle', (tester) async {
-      const source = CoreSnapshot(
-        generation: 7,
-        phase: 'READY',
-        composition: '["loaded",7]',
-        configId: 'loaded',
-        revision: 2,
-        purpose: 'RUNNING',
-      );
-      bridge.rows = [
-        {
-          'kind': kind,
-          'name': name,
-          'vehicleType': vehicle,
-          'source': 'https://user:password@fixture.test/?token=完整🙂',
-          'path': path,
-          'updateSupported': true,
-        },
-      ];
-      app.publish(
-        const AppSnapshot(phase: 'RUNNING', core: source, storageEpoch: 41),
-      );
-      await show(tester, home: ResourcesPage(app: app));
-      await tester.tap(find.widgetWithText(ListTile, name));
-      await tester.pumpAndSettle();
-      final strings = lookupAppLocalizations(locale.value);
-      expect(find.text(strings.resourceLocalFile(path)), findsOneWidget);
-      final delete = find.byKey(const ValueKey('resource-delete-file'));
-      if (kind != 'geo') {
-        expect(delete, findsNothing);
+    testWidgets(
+      'resource paths remain complete and providers offer no file deletion type=$kind $vehicle',
+      (tester) async {
+        const source = CoreSnapshot(
+          generation: 7,
+          phase: 'READY',
+          composition: '["loaded",7]',
+          configId: 'loaded',
+          revision: 2,
+          purpose: 'RUNNING',
+        );
+        bridge.rows = [
+          {
+            'kind': kind,
+            'name': name,
+            'vehicleType': vehicle,
+            'source': 'https://user:password@fixture.test/?token=完整🙂',
+            'path': path,
+            'updateSupported': true,
+          },
+        ];
+        app.publish(
+          const AppSnapshot(phase: 'RUNNING', core: source, storageEpoch: 41),
+        );
+        await show(tester, home: ResourcesPage(app: app));
+        await tester.tap(find.widgetWithText(ListTile, name));
+        await tester.pumpAndSettle();
+        final strings = lookupAppLocalizations(locale.value);
+        expect(find.text(strings.resourceLocalFile(path)), findsOneWidget);
+        final delete = find.byKey(const ValueKey('resource-delete-file'));
+        if (kind != 'geo') {
+          expect(delete, findsNothing);
+          expect(
+            find.byWidgetPredicate(
+              (widget) =>
+                  widget is SelectableText &&
+                  widget.data ==
+                      'https://user:password@fixture.test/?token=完整🙂',
+            ),
+            findsOneWidget,
+          );
+          expect(
+            find.byWidgetPredicate(
+              (widget) =>
+                  widget is SelectableText &&
+                  widget.data ==
+                      '${kind == 'proxyProvider' ? strings.resourceProxyProvider : strings.resourceRuleProvider} · $vehicle',
+            ),
+            findsOneWidget,
+          );
+          expect(find.byKey(const ValueKey('resource-raw-data')), findsNothing);
+          expect(bridge.commands, isEmpty);
+          expect(bridge.exits, 0);
+          return;
+        }
+        await tester.ensureVisible(delete);
+        await tester.tap(delete);
+        await pumpPopupEntrance(
+          tester,
+          find.widgetWithText(FilledButton, strings.coreCleanupDeleteSelected),
+          source: delete,
+        );
+        expect(find.text(path), findsOneWidget);
         expect(
-          find.byWidgetPredicate(
-            (widget) =>
-                widget is SelectableText &&
-                widget.data == 'https://user:password@fixture.test/?token=完整🙂',
-          ),
+          find.textContaining(strings.coreCleanupResourceMessage),
           findsOneWidget,
         );
-        expect(
-          find.byWidgetPredicate(
-            (widget) =>
-                widget is SelectableText &&
-                widget.data ==
-                    '${kind == 'proxyProvider' ? strings.resourceProxyProvider : strings.resourceRuleProvider} · $vehicle',
-          ),
-          findsOneWidget,
+        await tester.tap(
+          find.widgetWithText(FilledButton, strings.coreCleanupDeleteSelected),
         );
-        expect(find.byKey(const ValueKey('resource-raw-data')), findsNothing);
-        expect(bridge.commands, isEmpty);
+        await tester.pump();
+        expect(bridge.commands.single, {
+          'action': 'scheduleCoreCleanup',
+          'paths': [path.replaceFirst('/fixture/mihomo/', '')],
+          'restart': false,
+          'storageEpoch': 41,
+        });
+        // Keep resource identity; success closes only the notice, not the resource
+        // details page.
+        app.complete(stableSource: source);
+        await _pumpNoticeFrames(tester);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(app.state.coreCleanup['status'], 'completed');
+        expect(
+          find
+              .descendant(
+                of: find.byType(SnackBar),
+                matching: find.textContaining(strings.coreCleanupCompleted),
+              )
+              .hitTestable(),
+          findsWidgets,
+        );
+        expect(app.hasLocalFeedbackOwner, isFalse);
         expect(bridge.exits, 0);
-        return;
-      }
-      await tester.ensureVisible(delete);
-      await tester.tap(delete);
-      await pumpPopupEntrance(
-        tester,
-        find.widgetWithText(FilledButton, strings.coreCleanupDeleteSelected),
-        source: delete,
-      );
-      expect(find.text(path), findsOneWidget);
-      expect(
-        find.textContaining(strings.coreCleanupResourceMessage),
-        findsOneWidget,
-      );
-      await tester.tap(
-        find.widgetWithText(FilledButton, strings.coreCleanupDeleteSelected),
-      );
-      await tester.pump();
-      expect(bridge.commands.single, {
-        'action': 'scheduleCoreCleanup',
-        'paths': [path.replaceFirst('/fixture/mihomo/', '')],
-        'restart': false,
-        'storageEpoch': 41,
-      });
-      // 保持资源身份；成功仅关闭提示，不关闭资源详情页。
-      app.complete(stableSource: source);
-      await _pumpNoticeFrames(tester);
-      expect(find.byType(AlertDialog), findsNothing);
-      expect(app.state.coreCleanup['status'], 'completed');
-      expect(
-        find
-            .descendant(
-              of: find.byType(SnackBar),
-              matching: find.textContaining(strings.coreCleanupCompleted),
-            )
-            .hitTestable(),
-        findsWidgets,
-      );
-      expect(app.hasLocalFeedbackOwner, isFalse);
-      expect(bridge.exits, 0);
-      await _closeNotice(tester);
-      expect(find.text(strings.resourceLocalFile(path)), findsOneWidget);
-      expect(bridge.exits, 0);
-    });
+        await _closeNotice(tester);
+        expect(find.text(strings.resourceLocalFile(path)), findsOneWidget);
+        expect(bridge.exits, 0);
+      },
+    );
   }
 
-  testWidgets('逐项结果保留成功文件、失败文件、完整路径与原错误', (tester) async {
-    const original =
-        'delete IOException https://user:password@fixture.test/?token=原文🙂';
-    app.publish(
-      const AppSnapshot(
-        phase: 'STOPPED',
-        storageEpoch: 41,
-        coreCleanup: {
-          'ready': false,
-          'status': 'partial',
-          'scope': 'files',
-          'paths': ['cache.db', 'Geo/完整 名🙂.dat', 'pending.db'],
-          'files': [
-            {'path': 'cache.db', 'completed': true},
-            {'path': 'pending.db', 'completed': false},
-            {
-              'path': 'Geo/完整 名🙂.dat',
-              'completed': false,
-              'error': {
-                'id': 'coreCleanupFailed',
-                'args': <String, Object?>{},
-                'detail': original,
+  testWidgets(
+    'per-item results retain successful files, failed files, full paths, and original errors',
+    (tester) async {
+      const original =
+          'delete IOException https://user:password@fixture.test/?token=原文🙂';
+      app.publish(
+        const AppSnapshot(
+          phase: 'STOPPED',
+          storageEpoch: 41,
+          coreCleanup: {
+            'ready': false,
+            'status': 'partial',
+            'scope': 'files',
+            'paths': ['cache.db', 'Geo/完整 名🙂.dat', 'pending.db'],
+            'files': [
+              {'path': 'cache.db', 'completed': true},
+              {'path': 'pending.db', 'completed': false},
+              {
+                'path': 'Geo/完整 名🙂.dat',
+                'completed': false,
+                'error': {
+                  'id': 'coreCleanupFailed',
+                  'args': <String, Object?>{},
+                  'detail': original,
+                },
               },
-            },
-          ],
-        },
-      ),
-    );
-    app.configErrorMessage = null;
-    app.overrideErrorMessage = null;
-    await show(
-      tester,
-      dismissNotice: false,
-      home: OperationNoticeHost(child: StorageDataPage(app: app)),
-    );
-    final strings = lookupAppLocalizations(locale.value);
-    expect(
-      find.byKey(const ValueKey('storage-core-cleanup-state')),
-      findsNothing,
-    );
-    expect(find.text(strings.coreCleanupPartial), findsOneWidget);
-    expect(find.textContaining(original), findsNothing);
-    final details = await _readFailure(tester);
-    for (final (path, label) in [
-      ('cache.db', strings.cleanupFileCompleted),
-      ('Geo/完整 名🙂.dat', strings.cleanupFileFailed),
-      ('pending.db', strings.cleanupFilePending),
-    ]) {
-      expect(details, contains('$path · $label'));
-    }
-    expect(details, contains(original));
-    await tester.tap(find.widgetWithText(TextButton, strings.close));
-    await tester.pumpAndSettle();
-    expect(app.state.coreCleanup['paths'], [
-      'cache.db',
-      'Geo/完整 名🙂.dat',
-      'pending.db',
-    ]);
-    expect(find.textContaining('providers/'), findsNothing);
-    expect(bridge.commands, isEmpty);
-    expect(bridge.exits, 0);
-    expect(
-      find.byKey(const ValueKey('storage-core-cleanup-exit')),
-      findsNothing,
-    );
-  });
+            ],
+          },
+        ),
+      );
+      app.configErrorMessage = null;
+      app.overrideErrorMessage = null;
+      await show(
+        tester,
+        dismissNotice: false,
+        home: OperationNoticeHost(child: StorageDataPage(app: app)),
+      );
+      final strings = lookupAppLocalizations(locale.value);
+      expect(
+        find.byKey(const ValueKey('storage-core-cleanup-state')),
+        findsNothing,
+      );
+      expect(find.text(strings.coreCleanupPartial), findsOneWidget);
+      expect(find.textContaining(original), findsNothing);
+      final details = await _readFailure(tester);
+      for (final (path, label) in [
+        ('cache.db', strings.cleanupFileCompleted),
+        ('Geo/完整 名🙂.dat', strings.cleanupFileFailed),
+        ('pending.db', strings.cleanupFilePending),
+      ]) {
+        expect(details, contains('$path · $label'));
+      }
+      expect(details, contains(original));
+      await tester.tap(find.widgetWithText(TextButton, strings.close));
+      await tester.pumpAndSettle();
+      expect(app.state.coreCleanup['paths'], [
+        'cache.db',
+        'Geo/完整 名🙂.dat',
+        'pending.db',
+      ]);
+      expect(find.textContaining('providers/'), findsNothing);
+      expect(bridge.commands, isEmpty);
+      expect(bridge.exits, 0);
+      expect(
+        find.byKey(const ValueKey('storage-core-cleanup-exit')),
+        findsNothing,
+      );
+    },
+  );
 
-  test('快照保留逐项清理状态和原错误，不将全部存储标记为 busy', () {
+  test('snapshot retains per-item cleanup state and original errors without marking all storage busy', () {
     const original = 'https://user:password@fixture.test/?token=原文🙂';
     final raw = {
       'ready': false,

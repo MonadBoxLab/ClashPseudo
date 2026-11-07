@@ -1,4 +1,4 @@
-"""用受控编译器核对原生构建参数、ABI隔离及失败时的产物保留。"""
+"""Use controlled compilers to verify native build arguments, ABI isolation, and output preservation on failure."""
 
 import json
 import os

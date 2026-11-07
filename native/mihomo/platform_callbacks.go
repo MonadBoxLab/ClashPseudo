@@ -7,7 +7,7 @@ import (
 	"sync"
 )
 
-// callbackFailure保留平台返回的原始error对象及cause和suppressed。
+// callbackFailure preserves the original error object, cause, and suppressed exceptions returned by the platform.
 type callbackFailure struct{ raw json.RawMessage }
 
 func (e *callbackFailure) Error() string { return string(e.raw) }
@@ -37,7 +37,7 @@ func (e *platformCancellationError) Error() string            { return e.err.Err
 func (e *platformCancellationError) Unwrap() error            { return e.err }
 func (e *platformCancellationError) CancellationCause() error { return e.err }
 
-// invokePlatformQuery只在原同步callback仍等待时发送取消，完成后不补发取消。
+// invokePlatformQuery sends cancellation only while the original synchronous callback is pending, never after completion.
 func invokePlatformQuery(ctx context.Context, run func() []byte, cancel func() error) ([]byte, error) {
 	var mu sync.Mutex
 	waiting := true

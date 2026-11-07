@@ -63,7 +63,7 @@ func TestComposeFailureDoesNotAllocateAndRequiresANewEngine(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := e.Prepare(home, body, "rule", func(int) bool { return true }); err == nil {
-		t.Fatal("同一Engine在Compose失败后重新装载")
+		t.Fatal("same Engine loaded again after Compose failed")
 	}
 	requireFreshEngineProcess(t, home)
 	requireStop(t, &e)

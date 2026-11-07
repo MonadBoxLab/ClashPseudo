@@ -19,7 +19,7 @@ type LogEntry struct {
 	bytes int
 }
 
-// Buffer是可消费的有界传输队列，不保存已交给AppRuntime的日志历史。
+// Buffer is a consumable bounded transport queue; it does not retain log history already delivered to AppRuntime.
 type Buffer struct {
 	mu            sync.Mutex
 	once          sync.Once

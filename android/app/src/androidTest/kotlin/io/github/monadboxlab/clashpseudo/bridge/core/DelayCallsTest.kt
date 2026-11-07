@@ -78,7 +78,7 @@ class DelayCallsTest {
         var work: List<Map<String, Any?>> = emptyList()
         while (true) {
             val remaining = deadline - SystemClock.elapsedRealtime()
-            if (remaining <= 0) throw runtimeFailure("启动 WorkInfo 和实际 executor 没有结束", work)
+            if (remaining <= 0) throw runtimeFailure("Startup WorkInfo and the actual executor have not finished", work)
             val infos = manager.getWorkInfosForUniqueWork("update-reconcile")
                 .get(minOf(remaining, 5_000L), TimeUnit.MILLISECONDS)
             work = infos.map { mapOf("id" to it.id.toString(), "state" to it.state.name, "attempt" to it.runAttemptCount) }
@@ -91,7 +91,7 @@ class DelayCallsTest {
             }
             if (infos.isNotEmpty() && infos.all { it.state.isFinished } && drained) return
             if (SystemClock.elapsedRealtime() >= deadline) {
-                throw runtimeFailure("启动 WorkInfo 和实际 executor 没有结束", work)
+                throw runtimeFailure("Startup WorkInfo and the actual executor have not finished", work)
             }
             SystemClock.sleep(20)
         }
@@ -138,7 +138,7 @@ class DelayCallsTest {
                 assertEquals("STOPPED", state["phase"])
                 assertEquals("EMPTY", (state["core"] as Map<*, *>)["phase"])
                 generation = (state["generation"] as Number).toLong()
-                // 从实际 Activity 的 engine 读取 attachUi 已注册的 production handler。
+                // Read the production handler registered by attachUi from the actual Activity's engine.
                 val engine = io.flutter.embedding.android.FlutterActivity::class.java
                     .getDeclaredMethod("getFlutterEngine").apply { isAccessible = true }
                     .invoke(owner) as FlutterEngine
@@ -160,7 +160,7 @@ class DelayCallsTest {
                 val row = value as Map<*, *>
                 val network = checkNotNull(java.net.NetworkInterface.getByName(row["interfaceName"] as String))
                 assertEquals(network.index, (row["interfaceIndex"] as Number).toInt())
-                assertTrue("接口地址必须来自实际 Android NetworkInterface", network.interfaceAddresses.any {
+                assertTrue("Interface address must come from an actual Android NetworkInterface", network.interfaceAddresses.any {
                     it.address?.hostAddress == row["address"] &&
                         it.networkPrefixLength.toInt() == (row["prefixLength"] as Number).toInt()
                 })
@@ -193,10 +193,10 @@ class DelayCallsTest {
         val forwardingField = LogicEngineHost::class.java.getDeclaredField("forwarding").apply { isAccessible = true }
         awaitStartup()
         CoreIpcTestDriver.onMain {
-            assertNull("freshRuntime 分组不能已有历史 logs window", AppBridge.logic.runtimeProjection["logSource"])
+            assertNull("The freshRuntime group must not have an existing historical logs window", AppBridge.logic.runtimeProjection["logSource"])
             assertFalse(AppBridge.logic.runtimeProjection["retain"] == true)
         }
-        awaitRuntime("启动任务没有退出") {
+        awaitRuntime("Startup task has not exited") {
             AppBridge.runtimeState()["writerBusy"] == false && ownersField.getInt(AppBridge.logic) == 0
         }
         val owner = instrumentation.startActivitySync(Intent(context, MainActivity::class.java)
@@ -212,7 +212,7 @@ class DelayCallsTest {
             override fun error(code: String, message: String?, details: Any?) {
                 future.completeExceptionally(AssertionError("$code/$message/$details"))
             }
-            override fun notImplemented() { future.completeExceptionally(AssertionError("appMemory 未实现")) }
+            override fun notImplemented() { future.completeExceptionally(AssertionError("appMemory is not implemented")) }
         }
         try {
             awaitStartup()
@@ -233,7 +233,7 @@ class DelayCallsTest {
                         if (!intercepted && call?.method == "appMemory" && callback != null) {
                             intercepted = true
                             actual.send(channel, message) { response ->
-                                // 保留真实 Dart 回复，只延后把已复制的 envelope 交给原接收者。
+                                // Preserve the actual Dart reply; delay only delivery of the copied envelope to the original receiver.
                                 val copy = response?.let { ByteBuffer.allocateDirect(it.remaining()).apply { put(it.duplicate()); flip() } }
                                 received.complete(callback to copy)
                             }
@@ -246,7 +246,7 @@ class DelayCallsTest {
             }
             received.get(30, TimeUnit.SECONDS)
             CoreIpcTestDriver.onMain { assertTrue(owner.moveTaskToBack(true)) }
-            awaitRuntime("隐藏 Activity 后 runtime 引用没有释放") { ownersField.getInt(host) == 0 }
+            awaitRuntime("Runtime reference was not released after hiding the Activity") { ownersField.getInt(host) == 0 }
             CoreIpcTestDriver.onMain {
                 assertSame(engine, engineField.get(host))
                 assertEquals(1, forwardingField.getInt(host))
@@ -254,7 +254,7 @@ class DelayCallsTest {
                 channelField.set(host, originalChannel)
                 owner.finish()
             }
-            awaitRuntime("Activity 没有销毁") { owner.isDestroyed }
+            awaitRuntime("Activity was not destroyed") { owner.isDestroyed }
             CoreIpcTestDriver.onMain {
                 assertSame(engine, engineField.get(host))
                 assertEquals(1, forwardingField.getInt(host))
@@ -264,7 +264,7 @@ class DelayCallsTest {
                 callback.reply(response)
             }
             assertTrue(JSONObject(completed.get(30, TimeUnit.SECONDS) as String).getBoolean("valid"))
-            awaitRuntime("真实回复完成后 headless engine 没有释放") { engineField.get(host) == null }
+            awaitRuntime("Headless engine was not released after the actual reply finished") { engineField.get(host) == null }
             CoreIpcTestDriver.onMain {
                 assertEquals(0, forwardingField.getInt(host))
                 assertEquals(0, ownersField.getInt(host))
@@ -297,7 +297,7 @@ class DelayCallsTest {
                 host.read("appMemory", emptyMap(), object : MethodChannel.Result {
                     override fun success(result: Any?) { reply.complete(result) }
                     override fun error(code: String, message: String?, details: Any?) { reply.completeExceptionally(AssertionError("$code/$message/$details")) }
-                    override fun notImplemented() { reply.completeExceptionally(AssertionError("appMemory 未实现")) }
+                    override fun notImplemented() { reply.completeExceptionally(AssertionError("appMemory is not implemented")) }
                 })
             }
             assertNotNull(reply.get(30, TimeUnit.SECONDS))
@@ -353,11 +353,11 @@ class DelayCallsTest {
                         }
                     }
                     originalChannel = channelField.get(host) as MethodChannel
-                    // 只观察并转发真实 messenger；Dart handler、engine 和返回路径保持不变。
+                    // Only observe and forward the actual messenger; leave the Dart handler, engine, and return path unchanged.
                     channelField.set(host, MethodChannel(observer, AppBridge.CHANNEL))
                     AppBridge.setUiVisible(old, false)
                     AppBridge.detachUi(old)
-                    assertTrue("旧 Activity 不得发送可见状态", events.isEmpty())
+                    assertTrue("The old Activity must not send visible state", events.isEmpty())
                     assertEquals(retainedOwners, ownersField.getInt(host))
                     assertSame(engine, engineField.get(host))
                     AppBridge.setUiVisible(current, false)
@@ -423,7 +423,7 @@ class DelayCallsTest {
                 }
                 flushVisibility()
                 assertEquals(oldEvents, CoreIpcTestDriver.onMain { events.size })
-                assertFalse("旧 Activity 不得终结同一次 pending delayStart", first.value.isDone)
+                assertFalse("The old Activity must not finish the same pending delayStart", first.value.isDone)
                 assertEquals(1, channel.strategySubmissions.get())
                 assertEquals(0, channel.urlSubmissions.get())
                 assertEquals(0, channel.cancellations.get())
@@ -431,7 +431,7 @@ class DelayCallsTest {
                 flushVisibility()
                 assertEquals(oldEvents + 1, CoreIpcTestDriver.onMain { events.size })
                 assertEquals(false, CoreIpcTestDriver.onMain { events.last() })
-                assertFalse("内层真实 admission 未交付，pending start 必须仍等待原 work", first.value.isDone)
+                assertFalse("Pending start must keep waiting for the original work while inner admission is undelivered", first.value.isDone)
                 CoreIpcTestDriver.onMain { channel.release(Contract.CORE_OPERATION_STRATEGIES) }
                 val expired = try { first.value.get(2, TimeUnit.SECONDS); null }
                     catch (error: java.util.concurrent.ExecutionException) { error.cause }
@@ -473,10 +473,10 @@ class DelayCallsTest {
                 assertTrue(hidden.getBoolean("stale"))
                 assertEquals("expired", hidden.getJSONObject("batch").getString("state"))
                 assertFalse(hidden.getJSONObject("batch").getBoolean("exited"))
-                assertTrue("原 URL_TEST 的实际 FD/work 必须仍被持有", client.requestBusy)
-                assertFalse("current hide 不能伪造实际 socket EOF", http.drained.isDone)
-                assertFalse("取消不能把尚未交付 admission 的实际 work 标为 drain", channel.hasTerminal(url))
-                assertTrue("不能延长原 member timeout", SystemClock.elapsedRealtime() - url.atMs < 5000L)
+                assertTrue("The original URL_TEST's actual FD/work must still be held", client.requestBusy)
+                assertFalse("Current hide must not fake actual socket EOF", http.drained.isDone)
+                assertFalse("Cancellation must not mark actual work as drained before admission is delivered", channel.hasTerminal(url))
+                assertTrue("The original member timeout must not be extended", SystemClock.elapsedRealtime() - url.atMs < 5000L)
                 CoreIpcTestDriver.onMain { channel.release(Contract.CORE_OPERATION_URL_TEST) }
                 val cancellation = channel.cancelReply.get(2, TimeUnit.SECONDS)
                 assertEquals(url.processId, cancellation.first.processId)
@@ -490,7 +490,7 @@ class DelayCallsTest {
                     channel.assertHealthy()
                     drained = batch(retryId)
                     if (drained.getJSONObject("batch").getBoolean("exited") && !client.requestBusy) break
-                    check(SystemClock.elapsedRealtime() < end) { "真实 URL_TEST 未在取消后 drain" }
+                    check(SystemClock.elapsedRealtime() < end) { "Actual URL_TEST did not drain after cancellation" }
                     Thread.sleep(10)
                 } while (true)
                 assertTrue(drained.getBoolean("stale"))
@@ -539,7 +539,7 @@ class DelayCallsTest {
                 assertEquals(1, channel.cancellations.get())
                 assertEquals(1, first.replies.get())
                 assertEquals(1, retry.replies.get())
-                assertFalse("原 URL_TEST 的实际调用与 FD 已从请求表移除", calls.containsKey(url.processId to url.requestId))
+                assertFalse("The original URL_TEST call and FD have been removed from the request table", calls.containsKey(url.processId to url.requestId))
                 visibilityRead(host, "delayCancel", mapOf("batch" to retryId)).value.get(2, TimeUnit.SECONDS)
                 CoreIpcTestDriver.onMain { AppBridge.setUiVisible(current, true) }
                 flushVisibility()
@@ -595,7 +595,7 @@ class DelayCallsTest {
                 }
                 override fun notImplemented() {
                     check(pending.replies.incrementAndGet() == 1)
-                    pending.value.completeExceptionally(AssertionError("真实 AppRuntime 未实现 $method"))
+                    pending.value.completeExceptionally(AssertionError("Actual AppRuntime does not implement $method"))
                 }
             })
         }
@@ -604,7 +604,7 @@ class DelayCallsTest {
     private data class DelayAdmission(val processId: String, val requestId: Long, val atMs: Long, val arguments: Map<*, *>)
     private data class DelayTerminal(val terminal: JSONObject, val receipt: JSONObject, val value: JSONObject)
 
-    /** 延迟的是内层真实 coreSubmit admission，delayStart 的最终 Reply 尚未生成。 */
+    /** Delay the inner actual coreSubmit admission; the final delayStart Reply has not been generated yet. */
     private class DelayChannelGate(host: LogicEngineHost, private val processId: String) : Closeable {
         private val engine = LogicEngineHost::class.java.getDeclaredField("engine").apply { isAccessible = true }.get(host) as FlutterEngine
         private val messenger = engine.dartExecutor.binaryMessenger
@@ -667,7 +667,7 @@ class DelayCallsTest {
                         }
                         if (cancelling != null) cancelReply.complete(cancelling to JSONObject(checkNotNull(value)))
                     } catch (error: Throwable) {
-                        // 未受此 gate 管理的读取仍向原调用方交付，包括 core 退出时的 LOGS。
+                        // Reads outside this gate still reach the original caller, including LOGS during core exit.
                         if (call.method == Contract.CORE_CHANNEL_READ && !admissions.containsKey(key)) return@observe
                         val observed = if (error is io.flutter.plugin.common.FlutterException) {
                             AssertionError(JSONObject()
@@ -751,11 +751,11 @@ class DelayCallsTest {
                         var count = 0
                         while (last != 0x0d0a0d0a) {
                             val next = input.read()
-                            if (next < 0 || ++count > 16384) throw IOException("未收到完整的 HTTP request header")
+                            if (next < 0 || ++count > 16384) throw IOException("Incomplete HTTP request header")
                             last = (last shl 8) or next
                         }
                         entered.complete(Unit)
-                        check(input.read() == -1) { "真实 HTTP probe 在 header 后发送了额外数据" }
+                        check(input.read() == -1) { "The actual HTTP probe sent extra data after the header" }
                         drained.complete(Unit)
                     }
                 } catch (error: Throwable) {
@@ -769,7 +769,7 @@ class DelayCallsTest {
             try { listener.close() } finally {
                 try { socket.get()?.close() } finally { io.shutdown() }
             }
-            check(io.awaitTermination(5, TimeUnit.SECONDS)) { "本地 HTTP fixture 未结束" }
+            check(io.awaitTermination(5, TimeUnit.SECONDS)) { "Local HTTP fixture did not finish" }
             try { task?.get(0, TimeUnit.SECONDS) } catch (error: java.util.concurrent.ExecutionException) { throw error.cause ?: error }
         }
     }

@@ -108,19 +108,19 @@ func TestConnectionEngineAvailabilityAndSingleClose(t *testing.T) {
 			statistic.DefaultManager.Join(a)
 			statistic.DefaultManager.Join(b)
 			if _, err := e.CloseConnection("one"); err == nil {
-				t.Fatal("存在活动 tracker 时不能接受非法 ID")
+				t.Fatal("invalid ID must not be accepted while trackers are active")
 			}
 			if a.closed != 0 || b.closed != 0 || closer.calls != 0 || !e.available() {
-				t.Fatal("非法 ID 改变了活动连接或 TUN 状态")
+				t.Fatal("invalid ID changed active connections or TUN state")
 			}
 			if statistic.DefaultManager.Get(a.ID()) != a || statistic.DefaultManager.Get(b.ID()) != b {
-				t.Fatal("非法 ID 移除了活动 tracker")
+				t.Fatal("invalid ID removed an active tracker")
 			}
 			if status, err := e.CloseConnection(a.ID()); err != nil || status != "closed" {
 				t.Fatal(status, err)
 			}
 			if a.closed != 1 || statistic.DefaultManager.Get(a.ID()) != nil || statistic.DefaultManager.Get(b.ID()) != b {
-				t.Fatal("合法 ID 必须只关闭并移除指定 tracker 一次")
+				t.Fatal("valid ID must close and remove only the specified tracker, exactly once")
 			}
 			if b.closed != 0 || closer.calls != 0 || !e.available() {
 				t.Fatal("single close disturbed other resources")

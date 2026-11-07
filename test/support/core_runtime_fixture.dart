@@ -37,7 +37,8 @@ const modeStrategyEntry = ConfigEntry(
   body: '',
 );
 
-/// 只模拟 Android 的 MethodChannel 和 FD 边界，业务使用真实 Dart 入口。
+/// Simulates only Android MethodChannel and FD boundaries; business logic uses actual
+/// Dart entry points.
 class CoreRuntimeFixture {
   CoreRuntimeFixture._(this.directory);
 
@@ -560,7 +561,9 @@ class CoreRuntimeFixture {
         emit({'processId': process, 'phase': 'exited', 'exited': true});
         return {'exited': true};
       default:
-        throw MissingPluginException('测试未提供平台方法 ${call.method}');
+        throw MissingPluginException(
+          'Test does not provide platform method ${call.method}',
+        );
     }
   }
 
@@ -628,7 +631,9 @@ class CoreRuntimeFixture {
             'rule';
         request.complete(coreMap());
       default:
-        throw StateError('测试未提供 operation ${request.operation}');
+        throw StateError(
+          'Test does not provide operation ${request.operation}',
+        );
     }
   }
 

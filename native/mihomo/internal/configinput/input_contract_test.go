@@ -86,39 +86,39 @@ func TestEncryptedMainUsesOnlyPublicDecodeBoundary(t *testing.T) {
 	t.Cleanup(func() { age.SetGlobalSecretKeys() })
 	text, provenance, err := configinput.ComposeWithProvenance(encrypted, nil, origin)
 	if err != nil || !bytes.Equal(text, before) || provenance != nil {
-		t.Fatal("无插件路径改变了加密原字节")
+		t.Fatal("path without plugins changed the original encrypted bytes")
 	}
 	_, original := config.UnmarshalRawConfig(encrypted)
 	if original == nil {
-		t.Fatal("测试正文未要求解密密钥")
+		t.Fatal("test body did not require a decryption key")
 	}
 	if _, _, err := configinput.Decode(text, "", "", true); err == nil || err.Error() != original.Error() {
-		t.Fatalf("公开解码错误改变：%v，期望%v", err, original)
+		t.Fatalf("public decoding error changed: %v, want %v", err, original)
 	}
 	age.SetGlobalSecretKeys(secret)
 	text, provenance, err = configinput.ComposeWithProvenance(encrypted, nil, origin)
 	if err != nil || !bytes.Equal(text, before) || provenance != nil {
-		t.Fatal("应用在Compose阶段解密了正文")
+		t.Fatal("application decrypted the body during Compose")
 	}
 	raw, presence, err := configinput.Decode(text, "direct", "", true)
 	if err != nil || !presence.Has("$opaque") {
-		t.Fatalf("公开解密未完成：%v", err)
+		t.Fatalf("public decryption did not complete: %v", err)
 	}
 	if raw.Mode != tunnel.Global || raw.Tun.Enable || raw.Tun.MTU != 0 || raw.DNS.Enable || len(raw.Rule) != 1 || raw.Rule[0] != "MATCH,DIRECT" {
-		t.Fatal("应用覆盖了无法读取字段来源的上游值")
+		t.Fatal("application overwrote upstream values with unavailable field provenance")
 	}
 	raw, _, err = configinput.Decode(text, "", "rule", true)
 	if err != nil || raw.Mode != tunnel.Rule {
-		t.Fatal("显式operation未应用到同一RawConfig")
+		t.Fatal("explicit operation was not applied to the same RawConfig")
 	}
 	for _, mode := range []string{"prepend", "replace"} {
 		_, _, err := configinput.ComposeWithProvenance(encrypted, []configinput.Override{{ID: "plugin", Revision: 1, Mode: mode, Body: "rules: ['DOMAIN,added.test,REJECT']\n"}}, origin)
 		if err == nil {
-			t.Fatal("插件合成越过了加密输入的公开解码边界")
+			t.Fatal("plugin composition bypassed the public decoding boundary for encrypted input")
 		}
 	}
 	if !bytes.Equal(encrypted, before) {
-		t.Fatal("保存的加密正文被修改")
+		t.Fatal("saved encrypted body was modified")
 	}
 }
 

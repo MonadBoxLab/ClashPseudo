@@ -18,7 +18,7 @@ class CoreReadCallsErrorTest {
                 val rejected = core.await(pending)
                 val error = failure(rejected)
                 assertEquals(Contract.CORE_ERROR_IDENTITY_MISMATCH, error.getString("code"))
-                assertEquals("管道请求与控制身份不一致", error.getString("message"))
+                assertEquals("Pipe request does not match the control identity", error.getString("message"))
                 assertEquals("io.github.monadboxlab.clashpseudo.nativecore.CoreTransportException", error.getString("type"))
                 assertTrue(error.getString("stack").contains("verifyMetadata"))
             }

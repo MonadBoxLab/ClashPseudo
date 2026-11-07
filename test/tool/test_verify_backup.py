@@ -1,4 +1,4 @@
-"""测试备份文件读取、清单校验、摘要计算和业务文件内容比较。"""
+"""Test backup reads, manifest validation, digest calculation, and application data file comparison."""
 import hashlib
 import tool_test_support
 from tool.artifacts import verify_backup as TOOL
@@ -66,14 +66,14 @@ class VerifyBackupTest(unittest.TestCase):
         changed = dict(self.values, **{"preferences.json": self.values["preferences.json"] + b" "})
         second = self.write("changed.zip", values=changed)
         TOOL.inspect_archive(second)
-        with self.assertRaisesRegex(ValueError, "逐字节"):
+        with self.assertRaisesRegex(ValueError, "byte-for-byte"):
             TOOL.compare_archives(first, second)
 
     def test_wrong_digest_or_declared_size_fails_even_with_a_valid_zip_crc(self):
         for key, value in [("sha256", "0" * 64), ("bytes", 1)]:
             with self.subTest(key=key):
                 path = self.write(key + ".zip", change=lambda m: m["files"]["preferences.json"].update({key: value}))
-                with self.assertRaisesRegex(ValueError, "manifest 不同"):
+                with self.assertRaisesRegex(ValueError, "differ from the manifest"):
                     TOOL.inspect_archive(path)
 
     def test_actual_crc_corruption_is_rejected(self):
@@ -157,7 +157,7 @@ class VerifyBackupTest(unittest.TestCase):
             return result
 
         with mock.patch.object(TOOL, "fingerprint", change_after_progress):
-            with self.assertRaisesRegex(ValueError, "输入文件已改变"):
+            with self.assertRaisesRegex(ValueError, "Input file changed"):
                 TOOL.inspect_archive(path)
 
     def test_fifo_is_rejected_without_blocking_or_leaking_its_fd(self):
@@ -171,7 +171,7 @@ class VerifyBackupTest(unittest.TestCase):
             descriptors.append(descriptor)
             return descriptor
 
-        with mock.patch.object(TOOL.os, "open", record), self.assertRaisesRegex(ValueError, "普通备份文件"):
+        with mock.patch.object(TOOL.os, "open", record), self.assertRaisesRegex(ValueError, "regular backup files"):
             TOOL.inspect_archive(path)
         self.assertEqual(len(descriptors), 1)
         with self.assertRaises(OSError):

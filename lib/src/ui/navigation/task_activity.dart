@@ -27,7 +27,7 @@ class AppTaskScope extends InheritedWidget {
       !identical(owner, oldWidget.owner);
 }
 
-/// 页面退出后即停用界面操作，即使退出动画仍在绘制该页面。
+/// Disables page actions on exit even while the exit animation still paints the page.
 class AppTaskActivity extends InheritedWidget {
   const AppTaskActivity({
     super.key,
@@ -38,17 +38,22 @@ class AppTaskActivity extends InheritedWidget {
     required super.child,
   });
 
-  /// 供组件订阅的交互状态；缓存回调和异步回调须重新检查当前状态。
+  /// Interaction state for widget subscriptions; cached and asynchronous callbacks must
+  /// recheck current state.
   final bool active;
 
-  /// 读取任务和路由的当前交互状态，不依赖组件是否已经重建。
+  /// Reads current task and route interaction state without depending on a widget
+  /// rebuild.
   final bool Function()? isActiveNow;
 
-  /// 调用方须提供自己打开的弹窗的实际 Route，才能允许该弹窗覆盖来源页面。
+  /// The caller must provide its actual popup Route to allow that popup to cover the
+  /// source page.
   final bool Function(Route<dynamic> ownedPopup)? isActiveWithPopup;
 
-  /// 检查等待显示结果的来源页面是否仍有效，不代表页面或弹窗允许交互。
-  /// 未提供此回调时按当前交互状态判断，不将无法操作的状态视为暂时暂停。
+  /// Checks whether the source page awaiting a result is still valid, not whether the
+  /// page or popup allows interaction.
+  /// Without this callback, use current interaction state; do not treat disabled
+  /// interaction as a temporary pause.
   final bool Function()? isSourceCurrent;
 
   bool _current({Route<dynamic>? ownedPopup}) =>
@@ -56,8 +61,10 @@ class AppTaskActivity extends InheritedWidget {
       ? isActiveWithPopup!(ownedPopup)
       : isActiveNow?.call() ?? active;
 
-  /// 默认要求来源页为当前路由；自己的确认弹窗或表单可传入仍在前台的 PopupRoute。
-  /// 仍须检查任务选择、交互状态、来源路由是否已关闭或正在退出，以及是否被其他 PageRoute 覆盖。
+  /// Requires the source page to be current by default; owned confirmations or forms
+  /// may pass a foreground PopupRoute.
+  /// Still checks task selection, interaction, source-route closure or exit, and
+  /// coverage by another PageRoute.
   static bool isActive(BuildContext context, {Route<dynamic>? ownedPopup}) {
     if (!context.mounted) return false;
     return context
@@ -66,8 +73,10 @@ class AppTaskActivity extends InheritedWidget {
         true;
   }
 
-  /// 在来源组件仍位于树中时保存其 AppTaskActivity 元素，后续检查不再查询祖先。
-  /// 每次读取该元素的当前 widget，使交互状态变化立即生效。
+  /// Captures the AppTaskActivity element while the source is mounted, avoiding
+  /// ancestor lookups in later checks.
+  /// Reads the element's current widget each time so interaction changes take effect
+  /// immediately.
   static bool Function({Route<dynamic>? ownedPopup}) capture(
     BuildContext context,
   ) {
@@ -84,8 +93,9 @@ class AppTaskActivity extends InheritedWidget {
                 )));
   }
 
-  /// 保存等待显示结果的任务和来源页面，后续只读取原来的继承组件元素。
-  /// 提供 isSourceCurrent 时按该回调检查；未提供时仍检查当前交互状态。
+  /// Captures the task and source page awaiting a result; later checks read only the
+  /// original inherited element.
+  /// Uses isSourceCurrent when provided; otherwise checks current interaction state.
   static bool Function() captureSource(BuildContext context) {
     if (!context.mounted) return () => false;
     final scopeElement = context

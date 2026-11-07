@@ -20,7 +20,7 @@ func delayMemberIdentity(source string, proxy C.Proxy) string {
 	return coreview.MemberIdentity(source, proxy)
 }
 
-// URLTest只执行一个代理的一次公开测试；取消后仍等待公开调用实际返回。
+// URLTest runs one public test for one proxy; cancellation still waits for the public call to return.
 func (e *Engine) URLTest(ctx context.Context, groupName, name, identity, url string, timeout time.Duration) (uint16, error) {
 	e.mu.Lock()
 	if !e.available() {

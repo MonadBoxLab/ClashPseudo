@@ -100,8 +100,8 @@ class _DefinitionEditorState extends State<DefinitionEditor> {
     if (oneLayer &&
         widget.completedResult == null &&
         route.willHandlePopInternally) {
-      // Escape 先关闭菜单等由 LocalHistory 管理的界面；
-      // 同一次按键不再退出表单或显示丢弃修改确认框。
+      // Escape first closes menus and other LocalHistory entries;
+      // the same key press must not also exit the form or prompt to discard changes.
       return _popOneLocalHistory(route, navigator, current);
     }
     return _leaving ??= _performLeave(
@@ -181,7 +181,7 @@ class _DefinitionEditorState extends State<DefinitionEditor> {
         canPop:
             widget.completedResult == null && !widget.dirty && !widget.saving,
         onPopInvokedWithResult: (didPop, _) {
-          // 路由或菜单已处理返回时，不再继续退出表单。
+          // Do not exit the form when a route or menu has already handled Back.
           if (didPop ||
               _route?.willHandlePopInternally == true ||
               leave == null) {
@@ -281,8 +281,9 @@ double definitionToolbarHeight(
   return (toolbarHeight: compact ? kToolbarHeight : toolbar, compact: compact);
 }
 
-/// 保存前记录发起保存的任务和路由，供保存完成后核对。
-/// 交互暂停时，是否仍认定为同一保存来源，由任务的来源检查函数决定。
+/// Captures the saving task and route for validation after the save completes.
+/// While interaction is paused, the task's source check determines whether the save
+/// source remains valid.
 bool Function() captureDefinitionSaveSource(BuildContext context) {
   if (!context.mounted) return () => false;
   final route = ModalRoute.of(context);
@@ -298,7 +299,8 @@ bool Function() captureDefinitionSaveSource(BuildContext context) {
       sourceCurrent();
 }
 
-/// 保存完成后，只有原任务、原路由仍有效且允许交互时，才关闭原表单。
+/// Closes the original form after saving only if its task and route remain valid and
+/// interactive.
 Future<void> definitionSaved(
   BuildContext context,
   Object result, {

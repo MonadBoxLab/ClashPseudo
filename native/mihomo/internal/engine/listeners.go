@@ -7,7 +7,7 @@ import (
 	"maps"
 )
 
-// workingConfig只改平台装载副本，请求配置供诊断与Builder规格保留。
+// workingConfig only changes the platform loading copy, preserving the requested configuration for diagnostics and the Builder specification.
 func workingConfig(cfg *config.Config, preview bool) *config.Config {
 	work := *cfg
 	work.Listeners = maps.Clone(cfg.Listeners)

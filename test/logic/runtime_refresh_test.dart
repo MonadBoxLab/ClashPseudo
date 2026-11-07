@@ -83,7 +83,7 @@ void main() {
   });
   tearDown(() => fixture.dispose());
 
-  test('refresh 只使用实际运行记录与 actual mode，不读取损坏的已保存文件', () async {
+  test('refresh uses only the actual runtime record and mode without reading corrupt saved files', () async {
     final result = await fixture.execute(command);
     expect(result['success'], isTrue);
     expect(fixture.exits, hasLength(1));
@@ -126,7 +126,7 @@ void main() {
     'inputId',
     'networkRevision',
   ]) {
-    test('refresh 在 Stop 前拒绝缺失或变化的 $field', () async {
+    test('refresh rejects missing or changed $field before Stop', () async {
       for (final value in [
         null,
         field.contains('Id') || field == 'composition' ? 'other' : 999,
@@ -142,7 +142,7 @@ void main() {
     });
   }
 
-  test('已停止的运行记录不能被迟到 refresh 重新启动', () async {
+  test('late refresh cannot restart a stopped runtime record', () async {
     fixture.phase = 'STOPPED';
     fixture.vpnIntent = false;
     fixture.replaceCore(phase: 'EMPTY');
@@ -151,7 +151,7 @@ void main() {
     expect(fixture.calls(ApplicationContract.coreOperationPrepare), isEmpty);
   });
 
-  test('读取实际运行选择期间取消 refresh，等待真实读完且不重启运行记录', () async {
+  test('refresh cancellation while reading actual runtime choices waits for the read and does not restart the runtime record', () async {
     final entered = fixture.next(ApplicationContract.coreOperationStrategies);
     final gate = Completer<void>();
     fixture.script(ApplicationContract.coreOperationStrategies, (
@@ -176,36 +176,30 @@ void main() {
     expect(await fixture.runInput.exists(), isFalse);
   });
 
-  test(
-    'captured Stop cancelRefresh 清当前 pending，同 identity 迟到 event 不重新启动',
-    () async {
-      expect(fixture.runtime.refreshCurrent(command), isTrue);
-      fixture.emit({'event': 'cancelRefresh', ...fixture.identity()});
-      expect(fixture.runtime.refreshCurrent(command), isFalse);
-      await pendingRefresh();
-      expect(fixture.runtime.refreshCurrent(command), isFalse);
-      expect((await fixture.execute(command))['success'], isTrue);
-      expect(fixture.exits, isEmpty);
-      expect(fixture.calls(ApplicationContract.coreOperationPrepare), isEmpty);
-    },
-  );
+  test('captured Stop cancelRefresh clears current pending and late same-identity events do not restart', () async {
+    expect(fixture.runtime.refreshCurrent(command), isTrue);
+    fixture.emit({'event': 'cancelRefresh', ...fixture.identity()});
+    expect(fixture.runtime.refreshCurrent(command), isFalse);
+    await pendingRefresh();
+    expect(fixture.runtime.refreshCurrent(command), isFalse);
+    expect((await fixture.execute(command))['success'], isTrue);
+    expect(fixture.exits, isEmpty);
+    expect(fixture.calls(ApplicationContract.coreOperationPrepare), isEmpty);
+  });
 
-  test(
-    'stale Stop cancelRefresh 不清当前 pending，普通 restore cancel 不清其他 refresh',
-    () async {
-      fixture.emit({
-        'event': 'cancelRefresh',
-        ...fixture.identity(),
-        'processId': 'old-process',
-      });
-      await fixture.invokeRuntime('cancel', 'unrelated-restore-owner');
-      expect(fixture.runtime.refreshCurrent(command), isTrue);
-      expect((await fixture.execute(command))['success'], isTrue);
-      expect(fixture.exits, hasLength(1));
-      expect(
-        fixture.calls(ApplicationContract.coreOperationPrepare),
-        hasLength(1),
-      );
-    },
-  );
+  test('stale Stop cancelRefresh does not clear current pending and ordinary restore cancellation does not clear another refresh', () async {
+    fixture.emit({
+      'event': 'cancelRefresh',
+      ...fixture.identity(),
+      'processId': 'old-process',
+    });
+    await fixture.invokeRuntime('cancel', 'unrelated-restore-owner');
+    expect(fixture.runtime.refreshCurrent(command), isTrue);
+    expect((await fixture.execute(command))['success'], isTrue);
+    expect(fixture.exits, hasLength(1));
+    expect(
+      fixture.calls(ApplicationContract.coreOperationPrepare),
+      hasLength(1),
+    );
+  });
 }

@@ -351,225 +351,232 @@ void main() {
 
   for (final language in ['en', 'zh']) {
     for (final scale in [1.0, 2.0]) {
-      testWidgets('导入校验按首错定位并保留输入与实际提交 $language/$scale', (tester) async {
-        tester.view.physicalSize = const Size(800, 1400);
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
-        final submitted = <Map<String, Object?>>[];
-        final strings = lookupAppLocalizations(Locale(language));
-        await tester.pumpWidget(
-          MaterialApp(
-            navigatorObservers: [AppTaskNavigatorObserver()],
-            locale: Locale(language),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            theme: AppTheme.light,
-            builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(context)
-                  .copyWith(textScaler: TextScaler.linear(scale)),
-              child: child!,
-            ),
-            home: Builder(
-              builder: (context) => Scaffold(
-                body: TextButton(
-                  onPressed: () => showDialog<void>(
-                    context: context,
-                    builder: (dialogContext) => OperationNoticeHost(
-                      onDismiss: () => Navigator.of(dialogContext).maybePop(),
-                      child: ImportDialog(
-                        source: 'ftp://fixture.test/config#section',
-                        fragment: true,
-                        proxyName: 'invalid,target',
-                        storageEpoch: 17,
-                        onSubmit: (input) async {
-                          submitted.add(input);
-                          return false;
-                        },
+      testWidgets(
+        'import validation locates the first error and preserves input and actual submission $language/$scale',
+        (tester) async {
+          tester.view.physicalSize = const Size(800, 1400);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          final submitted = <Map<String, Object?>>[];
+          final strings = lookupAppLocalizations(Locale(language));
+          await tester.pumpWidget(
+            MaterialApp(
+              navigatorObservers: [AppTaskNavigatorObserver()],
+              locale: Locale(language),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              theme: AppTheme.light,
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context)
+                    .copyWith(textScaler: TextScaler.linear(scale)),
+                child: child!,
+              ),
+              home: Builder(
+                builder: (context) => Scaffold(
+                  body: TextButton(
+                    onPressed: () => showDialog<void>(
+                      context: context,
+                      builder: (dialogContext) => OperationNoticeHost(
+                        onDismiss: () => Navigator.of(dialogContext).maybePop(),
+                        child: ImportDialog(
+                          source: 'ftp://fixture.test/config#section',
+                          fragment: true,
+                          proxyName: 'invalid,target',
+                          storageEpoch: 17,
+                          onSubmit: (input) async {
+                            submitted.add(input);
+                            return false;
+                          },
+                        ),
                       ),
                     ),
+                    child: const Text('Open'),
                   ),
-                  child: const Text('Open'),
                 ),
               ),
             ),
-          ),
-        );
-        await tester.tap(find.text('Open'));
-        await tester.pumpAndSettle();
-        final source = find.byKey(const ValueKey('import-source'));
-        final proxy = find.byKey(const ValueKey('loon-proxy-name'));
-        final name = find.byType(TextField).at(1);
-        final fields = [source, name, proxy];
-        final controllers = fields
-            .map((field) => tester.widget<TextField>(field).controller!)
-            .toList();
-        final states = fields.map(tester.state).toList();
-        final formState = tester.state(find.byType(ImportDialog));
-        final save = find.widgetWithText(FilledButton, strings.downloadAndSave);
-        final cancel = find.widgetWithText(TextButton, strings.cancel);
-        final anchors = [
-          find.text(strings.remoteOverride),
-          ...fields,
-          find.byKey(const ValueKey('loon-no-resolve')),
-          save,
-          cancel,
-        ];
-        final sourceDecoration = tester.widget<TextField>(source).decoration!;
-        expect(sourceDecoration.helper, isNull);
-        expect(sourceDecoration.helperText, isNull);
-        final proxyDecoration = tester.widget<TextField>(proxy).decoration!;
-        expect(
-          (proxyDecoration.helper! as Text).data,
-          strings.loonProxyNameHint,
-        );
-        expect(proxyDecoration.helper, isNot(isA<SizedBox>()));
-        expect(tester.getSize(save).height, greaterThanOrEqualTo(48));
-        expect(tester.getSize(cancel).height, greaterThanOrEqualTo(48));
-        await tester.showKeyboard(source);
-        controllers[0].value = TextEditingValue(
-          text: controllers[0].text,
-          selection: const TextSelection(baseOffset: 6, extentOffset: 13),
-          composing: const TextRange(start: 6, end: 13),
-        );
-        await tester.pumpAndSettle();
-        var rectangles = anchors.map(tester.getRect).toList();
-        Future<void> unchanged(
-          int index,
-          TextEditingValue value,
-          List<Rect> expected,
-        ) async {
-          final focus = tester.widget<TextField>(fields[index]).focusNode!;
-          for (final milliseconds in [0, 16, 100, 200]) {
-            await tester.pump(Duration(milliseconds: milliseconds));
-            expect(anchors.map(tester.getRect).toList(), expected);
-            expect(fields.map(tester.state).toList(), states);
-            expect(tester.state(find.byType(ImportDialog)), same(formState));
-            expect(
-              fields
-                  .map((field) => tester.widget<TextField>(field).controller)
-                  .toList(),
-              controllers,
-            );
-            expect(controllers[index].value, same(value));
-            expect(controllers[index].selection, value.selection);
-            expect(controllers[index].value.composing, value.composing);
-            expect(focus.hasFocus, isTrue);
-            expect(find.byType(AlertDialog), findsOneWidget);
-            expect(tester.takeException(), isNull);
+          );
+          await tester.tap(find.text('Open'));
+          await tester.pumpAndSettle();
+          final source = find.byKey(const ValueKey('import-source'));
+          final proxy = find.byKey(const ValueKey('loon-proxy-name'));
+          final name = find.byType(TextField).at(1);
+          final fields = [source, name, proxy];
+          final controllers = fields
+              .map((field) => tester.widget<TextField>(field).controller!)
+              .toList();
+          final states = fields.map(tester.state).toList();
+          final formState = tester.state(find.byType(ImportDialog));
+          final save = find.widgetWithText(
+            FilledButton,
+            strings.downloadAndSave,
+          );
+          final cancel = find.widgetWithText(TextButton, strings.cancel);
+          final anchors = [
+            find.text(strings.remoteOverride),
+            ...fields,
+            find.byKey(const ValueKey('loon-no-resolve')),
+            save,
+            cancel,
+          ];
+          final sourceDecoration = tester.widget<TextField>(source).decoration!;
+          expect(sourceDecoration.helper, isNull);
+          expect(sourceDecoration.helperText, isNull);
+          final proxyDecoration = tester.widget<TextField>(proxy).decoration!;
+          expect(
+            (proxyDecoration.helper! as Text).data,
+            strings.loonProxyNameHint,
+          );
+          expect(proxyDecoration.helper, isNot(isA<SizedBox>()));
+          expect(tester.getSize(save).height, greaterThanOrEqualTo(48));
+          expect(tester.getSize(cancel).height, greaterThanOrEqualTo(48));
+          await tester.showKeyboard(source);
+          controllers[0].value = TextEditingValue(
+            text: controllers[0].text,
+            selection: const TextSelection(baseOffset: 6, extentOffset: 13),
+            composing: const TextRange(start: 6, end: 13),
+          );
+          await tester.pumpAndSettle();
+          var rectangles = anchors.map(tester.getRect).toList();
+          Future<void> unchanged(
+            int index,
+            TextEditingValue value,
+            List<Rect> expected,
+          ) async {
+            final focus = tester.widget<TextField>(fields[index]).focusNode!;
+            for (final milliseconds in [0, 16, 100, 200]) {
+              await tester.pump(Duration(milliseconds: milliseconds));
+              expect(anchors.map(tester.getRect).toList(), expected);
+              expect(fields.map(tester.state).toList(), states);
+              expect(tester.state(find.byType(ImportDialog)), same(formState));
+              expect(
+                fields
+                    .map((field) => tester.widget<TextField>(field).controller)
+                    .toList(),
+                controllers,
+              );
+              expect(controllers[index].value, same(value));
+              expect(controllers[index].selection, value.selection);
+              expect(controllers[index].value.composing, value.composing);
+              expect(focus.hasFocus, isTrue);
+              expect(find.byType(AlertDialog), findsOneWidget);
+              expect(tester.takeException(), isNull);
+            }
           }
-        }
 
-        final sourceValue = controllers[0].value;
-        tester.widget<FilledButton>(save).onPressed!();
-        await unchanged(0, sourceValue, rectangles);
-        await tester.pumpAndSettle();
-        final notice = find.byType(SnackBar);
-        expect(notice, findsOneWidget);
-        expect(
-          tester.getSemantics(source).getSemanticsData().validationResult,
-          SemanticsValidationResult.invalid,
-        );
-        expect(
-          tester.getSemantics(proxy).getSemanticsData().validationResult,
-          SemanticsValidationResult.none,
-        );
-        expect(tester.widget<TextField>(proxy).focusNode!.hasFocus, isFalse);
-        expect(
-          find.descendant(of: notice, matching: find.byType(TextButton)),
-          findsNothing,
-        );
-        final oldClose = tester
-            .widget<IconButton>(
-              find.descendant(of: notice, matching: find.byType(IconButton)),
-            )
-            .onPressed!;
-        await tester.tap(
-          find.descendant(of: notice, matching: find.byIcon(Icons.close)),
-        );
-        await unchanged(0, sourceValue, rectangles);
-        await tester.pumpAndSettle();
-        expect(notice, findsNothing);
-        const validSource = 'https://fixture.test/config#section';
-        await tester.enterText(source, validSource);
-        await tester.pumpAndSettle();
-        expect(
-          tester.getSemantics(source).getSemanticsData().validationResult,
-          SemanticsValidationResult.none,
-        );
-        tester.widget<FilledButton>(save).onPressed!();
-        await tester.pumpAndSettle();
-        expect(tester.widget<TextField>(proxy).focusNode!.hasFocus, isTrue);
-        expect(tester.widget<TextField>(source).focusNode!.hasFocus, isFalse);
-        expect(
-          tester.getSemantics(proxy).getSemanticsData().validationResult,
-          SemanticsValidationResult.invalid,
-        );
-        expect(notice, findsOneWidget);
-        final currentNotice = tester.element(notice);
-        oldClose();
-        await tester.pumpAndSettle();
-        expect(tester.element(notice), same(currentNotice));
-        final decoration = tester.widget<TextField>(proxy).decoration!;
-        expect((decoration.helper! as Text).data, strings.loonProxyNameHint);
-        expect(decoration.error, isNull);
-        expect(decoration.errorText, isNull);
-        expect(
-          decoration.focusedBorder!.borderSide.color,
-          AppTheme.light.colorScheme.error,
-        );
-        controllers[2].value = TextEditingValue(
-          text: controllers[2].text,
-          selection: const TextSelection(baseOffset: 1, extentOffset: 5),
-          composing: const TextRange(start: 1, end: 5),
-        );
-        await tester.pumpAndSettle();
-        final proxyValue = controllers[2].value;
-        rectangles = anchors.map(tester.getRect).toList();
-        await tester.tap(
-          find.descendant(of: notice, matching: find.byIcon(Icons.close)),
-        );
-        await unchanged(2, proxyValue, rectangles);
-        await tester.pumpAndSettle();
-        tester.widget<FilledButton>(save).onPressed!();
-        await unchanged(2, proxyValue, rectangles);
-        await tester.pumpAndSettle();
-        expect(notice, findsOneWidget);
-        expect(submitted, isEmpty);
-        const validProxy = '策略 🙂';
-        const validName = '导入配置 🌐';
-        await tester.enterText(proxy, validProxy);
-        await tester.pumpAndSettle();
-        expect(notice, findsNothing);
-        expect(
-          tester.getSemantics(proxy).getSemanticsData().validationResult,
-          SemanticsValidationResult.none,
-        );
-        await tester.enterText(name, validName);
-        await tester.tap(find.byKey(const ValueKey('loon-no-resolve')));
-        await tester.pumpAndSettle();
-        await tester.tap(save);
-        await tester.pumpAndSettle();
-        expect(submitted, [
-          {
-            'source': validSource,
-            'name': validName,
-            'proxyName': validProxy,
-            'addNoResolve': true,
-            'storageEpoch': 17,
-          },
-        ]);
-        expect(fields.map(tester.state).toList(), states);
-        expect(controllers.map((controller) => controller.text).toList(), [
-          validSource,
-          validName,
-          validProxy,
-        ]);
-        await tester.tap(cancel);
-        await tester.pumpAndSettle();
-        expect(find.byType(AlertDialog), findsNothing);
-        expect(tester.takeException(), isNull);
-      }, semanticsEnabled: true);
+          final sourceValue = controllers[0].value;
+          tester.widget<FilledButton>(save).onPressed!();
+          await unchanged(0, sourceValue, rectangles);
+          await tester.pumpAndSettle();
+          final notice = find.byType(SnackBar);
+          expect(notice, findsOneWidget);
+          expect(
+            tester.getSemantics(source).getSemanticsData().validationResult,
+            SemanticsValidationResult.invalid,
+          );
+          expect(
+            tester.getSemantics(proxy).getSemanticsData().validationResult,
+            SemanticsValidationResult.none,
+          );
+          expect(tester.widget<TextField>(proxy).focusNode!.hasFocus, isFalse);
+          expect(
+            find.descendant(of: notice, matching: find.byType(TextButton)),
+            findsNothing,
+          );
+          final oldClose = tester
+              .widget<IconButton>(
+                find.descendant(of: notice, matching: find.byType(IconButton)),
+              )
+              .onPressed!;
+          await tester.tap(
+            find.descendant(of: notice, matching: find.byIcon(Icons.close)),
+          );
+          await unchanged(0, sourceValue, rectangles);
+          await tester.pumpAndSettle();
+          expect(notice, findsNothing);
+          const validSource = 'https://fixture.test/config#section';
+          await tester.enterText(source, validSource);
+          await tester.pumpAndSettle();
+          expect(
+            tester.getSemantics(source).getSemanticsData().validationResult,
+            SemanticsValidationResult.none,
+          );
+          tester.widget<FilledButton>(save).onPressed!();
+          await tester.pumpAndSettle();
+          expect(tester.widget<TextField>(proxy).focusNode!.hasFocus, isTrue);
+          expect(tester.widget<TextField>(source).focusNode!.hasFocus, isFalse);
+          expect(
+            tester.getSemantics(proxy).getSemanticsData().validationResult,
+            SemanticsValidationResult.invalid,
+          );
+          expect(notice, findsOneWidget);
+          final currentNotice = tester.element(notice);
+          oldClose();
+          await tester.pumpAndSettle();
+          expect(tester.element(notice), same(currentNotice));
+          final decoration = tester.widget<TextField>(proxy).decoration!;
+          expect((decoration.helper! as Text).data, strings.loonProxyNameHint);
+          expect(decoration.error, isNull);
+          expect(decoration.errorText, isNull);
+          expect(
+            decoration.focusedBorder!.borderSide.color,
+            AppTheme.light.colorScheme.error,
+          );
+          controllers[2].value = TextEditingValue(
+            text: controllers[2].text,
+            selection: const TextSelection(baseOffset: 1, extentOffset: 5),
+            composing: const TextRange(start: 1, end: 5),
+          );
+          await tester.pumpAndSettle();
+          final proxyValue = controllers[2].value;
+          rectangles = anchors.map(tester.getRect).toList();
+          await tester.tap(
+            find.descendant(of: notice, matching: find.byIcon(Icons.close)),
+          );
+          await unchanged(2, proxyValue, rectangles);
+          await tester.pumpAndSettle();
+          tester.widget<FilledButton>(save).onPressed!();
+          await unchanged(2, proxyValue, rectangles);
+          await tester.pumpAndSettle();
+          expect(notice, findsOneWidget);
+          expect(submitted, isEmpty);
+          const validProxy = '策略 🙂';
+          const validName = '导入配置 🌐';
+          await tester.enterText(proxy, validProxy);
+          await tester.pumpAndSettle();
+          expect(notice, findsNothing);
+          expect(
+            tester.getSemantics(proxy).getSemanticsData().validationResult,
+            SemanticsValidationResult.none,
+          );
+          await tester.enterText(name, validName);
+          await tester.tap(find.byKey(const ValueKey('loon-no-resolve')));
+          await tester.pumpAndSettle();
+          await tester.tap(save);
+          await tester.pumpAndSettle();
+          expect(submitted, [
+            {
+              'source': validSource,
+              'name': validName,
+              'proxyName': validProxy,
+              'addNoResolve': true,
+              'storageEpoch': 17,
+            },
+          ]);
+          expect(fields.map(tester.state).toList(), states);
+          expect(controllers.map((controller) => controller.text).toList(), [
+            validSource,
+            validName,
+            validProxy,
+          ]);
+          await tester.tap(cancel);
+          await tester.pumpAndSettle();
+          expect(find.byType(AlertDialog), findsNothing);
+          expect(tester.takeException(), isNull);
+        },
+        semanticsEnabled: true,
+      );
     }
   }
 

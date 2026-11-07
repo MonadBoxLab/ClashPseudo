@@ -61,7 +61,7 @@ func (a *delayLoopbackAdapter) DialContext(ctx context.Context, metadata *C.Meta
 }
 func publicDelayProxy(t *testing.T, dialer *delayLoopbackDialer) C.Proxy {
 	t.Helper()
-	// 测试通过公开Base/NewConn提供loopback socket，由上游执行URLTest、deadline及history。
+	// The test supplies a loopback socket through public Base/NewConn APIs; upstream handles URLTest, deadlines, and history.
 	proxy := adapter.NewProxy(&delayLoopbackAdapter{Base: outbound.NewBase(outbound.BaseOption{Name: "member", Type: C.Direct}), dialer: dialer})
 	t.Cleanup(func() {
 		if err := proxy.Close(); err != nil {
@@ -183,7 +183,7 @@ func TestDelayProjectionUsesPublicURLTestWithoutAddingStatusFailurePolicy(t *tes
 			actual := publicDelayProxy(t, &delayLoopbackDialer{})
 			proxy := &delayProxyFixture{Proxy: actual, name: "member", adapter: actual.Adapter(), publicProbe: func(ctx context.Context, target string, expected utils.IntRanges[uint16]) (uint16, error) {
 				if target != C.DefaultTestURL || !reflect.DeepEqual(expected, delayExpected) {
-					t.Error("应用改变了公开URLTest参数")
+					t.Error("application changed public URLTest parameters")
 				}
 				return actual.URLTest(ctx, server.URL, expected)
 			}}
@@ -191,7 +191,7 @@ func TestDelayProjectionUsesPublicURLTestWithoutAddingStatusFailurePolicy(t *tes
 			delay, err := e.URLTest(context.Background(), "group", proxy.Name(), delayFixtureIdentity(e, proxy), "", 0)
 			history := actual.DelayHistory()
 			if err != nil || len(history) != 1 || delay != history[0].Delay {
-				t.Fatal("应用改变了公开测量结果", delay, err, history)
+				t.Fatal("application changed the public measurement result", delay, err, history)
 			}
 			assertPublicDelayHistory(t, actual, server.URL, delay, true, status == 204)
 		})
@@ -222,7 +222,7 @@ func TestDelayProjectionPreservesPublicSuccessAfterUnifiedSecondTimeout(t *testi
 	delay, err := e.URLTest(context.Background(), "group", proxy.Name(), delayFixtureIdentity(e, proxy), "", 0)
 	history := actual.DelayHistory()
 	if err != nil || requests.Load() < 2 || len(history) != 1 || delay != history[0].Delay || delay < uint16(delayTestTimeout/time.Millisecond) {
-		t.Fatal("公开unified timeout结果改变", requests.Load(), delay, err, history)
+		t.Fatal("public unified timeout result changed", requests.Load(), delay, err, history)
 	}
 	assertPublicDelayHistory(t, actual, server.URL, delay, true, true)
 }
@@ -241,7 +241,7 @@ func TestDelayMemberKeepsNilErrorMeasurementAfterDeadline(t *testing.T) {
 	e, _ := delayEngineFixture(proxy)
 	delay, err := e.URLTest(context.Background(), "group", proxy.Name(), delayFixtureIdentity(e, proxy), "", 0)
 	if err != nil || delay != 12 || elapsed < delayTestTimeout {
-		t.Fatal("应用重分类了nil error测量结果", elapsed, delay, err)
+		t.Fatal("application reclassified a measurement result with a nil error", elapsed, delay, err)
 	}
 }
 
@@ -256,14 +256,14 @@ func TestDelaySingleCallPreservesZeroValueOriginalErrorAndArguments(t *testing.T
 			calls++
 			deadline, ok := ctx.Deadline()
 			if target != "https://fixture.test/probe" || !reflect.DeepEqual(expected, delayExpected) || !ok || time.Until(deadline) > time.Second {
-				t.Error("公开URLTest参数改变")
+				t.Error("public URLTest parameters changed")
 			}
 			return 0, failure
 		}}
 		e, _ := delayEngineFixture(proxy)
 		delay, err := e.URLTest(context.Background(), "group", proxy.Name(), delayFixtureIdentity(e, proxy), "https://fixture.test/probe", time.Second)
 		if delay != 0 || err != failure || calls != 1 {
-			t.Fatal("公开结果或调用次数改变", delay, err, calls)
+			t.Fatal("public result or call count changed", delay, err, calls)
 		}
 	}
 }
@@ -290,15 +290,15 @@ func TestDelayResultKeepsCapturedProxyAndRejectsSameNameReplacement(t *testing.T
 		}()
 		<-entered
 		e.mu.Lock()
-		group.members = []C.Proxy{&delayProxyFixture{name: "same", probe: func(context.Context) (uint16, error) { t.Error("调用了替换对象"); return 0, nil }}}
+		group.members = []C.Proxy{&delayProxyFixture{name: "same", probe: func(context.Context) (uint16, error) { t.Error("replacement object was called"); return 0, nil }}}
 		e.mu.Unlock()
 		if _, err := e.URLTest(context.Background(), "group", "same", identity, "", 0); !errors.Is(err, coreview.ErrNodesChanged) {
-			t.Error("旧identity取得替换节点", err)
+			t.Error("stale identity resolved to a replacement node", err)
 		}
 		close(release)
 		got := <-result
 		if got.delay != 17 || got.err != failure {
-			t.Fatal("来源退役改变了真实迟到结果", got)
+			t.Fatal("source retirement changed the actual late result", got)
 		}
 	}
 }
@@ -322,7 +322,7 @@ func TestDelayCancellationWaitsForActualPublicCallReturn(t *testing.T) {
 	go func() {
 		delay, err := e.URLTest(ctx, "group", "member", identity, "", 0)
 		if delay != 19 {
-			t.Error("取消改变了实际值", delay)
+			t.Error("cancellation changed the actual value", delay)
 		}
 		done <- err
 	}()
@@ -331,7 +331,7 @@ func TestDelayCancellationWaitsForActualPublicCallReturn(t *testing.T) {
 	<-cancelled
 	select {
 	case err := <-done:
-		t.Fatal("取消信号被当成公开调用退出", err)
+		t.Fatal("cancellation signal was treated as public call completion", err)
 	default:
 	}
 	close(release)
@@ -379,23 +379,23 @@ func TestDelayStopWaitsForActualProbeExit(t *testing.T) {
 	select {
 	case <-requestEntered:
 	case <-time.After(2 * time.Second):
-		t.Fatal("公开URLTest未进入HTTP peer")
+		t.Fatal("public URLTest did not reach the HTTP peer")
 	}
 	stopped := make(chan error, 1)
 	go func() { stopped <- e.Stop() }()
 	select {
 	case <-closeEntered:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Stop未取消真实HTTP transport")
+		t.Fatal("Stop did not cancel the actual HTTP transport")
 	}
 	select {
 	case err := <-stopped:
-		t.Fatal("Stop提前返回", err)
+		t.Fatal("Stop returned early", err)
 	case <-time.After(30 * time.Millisecond):
 	}
 	select {
 	case <-proxyClosed:
-		t.Fatal("真实调用退出前关闭了proxy")
+		t.Fatal("proxy was closed before the actual call returned")
 	default:
 	}
 	release()
@@ -405,18 +405,18 @@ func TestDelayStopWaitsForActualProbeExit(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("公开调用退出后Stop未返回")
+		t.Fatal("Stop did not return after the public call exited")
 	}
 	if err := <-done; err == nil {
-		t.Fatal("真实取消错误丢失")
+		t.Fatal("actual cancellation error was lost")
 	}
 	select {
 	case <-proxyClosed:
 	default:
-		t.Fatal("Stop未关闭proxy")
+		t.Fatal("Stop did not close the proxy")
 	}
 	if err := e.Prepare(t.TempDir(), []byte(validConfig), "rule", func(int) bool { return true }); err == nil {
-		t.Fatal("同一Engine停止后再次装载")
+		t.Fatal("same Engine loaded again after stopping")
 	}
 }
 
@@ -462,7 +462,7 @@ func TestStrategyCurrentDelayIdentityMatchesSingleCallAndSurvivesCompletion(t *t
 	_, _ = e.URLTest(context.Background(), "choice", "REJECT", before, "", 0)
 	_, after := read()
 	if after != before {
-		t.Fatal("调用完成改变了identity")
+		t.Fatal("call completion changed the identity")
 	}
 	direct := "DIRECT"
 	if err := e.SetStrategy("choice", Choice{Type: "select", Member: &direct}, false); err != nil {
@@ -470,7 +470,7 @@ func TestStrategyCurrentDelayIdentityMatchesSingleCallAndSurvivesCompletion(t *t
 	}
 	_, after = read()
 	if after == before {
-		t.Fatal("不同当前节点沿用了identity")
+		t.Fatal("different current node reused the identity")
 	}
 }
 func TestDelayObservationIdentityTracksProviderVersionAndSameNameObjects(t *testing.T) {

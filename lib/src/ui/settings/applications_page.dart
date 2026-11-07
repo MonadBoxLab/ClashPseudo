@@ -1035,7 +1035,8 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
   }
 }
 
-/// 短状态单行更新，完整生效说明由 Tooltip 提供。
+/// Updates short status on one line; the Tooltip provides the full explanation of when
+/// changes take effect.
 class _ApplicationStatusText extends StatelessWidget {
   const _ApplicationStatusText({required this.text, this.style});
 

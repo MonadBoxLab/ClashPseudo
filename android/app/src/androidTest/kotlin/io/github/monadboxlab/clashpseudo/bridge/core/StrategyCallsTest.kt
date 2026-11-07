@@ -44,7 +44,7 @@ class StrategyCallsTest {
                     val work = CompletableFuture.supplyAsync {
                         platform.prepare(strategyInput(), vpn = false, owner = "queued-prepare-owner")
                     }
-                    platform.await("真实 PREPARE 已受理，原输入 FD 尚未放行") {
+                    platform.await("Actual PREPARE is admitted while the original input FD remains held") {
                         control.heldPreparations.isNotEmpty() && control.client.requestBusy
                     }
                     val source = platform.status()
@@ -74,7 +74,7 @@ class StrategyCallsTest {
                     val actual = work.get(30, TimeUnit.SECONDS)
                     assertEquals(Contract.CORE_ERROR_CANCELLED, failure(actual).getString("code"))
                     assertTrue(actual.terminal.getJSONObject("nativeReceipt").getBoolean("exited"))
-                    platform.await("原 PREPARE 输入、输出与 receipt 实际结束") { !control.client.requestBusy }
+                    platform.await("Original PREPARE input, output, and receipt actually finish") { !control.client.requestBusy }
                     assertEquals(1, replies.get())
                     control.rejection.set(null)
                     platform.exit()
@@ -99,10 +99,10 @@ class StrategyCallsTest {
                     val work = CompletableFuture.supplyAsync {
                         platform.prepare(strategyInput(), vpn = false, owner = "prepare-owner", admittedAt = admittedAt)
                     }
-                    platform.await("PREPARE 已 READY，原 receipt FD 尚未读取") {
+                    platform.await("PREPARE is READY while the original receipt FD remains unread") {
                         if (work.isDone) {
                             work.get(0, TimeUnit.SECONDS)
-                            fail("PREPARE 不能在 receipt FD 放行前完成")
+                            fail("PREPARE must not finish before the receipt FD is released")
                         }
                         control.heldReceipts.isNotEmpty() && client.status()["phase"] == Contract.CORE_PHASE_READY
                     }
@@ -120,7 +120,7 @@ class StrategyCallsTest {
                     val original = linkage?.let(::cleanupFailure)
                     control.cancelRejection.set(original)
                     client.cancelOwner("prepare-owner")
-                    platform.await("正确 owner 的真实 CANCEL 已提交") { control.cancellations.get() == 1 }
+                    platform.await("The correct owner's actual CANCEL is submitted") { control.cancellations.get() == 1 }
                     val requestId = control.heldRequestId()
                     val cancellation = runCatching {
                         platform.channel(Contract.CORE_CHANNEL_CANCEL,
@@ -153,7 +153,7 @@ class StrategyCallsTest {
                     assertEquals(0, control.submissions.get())
                     assertEquals(0, control.acceptedExitTasks.get())
 
-                    // 真实 Service 仍返回 READY；同一 process 的状态刷新不能恢复业务权限。
+                    // The actual Service still returns READY; a status refresh for the same process must not restore application authority.
                     assertEquals(Contract.CORE_PHASE_STOPPING, platform.handshake()["phase"])
                     val businessBefore = control.businessSubmissions.get()
                     val rejected = runCatching { platform.query(Contract.CORE_OPERATION_STRATEGIES) }.exceptionOrNull()
@@ -167,7 +167,7 @@ class StrategyCallsTest {
                     assertEquals(old["processId"], actual.value.getString("processId"))
                     assertEquals(old["inputId"], actual.value.getString("inputId"))
                     assertTrue(actual.terminal.getJSONObject("nativeReceipt").getBoolean("exited"))
-                    platform.await("原 PREPARE 与 CANCEL 的全部 FD 已结束") { !client.requestBusy }
+                    platform.await("All FDs of the original PREPARE and CANCEL have finished") { !client.requestBusy }
                     assertEquals(Contract.CORE_PHASE_STOPPING, platform.handshake()["phase"])
                     assertFalse(client.view.current(generation))
                     assertNull(CoreResourceGate.forApplication(platform.context).tryAcquire())
@@ -194,7 +194,7 @@ class StrategyCallsTest {
                     assertNotEquals(old["composition"], current["composition"])
                     assertEquals(old["generation"], current["generation"])
                     oldCleanup.run()
-                    assertEquals("退出请求属于旧内核进程", checkNotNull(late.get(10, TimeUnit.SECONDS)).message)
+                    assertEquals("Exit request belongs to an old core process", checkNotNull(late.get(10, TimeUnit.SECONDS)).message)
                     client.cancelOwner("prepare-owner")
                     replacement.onState { }
                     assertEquals(0, replacement.cancellations.get())
@@ -227,10 +227,10 @@ class StrategyCallsTest {
                             mapOf("name" to "出口🌐", "choice" to mapOf("type" to "select",
                                 "member" to if (workFails) "missing-$ORIGINAL" else "REJECT")))
                     }
-                    platform.await("真实 native receipt 等待读取") {
+                    platform.await("Actual native receipt is waiting to be read") {
                         if (work.isDone) {
                             work.get(0, TimeUnit.SECONDS)
-                            fail("原调用不能在 receipt 读取放行前结束")
+                            fail("The original call must not finish before receipt reading is released")
                         }
                         control.heldReceipts.isNotEmpty()
                     }
@@ -257,7 +257,7 @@ class StrategyCallsTest {
                     if (workFails) assertEquals("member-missing", failure(captured).getString("message"))
                     else assertTrue(success(captured).getBoolean("applied"))
                     assertTrue(captured.terminal.getJSONObject("nativeReceipt").getBoolean("exited"))
-                    platform.await("原调用及 receipt FD 实际结束") { !control.client.requestBusy }
+                    platform.await("The original call and receipt FD actually finish") { !control.client.requestBusy }
                     assertEquals(1, replies.get())
                     control.assertRejectedContext(source, original)
                     control.rejection.set(null)
@@ -302,7 +302,7 @@ class StrategyCallsTest {
                 assertTrue(client.view.current((source["generation"] as Number).toLong()))
                 checkNotNull(queued.poll(2, TimeUnit.SECONDS)).run()
                 val error = checkNotNull(lateReply.get(10, TimeUnit.SECONDS))
-                assertEquals("退出请求属于旧内核进程", error.message)
+                assertEquals("Exit request belongs to an old core process", error.message)
                 assertEquals(1, replies.get())
                 assertTrue(queued.isEmpty())
                 assertEquals(0, replacement.submissions.get())
@@ -326,7 +326,7 @@ class StrategyCallsTest {
                 replacement.onState { }
                 CoreIpcTestDriver.onMain { }
                 replacement.onState { }
-                assertFalse("Binder 失败不能伪造实际 process death", actualExit.isDone)
+                assertFalse("Binder failure must not fake actual process death", actualExit.isDone)
                 assertEquals(0, exitReplies.get())
                 assertEquals(1, replacement.submissions.get())
                 assertEquals(0, replacement.acceptedExitTasks.get())
@@ -357,7 +357,7 @@ class StrategyCallsTest {
                     val original = cleanupFailure(linkage)
                     control.rejection.set(original)
                     control.expireIdle()
-                    platform.await("idle cleanup 原始错误") {
+                    platform.await("Original idle cleanup error") {
                         control.client.status()["phase"] == Contract.CORE_PHASE_COMMUNICATION_LOST
                     }
                     control.onState { }
@@ -391,7 +391,7 @@ class StrategyCallsTest {
             addSuppressed(IOException("original cleanup close failure: $ORIGINAL"))
         }
 
-    /** 仅控制原 Binder 退出调用和 receipt 读取的调度；其余调用继续使用原 Service、FD 和执行器。 */
+    /** Control only scheduling of the original Binder exit call and receipt read; other calls keep using the original Service, FDs, and executors. */
     private class ExitControl(private val platform: CorePlatformTestDriver,
                               private val receiptOperation: Int = Contract.CORE_OPERATION_STRATEGY_SELECT) : Closeable {
         val client = CoreClient.get(platform.context)
@@ -470,7 +470,7 @@ class StrategyCallsTest {
         }
 
         init {
-            platform.await("prepare 调用与状态 FD 实际结束", timeoutMs = 10_000) {
+            platform.await("Prepare call and status FD actually finish", timeoutMs = 10_000) {
                 onState {
                     if (client.requestBusy) false else {
                         visible.setBoolean(client, true)
@@ -498,7 +498,7 @@ class StrategyCallsTest {
             val receipt = call.javaClass.getDeclaredField("receiptDescriptor").apply { isAccessible = true }
                 .get(call) as? ParcelFileDescriptor ?: return false
             if (documents[receipt] != processId) return false
-            // onExited 在原 state 任务中设置 descriptor 后立即提交读取；只暂缓这一次提交。
+            // onExited submits a read immediately after setting the descriptor in the original state task; defer only that submission.
             heldRequest = entry.key
             return true
         }
@@ -660,19 +660,19 @@ class StrategyCallsTest {
         try {
             success(platform.prepare(io.github.monadboxlab.clashpseudo.nativecore.input.CoreInput(
                 "fixture", 1, null, CoreBridgeIpcScenario.STRATEGIES.toByteArray(Charsets.UTF_8), "{}".toByteArray(), name = "fixture"), vpn = false))
-            platform.await("CoreService 已 started，AppRuntimeService 保持 bound lifecycle") {
+            platform.await("CoreService is started while AppRuntimeService retains its bound lifecycle") {
                 started(coreService) == true && started(runtimeService) == false
             }
             val captured = platform.status()["processId"]
             assertTrue(platform.context.stopService(android.content.Intent().setComponent(coreService)))
-            platform.await("仍有 binding 的 CoreService 已结束 started lifecycle") { started(coreService) == false }
+            platform.await("CoreService ends its started lifecycle while still bound") { started(coreService) == false }
             client.view.setVisible(false)
-            platform.await("进入后台时在原 core process 恢复 started lifecycle") { started(coreService) == true }
+            platform.await("Restore the started lifecycle in the original core process when entering the background") { started(coreService) == true }
             assertEquals(captured, platform.status()["processId"])
             val duplicateAt = android.os.SystemClock.elapsedRealtime() - 1
             onState { hiddenAt.setLong(client, duplicateAt) }
             client.view.setVisible(false)
-            onState { assertEquals("重复不可见通知保持原空闲起点", duplicateAt, hiddenAt.getLong(client)) }
+            onState { assertEquals("Duplicate hidden notifications preserve the original idle start time", duplicateAt, hiddenAt.getLong(client)) }
             client.view.setVisible(true)
             onState { idle.run() }
             assertEquals(captured, platform.status()["processId"])
@@ -694,14 +694,14 @@ class StrategyCallsTest {
             }
             val readAt = android.os.SystemClock.elapsedRealtime()
             success(platform.query(Contract.CORE_OPERATION_SNAPSHOT))
-            platform.await("非 LOGS 调用实际结束并更新空闲起点") {
+            platform.await("A non-LOGS call actually finishes and updates the idle start time") {
                 var finished = false
                 onState { finished = !client.requestBusy && hiddenAt.getLong(client) >= readAt }
                 finished
             }
             io.github.monadboxlab.clashpseudo.nativecore.CoreIpcTestDriver.onMain { }
             onState {
-                assertTrue("非 LOGS 调用实际结束后重新计时", hiddenAt.getLong(client) >= readAt)
+                assertTrue("Restart the timer after a non-LOGS call actually finishes", hiddenAt.getLong(client) >= readAt)
                 visible.setBoolean(client, false)
                 busy.setBoolean(client, true)
                 hiddenAt.setLong(client, android.os.SystemClock.elapsedRealtime() - 30_001)
@@ -709,15 +709,15 @@ class StrategyCallsTest {
             val idleAt = android.os.SystemClock.elapsedRealtime()
             client.view.setOperationBusy(false)
             onState {
-                assertTrue("业务操作结束后重新计时", hiddenAt.getLong(client) >= idleAt)
+                assertTrue("Restart the timer after the application operation finishes", hiddenAt.getLong(client) >= idleAt)
                 assertEquals(Contract.CORE_PHASE_READY, client.status()["phase"])
                 assertNull(io.github.monadboxlab.clashpseudo.nativecore.CoreResourceGate.forApplication(platform.context).tryAcquire())
                 hiddenAt.setLong(client, android.os.SystemClock.elapsedRealtime() - 30_001)
                 schedule.invoke(client)
             }
-            platform.await("idle PREVIEW 的真实进程退出") { client.status()["phase"] == Contract.CORE_PHASE_EXITED }
+            platform.await("Actual process exit for idle PREVIEW") { client.status()["phase"] == Contract.CORE_PHASE_EXITED }
             assertEquals("previewExpired", client.lifecycle.snapshot().exitReason)
-            platform.await("core 退出后 CoreService 与 AppRuntimeService 已结束") {
+            platform.await("CoreService and AppRuntimeService finish after core exit") {
                 started(coreService) == null && started(runtimeService) == null
             }
             assertEquals(captured, platform.status()["processId"])
@@ -745,7 +745,7 @@ class StrategyCallsTest {
                     JSONObject().put("name", "出口🌐").put("choice", JSONObject().put("type", "select").put("member", member))))
                 assertTrue(selected.getBoolean("applied"))
                 val group = collection(core.query(Contract.CORE_OPERATION_STRATEGIES)).single { it.getString("name") == "出口🌐" }
-                assertEquals(member, group.getJSONObject("raw").getString("now"))
+                assertEquals(member, group.getString("now"))
                 core.assertSameContext()
             }
         }
@@ -753,12 +753,12 @@ class StrategyCallsTest {
 
     @Test fun nativeRejectionKeepsItsActualReasonAndLeavesTheActualChoiceUnchanged() {
         CoreBridgeIpcScenario(CoreBridgeIpcScenario.STRATEGIES).use { core ->
-            val before = collection(core.query(Contract.CORE_OPERATION_STRATEGIES)).single { it.getString("name") == "出口🌐" }.getJSONObject("raw").getString("now")
+            val before = collection(core.query(Contract.CORE_OPERATION_STRATEGIES)).single { it.getString("name") == "出口🌐" }.getString("now")
             val member = "https://user:pass@fixture.test/?token=原文🙂"
             val rejected = failure(core.query(Contract.CORE_OPERATION_STRATEGY_SELECT,
                 JSONObject().put("name", "出口🌐").put("choice", JSONObject().put("type", "select").put("member", member))))
             assertEquals("member-missing", rejected.getString("message"))
-            assertEquals(before, collection(core.query(Contract.CORE_OPERATION_STRATEGIES)).single { it.getString("name") == "出口🌐" }.getJSONObject("raw").getString("now"))
+            assertEquals(before, collection(core.query(Contract.CORE_OPERATION_STRATEGIES)).single { it.getString("name") == "出口🌐" }.getString("now"))
             core.assertSameContext()
         }
     }
@@ -766,12 +766,12 @@ class StrategyCallsTest {
     @Test fun wrongFdIdentityCannotApplyAQueuedChoiceAndTheNextRequestCanRetry() {
         CoreBridgeIpcScenario(CoreBridgeIpcScenario.STRATEGIES).use { core ->
             val args = JSONObject().put("name", "出口🌐").put("choice", JSONObject().put("type", "select").put("member", "节点🌐"))
-            val before = collection(core.query(Contract.CORE_OPERATION_STRATEGIES)).single { it.getString("name") == "出口🌐" }.getJSONObject("raw").getString("now")
+            val before = collection(core.query(Contract.CORE_OPERATION_STRATEGIES)).single { it.getString("name") == "出口🌐" }.getString("now")
             val rejected = core.await(core.start(Contract.CORE_OPERATION_STRATEGY_SELECT, args) { it.put("inputId", "replacement") })
             assertEquals(Contract.CORE_ERROR_IDENTITY_MISMATCH, failure(rejected).getString("code"))
-            assertEquals(before, collection(core.query(Contract.CORE_OPERATION_STRATEGIES)).single { it.getString("name") == "出口🌐" }.getJSONObject("raw").getString("now"))
+            assertEquals(before, collection(core.query(Contract.CORE_OPERATION_STRATEGIES)).single { it.getString("name") == "出口🌐" }.getString("now"))
             assertTrue(success(core.query(Contract.CORE_OPERATION_STRATEGY_SELECT, args)).getBoolean("applied"))
-            assertEquals("节点🌐", collection(core.query(Contract.CORE_OPERATION_STRATEGIES)).single { it.getString("name") == "出口🌐" }.getJSONObject("raw").getString("now"))
+            assertEquals("节点🌐", collection(core.query(Contract.CORE_OPERATION_STRATEGIES)).single { it.getString("name") == "出口🌐" }.getString("now"))
         }
     }
 

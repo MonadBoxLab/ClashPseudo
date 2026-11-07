@@ -40,7 +40,7 @@ void main() {
     },
   );
 
-  test('未知连接字段不进入观察窗口及其字节预算', () {
+  test('unknown connection fields do not enter the observation window or its byte budget', () {
     final value = {...row('a'), 'unknown': 'x' * ConnectionWindow.memoryLimit};
     window.accept(sample([value], 0), core, window.parameters);
     expect(window.records.single.id, 'a');

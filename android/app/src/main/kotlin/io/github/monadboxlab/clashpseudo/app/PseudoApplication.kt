@@ -42,7 +42,7 @@ class PseudoApplication : Application() {
             cleanup.initialize()
             if (cleanup.ready && io.github.monadboxlab.clashpseudo.nativecore.CoreClient.get(this).lifecycle.snapshot().cleanupPending) {
                 try { io.github.monadboxlab.clashpseudo.nativecore.CoreClient.get(this).lifecycle.cleanup(false) }
-                catch (error: Throwable) { Log.w("PseudoStorage", "无法保存文件清理状态", error) }
+                catch (error: Throwable) { Log.w("PseudoStorage", "Failed to save file cleanup state", error) }
             }
             main.post {
                 if (recovered.getOrNull()?.ready == true) AppStrings.refresh(this)

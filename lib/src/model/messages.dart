@@ -2,7 +2,8 @@ import 'app_message.dart';
 
 export 'app_message.dart';
 
-/// 业务层构造消息描述，显示层按当前语言解析。
+/// Business logic constructs message descriptions; the UI resolves them in the current
+/// language.
 const messages = AppMessages();
 
 /// Only the messages currently produced outside a localized widget are listed.

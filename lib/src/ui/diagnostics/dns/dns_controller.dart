@@ -12,7 +12,8 @@ import '../../../model/dns_snapshot.dart';
 
 enum DnsStatus { ready, preparing, unavailable, empty, querying, stale, failed }
 
-/// 查询草稿和阅读状态留在页面；执行、期限和取消排空由 AppRuntime 持有。
+/// Pages retain query drafts and reading state; AppRuntime owns execution, deadlines,
+/// and cancellation drain.
 class DnsController extends ChangeNotifier {
   DnsController(this.app) {
     app.addListener(_changed);
@@ -189,7 +190,7 @@ class DnsController extends ChangeNotifier {
     return DnsFailure(
       'invalidResponse',
       detail: [
-        'DNS 响应来源与请求不一致',
+        'DNS response source does not match the request',
         if (data['error'] != null) data['error'].toString(),
         if (data['detail'] != null) data['detail'].toString(),
         if (value['error'] != null) value['error'].toString(),

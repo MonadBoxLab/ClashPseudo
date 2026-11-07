@@ -440,7 +440,7 @@ abstract class AppLocalizations {
   /// **'Configurations'**
   String get configurations;
 
-  /// 选择这张卡片所代表的配置。
+  /// Selects the configuration represented by this card.
   ///
   /// In en, this message translates to:
   /// **'Select configuration'**
@@ -680,19 +680,19 @@ abstract class AppLocalizations {
   /// **'Details'**
   String get details;
 
-  /// 打开错误详情的入口文字和详情标题。
+  /// Label and heading for opening error details.
   ///
   /// In en, this message translates to:
   /// **'Error details'**
   String get errorDetails;
 
-  /// 用于查看完整原始错误或诊断原文的入口文字和标题。
+  /// Label and heading for viewing the complete original error or diagnostic text.
   ///
   /// In en, this message translates to:
   /// **'Technical details'**
   String get technicalDetails;
 
-  /// 复制完整的原始错误或诊断原文。
+  /// Copies the complete original error or diagnostic text.
   ///
   /// In en, this message translates to:
   /// **'Copy technical details'**
@@ -1160,13 +1160,13 @@ abstract class AppLocalizations {
   /// **'Update plugin'**
   String get overrideUpdate;
 
-  /// 打开当前插件的错误详情。
+  /// Opens error details for the current plugin.
   ///
   /// In en, this message translates to:
   /// **'View plugin error'**
   String get viewOverrideError;
 
-  /// 插件操作未完成时的反馈标题；详细说明保留实际保存结果、应用结果和原始错误。
+  /// Feedback heading for an incomplete plugin operation; details retain the actual save result, application result, and original error.
   ///
   /// In en, this message translates to:
   /// **'Plugin action not completed'**
@@ -2498,7 +2498,7 @@ abstract class AppLocalizations {
   /// **'Copy original text'**
   String get copyOriginalText;
 
-  /// 说明连接记录已达容量上限，并提示清除已结束的记录。
+  /// Explains that connection records have reached capacity and suggests clearing inactive records.
   ///
   /// In en, this message translates to:
   /// **'The record limit has been reached, so some connections are not shown. Clear ended records to make room.'**
@@ -5138,49 +5138,49 @@ abstract class AppLocalizations {
   /// **'Query'**
   String get dnsQuery;
 
-  /// 刷新或准备内核状态的操作。
+  /// Action to refresh or prepare core state.
   ///
   /// In en, this message translates to:
   /// **'Refresh core status'**
   String get dnsRefreshCoreStatus;
 
-  /// 在当前 DNS 对话框中查看按记录分组的查询结果。
+  /// Views query results grouped by record in the current DNS dialog.
   ///
   /// In en, this message translates to:
   /// **'View query results'**
   String get dnsViewQueryResults;
 
-  /// DNS 查询结果区域的标题。
+  /// Heading for the DNS query results area.
   ///
   /// In en, this message translates to:
   /// **'Query results'**
   String get dnsQueryResults;
 
-  /// 标记页面保留的上次 DNS 查询结果。
+  /// Identifies the previous DNS query results retained by the page.
   ///
   /// In en, this message translates to:
   /// **'Previous query'**
   String get dnsPreviousQuery;
 
-  /// 查看页面保留的上次 DNS 查询结果。
+  /// Views the previous DNS query results retained by the page.
   ///
   /// In en, this message translates to:
   /// **'View previous query'**
   String get dnsViewPreviousQuery;
 
-  /// 显示这次响应对应的查询名称和记录类型；name 和 type 使用发起查询时保存的值。
+  /// Shows the query name and record type for this response; name and type use values captured at query submission.
   ///
   /// In en, this message translates to:
   /// **'Query: {name} · {type}'**
   String dnsQueryIdentity(String name, String type);
 
-  /// 显示这次响应的内核来源；source 使用发起查询时保存的来源，并由界面翻译。
+  /// Shows the core source of this response; source uses the value captured at query submission and localized by the UI.
   ///
   /// In en, this message translates to:
   /// **'Source: {source}'**
   String dnsResponseSource(String source);
 
-  /// 查看 DNS 缓存或 fake-IP 清理详情的入口文字和标题，包括清理对象、实际状态和各缓存池或映射池的结果。
+  /// Label and heading for DNS cache or fake-IP cleanup details, including targets, actual state, and results for each cache or mapping pool.
   ///
   /// In en, this message translates to:
   /// **'Cache operation details'**

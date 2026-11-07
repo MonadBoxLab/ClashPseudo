@@ -2,7 +2,7 @@ import 'package:clash_pseudo/src/logic/diagnostics/log_window.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('日志窗口按整条限制为 1000 条', () {
+  test('log window retains at most 1000 complete entries', () {
     final window = LogWindow()..begin('process-a');
     for (var i = 1; i <= 1001; i++) {
       window.accept('process-a', {'seq': i, 'level': 'info', 'text': '$i'});
@@ -14,7 +14,7 @@ void main() {
     expect(data['windowDropped'], 1);
   });
 
-  test('日志正文按 UTF-8 字节限制为 1 MiB，单条超限计入遗漏', () {
+  test('log text is limited to 1 MiB of UTF-8 bytes and oversized entries count as dropped', () {
     final window = LogWindow()..begin('process-a');
     window.accept('process-a', {'seq': 1, 'text': '中' * 100000});
     window.accept('process-a', {'seq': 2, 'text': '中' * 300000});
@@ -30,7 +30,7 @@ void main() {
     expect(window.watermark, 3);
   });
 
-  test('清空后旧事件和其他进程事件不能回填', () {
+  test('old events and other-process events cannot backfill after clear', () {
     final window = LogWindow()..begin('process-a');
     window.accept('process-a', {'seq': 1, 'text': 'before'});
     window.clear('process-a', through: 3);
@@ -43,7 +43,7 @@ void main() {
     expect(window.snapshot()['dropped'], 0);
   });
 
-  test('快照和日志条目只读', () {
+  test('snapshots and log entries are read-only', () {
     final window = LogWindow()..begin('process-a');
     window.accept('process-a', {'seq': 1, 'text': 'entry'});
     final entries = window.snapshot()['entries'] as List;

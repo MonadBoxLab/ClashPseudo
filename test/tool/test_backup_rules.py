@@ -1,4 +1,4 @@
-"""系统备份只覆盖已提交配置，不包括任务、运行输入或缓存。"""
+"""System backups include only saved configurations, not tasks, runtime inputs, or caches."""
 from pathlib import Path
 import unittest
 import xml.etree.ElementTree as ET
@@ -14,7 +14,7 @@ TARGETS = {
 
 class BackupRulesTest(unittest.TestCase):
     def assert_business_file_allowlist(self, section):
-        # 完整白名单排除安装标记、运行输入、内核文件和其他备份 domain。
+        # The complete allowlist excludes installation markers, runtime inputs, core files, and other backup domains.
         self.assertEqual(section.attrib, {})
         self.assertEqual(len(section), len(TARGETS))
         self.assertEqual(
@@ -23,7 +23,7 @@ class BackupRulesTest(unittest.TestCase):
             {("include", domain, path) for domain, path in TARGETS},
         )
         for node in section:
-            # 不附加 requireFlags 或其他传输／加密能力门槛。
+            # Do not add requireFlags or other transport/encryption capability requirements.
             self.assertEqual(set(node.attrib), {"domain", "path"})
             self.assertEqual(len(node), 0)
 

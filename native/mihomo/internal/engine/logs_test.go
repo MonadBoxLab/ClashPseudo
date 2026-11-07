@@ -15,7 +15,7 @@ import (
 func publishLogBarrier(t *testing.T, text string) {
 	t.Helper()
 	subscription := ML.Subscribe()
-	// UnSubscribe等待上游broadcast lock，返回前所有存活subscription均已接收本条event。
+	// UnSubscribe waits for the upstream broadcast lock; all live subscriptions have received this event before it returns.
 	defer ML.UnSubscribe(subscription)
 	ML.Infoln("%s", text)
 	timeout := time.NewTimer(2 * time.Second)
@@ -27,7 +27,7 @@ func publishLogBarrier(t *testing.T, text string) {
 				return
 			}
 		case <-timeout.C:
-			t.Fatal("上游未发布log barrier")
+			t.Fatal("upstream did not publish the log barrier")
 		}
 	}
 }
@@ -42,7 +42,7 @@ func TestLogsKeepOriginalMessagesAndConsumeTransportQueue(t *testing.T) {
 	}
 	defer requireStop(t, &e)
 	if e.LogQueue() != queue {
-		t.Fatal("Prepare替换了装载前subscription")
+		t.Fatal("Prepare replaced the subscription created before loading")
 	}
 	const address = "connect https://user:pass@example.test/path?token=abc"
 	const password = "password=hunter2 retrying"
@@ -60,7 +60,7 @@ func TestLogsKeepOriginalMessagesAndConsumeTransportQueue(t *testing.T) {
 			t.Fatal(err)
 		}
 		if entry.Seq <= previous {
-			t.Fatal("Seq没有递增", entry.Seq, previous)
+			t.Fatal("Seq did not increase", entry.Seq, previous)
 		}
 		previous = entry.Seq
 		seen[entry.Text] = entry.Level
@@ -69,7 +69,7 @@ func TestLogsKeepOriginalMessagesAndConsumeTransportQueue(t *testing.T) {
 		}
 	}
 	if seen[address] != "info" || seen[password] != "warning" || seen[long] != "error" {
-		t.Fatal("原始log文字或level改变")
+		t.Fatal("original log text or level changed")
 	}
 	next, _ := queue.Watermark()
 	if next != previous {
@@ -86,11 +86,11 @@ func TestLogsKeepOriginalMessagesAndConsumeTransportQueue(t *testing.T) {
 			break
 		}
 		if err != nil || entry.Text == "unrelated event after stop" {
-			t.Fatal("关闭后的queue仍接收event", entry, err)
+			t.Fatal("closed queue still received an event", entry, err)
 		}
 	}
 	if seq, dropped := queue.Watermark(); seq != closedSeq || dropped != closedDropped {
-		t.Fatal("关闭后改变了queue watermark", seq, dropped, closedSeq, closedDropped)
+		t.Fatal("queue watermark changed after closing", seq, dropped, closedSeq, closedDropped)
 	}
 	if err := e.Stop(); err != nil {
 		t.Fatal(err)
@@ -110,13 +110,13 @@ func TestFailedPreparationKeepsItsCapturedQueueUntilStop(t *testing.T) {
 	queue := e.LogQueue()
 	defer requireStop(t, &e)
 	if queue == old {
-		t.Fatal("新Engine借用了旧queue")
+		t.Fatal("new Engine reused the old queue")
 	}
 	if err := e.Prepare(t.TempDir(), []byte("rules: [invalid"), "rule", func(int) bool { return true }); err == nil {
-		t.Fatal("无效配置被接受")
+		t.Fatal("invalid configuration was accepted")
 	}
 	if e.LogQueue() != queue {
-		t.Fatal("失败Prepare替换了当前queue")
+		t.Fatal("failed Prepare replaced the current queue")
 	}
 	publishLogBarrier(t, "failure session sentinel")
 	if err := e.Stop(); err != nil {
@@ -136,14 +136,14 @@ func TestFailedPreparationKeepsItsCapturedQueueUntilStop(t *testing.T) {
 	found := false
 	for _, entry := range entries {
 		if entry.Text == "previous session sentinel" {
-			t.Fatal("旧queue内容进入新Engine")
+			t.Fatal("old queue contents reached the new Engine")
 		}
 		if entry.Text == "failure session sentinel" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatal("当前queue丢失实际event")
+		t.Fatal("current queue lost an actual event")
 	}
 	publishLogBarrier(t, "unrelated event after failure")
 	if _, err := queue.Next(context.Background()); !errors.Is(err, io.EOF) {
@@ -171,6 +171,6 @@ func TestEngineLogStreamPreservesConsumerErrorAndDoesNotRetainConsumedEntries(t 
 	}
 	queue.Close()
 	if _, err := queue.Next(context.Background()); !errors.Is(err, io.EOF) {
-		t.Fatal("消费后保留了第二份history", err)
+		t.Fatal("a second history was retained after consumption", err)
 	}
 }

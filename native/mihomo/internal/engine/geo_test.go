@@ -71,7 +71,7 @@ func TestStopWaitsForGeoBeforeReleasingSession(t *testing.T) {
 		t.Fatal("Stop did not settle after Geo really finished")
 	}
 	if err := e.Prepare(t.TempDir(), []byte(validConfig), "rule", func(int) bool { return true }); err == nil {
-		t.Fatal("同一Engine停止后再次装载")
+		t.Fatal("same Engine loaded again after stopping")
 	}
 }
 
@@ -109,7 +109,7 @@ func TestStopWaitsForManualGeoWriteInItsOriginalHome(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("manual Geo download did not start")
 	}
-	// 原 ResourceCalls 输入为 geo/GeoIP；HTTP 尚未放行时读取实际 runtimeConfig。
+	// The original ResourceCalls input is geo/GeoIP; read the actual runtimeConfig while HTTP is still blocked.
 	diagnostic := make(chan error, 1)
 	go func() {
 		value, err := e.RuntimeConfig()
@@ -119,7 +119,7 @@ func TestStopWaitsForManualGeoWriteInItsOriginalHome(t *testing.T) {
 			}
 			err = yaml.Unmarshal([]byte(value), &configuration)
 			if err == nil && configuration.Mode != "rule" {
-				err = fmt.Errorf("GeoIP I/O 期间 runtimeConfig mode = %q，预期 rule", configuration.Mode)
+				err = fmt.Errorf("runtimeConfig mode during GeoIP I/O = %q, want rule", configuration.Mode)
 			}
 		}
 		diagnostic <- err
@@ -130,11 +130,11 @@ func TestStopWaitsForManualGeoWriteInItsOriginalHome(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("runtimeConfig 等待了尚未放行的 GeoIP HTTP I/O")
+		t.Fatal("runtimeConfig waited for blocked GeoIP HTTP I/O")
 	}
 	select {
 	case err := <-updated:
-		t.Fatalf("HTTP 尚未放行，GeoIP 更新提前返回：%v", err)
+		t.Fatalf("GeoIP update returned before HTTP was unblocked: %v", err)
 	default:
 	}
 	go func() { stopped <- e.Stop() }()
@@ -285,12 +285,12 @@ func TestGeoTargetsDoNotSurviveCoreProcessRestart(t *testing.T) {
 	defer requireStop(t, &e)
 	if phase == "matchers" {
 		if !geodata.GeoIpEnable() || !geodata.ASNEnable() || !geodata.GeoSiteEnable() {
-			t.Fatal("首个进程没有初始化三类Geo matcher")
+			t.Fatal("first process did not initialize all three Geo matcher types")
 		}
 		return
 	}
 	if geodata.GeoIpEnable() || geodata.ASNEnable() || geodata.GeoSiteEnable() {
-		t.Fatal("新core进程保留了旧进程的Geo matcher状态")
+		t.Fatal("new core process retained Geo matcher state from the old process")
 	}
 	if err := updater.UpdateGeoDatabases(); err != nil {
 		t.Fatal(err)
@@ -298,18 +298,18 @@ func TestGeoTargetsDoNotSurviveCoreProcessRestart(t *testing.T) {
 	listed, err := e.Resources()
 	var rows coreview.ResourceList
 	if err != nil || json.Unmarshal([]byte(listed), &rows) != nil {
-		t.Fatalf("无法读取新context的Geo状态: %v", err)
+		t.Fatalf("could not read Geo state from the new context: %v", err)
 	}
 	for _, row := range rows.Resources {
 		if row.Kind == "geo" && (row.AutoUpdateTarget == nil || *row.AutoUpdateTarget) {
-			t.Errorf("MATCH-only新进程错误继承旧Geo target: %+v", row)
+			t.Errorf("new MATCH-only process inherited an old Geo target: %+v", row)
 		}
 	}
 	if strings.Contains(listed, `"enabled"`) {
-		t.Fatal("Geo target被错误标记为当前matcher使用状态")
+		t.Fatal("Geo target was incorrectly marked as used by the current matcher")
 	}
 	if got := requests.Load(); got != 0 {
-		t.Errorf("MATCH-only新进程下载了未使用的Geo数据库: %d", got)
+		t.Errorf("new MATCH-only process downloaded an unused Geo database: %d", got)
 	}
 }
 
@@ -382,7 +382,7 @@ func TestGeoPathsSnapshotPreservesAliasesAndChangesHome(t *testing.T) {
 			}
 			requireStop(t, &e)
 			if e.geoPaths != expected {
-				t.Fatal("Stop改变了本process的已捕获路径")
+				t.Fatal("Stop changed this process's captured paths")
 			}
 		})
 	}
@@ -483,15 +483,15 @@ func TestManualGeoUpdatesKeepPublicFileAndErrorResultsWithoutHistory(t *testing.
 		}
 		info, err := os.Stat(paths[i])
 		if err != nil || !info.ModTime().Equal(past) {
-			t.Fatal("相同内容的公开update改写了文件", name, err)
+			t.Fatal("public update rewrote a file with identical content", name, err)
 		}
 		invalid.Store(true)
 		updateErr := e.UpdateResource("geo", name)
 		if updateErr == nil {
-			t.Fatal("无效数据库被接受", name)
+			t.Fatal("invalid database was accepted", name)
 		}
 		if data, err := os.ReadFile(paths[i]); err != nil || !bytes.Equal(data, previous) {
-			t.Fatal("无效update替换了原文件", name, err)
+			t.Fatal("invalid update replaced the original file", name, err)
 		}
 		listed, err := e.Resources()
 		if err != nil {
@@ -503,7 +503,7 @@ func TestManualGeoUpdatesKeepPublicFileAndErrorResultsWithoutHistory(t *testing.
 		}
 		for _, row := range rows.Resources {
 			if row.Kind == "geo" && (row.LastAttempt != nil || row.LastResult != "" || row.LastError != "" || row.LastSuccessfulCheck != nil || row.UpdatedAt != nil) {
-				t.Fatal("Go保留了应用Geo历史", row)
+				t.Fatal("Go retained application Geo history", row)
 			}
 		}
 		invalid.Store(false)
@@ -512,7 +512,7 @@ func TestManualGeoUpdatesKeepPublicFileAndErrorResultsWithoutHistory(t *testing.
 		}
 	}
 	if err := e.UpdateResource("geo", "unknown"); err == nil {
-		t.Fatal("无效target被接受")
+		t.Fatal("invalid target was accepted")
 	}
 }
 

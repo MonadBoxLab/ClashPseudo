@@ -25,7 +25,7 @@ class NativeCallsErrorTest {
             assertEquals(Contract.CORE_PHASE_EXITED, platform.status()["phase"])
             assertEquals(false, platform.status()["vpnRunning"])
             val released = CoreResourceGate.forApplication(platform.context).tryAcquire()
-            assertNotNull("真实退出及本地 I/O 结束后必须释放 lease", released)
+            assertNotNull("The lease must be released after actual exit and local I/O completion", released)
             released!!.close()
             CoreIpcTestDriver.assertNoGoInApplication()
         } finally { platform.exit() }
@@ -51,7 +51,7 @@ class NativeCallsErrorTest {
             assertEquals(failure.stackTraceToString(), error.getString("stack"))
             assertEquals("original operation cause", error.getJSONObject("cause").getString("message"))
             assertEquals("original cleanup: $original", error.getJSONArray("suppressed").getJSONObject(0).getString("message"))
-            assertNull("通信失败不能释放仍在运行进程的 lease", CoreResourceGate.forApplication(platform.context).tryAcquire())
+            assertNull("Communication failure must not release the lease of a running process", CoreResourceGate.forApplication(platform.context).tryAcquire())
         } finally { platform.exit() }
     }
 
@@ -70,7 +70,7 @@ class NativeCallsErrorTest {
                     mapOf("processId" to old, "admittedAt" to at, "deadline" to at + Contract.OPERATION_ORDINARY_TIMEOUT_MS)) }.exceptionOrNull()
                 assertTrue(rejected is CorePlatformTestDriver.ChannelFailure)
                 val error = JSONObject((rejected as CorePlatformTestDriver.ChannelFailure).details as String)
-                assertEquals("退出请求属于旧内核进程", error.getString("message"))
+                assertEquals("Exit request belongs to an old core process", error.getString("message"))
                 assertEquals(current["processId"], platform.status()["processId"])
                 assertTrue(success(platform.query(Contract.CORE_OPERATION_SNAPSHOT)).getBoolean("prepared"))
                 assertNull(CoreResourceGate.forApplication(platform.context).tryAcquire())

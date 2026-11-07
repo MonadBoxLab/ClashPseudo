@@ -1,4 +1,4 @@
-"""候选测试与 release 构建编排回归。"""
+"""Regression tests for candidate verification and release build orchestration."""
 
 import contextlib
 import hashlib
@@ -79,7 +79,7 @@ class ValidationTest(unittest.TestCase):
         self.assertEqual(report.read_text(), "previous")
 
     def test_output_cannot_be_inside_project(self):
-        with self.assertRaisesRegex(ValueError, "项目之外"):
+        with self.assertRaisesRegex(ValueError, "outside the project"):
             validation.validate(self.root, self.root / "result")
         self.assertFalse((self.root / "result").exists())
 
@@ -92,7 +92,7 @@ class ValidationTest(unittest.TestCase):
     def test_input_change_fails_validation(self):
         with mock.patch.object(validation, "_command"), \
                 mock.patch.object(validation, "input_identity", side_effect=[{"a": "first"}, {"a": "second"}]):
-            with self.assertRaisesRegex(ValueError, "候选输入发生变化"):
+            with self.assertRaisesRegex(ValueError, "Candidate inputs changed"):
                 validation.validate(self.root, self.output)
 
     def test_release_build_produces_four_apks_and_source_assets_once(self):
@@ -123,7 +123,7 @@ class ValidationTest(unittest.TestCase):
             self.assertEqual(digest, hashlib.sha256((self.output / name).read_bytes()).hexdigest())
 
     def test_release_build_cannot_use_a_different_commit(self):
-        with self.assertRaisesRegex(ValueError, "候选提交不同"):
+        with self.assertRaisesRegex(ValueError, "differs from the candidate commit"):
             validation.build_release(self.root, self.output, commit="other")
         self.updater.evidence.assert_not_called()
 
@@ -144,7 +144,7 @@ class ValidationTest(unittest.TestCase):
 
     def test_missing_universal_output_fails(self):
         self.metadata(validation.ABIS)
-        with self.assertRaisesRegex(ValueError, "通用及三个"):
+        with self.assertRaisesRegex(ValueError, "a universal APK and three"):
             validation.release_apks(self.root)
 
     def test_metadata_cannot_select_an_outside_apk(self):
@@ -152,13 +152,13 @@ class ValidationTest(unittest.TestCase):
         data = json.loads(path.read_text())
         data["elements"][0]["outputFile"] = "../../outside.apk"
         path.write_text(json.dumps(data))
-        with self.assertRaisesRegex(ValueError, "路径越界"):
+        with self.assertRaisesRegex(ValueError, "APK output path escapes its directory"):
             validation.release_apks(self.root)
 
     def test_command_preserves_stderr_and_exit_code(self):
         self.output.mkdir()
         report = {"steps": []}
-        with contextlib.redirect_stderr(io.StringIO()), self.assertRaisesRegex(ValueError, "失败（7）"):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaisesRegex(ValueError, "failed \\(7\\)"):
             validation._command([sys.executable, "-I", "-c", "import sys; print('original error',file=sys.stderr); sys.exit(7)"],
                                 self.root, self.environment, self.output, report, "command")
         self.assertEqual(report["steps"][0]["exitCode"], 7)

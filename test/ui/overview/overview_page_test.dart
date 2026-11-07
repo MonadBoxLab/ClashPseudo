@@ -197,79 +197,85 @@ void main() {
 
   for (final locale in const [Locale('zh'), Locale('en')]) {
     for (final width in [320.0, 1000.0]) {
-      testWidgets('恢复提示不改变 Overview 正文，详情可再次打开 $locale/$width', (tester) async {
-        tester.view.devicePixelRatio = 1;
-        tester.view.physicalSize = Size(width, 1000);
-        addTearDown(tester.view.reset);
-        controller.collection = ConfigCollection(
-          entries: [config('one')],
-          selectedId: 'one',
-        );
-        await show(tester, locale: locale, scale: 2, shell: true);
-        await tester.pumpAndSettle();
-        final page = tester.state(find.byType(OverviewPage));
-        final scroll = tester
-            .state<ScrollableState>(find.byType(Scrollable).first)
-            .position;
-        final pixels = scroll.pixels;
-        final keys = [
-          'power-button',
-          'config-identity',
-          'mode-trigger',
-          'network-surface',
-          'traffic-download-reading',
-          'traffic-upload-reading',
-        ];
-        final rects = {
-          for (final key in keys)
-            key: tester.getRect(find.byKey(ValueKey(key))),
-        };
-        controller.state = recovery();
-        controller.changed();
-        for (final ms in [0, 16, 100, 320]) {
-          await tester.pump(Duration(milliseconds: ms));
-          expect(tester.state(find.byType(OverviewPage)), same(page));
-          expect(
-            tester
-                .state<ScrollableState>(find.byType(Scrollable).first)
-                .position,
-            same(scroll),
+      testWidgets(
+        'recovery notices preserve Overview content and details can reopen $locale/$width',
+        (tester) async {
+          tester.view.devicePixelRatio = 1;
+          tester.view.physicalSize = Size(width, 1000);
+          addTearDown(tester.view.reset);
+          controller.collection = ConfigCollection(
+            entries: [config('one')],
+            selectedId: 'one',
           );
-          expect(scroll.pixels, pixels);
-          for (final entry in rects.entries) {
+          await show(tester, locale: locale, scale: 2, shell: true);
+          await tester.pumpAndSettle();
+          final page = tester.state(find.byType(OverviewPage));
+          final scroll = tester
+              .state<ScrollableState>(find.byType(Scrollable).first)
+              .position;
+          final pixels = scroll.pixels;
+          final keys = [
+            'power-button',
+            'config-identity',
+            'mode-trigger',
+            'network-surface',
+            'traffic-download-reading',
+            'traffic-upload-reading',
+          ];
+          final rects = {
+            for (final key in keys)
+              key: tester.getRect(find.byKey(ValueKey(key))),
+          };
+          controller.state = recovery();
+          controller.changed();
+          for (final ms in [0, 16, 100, 320]) {
+            await tester.pump(Duration(milliseconds: ms));
+            expect(tester.state(find.byType(OverviewPage)), same(page));
             expect(
-              tester.getRect(find.byKey(ValueKey(entry.key))),
-              entry.value,
+              tester
+                  .state<ScrollableState>(find.byType(Scrollable).first)
+                  .position,
+              same(scroll),
+            );
+            expect(scroll.pixels, pixels);
+            for (final entry in rects.entries) {
+              expect(
+                tester.getRect(find.byKey(ValueKey(entry.key))),
+                entry.value,
+              );
+            }
+            expect(find.byType(AlertDialog), findsNothing);
+            expect(
+              find.textContaining('native recovery original'),
+              findsNothing,
             );
           }
-          expect(find.byType(AlertDialog), findsNothing);
-          expect(find.textContaining('native recovery original'), findsNothing);
-        }
-        await openRecovery(tester);
-        final strings = AppLocalizations.of(
-          tester.element(find.byType(AlertDialog)),
-        );
-        expect(find.text(strings.coreRecoveryRestart), findsOneWidget);
-        expect(find.text(strings.coreRecoverySelect), findsOneWidget);
-        expect(find.text(strings.coreCleanupSelect), findsOneWidget);
-        await tester.tap(find.widgetWithText(TextButton, strings.close));
-        await tester.pumpAndSettle();
-        controller.changed();
-        await tester.pumpAndSettle();
-        expect(find.byType(SnackBar), findsNothing);
-        final issue = find.byKey(const ValueKey('status-details'));
-        await tester.ensureVisible(issue);
-        await tester.pumpAndSettle();
-        await tester.tap(issue);
-        await tester.pumpAndSettle();
-        expect(
-          find.byKey(const ValueKey('overview-core-recovery')),
-          findsNothing,
-        );
-        expect(controller.commands, isEmpty);
-        expect(tester.takeException(), isNull);
-        await tester.pumpWidget(const SizedBox());
-      });
+          await openRecovery(tester);
+          final strings = AppLocalizations.of(
+            tester.element(find.byType(AlertDialog)),
+          );
+          expect(find.text(strings.coreRecoveryRestart), findsOneWidget);
+          expect(find.text(strings.coreRecoverySelect), findsOneWidget);
+          expect(find.text(strings.coreCleanupSelect), findsOneWidget);
+          await tester.tap(find.widgetWithText(TextButton, strings.close));
+          await tester.pumpAndSettle();
+          controller.changed();
+          await tester.pumpAndSettle();
+          expect(find.byType(SnackBar), findsNothing);
+          final issue = find.byKey(const ValueKey('status-details'));
+          await tester.ensureVisible(issue);
+          await tester.pumpAndSettle();
+          await tester.tap(issue);
+          await tester.pumpAndSettle();
+          expect(
+            find.byKey(const ValueKey('overview-core-recovery')),
+            findsNothing,
+          );
+          expect(controller.commands, isEmpty);
+          expect(tester.takeException(), isNull);
+          await tester.pumpWidget(const SizedBox());
+        },
+      );
     }
   }
 
@@ -278,31 +284,36 @@ void main() {
     (false, true, false),
     (true, true, true),
   ]) {
-    testWidgets('恢复详情中的 Restart 保留接管意图 $vpnIntent/$lanIntent', (tester) async {
-      controller.collection = ConfigCollection(
-        entries: [config('one')],
-        selectedId: 'one',
-      );
-      controller.state = recovery(vpnIntent: vpnIntent, lanIntent: lanIntent);
-      await show(tester, shell: true);
-      await openRecovery(tester);
-      final strings = AppLocalizations.of(
-        tester.element(find.byType(AlertDialog)),
-      );
-      await tester.tap(
-        find.widgetWithText(FilledButton, strings.coreRecoveryRestart),
-      );
-      await tester.pumpAndSettle();
-      expect(controller.commands, [
-        {'action': 'start', 'vpnIntent': expected},
-      ]);
-      expect(find.byType(AlertDialog), findsNothing);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    });
+    testWidgets(
+      'Restart in recovery details preserves traffic handling intent $vpnIntent/$lanIntent',
+      (tester) async {
+        controller.collection = ConfigCollection(
+          entries: [config('one')],
+          selectedId: 'one',
+        );
+        controller.state = recovery(vpnIntent: vpnIntent, lanIntent: lanIntent);
+        await show(tester, shell: true);
+        await openRecovery(tester);
+        final strings = AppLocalizations.of(
+          tester.element(find.byType(AlertDialog)),
+        );
+        await tester.tap(
+          find.widgetWithText(FilledButton, strings.coreRecoveryRestart),
+        );
+        await tester.pumpAndSettle();
+        expect(controller.commands, [
+          {'action': 'start', 'vpnIntent': expected},
+        ]);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
   }
 
-  testWidgets('恢复详情中的 Select 打开配置管理', (tester) async {
+  testWidgets('Select in recovery details opens configuration management', (
+    tester,
+  ) async {
     controller.state = recovery();
     await show(tester, shell: true);
     await openRecovery(tester);
@@ -320,69 +331,76 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('恢复详情保留文件选择、取消和真实 cleanup 提交', (tester) async {
-    controller.state = recovery();
-    await show(tester, shell: true);
-    await openRecovery(tester);
-    final parent = tester.element(find.byType(AlertDialog));
-    final strings = AppLocalizations.of(
-      tester.element(find.byType(AlertDialog)),
-    );
-    Future<void> choose() async {
-      final cleanup = find.widgetWithText(ListTile, strings.coreCleanupSelect);
-      await tester.ensureVisible(cleanup);
-      await tester.tap(cleanup);
-      await tester.pumpAndSettle();
-      expect(find.byType(AlertDialog), findsNWidgets(2));
-      expect(controller.commands, isEmpty);
-      final file = find.byKey(
-        const ValueKey<(String, dynamic)>(('cleanup-file', 'cache.db')),
+  testWidgets(
+    'recovery details preserve file selection, cancellation, and actual cleanup submission',
+    (tester) async {
+      controller.state = recovery();
+      await show(tester, shell: true);
+      await openRecovery(tester);
+      final parent = tester.element(find.byType(AlertDialog));
+      final strings = AppLocalizations.of(
+        tester.element(find.byType(AlertDialog)),
       );
-      expect(file, findsOneWidget);
-      await tester.tap(
-        find.descendant(of: file, matching: find.byType(Checkbox)),
-      );
-      await tester.pumpAndSettle();
-      expect(tester.widget<CheckboxListTile>(file).value, isTrue);
-    }
+      Future<void> choose() async {
+        final cleanup = find.widgetWithText(
+          ListTile,
+          strings.coreCleanupSelect,
+        );
+        await tester.ensureVisible(cleanup);
+        await tester.tap(cleanup);
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsNWidgets(2));
+        expect(controller.commands, isEmpty);
+        final file = find.byKey(
+          const ValueKey<(String, dynamic)>(('cleanup-file', 'cache.db')),
+        );
+        expect(file, findsOneWidget);
+        await tester.tap(
+          find.descendant(of: file, matching: find.byType(Checkbox)),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.widget<CheckboxListTile>(file).value, isTrue);
+      }
 
-    await choose();
-    await tester.tap(find.widgetWithText(TextButton, strings.cancel));
-    await tester.pumpAndSettle();
-    expect(tester.element(find.byType(AlertDialog)), same(parent));
-    expect(controller.commands, isEmpty);
-    await choose();
-    final confirm = find.widgetWithText(
-      FilledButton,
-      strings.coreCleanupDeleteSelected,
-    );
-    expect(tester.widget<FilledButton>(confirm).onPressed, isNotNull);
-    expect(confirm.hitTestable(), findsOneWidget);
-    await tester.tap(confirm);
-    // cleanup 尚未完成，先结束确认弹窗的过渡，不等待按钮内的进度动画。
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(controller.commands.single, {
-      'action': 'scheduleCoreCleanup',
-      'paths': ['cache.db'],
-      'restart': false,
-      'storageEpoch': controller.storageEpoch,
-    });
-    expect((controller.platform as ViewBridge).cleanupReads, 2);
-    controller.state = AppSnapshot(
-      phase: 'STOPPED',
-      recoveryRequired: true,
-      generation: 1,
-      core: controller.state.core,
-      resultId: 'operation-1',
-      resultSuccess: true,
-      resultMessage: messages.operationFinished,
-    );
-    controller.changed();
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox());
-  });
+      await choose();
+      await tester.tap(find.widgetWithText(TextButton, strings.cancel));
+      await tester.pumpAndSettle();
+      expect(tester.element(find.byType(AlertDialog)), same(parent));
+      expect(controller.commands, isEmpty);
+      await choose();
+      final confirm = find.widgetWithText(
+        FilledButton,
+        strings.coreCleanupDeleteSelected,
+      );
+      expect(tester.widget<FilledButton>(confirm).onPressed, isNotNull);
+      expect(confirm.hitTestable(), findsOneWidget);
+      await tester.tap(confirm);
+      // Cleanup is still pending; finish the confirmation transition without waiting for
+      // the button progress animation.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(controller.commands.single, {
+        'action': 'scheduleCoreCleanup',
+        'paths': ['cache.db'],
+        'restart': false,
+        'storageEpoch': controller.storageEpoch,
+      });
+      expect((controller.platform as ViewBridge).cleanupReads, 2);
+      controller.state = AppSnapshot(
+        phase: 'STOPPED',
+        recoveryRequired: true,
+        generation: 1,
+        core: controller.state.core,
+        resultId: 'operation-1',
+        resultSuccess: true,
+        resultMessage: messages.operationFinished,
+      );
+      controller.changed();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   for (final change in [
     'process',
@@ -392,92 +410,98 @@ void main() {
     'task',
     'page',
   ]) {
-    testWidgets('恢复详情的旧动作在来源变化后失效 $change', (tester) async {
-      var live = true;
-      controller.collection = ConfigCollection(
-        entries: [config('one')],
-        selectedId: 'one',
-      );
-      final original = recovery();
-      controller.state = original;
-      await show(tester, isActiveNow: () => live, shell: true);
-      await openRecovery(tester);
-      final strings = AppLocalizations.of(
-        tester.element(find.byType(AlertDialog)),
-      );
-      final invoke = tester
-          .widget<FilledButton>(
-            find.widgetWithText(FilledButton, strings.coreRecoveryRestart),
-          )
-          .onPressed!;
-      switch (change) {
-        case 'process':
-          controller.state = recovery(processId: 'process-two');
-        case 'input':
-          controller.state = recovery(inputId: 'input-two');
-        case 'generation':
-          controller.state = recovery(generation: 2);
-        case 'foreground':
-          controller.setForeground(false);
-        case 'task':
-          live = false;
-        case 'page':
-          unawaited(
-            Navigator.of(tester.element(find.byType(AlertDialog))).push<void>(
-              MaterialPageRoute(
-                builder: (_) => const Scaffold(body: Text('another page')),
+    testWidgets(
+      'old recovery detail actions expire after source changes $change',
+      (tester) async {
+        var live = true;
+        controller.collection = ConfigCollection(
+          entries: [config('one')],
+          selectedId: 'one',
+        );
+        final original = recovery();
+        controller.state = original;
+        await show(tester, isActiveNow: () => live, shell: true);
+        await openRecovery(tester);
+        final strings = AppLocalizations.of(
+          tester.element(find.byType(AlertDialog)),
+        );
+        final invoke = tester
+            .widget<FilledButton>(
+              find.widgetWithText(FilledButton, strings.coreRecoveryRestart),
+            )
+            .onPressed!;
+        switch (change) {
+          case 'process':
+            controller.state = recovery(processId: 'process-two');
+          case 'input':
+            controller.state = recovery(inputId: 'input-two');
+          case 'generation':
+            controller.state = recovery(generation: 2);
+          case 'foreground':
+            controller.setForeground(false);
+          case 'task':
+            live = false;
+          case 'page':
+            unawaited(
+              Navigator.of(tester.element(find.byType(AlertDialog))).push<void>(
+                MaterialPageRoute(
+                  builder: (_) => const Scaffold(body: Text('another page')),
+                ),
               ),
-            ),
-          );
-      }
-      controller.changed();
-      invoke();
-      controller.state = original;
-      if (change == 'foreground') controller.setForeground(true);
-      live = true;
-      controller.changed();
-      invoke();
-      await tester.pumpAndSettle();
-      expect(controller.commands, isEmpty);
-      expect(find.byType(AlertDialog), findsNothing);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    });
+            );
+        }
+        controller.changed();
+        invoke();
+        controller.state = original;
+        if (change == 'foreground') controller.setForeground(true);
+        live = true;
+        controller.changed();
+        invoke();
+        await tester.pumpAndSettle();
+        expect(controller.commands, isEmpty);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
   }
 
   for (final change in ['process', 'input']) {
-    testWidgets('旧恢复提示拒绝同 generation 的 Core 替换 $change', (tester) async {
-      final original = recovery();
-      controller.state = original;
-      await show(tester, shell: true);
-      await tester.pumpAndSettle();
-      final invoke = tester
-          .widget<TextButton>(
-            find.descendant(
-              of: find.byType(SnackBar),
-              matching: find.byType(TextButton),
-            ),
-          )
-          .onPressed!;
-      controller.state = recovery(
-        processId: change == 'process' ? 'process-two' : 'process-one',
-        inputId: change == 'input' ? 'input-two' : 'input-one',
-        error: original.errorMessage,
-      );
-      invoke();
-      await tester.pump();
-      expect(find.byType(AlertDialog), findsNothing);
-      expect(controller.commands, isEmpty);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    });
+    testWidgets(
+      'old recovery notice rejects same-generation Core replacement $change',
+      (tester) async {
+        final original = recovery();
+        controller.state = original;
+        await show(tester, shell: true);
+        await tester.pumpAndSettle();
+        final invoke = tester
+            .widget<TextButton>(
+              find.descendant(
+                of: find.byType(SnackBar),
+                matching: find.byType(TextButton),
+              ),
+            )
+            .onPressed!;
+        controller.state = recovery(
+          processId: change == 'process' ? 'process-two' : 'process-one',
+          inputId: change == 'input' ? 'input-two' : 'input-one',
+          error: original.errorMessage,
+        );
+        invoke();
+        await tester.pump();
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(controller.commands, isEmpty);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
   }
 
   for (final locale in const [Locale('zh'), Locale('en')]) {
     for (final modeFailed in [false, true]) {
       for (final confirmed in [false, true]) {
         testWidgets(
-          '真实 AppRuntime 到 Overview 的 Stop 投影 $locale modeFailed=$modeFailed confirmed=$confirmed',
+          'actual AppRuntime Stop projection to Overview $locale modeFailed=$modeFailed confirmed=$confirmed',
           (tester) async {
             tester.view.physicalSize = const Size(390, 1000);
             tester.view.devicePixelRatio = 1;
@@ -586,7 +610,7 @@ void main() {
                 entered.future,
                 stopped.done.then((_) {
                   throw StateError(
-                    'Stop 在 exit 前结束：${stopped.error ?? stopped.value}',
+                    'Stop completed before exit: ${stopped.error ?? stopped.value}',
                   );
                 }),
               ]);

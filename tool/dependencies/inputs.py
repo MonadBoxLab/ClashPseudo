@@ -1,4 +1,4 @@
-"""依赖更新允许写回的输入与事务入口。"""
+"""Allowed dependency update inputs and transaction entry points."""
 from tool.common import workspace
 from tool.dependencies.resources import RESOURCE_INPUTS
 
@@ -30,7 +30,7 @@ def publish_changes(root, before, after):
 def publish_resources(root, before, prepared, *, application_delivery=False, delivery_version=None):
     from tool.common.io import require
     from tool.dependencies.sources import resource_changes
-    require(application_delivery, "资源刷新只随新应用交付，不单独准备 APK")
+    require(application_delivery, "Resources are refreshed only with new application deliveries, not standalone APK preparation")
     after = dict(before)
     after.update(resource_changes(root, prepared, delivery_version=delivery_version))
     return publish_changes(root, before, after)

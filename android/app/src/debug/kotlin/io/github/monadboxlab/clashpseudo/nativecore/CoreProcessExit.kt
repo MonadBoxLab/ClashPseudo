@@ -8,7 +8,7 @@ import io.github.monadboxlab.clashpseudo.debug.NativeCoverage
 import org.json.JSONObject
 import java.io.File
 
-/** 仅在正常退出且实际 JNI 已返回后保存本 process 的 profile；原 deadline 的强制退出不等待。 */
+/** Save this process's profile only on normal exit after JNI has returned; forced exit at the original deadline does not wait. */
 internal object CoreProcessExit {
     fun exit(context: Context, processId: String, normal: Boolean) {
         try {
@@ -28,7 +28,7 @@ internal object CoreProcessExit {
             record = File(context.filesDir, "$basename.json")
             receipt.put("path", output.path).put("newFile", !output.exists()).put("nativeLoaded", NativeCore.isLoaded)
             if (NativeCore.isLoaded) {
-                check(!output.exists()) { "coverage profile 已存在" }
+                check(!output.exists()) { "Coverage profile already exists" }
                 val written = NativeCoverage.write(output.path)
                 receipt.put("write", written).put("bytes", output.length()).put("regular", output.isFile)
                     .put("collected", written == 0 && output.isFile && output.length() > 0)
@@ -40,7 +40,7 @@ internal object CoreProcessExit {
         }
         try {
             record?.let { target ->
-                check(!target.exists()) { "coverage receipt 已存在" }
+                check(!target.exists()) { "Coverage receipt already exists" }
                 CorePrivateFiles.write(target, receipt.toString().toByteArray(Charsets.UTF_8))
             }
         } catch (error: Throwable) {

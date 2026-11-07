@@ -14,7 +14,7 @@ void main() {
   final zh = lookupAppLocalizations(const Locale('zh'));
   tearDown(() => setMessageLanguage(AppLanguage.system));
 
-  test('各分段文案拼接后等于完整隐私告知', () {
+  test('concatenated sections match the full privacy notice', () {
     for (final strings in [en, zh]) {
       expect(
         strings.privacyNoticeBody,
@@ -45,7 +45,7 @@ void main() {
     }
   });
 
-  test('简短隐私告知与相关提示使用预期的中英文文案', () {
+  test('short privacy notice and related prompts use expected English and Chinese copy', () {
     expect(zh.privacyNoticeTitle, '隐私与许可');
     expect(en.privacyNoticeTitle, 'Privacy and license');
     expect(zh.privacyNoticeReadFull, '完整说明');
@@ -76,7 +76,7 @@ void main() {
     );
   });
 
-  test('未确认保存的提示经过通道和存储编码后内容不变', () {
+  test('unconfirmed-save notice remains unchanged through channel and storage encoding', () {
     final message = messages.privacyNoticeNotSaved;
     const codec = StandardMessageCodec();
     for (final restored in [
@@ -96,7 +96,7 @@ void main() {
     expect(message.text, en.privacyNoticeNotSaved);
   });
 
-  test('未确认保存的提示保留完整的原始错误', () {
+  test('unconfirmed-save notice retains the complete original error', () {
     const detail = 'original-I/O-failure';
     final message = messages.privacyNoticeNotSaved.withDetail(detail);
     final restored = AppMessage.fromMap(
@@ -107,7 +107,7 @@ void main() {
     expect(restored.resolve(zh), '${zh.privacyNoticeNotSaved}\n$detail');
   });
 
-  test('GPL 入口可读取随应用提供的完整许可文本', () async {
+  test('GPL entry reads the complete license bundled with the app', () async {
     final license = await rootBundle.loadString('LICENSE');
     expect(license, contains('GNU GENERAL PUBLIC LICENSE'));
     expect(license, contains('Version 3, 29 June 2007'));

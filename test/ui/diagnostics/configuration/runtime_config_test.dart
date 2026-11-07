@@ -204,109 +204,167 @@ void main() {
     controller.setVisible(false);
   });
 
-  testWidgets('运行配置显示完整 YAML，搜索时仍复制全文', (tester) async {
-    final bridge = TestBridge();
-    final app = TestApp(bridge);
-    addTearDown(app.dispose);
-    String? copied;
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      SystemChannels.platform,
-      (call) async {
-        if (call.method == 'Clipboard.setData') {
-          copied = (call.arguments as Map)['text'] as String;
-        }
-        return null;
-      },
-    );
-    addTearDown(
-      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+  testWidgets(
+    'runtime configuration shows complete YAML and copies the full text while searching',
+    (tester) async {
+      final bridge = TestBridge();
+      final app = TestApp(bridge);
+      addTearDown(app.dispose);
+      String? copied;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
         SystemChannels.platform,
-        null,
-      ),
-    );
-    await tester.pumpWidget(
-      MaterialApp(
-        locale: const Locale('en'),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: OperationNoticeHost(child: RuntimeConfigPage(app: app)),
-      ),
-    );
-    const text =
-        'mode: rule\nmixed-port: 0\nauthentication:\n  - fixture-user\ntun:\n  enable: false\n';
-    bridge.replies.single.complete({
-      ...response(core(1)),
-      'configuration': text,
-      'unknown-envelope': {'original': 'fixture-envelope'},
-    });
-    await tester.pumpAndSettle();
-    expect(find.byIcon(Icons.data_object), findsNothing);
-    expect(find.byIcon(Icons.refresh), findsNothing);
-    expect(find.text(text), findsOneWidget);
-    expect(find.textContaining('fixture-envelope'), findsNothing);
-    await tester.enterText(find.byType(TextField), 'fixture-user');
-    await tester.pump();
-    expect(find.text('  - fixture-user'), findsOneWidget);
-    expect(find.text(text), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('original-text-copy')));
-    await tester.pump();
-    expect(copied, text);
-    await tester.enterText(find.byType(TextField), 'not-found');
-    await tester.pump();
-    expect(find.text('No matching lines'), findsOneWidget);
-    await tester.enterText(find.byType(TextField), '');
-    await tester.pump();
-    expect(find.text(text), findsOneWidget);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox());
-  });
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied = (call.arguments as Map)['text'] as String;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: OperationNoticeHost(child: RuntimeConfigPage(app: app)),
+        ),
+      );
+      const text =
+          'mode: rule\nmixed-port: 0\nauthentication:\n  - fixture-user\ntun:\n  enable: false\n';
+      bridge.replies.single.complete({
+        ...response(core(1)),
+        'configuration': text,
+        'unknown-envelope': {'original': 'fixture-envelope'},
+      });
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.data_object), findsNothing);
+      expect(find.byIcon(Icons.refresh), findsNothing);
+      expect(find.text(text), findsOneWidget);
+      expect(find.textContaining('fixture-envelope'), findsNothing);
+      await tester.enterText(find.byType(TextField), 'fixture-user');
+      await tester.pump();
+      expect(find.text('  - fixture-user'), findsOneWidget);
+      expect(find.text(text), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('original-text-copy')));
+      await tester.pump();
+      expect(copied, text);
+      await tester.enterText(find.byType(TextField), 'not-found');
+      await tester.pump();
+      expect(find.text('No matching lines'), findsOneWidget);
+      await tester.enterText(find.byType(TextField), '');
+      await tester.pump();
+      expect(find.text(text), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
-  testWidgets('长 YAML 自动读取保留滚动位置，搜索后恢复完整文本', (tester) async {
-    final bridge = TestBridge();
-    final app = TestApp(bridge);
-    addTearDown(app.dispose);
-    await tester.pumpWidget(
-      MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: OperationNoticeHost(child: RuntimeConfigPage(app: app)),
-      ),
-    );
-    final text = List.generate(
-      1500,
-      (index) => 'key-$index: 值🙂-$index',
-    ).join('\n');
-    bridge.replies.single.complete({
-      ...response(core(1)),
-      'configuration': text,
-    });
-    await tester.pumpAndSettle();
-    final list = find.byKey(const ValueKey('original-text-blocks'));
-    final scroll = tester.widget<ListView>(list).controller!;
-    await tester.drag(list, const Offset(0, -400));
-    await tester.pumpAndSettle();
-    final offset = scroll.offset;
-    expect(offset, greaterThan(0));
-    await tester.pump(const Duration(seconds: 30));
-    bridge.replies.last.complete({...response(core(1)), 'configuration': text});
-    await tester.pump();
-    expect(scroll.offset, closeTo(offset, .1));
-    await tester.enterText(find.byType(TextField), '值🙂-1499');
-    await tester.pump();
-    expect(find.text('key-1499: 值🙂-1499'), findsOneWidget);
-    await tester.enterText(find.byType(TextField), '');
-    await tester.pump();
-    expect(tester.widget<ListView>(list).controller, same(scroll));
-    expect(find.textContaining('key-0: 值🙂-0'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox());
-  });
+  testWidgets(
+    'automatic reads of long YAML retain scroll position and restore full text after search',
+    (tester) async {
+      final bridge = TestBridge();
+      final app = TestApp(bridge);
+      addTearDown(app.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: OperationNoticeHost(child: RuntimeConfigPage(app: app)),
+        ),
+      );
+      final text = List.generate(
+        1500,
+        (index) => 'key-$index: 值🙂-$index',
+      ).join('\n');
+      bridge.replies.single.complete({
+        ...response(core(1)),
+        'configuration': text,
+      });
+      await tester.pumpAndSettle();
+      final list = find.byKey(const ValueKey('original-text-blocks'));
+      final scroll = tester.widget<ListView>(list).controller!;
+      await tester.drag(list, const Offset(0, -400));
+      await tester.pumpAndSettle();
+      final offset = scroll.offset;
+      expect(offset, greaterThan(0));
+      await tester.pump(const Duration(seconds: 30));
+      bridge.replies.last.complete({
+        ...response(core(1)),
+        'configuration': text,
+      });
+      await tester.pump();
+      expect(scroll.offset, closeTo(offset, .1));
+      await tester.enterText(find.byType(TextField), '值🙂-1499');
+      await tester.pump();
+      expect(find.text('key-1499: 值🙂-1499'), findsOneWidget);
+      await tester.enterText(find.byType(TextField), '');
+      await tester.pump();
+      expect(tester.widget<ListView>(list).controller, same(scroll));
+      expect(find.textContaining('key-0: 值🙂-0'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   for (final recovered in [false, true]) {
-    testWidgets('SnackBar 详情只对有效错误开放，错误已恢复：$recovered', (tester) async {
+    testWidgets(
+      'SnackBar details open only for valid errors with recovered=$recovered',
+      (tester) async {
+        final bridge = TestBridge();
+        final app = TestApp(bridge)
+          ..commandErrorMessage = messages.requestNotAccepted;
+        addTearDown(app.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            locale: const Locale('en'),
+            navigatorObservers: [AppTaskNavigatorObserver()],
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: OperationNoticeHost(child: RuntimeConfigPage(app: app)),
+          ),
+        );
+        bridge.replies.single.complete(response(core(1)));
+        await tester.pumpAndSettle();
+        final strings = AppLocalizations.of(
+          tester.element(find.byType(RuntimeConfigPage)),
+        );
+        expect(find.byType(PopupMenuButton<String>), findsNothing);
+        final details = find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.widgetWithText(TextButton, strings.errorDetails),
+        );
+        final open = tester.widget<TextButton>(details).onPressed!;
+        if (recovered) {
+          app.commandErrorMessage = null;
+          app.publish(app.state);
+          await tester.pump();
+        }
+        open();
+        await tester.pumpAndSettle();
+        expect(
+          find.byType(AlertDialog),
+          recovered ? findsNothing : findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
+
+  testWidgets(
+    'read failure feedback follows source and failure cycle; old actions cannot affect new notices',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       final bridge = TestBridge();
-      final app = TestApp(bridge)
-        ..commandErrorMessage = messages.requestNotAccepted;
+      final app = TestApp(bridge);
       addTearDown(app.dispose);
       await tester.pumpWidget(
         MaterialApp(
@@ -317,170 +375,132 @@ void main() {
           home: OperationNoticeHost(child: RuntimeConfigPage(app: app)),
         ),
       );
-      bridge.replies.single.complete(response(core(1)));
-      await tester.pumpAndSettle();
       final strings = AppLocalizations.of(
         tester.element(find.byType(RuntimeConfigPage)),
       );
-      expect(find.byType(PopupMenuButton<String>), findsNothing);
-      final details = find.descendant(
-        of: find.byType(SnackBar),
-        matching: find.widgetWithText(TextButton, strings.errorDetails),
-      );
-      final open = tester.widget<TextButton>(details).onPressed!;
-      if (recovered) {
-        app.commandErrorMessage = null;
-        app.publish(app.state);
-        await tester.pump();
-      }
-      open();
+      final search = tester.widget<TextField>(find.byType(TextField));
+      bridge.replies.single.complete(response(core(1)));
       await tester.pumpAndSettle();
-      expect(
-        find.byType(AlertDialog),
-        recovered ? findsNothing : findsOneWidget,
+      await tester.enterText(find.byType(TextField), 'mode');
+      await tester.pump();
+      search.controller!.selection = const TextSelection(
+        baseOffset: 0,
+        extentOffset: 3,
       );
+      final anchor = tester.getRect(find.byType(TextField));
+      final selection = search.controller!.selection;
+      final line = find.byWidgetPredicate(
+        (widget) => widget is SelectableText && widget.data == 'mode: rule',
+      );
+      final lineRect = tester.getRect(line);
+      Future<void> readAfter(Duration delay) async {
+        final count = bridge.requests.length;
+        await tester.pump(delay);
+        expect(bridge.requests, hasLength(count + 1));
+      }
+
+      Finder noticeButton(String label) => find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.widgetWithText(TextButton, label),
+      );
+      Finder closeNotice() => find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.widgetWithIcon(IconButton, Icons.close),
+      );
+      await readAfter(const Duration(seconds: 30));
+      bridge.replies.last.completeError(StateError('first-original'));
+      await tester.pumpAndSettle();
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(tester.getRect(find.byType(TextField)), anchor);
+      expect(tester.getRect(line), lineRect);
+      expect(search.controller!.selection, selection);
+      final oldRetry = tester
+          .widget<TextButton>(noticeButton(strings.retry))
+          .onPressed!;
+      final oldDetails = tester
+          .widget<TextButton>(noticeButton(strings.errorDetails))
+          .onPressed!;
+      final oldClose = tester.widget<IconButton>(closeNotice()).onPressed!;
+      await tester.tap(closeNotice());
+      await tester.pumpAndSettle();
+      await readAfter(const Duration(seconds: 5));
+      bridge.replies.last.completeError(StateError('same-cycle-original'));
+      await tester.pumpAndSettle();
+      expect(find.byType(SnackBar), findsNothing);
+      expect(tester.getRect(line), lineRect);
+      await readAfter(const Duration(seconds: 10));
+      bridge.replies.last.complete(response(core(1)));
+      await tester.pumpAndSettle();
+      await readAfter(const Duration(seconds: 30));
+      bridge.replies.last.completeError(StateError('next-cycle-original'));
+      await tester.pumpAndSettle();
+      expect(find.byType(SnackBar), findsOneWidget);
+      final requests = bridge.requests.length;
+      oldRetry();
+      oldDetails();
+      oldClose();
+      await tester.pumpAndSettle();
+      expect(bridge.requests, hasLength(requests));
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.byType(AlertDialog), findsNothing);
+      await tester.tap(noticeButton(strings.errorDetails));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+      await tester.tap(
+        find.byKey(const ValueKey('operation-technical-details')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('next-cycle-original'), findsWidgets);
+      expect(find.textContaining('first-original'), findsNothing);
+      app.publish(AppSnapshot(phase: 'RUNNING', core: core(2)));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byType(AlertDialog), findsNothing);
+      bridge.replies.last.completeError(StateError('new-source-original'));
+      await tester.pumpAndSettle();
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(tester.getRect(find.byType(TextField)), anchor);
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller,
+        same(search.controller),
+      );
+      expect(search.controller!.text, 'mode');
+      expect(search.controller!.selection, selection);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
-    });
-  }
+    },
+  );
 
-  testWidgets('读取失败按来源和连续周期反馈，旧操作不能影响新提示', (tester) async {
-    tester.view.physicalSize = const Size(800, 900);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    final bridge = TestBridge();
-    final app = TestApp(bridge);
-    addTearDown(app.dispose);
-    await tester.pumpWidget(
-      MaterialApp(
-        locale: const Locale('en'),
-        navigatorObservers: [AppTaskNavigatorObserver()],
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: OperationNoticeHost(child: RuntimeConfigPage(app: app)),
-      ),
-    );
-    final strings = AppLocalizations.of(
-      tester.element(find.byType(RuntimeConfigPage)),
-    );
-    final search = tester.widget<TextField>(find.byType(TextField));
-    bridge.replies.single.complete(response(core(1)));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), 'mode');
-    await tester.pump();
-    search.controller!.selection = const TextSelection(
-      baseOffset: 0,
-      extentOffset: 3,
-    );
-    final anchor = tester.getRect(find.byType(TextField));
-    final selection = search.controller!.selection;
-    final line = find.byWidgetPredicate(
-      (widget) => widget is SelectableText && widget.data == 'mode: rule',
-    );
-    final lineRect = tester.getRect(line);
-    Future<void> readAfter(Duration delay) async {
-      final count = bridge.requests.length;
-      await tester.pump(delay);
-      expect(bridge.requests, hasLength(count + 1));
-    }
-
-    Finder noticeButton(String label) => find.descendant(
-      of: find.byType(SnackBar),
-      matching: find.widgetWithText(TextButton, label),
-    );
-    Finder closeNotice() => find.descendant(
-      of: find.byType(SnackBar),
-      matching: find.widgetWithIcon(IconButton, Icons.close),
-    );
-    await readAfter(const Duration(seconds: 30));
-    bridge.replies.last.completeError(StateError('first-original'));
-    await tester.pumpAndSettle();
-    expect(find.byType(SnackBar), findsOneWidget);
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(tester.getRect(find.byType(TextField)), anchor);
-    expect(tester.getRect(line), lineRect);
-    expect(search.controller!.selection, selection);
-    final oldRetry = tester
-        .widget<TextButton>(noticeButton(strings.retry))
-        .onPressed!;
-    final oldDetails = tester
-        .widget<TextButton>(noticeButton(strings.errorDetails))
-        .onPressed!;
-    final oldClose = tester.widget<IconButton>(closeNotice()).onPressed!;
-    await tester.tap(closeNotice());
-    await tester.pumpAndSettle();
-    await readAfter(const Duration(seconds: 5));
-    bridge.replies.last.completeError(StateError('same-cycle-original'));
-    await tester.pumpAndSettle();
-    expect(find.byType(SnackBar), findsNothing);
-    expect(tester.getRect(line), lineRect);
-    await readAfter(const Duration(seconds: 10));
-    bridge.replies.last.complete(response(core(1)));
-    await tester.pumpAndSettle();
-    await readAfter(const Duration(seconds: 30));
-    bridge.replies.last.completeError(StateError('next-cycle-original'));
-    await tester.pumpAndSettle();
-    expect(find.byType(SnackBar), findsOneWidget);
-    final requests = bridge.requests.length;
-    oldRetry();
-    oldDetails();
-    oldClose();
-    await tester.pumpAndSettle();
-    expect(bridge.requests, hasLength(requests));
-    expect(find.byType(SnackBar), findsOneWidget);
-    expect(find.byType(AlertDialog), findsNothing);
-    await tester.tap(noticeButton(strings.errorDetails));
-    await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('operation-technical-details')));
-    await tester.pumpAndSettle();
-    expect(find.textContaining('next-cycle-original'), findsWidgets);
-    expect(find.textContaining('first-original'), findsNothing);
-    app.publish(AppSnapshot(phase: 'RUNNING', core: core(2)));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(find.byType(AlertDialog), findsNothing);
-    bridge.replies.last.completeError(StateError('new-source-original'));
-    await tester.pumpAndSettle();
-    expect(find.byType(SnackBar), findsOneWidget);
-    expect(tester.getRect(find.byType(TextField)), anchor);
-    expect(
-      tester.widget<TextField>(find.byType(TextField)).controller,
-      same(search.controller),
-    );
-    expect(search.controller!.text, 'mode');
-    expect(search.controller!.selection, selection);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox());
-  });
-
-  testWidgets('旧来源失败在真实读取结束后不成为新来源的提示', (tester) async {
-    final bridge = TestBridge();
-    final app = TestApp(bridge);
-    addTearDown(app.dispose);
-    await tester.pumpWidget(
-      MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: OperationNoticeHost(child: RuntimeConfigPage(app: app)),
-      ),
-    );
-    app.publish(AppSnapshot(phase: 'RUNNING', core: core(2)));
-    bridge.replies.first.completeError(StateError('retired-source-original'));
-    await tester.pump();
-    expect(bridge.requests, hasLength(2));
-    expect(find.byType(SnackBar), findsNothing);
-    bridge.replies.last.complete(response(core(2)));
-    await tester.pumpAndSettle();
-    expect(find.byType(SnackBar), findsNothing);
-    expect(find.textContaining('retired-source-original'), findsNothing);
-    expect(app.commands, isEmpty);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox());
-  });
+  testWidgets(
+    'old-source failures do not become new-source notices after the actual read ends',
+    (tester) async {
+      final bridge = TestBridge();
+      final app = TestApp(bridge);
+      addTearDown(app.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: OperationNoticeHost(child: RuntimeConfigPage(app: app)),
+        ),
+      );
+      app.publish(AppSnapshot(phase: 'RUNNING', core: core(2)));
+      bridge.replies.first.completeError(StateError('retired-source-original'));
+      await tester.pump();
+      expect(bridge.requests, hasLength(2));
+      expect(find.byType(SnackBar), findsNothing);
+      bridge.replies.last.complete(response(core(2)));
+      await tester.pumpAndSettle();
+      expect(find.byType(SnackBar), findsNothing);
+      expect(find.textContaining('retired-source-original'), findsNothing);
+      expect(app.commands, isEmpty);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   for (final language in ['zh', 'en']) {
     testWidgets(

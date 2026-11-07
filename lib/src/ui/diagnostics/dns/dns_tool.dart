@@ -138,8 +138,9 @@ class _RenderDnsPhaseExtent extends RenderProxySliver {
       return;
     }
     if (factor == 1 || current.scrollOffsetCorrection != null) return;
-    // 先布局标题，再按剩余视口高度计算结果区的展开动画。
-    // 正文尺寸、滚动范围和按需构建的范围保持不变。
+    // Lay out the heading first, then use the remaining viewport height for the result
+    // expansion animation.
+    // Keep content size, scroll extent, and lazy-build extent unchanged.
     final resultsViewport = math.max(
       0.0,
       constraints.viewportMainAxisExtent - _extents.header,
@@ -227,7 +228,7 @@ class _DnsToolState extends State<DnsTool> with SingleTickerProviderStateMixin {
     _routeVisible = visible;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      // 帧结束前导航状态可能再次变化，此时重新检查工具是否仍可见。
+      // Navigation may change again before the frame ends; recheck tool visibility now.
       _routeVisible = _ownsPresentation;
       _controller.setVisible(_routeVisible!);
     });
@@ -805,7 +806,8 @@ class _DnsToolState extends State<DnsTool> with SingleTickerProviderStateMixin {
     final version = _controller.contextVersion;
     final enabled = _controller.canQuery && !_confirming;
     return Padding(
-      // 表单顶部为浮动标签预留绘制空间，SizeTransition 在退出动画中裁剪隐藏内容。
+      // Reserve paint space above the form for floating labels; SizeTransition clips
+      // hidden content during exit.
       padding: EdgeInsets.fromLTRB(
         24,
         math.max(12, MediaQuery.textScalerOf(context).scale(16)),
@@ -907,8 +909,9 @@ class _DnsToolState extends State<DnsTool> with SingleTickerProviderStateMixin {
     const SizedBox(height: 16),
   ];
 
-  // _phase 负责展开和收起的高度动画；减少动态效果时直接显示当前尺寸。
-  // 其余尺寸变化使用 AnimatedSize，_contentKey 保留同一棵组件子树。
+  // _phase animates expansion and collapse height; reduced motion shows the current
+  // size directly.
+  // Use AnimatedSize for other size changes; _contentKey preserves the widget subtree.
   Widget _resize({required Widget child}) =>
       MediaQuery.disableAnimationsOf(context) || _phase.isAnimating
       ? child

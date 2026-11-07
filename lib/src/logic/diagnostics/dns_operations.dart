@@ -12,7 +12,8 @@ typedef CoreOperationStarter = Future<CoreCall> Function(
   Map<String, Object?> arguments,
 );
 
-/// DNS 请求、期限和取消归 AppRuntime；页面只提交草稿和读取结果。
+/// AppRuntime owns DNS requests, deadlines, and cancellation; pages only submit drafts
+/// and read results.
 class DnsOperations {
   DnsOperations(this.start, {required this.changed});
   final CoreOperationStarter start;
@@ -100,7 +101,7 @@ class DnsOperations {
       () {
         if (_owner != owner || !busy) return;
         _error = 'timeout';
-        _detail = 'DNS 调用尚未退出';
+        _detail = 'DNS call has not exited';
         changed();
       },
     );
@@ -148,7 +149,7 @@ class DnsOperations {
     } finally {
       queryDeadline.cancel();
       bridgeDeadline.cancel();
-      // CoreCall.result 只有真实退出或进程死亡后才结束。
+      // CoreCall.result completes only after the call exits or the process dies.
       _call = null;
       _admitting = false;
       changed();

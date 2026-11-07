@@ -297,139 +297,150 @@ void main() {
     },
   );
 
-  testWidgets('复制失败提示与主动详情保留原技术正文和复制内容', (tester) async {
-    final failure = PlatformException(
-      code: 'syntheticClipboardFailure',
-      message: 'copy 原始错误\r\nsuppressed: synthetic failure',
-    );
-    final copies = <String>[];
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      SystemChannels.platform,
-      (call) async {
-        if (call.method == 'Clipboard.setData') {
-          copies.add((call.arguments as Map)['text'] as String);
-          if (copies.length == 1) throw failure;
-        }
-        return null;
-      },
-    );
-    addTearDown(
-      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+  testWidgets(
+    'copy failure notices and user-opened details retain original technical text and copied content',
+    (tester) async {
+      final failure = PlatformException(
+        code: 'syntheticClipboardFailure',
+        message: 'copy 原始错误\r\nsuppressed: synthetic failure',
+      );
+      final copies = <String>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
         SystemChannels.platform,
-        null,
-      ),
-    );
-    final app = _FeedbackApp();
-    addTearDown(app.dispose);
-    final origin = await _host(tester, app);
-    final sourceRoute = ModalRoute.of(origin)!;
-    final routes = <ModalRoute<dynamic>?>[];
-    const original = '﻿original operation error\r\n第二行\r尾部\n';
-    final result = showAppMessage(
-      origin,
-      messages.operationFailed.withDetail(original),
-      isCurrentWithPopup: (popup) =>
-          AppTaskActivity.routeIsActive(sourceRoute, ownedPopup: popup),
-      onRoute: routes.add,
-    );
-    await tester.pumpAndSettle();
-    final dialog = find.byType(AlertDialog);
-    final owned = ModalRoute.of(tester.element(dialog))!;
-    await _expandTechnicalDetails(tester);
-    final originalText = find.byKey(const ValueKey('operation-technical-text'));
-    final copy = find.byKey(const ValueKey('operation-technical-copy'));
-    final close = find.widgetWithText(TextButton, 'Close');
-    final targets = [dialog, originalText, copy, close];
-    final rectangles = targets.map(tester.getRect).toList();
-    final originalElement = tester.element(originalText);
-    final cachedCopy = tester.widget<TextButton>(copy).onPressed!;
-    await tester.tap(copy);
-    for (final milliseconds in [0, 16, 100, 200]) {
-      await tester.pump(Duration(milliseconds: milliseconds));
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copies.add((call.arguments as Map)['text'] as String);
+            if (copies.length == 1) throw failure;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      final app = _FeedbackApp();
+      addTearDown(app.dispose);
+      final origin = await _host(tester, app);
+      final sourceRoute = ModalRoute.of(origin)!;
+      final routes = <ModalRoute<dynamic>?>[];
+      const original = '﻿original operation error\r\n第二行\r尾部\n';
+      final result = showAppMessage(
+        origin,
+        messages.operationFailed.withDetail(original),
+        isCurrentWithPopup: (popup) =>
+            AppTaskActivity.routeIsActive(sourceRoute, ownedPopup: popup),
+        onRoute: routes.add,
+      );
+      await tester.pumpAndSettle();
+      final dialog = find.byType(AlertDialog);
+      final owned = ModalRoute.of(tester.element(dialog))!;
+      await _expandTechnicalDetails(tester);
+      final originalText = find.byKey(
+        const ValueKey('operation-technical-text'),
+      );
+      final copy = find.byKey(const ValueKey('operation-technical-copy'));
+      final close = find.widgetWithText(TextButton, 'Close');
+      final targets = [dialog, originalText, copy, close];
+      final rectangles = targets.map(tester.getRect).toList();
+      final originalElement = tester.element(originalText);
+      final cachedCopy = tester.widget<TextButton>(copy).onPressed!;
+      await tester.tap(copy);
+      for (final milliseconds in [0, 16, 100, 200]) {
+        await tester.pump(Duration(milliseconds: milliseconds));
+        expect(targets.map(tester.getRect).toList(), rectangles);
+        expect(tester.element(originalText), same(originalElement));
+        expect(tester.widget<SelectableText>(originalText).data, original);
+        expect(find.byType(AlertDialog), findsOneWidget);
+        expect(owned.isCurrent, isTrue);
+        expect(tester.takeException(), isNull);
+      }
+      await tester.pumpAndSettle();
+      final notice = find.byType(SnackBar);
+      expect(notice, findsOneWidget);
+      expect(
+        tester.widget<SnackBar>(notice).behavior,
+        SnackBarBehavior.floating,
+      );
+      expect(find.textContaining('syntheticClipboardFailure'), findsNothing);
+      expect(find.textContaining('copy 原始错误'), findsNothing);
+      final details = find.descendant(
+        of: notice,
+        matching: find.text('Error details'),
+      );
+      final cachedDetails = tester
+          .widget<TextButton>(
+            find.ancestor(of: details, matching: find.byType(TextButton)),
+          )
+          .onPressed!;
+      await tester.tap(details);
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNWidgets(2));
+      final failureDialog = find.byType(AlertDialog).last;
+      final failureRoute = ModalRoute.of(tester.element(failureDialog))!;
+      expect(routes, [owned, failureRoute]);
+      expect(owned.isActive, isTrue);
+      expect(owned.isCurrent, isFalse);
+      cachedCopy();
+      await tester.pump();
+      expect(copies, [original]);
+      await tester.tap(
+        find.descendant(
+          of: failureDialog,
+          matching: find.byKey(const ValueKey('operation-technical-details')),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final failureText = find.descendant(
+        of: failureDialog,
+        matching: find.byKey(const ValueKey('operation-technical-text')),
+      );
+      expect(
+        tester.widget<SelectableText>(failureText).data,
+        failure.toString(),
+      );
+      expect(find.textContaining('copy 原始错误'), findsOneWidget);
+      expect(
+        find.textContaining('suppressed: synthetic failure'),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.descendant(
+          of: failureDialog,
+          matching: find.byKey(const ValueKey('operation-technical-copy')),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(copies, [original, failure.toString()]);
+      await tester.tap(
+        find.descendant(
+          of: failureDialog,
+          matching: find.widgetWithText(TextButton, 'Close'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(routes, [owned, failureRoute, owned]);
+      expect(owned.isCurrent, isTrue);
+      expect(find.byType(AlertDialog), findsOneWidget);
       expect(targets.map(tester.getRect).toList(), rectangles);
       expect(tester.element(originalText), same(originalElement));
       expect(tester.widget<SelectableText>(originalText).data, original);
+      cachedDetails();
+      await tester.pumpAndSettle();
       expect(find.byType(AlertDialog), findsOneWidget);
-      expect(owned.isCurrent, isTrue);
+      await tester.tap(copy);
+      await tester.pumpAndSettle();
+      expect(copies, [original, failure.toString(), original]);
+      await tester.tap(close);
+      await tester.pumpAndSettle();
+      await result;
+      expect(routes, [owned, failureRoute, owned, null]);
       expect(tester.takeException(), isNull);
-    }
-    await tester.pumpAndSettle();
-    final notice = find.byType(SnackBar);
-    expect(notice, findsOneWidget);
-    expect(tester.widget<SnackBar>(notice).behavior, SnackBarBehavior.floating);
-    expect(find.textContaining('syntheticClipboardFailure'), findsNothing);
-    expect(find.textContaining('copy 原始错误'), findsNothing);
-    final details = find.descendant(
-      of: notice,
-      matching: find.text('Error details'),
-    );
-    final cachedDetails = tester
-        .widget<TextButton>(
-          find.ancestor(of: details, matching: find.byType(TextButton)),
-        )
-        .onPressed!;
-    await tester.tap(details);
-    await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsNWidgets(2));
-    final failureDialog = find.byType(AlertDialog).last;
-    final failureRoute = ModalRoute.of(tester.element(failureDialog))!;
-    expect(routes, [owned, failureRoute]);
-    expect(owned.isActive, isTrue);
-    expect(owned.isCurrent, isFalse);
-    cachedCopy();
-    await tester.pump();
-    expect(copies, [original]);
-    await tester.tap(
-      find.descendant(
-        of: failureDialog,
-        matching: find.byKey(const ValueKey('operation-technical-details')),
-      ),
-    );
-    await tester.pumpAndSettle();
-    final failureText = find.descendant(
-      of: failureDialog,
-      matching: find.byKey(const ValueKey('operation-technical-text')),
-    );
-    expect(tester.widget<SelectableText>(failureText).data, failure.toString());
-    expect(find.textContaining('copy 原始错误'), findsOneWidget);
-    expect(
-      find.textContaining('suppressed: synthetic failure'),
-      findsOneWidget,
-    );
-    await tester.tap(
-      find.descendant(
-        of: failureDialog,
-        matching: find.byKey(const ValueKey('operation-technical-copy')),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(copies, [original, failure.toString()]);
-    await tester.tap(
-      find.descendant(
-        of: failureDialog,
-        matching: find.widgetWithText(TextButton, 'Close'),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(routes, [owned, failureRoute, owned]);
-    expect(owned.isCurrent, isTrue);
-    expect(find.byType(AlertDialog), findsOneWidget);
-    expect(targets.map(tester.getRect).toList(), rectangles);
-    expect(tester.element(originalText), same(originalElement));
-    expect(tester.widget<SelectableText>(originalText).data, original);
-    cachedDetails();
-    await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsOneWidget);
-    await tester.tap(copy);
-    await tester.pumpAndSettle();
-    expect(copies, [original, failure.toString(), original]);
-    await tester.tap(close);
-    await tester.pumpAndSettle();
-    await result;
-    expect(routes, [owned, failureRoute, owned, null]);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox());
-  });
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   for (final reduced in [false, true]) {
     testWidgets(

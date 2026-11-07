@@ -37,7 +37,7 @@ import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
-/** controller 经正式 SAF 恢复 fixture，并在真实下载开始后广播；下载和保存均由唯一 AppRuntime 执行。 */
+/** The controller restores the fixture through SAF and broadcasts when the actual download starts; the single AppRuntime downloads and saves it. */
 class ScheduleWorkerCancellationTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext.applicationContext
@@ -57,7 +57,7 @@ class ScheduleWorkerCancellationTest {
 
     @Test fun ownedScheduledRevokeInvalidatesBeforeMainCleanup() {
         val nonce = "p5-load-worker-r7w10"
-        assertEquals("revoke 回归只使用 config policy", "config", kindArgument())
+        assertEquals("Revoke regression uses only the config policy", "config", kindArgument())
         val action = context.packageName + ".validation.REVOKE_WORK_R7W10"
         val signal = CountDownLatch(1)
         val receiver = signalReceiver(action, nonce, "config", signal)
@@ -67,7 +67,7 @@ class ScheduleWorkerCancellationTest {
     }
 
     @Test fun ownedScheduledStartingCancellationStopsBeforePrepare() {
-        assertEquals("STARTING 回归只使用 config policy", "config", kindArgument())
+        assertEquals("STARTING regression uses only the config policy", "config", kindArgument())
         ownedRunningWork("p5-load-worker-r7w12", null, cancelStarting = true)
     }
 
@@ -80,7 +80,7 @@ class ScheduleWorkerCancellationTest {
         val manager = WorkManager.getInstance(context)
         assertEquals(WorkInfo.State.CANCELLED, manager.getWorkInfoById(cancelledId).get(10, TimeUnit.SECONDS)?.state)
 
-        // 只有真实 Dart writer 退出后才读取 controller 准备的商店。
+        // Read the stores prepared by the controller only after the actual Dart writer exits.
         val directory = AppFiles.configs(context)
         val configs = JSONObject(directory.resolve("configurations.json").readText(Charsets.UTF_8))
         val overrides = JSONObject(directory.resolve("overrides.json").readText(Charsets.UTF_8))
@@ -93,7 +93,7 @@ class ScheduleWorkerCancellationTest {
         assertEquals(1, selected.getInt("revision"))
         val body1 = selected.getString("body")
         val marker1 = "# Controlled, local-only fixture $nonce revision 1\n"
-        assertTrue("取消下载必须保留初始 config body", body1.startsWith(marker1))
+        assertTrue("Cancelling the download must preserve the initial config body", body1.startsWith(marker1))
         assertEquals(1, plugin.getInt("revision"))
         assertEquals("# Controlled plugin $nonce revision 1\nrules: ['DOMAIN,controlled.$nonce.test,REJECT']\n", plugin.getString("body"))
         assertEquals(kind == "override", plugin.getBoolean("enabled"))
@@ -103,7 +103,7 @@ class ScheduleWorkerCancellationTest {
                 targetKind to entry.getString("id")
             }
         }
-        assertEquals("fixture 只能启用指定 periodic target", listOf(kind to id), enabledTargets)
+        assertEquals("Fixture must enable only the specified periodic target", listOf(kind to id), enabledTargets)
 
         var requestedStart = false
         var replacementId: UUID? = null
@@ -112,7 +112,7 @@ class ScheduleWorkerCancellationTest {
         var failure: Throwable? = null
         try {
             main {
-                assertNull("必须已获得 VPN grant，不能打开授权界面", VpnService.prepare(context))
+                assertNull("VPN permission must already be granted; do not open the authorization UI", VpnService.prepare(context))
                 assertEquals("STOPPED", AppBridge.runtimeState()["phase"])
                 assertFalse(AppBridge.logic.busy)
                 assertNull(AppBridge.operationId)
@@ -142,16 +142,16 @@ class ScheduleWorkerCancellationTest {
             val preservedStores = if (revokeSignal == null && !cancelStarting) null else businessFiles()
             val synced = CountDownLatch(1)
             ScheduleManager.sync(context, listOf(mapOf("kind" to kind, "id" to id, "hours" to 6))) { synced.countDown() }
-            assertTrue("production schedule sync 未完成", synced.await(10, TimeUnit.SECONDS))
+            assertTrue("Production schedule sync did not finish", synced.await(10, TimeUnit.SECONDS))
             val replacements = manager.getWorkInfosForUniqueWork(unique).get(10, TimeUnit.SECONDS).filter { !it.state.isFinished }
-            assertEquals("UPDATE 必须创建一个 live replacement", 1, replacements.size)
+            assertEquals("UPDATE must create one live replacement", 1, replacements.size)
             val replacement = replacements.single()
-            assertNotEquals("不能复用已取消 periodic work", cancelledId, replacement.id)
+            assertNotEquals("Cancelled periodic work must not be reused", cancelledId, replacement.id)
             assertTrue(replacement.tags.contains(ScheduleWorker::class.java.name))
             replacementId = replacement.id
-            await("replacement ScheduleWorker 执行真实下载", 30_000) {
+            await("Replacement ScheduleWorker performs the actual download", 30_000) {
                 val info = checkNotNull(manager.getWorkInfoById(replacement.id).get(10, TimeUnit.SECONDS))
-                assertFalse("观察到真实下载前 replacement 已结束", info.state.isFinished)
+                assertFalse("Replacement finished before the actual download was observed", info.state.isFinished)
                 var executing = false
                 main {
                     val command = AppBridge.command
@@ -173,12 +173,12 @@ class ScheduleWorkerCancellationTest {
 
             if (cancelStarting) {
                 Log.i("PseudoWorkerTest", "WAIT_OWNED_WORK_STARTING nonce=$nonce kind=$kind")
-                await("scheduled reconnect 进入真实 PREPARE 前 gate", 90_000) {
+                await("Scheduled reconnect enters the gate before the actual PREPARE", 90_000) {
                     CorePreparationObserver.workerGateState(context) != null
                 }
                 before.observer.awaitDeath()
                 assertTrue(before.observer.deathConfirmed)
-                await("network Worker 完成 application handoff", 10_000) {
+                await("Network Worker completes the application handoff", 10_000) {
                     val info = checkNotNull(manager.getWorkInfoById(replacement.id).get(10, TimeUnit.SECONDS))
                     assertFalse(info.state.isFinished)
                     info.state == WorkInfo.State.ENQUEUED
@@ -191,9 +191,9 @@ class ScheduleWorkerCancellationTest {
             } else {
                 val after = runningInput(selectedId, if (kind == "config") 2 else 1, before).also { observers.add(it.observer) }
                 before.observer.awaitDeath()
-                assertTrue("重连必须确认原 core Binder death", before.observer.deathConfirmed)
-                assertNotEquals("自动应用必须使用新 core process", before.processId, after.processId)
-                assertNotEquals("自动应用必须使用新 run-input", before.inputId, after.inputId)
+                assertTrue("Reconnect must confirm the original core Binder death", before.observer.deathConfirmed)
+                assertNotEquals("Automatic apply must use a new core process", before.processId, after.processId)
+                assertNotEquals("Automatic apply must use a new run-input", before.inputId, after.inputId)
                 assertNotEquals(before.composition, after.composition)
                 val expectedConfig = JSONObject(selected.toString())
                 val expectedPlugin = if (kind == "override") JSONObject(plugin.toString()) else null
@@ -207,7 +207,7 @@ class ScheduleWorkerCancellationTest {
                 assertInput(after, expectedConfig, expectedPlugin)
                 assertEquals(before.specification.copy(generation = after.generation, composition = after.composition), after.specification)
                 for (key in listOf("name", "mode", "source", "routingOverride", "access", "packages")) {
-                    assertEquals("未涉及的实际输入字段 $key", before.input.get(key).toString(), after.input.get(key).toString())
+                    assertEquals("Unchanged actual input field $key", before.input.get(key).toString(), after.input.get(key).toString())
                 }
                 val carriedChoices = after.input.getJSONObject("choices")
                 assertEquals(actualChoices.keys, carriedChoices.keys().asSequence().toSet())
@@ -217,7 +217,7 @@ class ScheduleWorkerCancellationTest {
                     assertEquals(member, carried.getString("member"))
                 }
                 assertEquals(actualChoices, selectorChoices())
-                await("periodic Worker 在自动应用后完成", 10_000) {
+                await("Periodic Worker finishes after automatic apply", 10_000) {
                     val info = checkNotNull(manager.getWorkInfoById(replacement.id).get(10, TimeUnit.SECONDS))
                     assertFalse(info.state.isFinished)
                     info.state == WorkInfo.State.ENQUEUED
@@ -247,7 +247,7 @@ class ScheduleWorkerCancellationTest {
             }
             cleanup {
                 replacementId?.let { manager.cancelWorkById(it).result.get(10, TimeUnit.SECONDS) }
-                awaitWriterDrain("replacement Worker 清理")
+                awaitWriterDrain("Replacement Worker cleanup")
             }
             observers.forEach { observer -> cleanup { observer.close() } }
             cleanup { if (gateArmed) CorePreparationObserver.removeWorkerGate(context) }
@@ -282,7 +282,7 @@ class ScheduleWorkerCancellationTest {
         val configs = JSONObject(committed.toString(Charsets.UTF_8))
         assertEquals(id, configs.getString("selectedId"))
         val saved = entries(configs).single { it.getString("id") == id }
-        assertEquals("第二次真实下载必须已经保存", 2, saved.getInt("revision"))
+        assertEquals("The second actual download must already be saved", 2, saved.getInt("revision"))
         assertEquals(before.input.getString("body").replaceFirst("# Controlled, local-only fixture $nonce revision 1\n",
             "# Controlled, local-only fixture $nonce revision 2\n"), saved.getString("body"))
         assertEquals("updated", saved.getJSONObject("update").getString("lastResult"))
@@ -307,18 +307,18 @@ class ScheduleWorkerCancellationTest {
             assertNull(AppBridge.command)
             assertEquals(false, AppBridge.runtimeState()["scheduleBusy"])
             assertEquals(true, AppBridge.runtimeState()["writerBusy"])
-            assertTrue("取消不等于实际 Dart executor 退出", AppBridge.logic.busy)
+            assertTrue("Cancellation does not mean the actual Dart executor has exited", AppBridge.logic.busy)
         }
         Log.i("PseudoWorkerTest", "OWNED_WORK_STARTING_CANCELLED nonce=$nonce kind=config process=${starting.processId} operationId=null writerBusy=true prepared=false attached=false")
-        await("PREPARE gate 收到真实取消且 invocation 返回", 10_000) {
+        await("PREPARE gate receives actual cancellation and invocation returns", 10_000) {
             checkNotNull(CorePreparationObserver.workerGateState(context)).let { it.getBoolean("cancelObserved") && it.getBoolean("finished") }
         }
         CorePreparationObserver.releaseWorkerGate(context)
         starting.awaitDeath()
         assertTrue(starting.deathConfirmed)
-        await("取消 STARTING 后实际 core/FD 和 Dart writer drain", 35_000) {
+        await("Actual core/FD and Dart writer drain after cancelling STARTING", 35_000) {
             val status = client.status()
-            assertEquals("取消不能替换到另一个 core", starting.processId, status["processId"])
+            assertEquals("Cancellation must not replace the core", starting.processId, status["processId"])
             assertEquals(gate.getString("inputId"), status["inputId"])
             assertNotEquals(Contract.CORE_PHASE_READY, status["phase"])
             var drained = false
@@ -336,11 +336,11 @@ class ScheduleWorkerCancellationTest {
             drained
         }
         assertEquals("stop", client.lifecycle.snapshot().exitReason)
-        assertFalse("明确取消不能生成异常恢复要求", client.lifecycle.snapshot().recoveryRequired)
+        assertFalse("Explicit cancellation must not require failure recovery", client.lifecycle.snapshot().recoveryRequired)
         nativeEmpty()
-        assertArrayEquals("保留 revision 2，不能把取消记为 applied", committed, files.resolve("configurations.json").readBytes())
+        assertArrayEquals("Preserve revision 2; cancellation must not be recorded as applied", committed, files.resolve("configurations.json").readBytes())
         for (name in listOf("overrides.json", "preferences.json")) {
-            assertArrayEquals("STARTING 取消改变了 $name", checkNotNull(beforeStores[name]), files.resolve(name).readBytes())
+            assertArrayEquals("STARTING cancellation changed $name", checkNotNull(beforeStores[name]), files.resolve(name).readBytes())
         }
         main { assertEquals("STOPPED", AppBridge.runtimeState()["phase"]) }
         Log.i("PseudoWorkerTest", "OWNED_WORK_STARTING_DRAIN nonce=$nonce kind=config process=${starting.processId} phase=STOPPED core=EMPTY revision=2 lastResult=updated writerBusy=false noLateAttach=true otherStoresUnchanged=true")
@@ -349,7 +349,7 @@ class ScheduleWorkerCancellationTest {
     private fun revokeRunningWork(nonce: String, kind: String, id: String, before: Loaded,
                                   beforeStores: Map<String, ByteArray>, signal: CountDownLatch) {
         Log.i("PseudoWorkerTest", "WAIT_OWNED_WORK_REVOKE nonce=$nonce kind=$kind")
-        assertTrue("90 秒内未收到第二次下载的 revoke signal", signal.await(90, TimeUnit.SECONDS))
+        assertTrue("Revoke signal for the second download was not received within 90 seconds", signal.await(90, TimeUnit.SECONDS))
         var owner: String? = null
         var admittedAt: Long? = null
         var deadline: Long? = null
@@ -363,7 +363,7 @@ class ScheduleWorkerCancellationTest {
             assertEquals("RUNNING", AppBridge.runtimeState()["phase"])
             assertSameInput(before)
             assertEquals(true, AppBridge.runtimeState()["scheduleBusy"])
-            assertTrue("第二次真实 Dart 下载必须仍在执行", AppBridge.logic.busy)
+            assertTrue("The second actual Dart download must still be running", AppBridge.logic.busy)
         }
         val beforeRecords = runRecords()
         val callback = before.observer.debug.serviceControl(Fixture.REVOKE_SERVICE_OFF_MAIN)
@@ -371,13 +371,13 @@ class ScheduleWorkerCancellationTest {
         assertEquals(before.observer.pid, callback.getInt("pid"))
         assertTrue(callback.getBoolean("callbackOffMain"))
         assertTrue(callback.getBoolean("callbackReturned"))
-        assertTrue("onRevoke 返回前必须关闭原 TUN FD", callback.getBoolean("originalDescriptorClosed"))
+        assertTrue("The original TUN FD must close before onRevoke returns", callback.getBoolean("originalDescriptorClosed"))
         assertTrue(callback.getBoolean("descriptorWithdrawn"))
-        assertTrue("不能把 revoke callback 施加到后来替换的 Service", callback.getBoolean("sameServiceOrDestroyed"))
-        await("实际 revoked event 撤销 scheduled publication authority", 10_000) {
+        assertTrue("Revoke callback must not affect a replacement Service", callback.getBoolean("sameServiceOrDestroyed"))
+        await("Actual revoked event revokes scheduled publication authority", 10_000) {
             var withdrawn = false
             main {
-                assertTrue("onRevoke 不能把尚未结束的真实下载标成退出", AppBridge.logic.busy)
+                assertTrue("onRevoke must not mark a running download as exited", AppBridge.logic.busy)
                 assertEquals(true, AppBridge.runtimeState()["writerBusy"])
                 withdrawn = AppBridge.operationId == null && AppBridge.runtimeState()["scheduleBusy"] == false
                 if (withdrawn) assertNull(AppBridge.command)
@@ -389,7 +389,7 @@ class ScheduleWorkerCancellationTest {
                     assertEquals(before.processId, AppBridge.command?.get("processId"))
                     assertEquals(before.inputId, AppBridge.command?.get("inputId"))
                     assertEquals(false, AppBridge.runtimeState()["scheduleBusy"])
-                    assertFalse("无 LAN 的 revoke 不得排入另一个 Dart execute", AppBridge.logic.ownsOperation(checkNotNull(AppBridge.operationId)))
+                    assertFalse("Revoke without LAN must not queue another Dart execute", AppBridge.logic.ownsOperation(checkNotNull(AppBridge.operationId)))
                 } else assertEquals(owner, AppBridge.operationId)
             }
             withdrawn
@@ -397,9 +397,9 @@ class ScheduleWorkerCancellationTest {
         Log.i("PseudoWorkerTest", "OWNED_WORK_REVOKED_SYNC nonce=$nonce kind=$kind owner=$owner process=${before.processId} operationId=null dartBusy=true writerBusy=true directServiceCallback=true originalDescriptorClosed=true")
         before.observer.awaitDeath()
         assertTrue(before.observer.deathConfirmed)
-        await("revoke 后实际 core 退出及迟到 Dart I/O drain", 35_000) {
-            assertEquals("revoke 下载不能重启 core", before.processId, client.status()["processId"])
-            assertEquals("revoke 下载不能发布新运行输入", before.inputId, client.status()["inputId"])
+        await("Actual core exit and late Dart I/O drain after revoke", 35_000) {
+            assertEquals("A revoked download must not restart the core", before.processId, client.status()["processId"])
+            assertEquals("A revoked download must not publish new run input", before.inputId, client.status()["inputId"])
             var drained = false
             main {
                 val state = AppBridge.runtimeState()
@@ -414,19 +414,19 @@ class ScheduleWorkerCancellationTest {
             drained
         }
         nativeEmpty()
-        for ((name, bytes) in beforeStores) assertArrayEquals("revoke 后迟到下载改变了 $name", bytes, AppFiles.configs(context).resolve(name).readBytes())
+        for ((name, bytes) in beforeStores) assertArrayEquals("A late download changed $name after revoke", bytes, AppFiles.configs(context).resolve(name).readBytes())
         assertEquals("revoked", client.lifecycle.snapshot().exitReason)
-        assertEquals("revoke 下载不能发布另一份 run record", beforeRecords, runRecords())
+        assertEquals("A revoked download must not publish another run record", beforeRecords, runRecords())
         main {
             assertEquals("STOPPED", AppBridge.runtimeState()["phase"])
             assertFalse(AppBridge.logic.busy)
-            assertNull("直接 callback 不得撤销已有 SDK grant", VpnService.prepare(context))
+            assertNull("A direct callback must not revoke the existing SDK grant", VpnService.prepare(context))
         }
         Log.i("PseudoWorkerTest", "OWNED_WORK_REVOKE_DRAIN nonce=$nonce kind=$kind phase=STOPPED core=EMPTY writerBusy=false storedFilesUnchanged=true noNewPrepareOrAttach=true directServiceCallback=true sdkGrantIntact=true")
     }
 
     private fun cancelOwnedWork(nonce: String, signalSuffix: String): UUID {
-        assertEquals("必须传入固定 instrumentation nonce", nonce, InstrumentationRegistry.getArguments().getString("nonce"))
+        assertEquals("The fixed instrumentation nonce is required", nonce, InstrumentationRegistry.getArguments().getString("nonce"))
         val kind = kindArgument()
         val action = context.packageName + ".validation." + signalSuffix
         val signal = CountDownLatch(1)
@@ -436,15 +436,15 @@ class ScheduleWorkerCancellationTest {
         try {
             main { assertEquals("STOPPED", AppBridge.runtimeState()["phase"]) }
             Log.i("PseudoWorkerTest", "WAIT_OWNED_WORK_CANCEL nonce=$nonce kind=$kind")
-            assertTrue("90 秒内未收到对应 controller signal", signal.await(90, TimeUnit.SECONDS))
+            assertTrue("The matching controller signal was not received within 90 seconds", signal.await(90, TimeUnit.SECONDS))
             val id = if (kind == "config") "p5-worker-config-$nonce" else "p5-worker-plugin-$nonce"
             val unique = "update-$kind-$id"
             val manager = WorkManager.getInstance(context)
             val infos = manager.getWorkInfosForUniqueWork(unique).get(10, TimeUnit.SECONDS)
-            assertEquals("$unique 必须只有一个 WorkInfo", 1, infos.size)
+            assertEquals("$unique must have exactly one WorkInfo", 1, infos.size)
             val work = infos.single()
             assertEquals(WorkInfo.State.RUNNING, work.state)
-            assertTrue("必须是 production ScheduleWorker", work.tags.contains(ScheduleWorker::class.java.name))
+            assertTrue("Must be the production ScheduleWorker", work.tags.contains(ScheduleWorker::class.java.name))
             ownedWorkId = work.id
             var owner: String? = null
             val stoppedInput = StoppedInput(identity(client.status()), client.lifecycle.snapshot(), runRecords())
@@ -453,11 +453,11 @@ class ScheduleWorkerCancellationTest {
                 assertEquals(kind, AppBridge.command?.get("kind"))
                 assertEquals(id, AppBridge.command?.get("id"))
                 owner = AppBridge.operationId
-                assertNotNull("真实 scheduled operation 必须持有 writer", owner)
+                assertNotNull("The actual scheduled operation must hold the writer", owner)
                 val state = AppBridge.runtimeState()
                 assertEquals(true, state["scheduleBusy"])
                 assertEquals(true, state["writerBusy"])
-                assertTrue("真实 Dart execution 必须仍在执行", AppBridge.logic.busy)
+                assertTrue("The actual Dart execution must still be running", AppBridge.logic.busy)
                 stopped(state, stoppedInput)
             }
             nativeEmpty()
@@ -465,14 +465,14 @@ class ScheduleWorkerCancellationTest {
             manager.cancelWorkById(work.id).result.get(10, TimeUnit.SECONDS)
             assertEquals(WorkInfo.State.CANCELLED, manager.getWorkInfoById(work.id).get(10, TimeUnit.SECONDS)?.state)
             Log.i("PseudoWorkerTest", "OWNED_WORK_CANCELLED nonce=$nonce kind=$kind uuid=${work.id} owner=$owner state=CANCELLED")
-            await("取消 schedule owner 后保留真实 writer", 10_000) {
+            await("Retain the actual writer after cancelling the schedule owner", 10_000) {
                 var cancelled = false
                 main {
                     val state = AppBridge.runtimeState()
                     stopped(state, stoppedInput)
-                    assertEquals("取消不能释放尚未退出的 Dart writer", true, state["writerBusy"])
-                    assertTrue("实际 Dart execute 必须仍在执行", AppBridge.logic.busy)
-                    assertTrue("其他 owner 替换了被取消的 operation", AppBridge.operationId == null || AppBridge.operationId == owner)
+                    assertEquals("Cancellation must not release a Dart writer that has not exited", true, state["writerBusy"])
+                    assertTrue("The actual Dart execute must still be running", AppBridge.logic.busy)
+                    assertTrue("Another owner replaced the cancelled operation", AppBridge.operationId == null || AppBridge.operationId == owner)
                     cancelled = state["scheduleBusy"] == false && AppBridge.operationId == null
                     if (cancelled) assertNull(AppBridge.command)
                 }
@@ -480,7 +480,7 @@ class ScheduleWorkerCancellationTest {
             }
             nativeEmpty()
             Log.i("PseudoWorkerTest", "OWNED_WORK_GATE nonce=$nonce kind=$kind scheduleBusy=false writerBusy=true phase=STOPPED operationId=null dartBusy=true")
-            await("实际 Dart writer drain", 35_000) {
+            await("Actual Dart writer drain", 35_000) {
                 var drained = false
                 main {
                     val state = AppBridge.runtimeState()
@@ -494,10 +494,10 @@ class ScheduleWorkerCancellationTest {
                 drained
             }
             nativeEmpty()
-            assertEquals("取消下载不能生成新的不可变 run record", stoppedInput.records, runRecords())
-            for ((name, bytes) in beforeStores) assertArrayEquals("取消下载改变了 $name", bytes, AppFiles.configs(context).resolve(name).readBytes())
+            assertEquals("Cancelling the download must not create a new immutable run record", stoppedInput.records, runRecords())
+            for ((name, bytes) in beforeStores) assertArrayEquals("Cancelling the download changed $name", bytes, AppFiles.configs(context).resolve(name).readBytes())
             val after = manager.getWorkInfosForUniqueWork(unique).get(10, TimeUnit.SECONDS)
-            assertEquals("取消不能自动 enqueue replacement", listOf(work.id), after.map { it.id })
+            assertEquals("Cancellation must not automatically enqueue a replacement", listOf(work.id), after.map { it.id })
             assertEquals(WorkInfo.State.CANCELLED, after.single().state)
             Log.i("PseudoWorkerTest", "OWNED_WORK_DRAIN nonce=$nonce kind=$kind uuid=${work.id} scheduleBusy=false writerBusy=false phase=STOPPED core=EMPTY prepared=false attached=false noRestart=true storedFilesUnchanged=true")
             return work.id
@@ -506,7 +506,7 @@ class ScheduleWorkerCancellationTest {
             finally {
                 ownedWorkId?.let { uuid ->
                     try { WorkManager.getInstance(context).cancelWorkById(uuid).result.get(10, TimeUnit.SECONDS) }
-                    finally { awaitWriterDrain("owned work 清理及实际 writer drain") }
+                    finally { awaitWriterDrain("Owned work cleanup and actual writer drain") }
                 }
             }
         }
@@ -524,15 +524,15 @@ class ScheduleWorkerCancellationTest {
 
     private fun runningInput(configId: String, revision: Int, previous: Loaded? = null): Loaded {
         var candidate: String? = null
-        await("VPN 实际运行输入 $configId revision=$revision 及 writer drain", 90_000) {
+        await("Actual VPN run input $configId revision=$revision and writer drain", 90_000) {
             val loaded = client.status()
             val process = loaded["processId"] as? String
             if (process != null && process != previous?.processId &&
                 loaded["phase"] in setOf(Contract.CORE_PHASE_LOADING, Contract.CORE_PHASE_READY)) {
-                if (candidate == null) candidate = process else assertEquals("出现额外的 core 重启", candidate, process)
+                if (candidate == null) candidate = process else assertEquals("An additional core restart occurred", candidate, process)
             }
             assertNotEquals(Contract.CORE_PHASE_COMMUNICATION_LOST, loaded["phase"])
-            if (loaded["phase"] == Contract.CORE_PHASE_RECOVERY_REQUIRED) fail("VPN 启动失败：${loaded["error"]}")
+            if (loaded["phase"] == Contract.CORE_PHASE_RECOVERY_REQUIRED) fail("VPN startup failed: ${loaded["error"]}")
             var ready = false
             main {
                 val state = AppBridge.runtimeState()
@@ -590,11 +590,11 @@ class ScheduleWorkerCancellationTest {
             assertEquals(id, AppBridge.runtimeState()["configId"])
             assertEquals(revision, AppBridge.runtimeState()["revision"])
         }
-        for (key in listOf("id", "name", "revision", "body")) assertEquals("实际装载 config 字段 $key", config.get(key), loaded.input.get(key))
+        for (key in listOf("id", "name", "revision", "body")) assertEquals("Actually loaded config field $key", config.get(key), loaded.input.get(key))
         val parts = loaded.input.getJSONArray("overrides")
         assertEquals(if (plugin == null) 0 else 1, parts.length())
         if (plugin != null) for (key in listOf("id", "name", "mode", "role", "revision", "body")) {
-            assertEquals("实际装载 plugin 字段 $key", plugin.get(key), parts.getJSONObject(0).get(key))
+            assertEquals("Actually loaded plugin field $key", plugin.get(key), parts.getJSONObject(0).get(key))
         }
     }
 
@@ -607,7 +607,7 @@ class ScheduleWorkerCancellationTest {
         assertEquals(source, reply.metadata.single().getString("source"))
         return reply.records.associate { group ->
             val raw = group.getJSONObject("raw")
-            assertEquals("受控 fixture 的 runtime 类型必须是 Selector", "Selector", raw.getString("type"))
+            assertEquals("The controlled fixture runtime type must be Selector", "Selector", raw.getString("type"))
             val member = raw.getString("now")
             assertTrue(member.isNotEmpty())
             group.getString("name") to member
@@ -621,8 +621,8 @@ class ScheduleWorkerCancellationTest {
 
     private fun stopAndDrain() {
         val admission = platform.stopFromSystemControl()
-        assertTrue("SystemControls 必须受理 Stop", admission in setOf(SystemControls.Admission.ACCEPTED, SystemControls.Admission.UNCHANGED))
-        await("正常 Stop 的实际 core/FD 与 business drain", 35_000) {
+        assertTrue("SystemControls must admit Stop", admission in setOf(SystemControls.Admission.ACCEPTED, SystemControls.Admission.UNCHANGED))
+        await("Actual core/FD and application drain after normal Stop", 35_000) {
             var drained = false
             main {
                 val state = AppBridge.runtimeState()
@@ -639,7 +639,7 @@ class ScheduleWorkerCancellationTest {
 
     private fun stopped(state: Map<String, Any?>, before: StoppedInput) {
         assertEquals("STOPPED", state["phase"])
-        assertEquals("取消不能 prepare 或重启 core", before.identity, identity(client.status()))
+        assertEquals("Cancellation must not prepare or restart the core", before.identity, identity(client.status()))
         assertEquals(before.lifecycle, client.lifecycle.snapshot())
         assertEquals(false, state["pendingStart"])
         assertEquals(false, state["pendingSystemStart"])
@@ -647,12 +647,12 @@ class ScheduleWorkerCancellationTest {
 
     private fun nativeEmpty() {
         CoreIpcTestDriver.assertNoGoInApplication()
-        assertTrue("无 context 时不能为检查而启动 core", client.status()["phase"] in
+        assertTrue("Inspection must not start the core when no context exists", client.status()["phase"] in
             setOf(null, Contract.CORE_PHASE_DISCONNECTED, Contract.CORE_PHASE_EXITED))
         assertFalse(CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java))
         assertFalse(CoreIpcTestDriver.servicePresent(context, CoreService::class.java))
         val held = CoreResourceGate.forApplication(context).tryAcquire()
-        assertNotNull("core process 退出前不能释放资源锁", held)
+        assertNotNull("The resource lock must not be released before core process exit", held)
         held!!.close()
     }
 
@@ -675,7 +675,7 @@ class ScheduleWorkerCancellationTest {
         drained
     }
 
-    private fun awaitBackground(activity: MainActivity) = await("UI Activity 实际停止", 10_000) {
+    private fun awaitBackground(activity: MainActivity) = await("UI Activity actually stops", 10_000) {
         var hidden = false
         main {
             val monitor = ActivityLifecycleMonitorRegistry.getInstance()
@@ -693,7 +693,7 @@ class ScheduleWorkerCancellationTest {
         registerReceiver(receiver, action)
         try {
             Log.i("PseudoWorkerTest", "WAIT_OWNED_WORK_EXPORT nonce=$nonce kind=$kind")
-            assertTrue("120 秒内未收到正式 export confirmation", exported.await(120, TimeUnit.SECONDS))
+            assertTrue("Export confirmation was not received within 120 seconds", exported.await(120, TimeUnit.SECONDS))
         } finally { context.unregisterReceiver(receiver) }
     }
 
@@ -709,14 +709,14 @@ class ScheduleWorkerCancellationTest {
     }
 
     private fun kindArgument(): String = requireNotNull(InstrumentationRegistry.getArguments().getString("kind")) {
-        "必须传入 kind=config 或 kind=override"
-    }.also { require(it == "config" || it == "override") { "必须传入 kind=config 或 kind=override" } }
+        "kind=config or kind=override is required"
+    }.also { require(it == "config" || it == "override") { "kind=config or kind=override is required" } }
 
     private fun main(block: () -> Unit) = instrumentation.runOnMainSync(block)
     private fun await(label: String, timeoutMs: Long, ready: () -> Boolean) {
         val deadline = SystemClock.elapsedRealtime() + timeoutMs
         while (!ready()) {
-            check(SystemClock.elapsedRealtime() < deadline) { "等待 $label 超时" }
+            check(SystemClock.elapsedRealtime() < deadline) { "Timed out waiting for $label" }
             Thread.sleep(25)
         }
     }

@@ -388,7 +388,7 @@ class AppFilesTest {
         val bytesMethod = AppFiles::class.java.declaredMethods.single {
             it.name.substringBefore('$') == "bytes"
         }.name
-        // 源码行号可变；异常消息、调用顺序和其余堆栈内容必须完全匹配。
+        // Source line numbers may vary; exception messages, call order, and the rest of the stack must match exactly.
         val appLocation = """\(AppFiles\.kt:[1-9][0-9]*\)\n"""
         val origin = """\tat $appClass\.${Regex.escape(bytesMethod)}$appLocation""" +
             """\tat $appClass\.usage$appLocation""".repeat(2)

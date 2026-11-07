@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-/// 根据等宽字体、字号和文字缩放限制技术文本的行宽，且不超过父组件允许的宽度。
+/// Limits technical text width using the monospace font, font size, and text scale,
+/// within parent constraints.
 class TechnicalReadingPane extends StatelessWidget {
   const TechnicalReadingPane({super.key, required this.child});
 

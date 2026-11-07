@@ -20,7 +20,8 @@ void runBackground() {
   unawaited(AppBootstrap().start());
 }
 
-/// 默认进程唯一后台 runtime 的 Flutter 接入与状态通知。
+/// Flutter integration and state notifications for the sole background runtime in the
+/// default process.
 class AppBootstrap {
   AppBootstrap({
     AppPlatform? platform,

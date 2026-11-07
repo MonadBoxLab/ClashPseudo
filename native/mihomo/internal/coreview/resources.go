@@ -79,7 +79,7 @@ func Resources(cfg *config.Config, general *config.General, sources DiagnosticSo
 	return string(data), err
 }
 
-// StreamResources逐条读取公开provider信息及本次捕获的Geo路径，不保留资源历史。
+// StreamResources reads public provider information and captured Geo paths one record at a time, without retaining resource history.
 func StreamResources(cfg *config.Config, general *config.General, sources DiagnosticSources, provenance *configinput.Provenance, geo []GeoResource, emit func(Resource) error) (string, error) {
 	identity := ResourceSourceIdentity(cfg)
 	names := make([]string, 0, len(cfg.Providers))

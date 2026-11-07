@@ -18,7 +18,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** 系统 DNS 只使用装载时捕获的 Network，不改写用户的 nameserver。 */
+/** System DNS uses only the Network captured during preparation and does not rewrite the user's nameserver. */
 internal class AndroidSystemDns(private val snapshot: UnderlyingSnapshot, private val executor: Executor) {
     private class Query(val cancellation: CancellationSignal? = null) {
         val cancelled = AtomicBoolean(false)
@@ -60,11 +60,11 @@ internal class AndroidSystemDns(private val snapshot: UnderlyingSnapshot, privat
     private val registeredOutOfOrder = mutableSetOf<Long>()
 
     private fun register(requestId: Long, query: Query): Boolean = synchronized(registration) {
-        require(requestId > 0) { "系统 DNS queryId 必须为正数" }
+        require(requestId > 0) { "System DNS queryId must be positive" }
         if (closed.get()) return@synchronized false
-        check(requestId > registeredThrough && registeredOutOfOrder.add(requestId)) { "系统 DNS 请求标识重复" }
+        check(requestId > registeredThrough && registeredOutOfOrder.add(requestId)) { "Duplicate system DNS request identity" }
         while (registeredThrough < Long.MAX_VALUE && registeredOutOfOrder.remove(registeredThrough + 1)) registeredThrough++
-        check(pending.putIfAbsent(requestId, query) == null) { "系统 DNS 请求标识重复" }
+        check(pending.putIfAbsent(requestId, query) == null) { "Duplicate system DNS request identity" }
         if (cancelledBeforeRegistration.remove(requestId)) query.cancelled.set(true)
         invocations++
         true
@@ -73,16 +73,16 @@ internal class AndroidSystemDns(private val snapshot: UnderlyingSnapshot, privat
     fun raw(requestId: Long, wire: ByteArray): ByteArray {
         val query = Query(CancellationSignal())
         if (!register(requestId, query)) return failure(
-            CoreTransportException(Contract.CORE_ERROR_CANCELLED, "系统 DNS 所属内核已停止"), true, true)
+            CoreTransportException(Contract.CORE_ERROR_CANCELLED, "The core owning system DNS has stopped"), true, true)
         try {
             if (wire.size > Contract.DNS_REQUEST_BYTES) throw CoreTransportException(
-                Contract.CORE_ERROR_INPUT_TOO_LARGE, "系统 DNS 请求超过 ${Contract.DNS_REQUEST_BYTES} 字节")
+                Contract.CORE_ERROR_INPUT_TOO_LARGE, "System DNS request exceeds ${Contract.DNS_REQUEST_BYTES} bytes")
             if (Build.VERSION.SDK_INT < 29) throw CoreTransportException(
-                Contract.CORE_ERROR_CAPABILITY_UNAVAILABLE, "Android ${Build.VERSION.SDK_INT} 没有公开的原始 DNS 消息查询接口")
+                Contract.CORE_ERROR_CAPABILITY_UNAVAILABLE, "Android ${Build.VERSION.SDK_INT} has no public raw DNS query interface")
             val network = snapshot.network ?: throw CoreTransportException(
-                Contract.CORE_ERROR_CAPABILITY_UNAVAILABLE, "装载时没有可用的底层系统网络")
-            if (query.cancelled.get()) { query.exited = true; return failure(CoreTransportException(Contract.CORE_ERROR_CANCELLED, "系统 DNS 请求在执行前取消"), true, true) }
-            if (closed.get()) throw CoreTransportException(Contract.CORE_ERROR_CANCELLED, "系统 DNS 所属内核已停止")
+                Contract.CORE_ERROR_CAPABILITY_UNAVAILABLE, "No underlying system network was available during preparation")
+            if (query.cancelled.get()) { query.exited = true; return failure(CoreTransportException(Contract.CORE_ERROR_CANCELLED, "System DNS request was cancelled before execution"), true, true) }
+            if (closed.get()) throw CoreTransportException(Contract.CORE_ERROR_CANCELLED, "The core owning system DNS has stopped")
             DnsResolver.getInstance().rawQuery(network, wire, DnsResolver.FLAG_EMPTY, executor, query.cancellation,
                 object : DnsResolver.Callback<ByteArray> {
                     override fun onAnswer(answer: ByteArray, rcode: Int) {
@@ -103,7 +103,7 @@ internal class AndroidSystemDns(private val snapshot: UnderlyingSnapshot, privat
             query.finished.await()
             val answer = query.answer
             if (answer != null && answer.size > Contract.DNS_RESULT_BYTES) throw CoreTransportException(
-                Contract.CORE_ERROR_RESULT_TOO_LARGE, "系统 DNS 响应超过 ${Contract.DNS_RESULT_BYTES} 字节")
+                Contract.CORE_ERROR_RESULT_TOO_LARGE, "System DNS response exceeds ${Contract.DNS_RESULT_BYTES} bytes")
             return JSONObject().put("wire", answer?.let { Base64.encodeToString(it, Base64.NO_WRAP) } ?: JSONObject.NULL)
                 .put("rcode", query.rcode ?: JSONObject.NULL).put("error", query.error?.let { error ->
                     CoreErrors.json(error).apply { if (error is DnsResolver.DnsException) put("platformCode", error.code) }
@@ -118,15 +118,15 @@ internal class AndroidSystemDns(private val snapshot: UnderlyingSnapshot, privat
     fun lookup(requestId: Long, host: String, family: Int): ByteArray {
         val query = Query()
         if (!register(requestId, query)) return failure(
-            CoreTransportException(Contract.CORE_ERROR_CANCELLED, "系统 DNS 所属内核已停止"), true, true)
+            CoreTransportException(Contract.CORE_ERROR_CANCELLED, "The core owning system DNS has stopped"), true, true)
         return try {
             require(host.toByteArray(Charsets.UTF_8).size <= Contract.DNS_NAME_BYTES && family in setOf(0, 4, 6)) {
-                "系统主机查询参数无效"
+                "Invalid system host lookup arguments"
             }
-            if (query.cancelled.get()) { query.exited = true; return failure(CoreTransportException(Contract.CORE_ERROR_CANCELLED, "系统主机查询在执行前取消"), true, true) }
-            if (closed.get()) throw CoreTransportException(Contract.CORE_ERROR_CANCELLED, "系统 DNS 所属内核已停止")
+            if (query.cancelled.get()) { query.exited = true; return failure(CoreTransportException(Contract.CORE_ERROR_CANCELLED, "System host lookup was cancelled before execution"), true, true) }
+            if (closed.get()) throw CoreTransportException(Contract.CORE_ERROR_CANCELLED, "The core owning system DNS has stopped")
             val network = snapshot.network ?: throw CoreTransportException(Contract.CORE_ERROR_CAPABILITY_UNAVAILABLE,
-                "装载时没有可用的底层系统网络")
+                "No underlying system network was available during preparation")
             val addresses = network.getAllByName(host).filter { family == 0 ||
                 family == 4 && it is Inet4Address || family == 6 && it is Inet6Address }.mapNotNull { it.hostAddress }
             query.exited = true
@@ -167,7 +167,7 @@ internal class AndroidSystemDns(private val snapshot: UnderlyingSnapshot, privat
                 try { query.cancellation?.cancel() } catch (failure: Throwable) {
                     if (error == null) error = failure else if (error !== failure) error!!.addSuppressed(failure)
                 }
-                // 原始调用继续等待系统实际 callback；取消回执不释放其执行槽。
+                // The original call keeps waiting for the actual system callback; a cancellation receipt does not release its execution slot.
             }
         }
         return JSONObject().put("cancelled", beforeRegistration || queries.isNotEmpty()).put("exited", !beforeRegistration && queries.all { it.exited })

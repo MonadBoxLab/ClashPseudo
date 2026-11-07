@@ -13,7 +13,7 @@ import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 
-/** 逐项确认的文件清理；资源锁确认旧内核已结束后才删除。 */
+/** Per-file confirmed cleanup; delete only after the resource lock confirms the old core has exited. */
 internal class CoreDataCleanup(
     private val root: File,
     private val record: File,
@@ -25,10 +25,10 @@ internal class CoreDataCleanup(
         constructor(scope: String, relativePath: String? = null) : this(when (scope) {
             "cache" -> { require(relativePath == null); listOf("cache.db") }
             "resource" -> listOf(requireNotNull(relativePath))
-            else -> throw IllegalArgumentException("清理必须逐项选择文件")
+            else -> throw IllegalArgumentException("Cleanup requires selecting individual files")
         })
         init {
-            require(paths.isNotEmpty() && paths.distinct().size == paths.size) { "清理文件清单为空或重复" }
+            require(paths.isNotEmpty() && paths.distinct().size == paths.size) { "Cleanup file list is empty or contains duplicates" }
             paths.forEach(::validatePath)
         }
         val scope get() = "files"
@@ -51,7 +51,7 @@ internal class CoreDataCleanup(
         "error" to value.error?.toMap(),
     ) }
 
-    fun requireReady() { if (!ready) throw IOException("内核文件清理尚未完成：${state.status}") }
+    fun requireReady() { if (!ready) throw IOException("Core file cleanup is incomplete: ${state.status}") }
 
     @Synchronized fun initialize() {
         if (initialized) return
@@ -70,24 +70,24 @@ internal class CoreDataCleanup(
             }
             val files = value.optJSONArray("files")
             if (files == null) {
-                // 旧单项记录也须与已确认的公开文件清单相符。
+                // Legacy single-file records must also match the confirmed public file list.
                 val legacy = if (value.optString("scope") == "cache") "cache.db" else value.optString("path")
                 if (legacy !in candidates) { state = State("needsSelection", error = AppMessage("coreCleanupRequired")); return }
                 state = State("scheduled", listOf(Item(legacy)))
             } else state = State("scheduled", (0 until files.length()).map { index ->
                 val item = files.getJSONObject(index)
                 val path = item.getString("path").also(::validatePath)
-                check(path in candidates) { "清理记录包含未确认文件" }
+                check(path in candidates) { "Cleanup record contains an unconfirmed file" }
                 Item(path, item.optBoolean("completed"), AppMessage.fromMap(item.optJSONObject("error")?.let { json ->
                     json.keys().asSequence().associateWith { json.get(it) }
                 }))
             })
-            check(state.items.isNotEmpty() && state.items.map { it.path }.distinct().size == state.items.size) { "清理记录文件清单为空或重复" }
+            check(state.items.isNotEmpty() && state.items.map { it.path }.distinct().size == state.items.size) { "Cleanup record file list is empty or contains duplicates" }
             drain()
         } catch (error: Throwable) { state = state.copy(status = "failed", error = AppMessage("coreCleanupFailed").withDetail(error)) }
     }
 
-    /** 路径只来自隔离进程在解析前查询的公开 Path getter，不按扩展名扫描。 */
+    /** Paths come only from public Path getters queried in the isolated process before parsing, not from extension-based scans. */
     @Synchronized fun registerCandidates(paths: List<String>) {
         val normalized = paths.map(::relative).distinct()
         normalized.forEach(::validatePath)
@@ -97,18 +97,18 @@ internal class CoreDataCleanup(
 
     fun resource(path: String): Request {
         val relative = relative(path)
-        if (relative !in candidates) throw IOException("文件不在本次公开内核文件清单中")
+        if (relative !in candidates) throw IOException("File is not in the current public core file list")
         val target = File(root, relative)
         if (parentsPresent(target)) stat(target)?.let { info ->
-            if (!OsConstants.S_ISREG(info.st_mode) || info.st_nlink != 1L) throw IOException("清理对象不是独立普通文件：$relative")
+            if (!OsConstants.S_ISREG(info.st_mode) || info.st_nlink != 1L) throw IOException("Cleanup target is not an unshared regular file: $relative")
         }
         return Request(listOf(relative))
     }
 
-    /** 原有业务 owner 仲裁记录发布；发布以后保持资源门禁关闭。 */
+    /** The existing operation owner arbitrates record publication; keep resource admission closed after publication. */
     @Synchronized fun schedule(request: Request, publish: (() -> Unit) -> Unit): AppMessage? {
-        check(initialized) { "内核文件清理仍在初始化" }
-        require(request.paths.all { it in candidates }) { "清理清单包含未确认的文件" }
+        check(initialized) { "Core file cleanup is still initializing" }
+        require(request.paths.all { it in candidates }) { "Cleanup list contains unconfirmed files" }
         val next = State("scheduled", request.paths.map(::Item))
         try { persist(next) { rename -> publish { rename(); state = next } } }
         catch (error: CoreRecordPublicationException) {
@@ -132,7 +132,7 @@ internal class CoreDataCleanup(
                             val info = stat(target)
                             if (info != null) {
                                 if (!OsConstants.S_ISREG(info.st_mode) || info.st_nlink != 1L) {
-                                    throw IOException("清理对象不是独立普通文件：${item.path}")
+                                    throw IOException("Cleanup target is not an unshared regular file: ${item.path}")
                                 }
                                 remove(target)
                             }
@@ -178,7 +178,7 @@ internal class CoreDataCleanup(
         val file = File(path)
         val absolute = (if (file.isAbsolute) file else File(root, path)).absoluteFile.normalize().path
         val prefix = root.absoluteFile.normalize().path + File.separator
-        if (!absolute.startsWith(prefix)) throw IOException("文件不在内核工作目录内")
+        if (!absolute.startsWith(prefix)) throw IOException("File is outside the core working directory")
         return absolute.removePrefix(prefix).also(::validatePath)
     }
 
@@ -187,7 +187,7 @@ internal class CoreDataCleanup(
         val parts = target.absolutePath.removePrefix(root.absolutePath + File.separator).split('/')
         for (index in parts.indices) {
             val info = stat(directory) ?: return false
-            if (!OsConstants.S_ISDIR(info.st_mode)) throw IOException("清理父路径不是目录：$directory")
+            if (!OsConstants.S_ISDIR(info.st_mode)) throw IOException("Cleanup parent path is not a directory: $directory")
             if (index < parts.lastIndex) directory = File(directory, parts[index])
         }
         return true
@@ -199,7 +199,7 @@ internal class CoreDataCleanup(
     companion object {
         private fun validatePath(path: String) {
             require(path.isNotEmpty() && !File(path).isAbsolute && path.split('/').none { it.isEmpty() || it == "." || it == ".." } && '\u0000' !in path) {
-                "内核清理相对路径无效"
+                "Invalid core cleanup relative path"
             }
         }
         @Volatile private var instance: CoreDataCleanup? = null

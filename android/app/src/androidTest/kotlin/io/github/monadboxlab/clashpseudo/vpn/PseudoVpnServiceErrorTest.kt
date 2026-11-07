@@ -14,7 +14,7 @@ class PseudoVpnServiceErrorTest {
     @Test fun systemForegroundFailureKeepsItsCauseWithoutInventingANativeStart() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val platform = CorePlatformTestDriver(context)
-        platform.await("应用空闲") { AppBridge.operationId == null && !AppBridge.logic.busy }
+        platform.await("Application is idle") { AppBridge.operationId == null && !AppBridge.logic.busy }
         val before = CoreIpcTestDriver.onMain { PseudoVpnService.session.snapshot() }
         assertEquals(NativeSession.Phase.STOPPED, before.phase)
         assertFalse(CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java))
@@ -26,7 +26,7 @@ class PseudoVpnServiceErrorTest {
                     CoreFixtureContract.FOREGROUND_LINKAGE_FAILURE to UnsatisfiedLinkError::class.java.name,
                 )) {
                     val failure = remote.debug.serviceControl(action)
-                    assertTrue("远端必须保留抛出的同一 Throwable", failure.getBoolean("sameThrowable"))
+                    assertTrue("The remote side must preserve the same thrown Throwable", failure.getBoolean("sameThrowable"))
                     assertEquals(failure.getString("expected"), failure.getString("actualStack"))
                     val actual = JSONObject(checkNotNull(failure.getString("actual")))
                     assertEquals(type, actual.getString("type"))
@@ -34,7 +34,7 @@ class PseudoVpnServiceErrorTest {
                     assertTrue(actual.isNull("cause"))
                     assertEquals(0, actual.getJSONArray("suppressed").length())
                     assertFalse(failure.getBoolean("waitingForRuntime"))
-                    assertFalse("foreground 失败不能装载 Go", failure.getBoolean("nativeLoaded"))
+                    assertFalse("Foreground failure must not load Go", failure.getBoolean("nativeLoaded"))
                     assertTrue(remote.binder.isBinderAlive)
                     assertFalse(remote.deathConfirmed)
                     val after = CoreIpcTestDriver.onMain { PseudoVpnService.session.snapshot() }
@@ -44,7 +44,7 @@ class PseudoVpnServiceErrorTest {
                     CoreIpcTestDriver.assertNoGoInApplication()
                 }
             }
-            platform.await("本次 VPN Service 销毁") {
+            platform.await("This VPN Service is destroyed") {
                 !CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java)
             }
             remote.exit()

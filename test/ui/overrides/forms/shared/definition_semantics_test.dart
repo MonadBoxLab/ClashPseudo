@@ -20,91 +20,94 @@ import '../../../../support/text_scalers.dart';
 import 'definition_forms_test.dart' as forms;
 
 void main() {
-  testWidgets('集中校验只提示首错并保留输入、正文几何和 composing', (tester) async {
-    final semantics = tester.ensureSemantics();
-    try {
-      final form = GlobalKey<FormState>();
-      final scroll = ScrollController();
-      addTearDown(scroll.dispose);
-      final strings = lookupAppLocalizations(const Locale('en'));
-      await forms.openForm(
-        tester,
-        Scaffold(
-          body: DefinitionFormBody(
-            form: form,
-            controller: scroll,
-            children: [
-              DefinitionTextField(
-                id: 'validation/first',
-                label: 'port',
-                initialValue: 'x',
-                isValid: (_) => false,
-                invalidMessage: strings.proxyInvalidPort,
-              ),
-              const DefinitionTextField(
-                id: 'validation/second',
-                label: 'name',
-                required: true,
-              ),
-            ],
+  testWidgets(
+    'centralized validation reports only the first error and preserves input, content geometry, and composing',
+    (tester) async {
+      final semantics = tester.ensureSemantics();
+      try {
+        final form = GlobalKey<FormState>();
+        final scroll = ScrollController();
+        addTearDown(scroll.dispose);
+        final strings = lookupAppLocalizations(const Locale('en'));
+        await forms.openForm(
+          tester,
+          Scaffold(
+            body: DefinitionFormBody(
+              form: form,
+              controller: scroll,
+              children: [
+                DefinitionTextField(
+                  id: 'validation/first',
+                  label: 'port',
+                  initialValue: 'x',
+                  isValid: (_) => false,
+                  invalidMessage: strings.proxyInvalidPort,
+                ),
+                const DefinitionTextField(
+                  id: 'validation/second',
+                  label: 'name',
+                  required: true,
+                ),
+              ],
+            ),
           ),
-        ),
-        size: const Size(600, 800),
-      );
-      final first = forms.keyed('definition-input:validation/first');
-      final second = forms.keyed('definition-input:validation/second');
-      final firstState = tester.state(first);
-      final secondState = tester.state(second);
-      final controller = tester.widget<TextField>(first).controller!;
-      await tester.showKeyboard(first);
-      const value = TextEditingValue(
-        text: 'x',
-        selection: TextSelection.collapsed(offset: 1),
-        composing: TextRange(start: 0, end: 1),
-      );
-      tester.testTextInput.updateEditingValue(value);
-      await tester.pump();
-      final firstBounds = tester.getRect(first);
-      final secondBounds = tester.getRect(second);
-      final focus = FocusManager.instance.primaryFocus;
-      expect(DefinitionFormBody.validate(form), isFalse);
-      await tester.pumpAndSettle();
-      expect(find.byType(SnackBar), findsOneWidget);
-      expect(find.text(strings.proxyInvalidPort), findsOneWidget);
-      expect(find.text(strings.proxyRequired), findsNothing);
-      expect(tester.getRect(first), firstBounds);
-      expect(tester.getRect(second), secondBounds);
-      expect(tester.state(first), same(firstState));
-      expect(tester.state(second), same(secondState));
-      expect(controller.value, value);
-      expect(FocusManager.instance.primaryFocus, same(focus));
-      for (final input in [first, second]) {
-        expect(tester.widget<TextField>(input).decoration!.errorText, isNull);
-        final validation = tester.widget<DefinitionFieldValidation>(
-          find.ancestor(
-            of: input,
-            matching: find.byType(DefinitionFieldValidation),
-          ),
+          size: const Size(600, 800),
         );
-        expect(validation.hasError, isTrue);
-        expect(
-          tester.getSemantics(input).getSemanticsData().validationResult,
-          SemanticsValidationResult.invalid,
+        final first = forms.keyed('definition-input:validation/first');
+        final second = forms.keyed('definition-input:validation/second');
+        final firstState = tester.state(first);
+        final secondState = tester.state(second);
+        final controller = tester.widget<TextField>(first).controller!;
+        await tester.showKeyboard(first);
+        const value = TextEditingValue(
+          text: 'x',
+          selection: TextSelection.collapsed(offset: 1),
+          composing: TextRange(start: 0, end: 1),
         );
+        tester.testTextInput.updateEditingValue(value);
+        await tester.pump();
+        final firstBounds = tester.getRect(first);
+        final secondBounds = tester.getRect(second);
+        final focus = FocusManager.instance.primaryFocus;
+        expect(DefinitionFormBody.validate(form), isFalse);
+        await tester.pumpAndSettle();
+        expect(find.byType(SnackBar), findsOneWidget);
+        expect(find.text(strings.proxyInvalidPort), findsOneWidget);
+        expect(find.text(strings.proxyRequired), findsNothing);
+        expect(tester.getRect(first), firstBounds);
+        expect(tester.getRect(second), secondBounds);
+        expect(tester.state(first), same(firstState));
+        expect(tester.state(second), same(secondState));
+        expect(controller.value, value);
+        expect(FocusManager.instance.primaryFocus, same(focus));
+        for (final input in [first, second]) {
+          expect(tester.widget<TextField>(input).decoration!.errorText, isNull);
+          final validation = tester.widget<DefinitionFieldValidation>(
+            find.ancestor(
+              of: input,
+              matching: find.byType(DefinitionFieldValidation),
+            ),
+          );
+          expect(validation.hasError, isTrue);
+          expect(
+            tester.getSemantics(input).getSemanticsData().validationResult,
+            SemanticsValidationResult.invalid,
+          );
+        }
+        final notice = tester.element(find.byType(SnackBar));
+        tester.testTextInput.updateEditingValue(value.copyWith(text: 'xy'));
+        await tester.pump();
+        expect(tester.element(find.byType(SnackBar)), same(notice));
+        expect(tester.getRect(first), firstBounds);
+        expect(tester.getRect(second), secondBounds);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      } finally {
+        semantics.dispose();
       }
-      final notice = tester.element(find.byType(SnackBar));
-      tester.testTextInput.updateEditingValue(value.copyWith(text: 'xy'));
-      await tester.pump();
-      expect(tester.element(find.byType(SnackBar)), same(notice));
-      expect(tester.getRect(first), firstBounds);
-      expect(tester.getRect(second), secondBounds);
-      expect(find.byType(AlertDialog), findsNothing);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    } finally {
-      semantics.dispose();
-    }
-  });
+    },
+  );
 
   group('save failure presentation and live eligibility', () {
     for (final language in ['en', 'zh']) {
@@ -113,102 +116,106 @@ void main() {
         ('2', TextScaler.linear(2)),
         ('nonlinear', const NonlinearTextScaler()),
       ]) {
-        testWidgets('保存按钮在 compact 切换后保留焦点并拒绝失效回调 $language/$scaleName', (
-          tester,
-        ) async {
-          final semantics = tester.ensureSemantics();
-          try {
-            var compact = false;
-            var saving = false;
-            var completed = false;
-            var active = true;
-            var saves = 0;
-            late StateSetter update;
-            await forms.openForm(
-              tester,
-              StatefulBuilder(
-                builder: (context, setState) {
-                  update = setState;
-                  return DefinitionFormInteraction(
-                    active: active,
-                    isActiveNow: () => active,
-                    child: Scaffold(
-                      body: Align(
-                        alignment: Alignment.bottomCenter,
-                        child: DefinitionSaveBar(
-                          id: 'live-failure',
-                          compact: compact,
-                          saving: saving,
-                          completed: completed,
-                          onSave: () => saves++,
+        testWidgets(
+          'save button retains focus across compact transitions and rejects invalidated callbacks $language/$scaleName',
+          (tester) async {
+            final semantics = tester.ensureSemantics();
+            try {
+              var compact = false;
+              var saving = false;
+              var completed = false;
+              var active = true;
+              var saves = 0;
+              late StateSetter update;
+              await forms.openForm(
+                tester,
+                StatefulBuilder(
+                  builder: (context, setState) {
+                    update = setState;
+                    return DefinitionFormInteraction(
+                      active: active,
+                      isActiveNow: () => active,
+                      child: Scaffold(
+                        body: Align(
+                          alignment: Alignment.bottomCenter,
+                          child: DefinitionSaveBar(
+                            id: 'live-failure',
+                            compact: compact,
+                            saving: saving,
+                            completed: completed,
+                            onSave: () => saves++,
+                          ),
                         ),
                       ),
-                    ),
-                  );
-                },
-              ),
-              locale: Locale(language),
-              scaler: scaler,
-              size: const Size(280, 480),
-            );
-            final save = forms.keyed('definition-save:live-failure');
-            final saveState = tester.state(save);
-            final label = find.descendant(
-              of: save,
-              matching: find.byType(Text),
-            );
-            final focus = Focus.of(tester.element(label));
-            focus.requestFocus();
-            await tester.pump();
-            expect(focus.hasFocus, isTrue);
-            for (final next in [false, true, false, true]) {
-              update(() => compact = next);
-              await tester.pump();
-              expect(tester.state(save), same(saveState));
-              expect(FocusManager.instance.primaryFocus, same(focus));
-              expect(save.hitTestable(), findsOneWidget);
-              expect(tester.getRect(save).height, greaterThanOrEqualTo(48));
-              expect(
-                forms.keyed('definition-details:live-failure'),
-                findsNothing,
+                    );
+                  },
+                ),
+                locale: Locale(language),
+                scaler: scaler,
+                size: const Size(280, 480),
               );
-            }
-            final cachedSave = tester.widget<FilledButton>(save).onPressed!;
-            final saveBounds = tester.getRect(save);
-            final barBounds = tester.getRect(find.byType(DefinitionSaveBar));
-            for (final state in [
-              (saving: true, completed: false),
-              (saving: false, completed: true),
-              (saving: false, completed: false),
-            ]) {
-              update(() {
-                saving = state.saving;
-                completed = state.completed;
-              });
-              await tester.pump();
-              expect(tester.getRect(save), saveBounds);
-              expect(tester.getRect(find.byType(DefinitionSaveBar)), barBounds);
-              expect(tester.state(save), same(saveState));
-              expect(
-                tester.widget<FilledButton>(save).onPressed == null,
-                saving || completed,
+              final save = forms.keyed('definition-save:live-failure');
+              final saveState = tester.state(save);
+              final label = find.descendant(
+                of: save,
+                matching: find.byType(Text),
               );
+              final focus = Focus.of(tester.element(label));
+              focus.requestFocus();
+              await tester.pump();
+              expect(focus.hasFocus, isTrue);
+              for (final next in [false, true, false, true]) {
+                update(() => compact = next);
+                await tester.pump();
+                expect(tester.state(save), same(saveState));
+                expect(FocusManager.instance.primaryFocus, same(focus));
+                expect(save.hitTestable(), findsOneWidget);
+                expect(tester.getRect(save).height, greaterThanOrEqualTo(48));
+                expect(
+                  forms.keyed('definition-details:live-failure'),
+                  findsNothing,
+                );
+              }
+              final cachedSave = tester.widget<FilledButton>(save).onPressed!;
+              final saveBounds = tester.getRect(save);
+              final barBounds = tester.getRect(find.byType(DefinitionSaveBar));
+              for (final state in [
+                (saving: true, completed: false),
+                (saving: false, completed: true),
+                (saving: false, completed: false),
+              ]) {
+                update(() {
+                  saving = state.saving;
+                  completed = state.completed;
+                });
+                await tester.pump();
+                expect(tester.getRect(save), saveBounds);
+                expect(
+                  tester.getRect(find.byType(DefinitionSaveBar)),
+                  barBounds,
+                );
+                expect(tester.state(save), same(saveState));
+                expect(
+                  tester.widget<FilledButton>(save).onPressed == null,
+                  saving || completed,
+                );
+                cachedSave();
+                expect(saves, state.saving || state.completed ? 0 : 1);
+              }
+              active = false;
               cachedSave();
-              expect(saves, state.saving || state.completed ? 0 : 1);
+              expect(saves, 1);
+              update(() {});
+              await tester.pump();
+              await tester.pumpWidget(const SizedBox());
+              cachedSave();
+              expect(saves, 1);
+              expect(tester.takeException(), isNull);
+            } finally {
+              semantics.dispose();
             }
-            active = false;
-            cachedSave();
-            expect(saves, 1);
-            update(() {});
-            await tester.pump();
-            await tester.pumpWidget(const SizedBox());
-            cachedSave();
-            expect(saves, 1);
-            expect(tester.takeException(), isNull);
-          } finally {
-            semantics.dispose();
-          }
-        });
+          },
+        );
       }
     }
   });
@@ -523,7 +530,7 @@ void main() {
         ('nonlinear', const NonlinearTextScaler()),
       ]) {
         testWidgets(
-          '保存失败提示不移动正文且旧 action 在重试后失效 $language/$width/$scaleLabel',
+          'save failure notice does not move content and old actions expire after retry $language/$width/$scaleLabel',
           (tester) async {
             final semantics = tester.ensureSemantics();
             final first = Completer<void>();

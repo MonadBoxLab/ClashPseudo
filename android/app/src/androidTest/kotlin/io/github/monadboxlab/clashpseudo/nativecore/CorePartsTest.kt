@@ -15,7 +15,7 @@ class CorePartsTest {
     private fun terminal(output: ByteArrayOutputStream, complete: Boolean = true) = CoreFrames.write(output,
         CoreFrames.Frame(Contract.CORE_IPC_FRAME_TERMINAL, JSONObject().put("complete", complete).toString().toByteArray()))
     private fun rejected(block: () -> Unit) {
-        try { block(); fail("无效 FD parts 必须拒绝") } catch (_: CoreTransportException) { }
+        try { block(); fail("Invalid FD parts must be rejected") } catch (_: CoreTransportException) { }
     }
 
     @Test fun rawPartsRoundTripWithoutBase64OrDefaultReencoding() {
