@@ -61,6 +61,9 @@
     "local_interfaces": "localInterfaces",
     "runtime_changed": "runtimeChanged"
   },
+  "core_event": {
+    "input_restored": "inputRestored"
+  },
   "ui_event": {
     "local_interfaces_changed": "localInterfacesChanged",
     "applications_changed": "applicationsChanged"
@@ -74,6 +77,7 @@
     "composition": "composition",
     "request_id": "requestId",
     "network_revision": "networkRevision",
+    "listener_revision": "listenerRevision",
     "storage_epoch": "storageEpoch",
     "admitted_at": "admittedAt",
     "deadline": "deadline",

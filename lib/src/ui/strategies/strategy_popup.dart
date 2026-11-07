@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../navigation/task_activity.dart';
+import '../navigation/workspace_window.dart';
 import '../theme/app_theme.dart';
 
 import 'delay_test_controller.dart';
@@ -55,6 +56,7 @@ Future<void> showStrategyPopup({
   final route = _StrategyPopupRoute(
     sourceRoute: sourceRoute,
     taskCurrent: taskCurrent,
+    taskSourceCurrent: AppTaskActivity.captureSource(owner),
     anchorBox: box,
     anchor: box.localToGlobal(Offset.zero, ancestor: overlay) & box.size,
     strategies: controller,
@@ -83,6 +85,7 @@ class _StrategyPopupRoute extends PopupRoute<void> {
   _StrategyPopupRoute({
     required this.sourceRoute,
     required this.taskCurrent,
+    required this.taskSourceCurrent,
     required this.anchorBox,
     required this.anchor,
     required this.strategies,
@@ -95,14 +98,22 @@ class _StrategyPopupRoute extends PopupRoute<void> {
 
   final ModalRoute<dynamic>? sourceRoute;
   final bool Function({Route<dynamic>? ownedPopup}) taskCurrent;
+  final bool Function() taskSourceCurrent;
   final CoreSnapshot sourceCore;
   final _interactive = ValueNotifier(true);
+
+  bool ownerPresent() =>
+      _interactive.value &&
+      isActive &&
+      animation?.status != AnimationStatus.reverse &&
+      taskSourceCurrent();
 
   bool ownerCurrent({ModalRoute<dynamic>? feedback}) =>
       _interactive.value &&
       isActive &&
-      (isCurrent || feedback != null) &&
       animation?.status != AnimationStatus.reverse &&
+      strategies.app.interactive &&
+      (isCurrent || feedback != null) &&
       strategies.active &&
       taskCurrent(ownedPopup: feedback ?? this) &&
       AppTaskActivity.routeIsActive(
@@ -153,7 +164,7 @@ class _StrategyPopupRoute extends PopupRoute<void> {
     Animation<double> animation,
     Animation<double> secondaryAnimation,
   ) {
-    return OperationNoticeHost(
+    final content = OperationNoticeHost(
       shrinkWrap: true,
       child: AnimatedBuilder(
         animation: Listenable.merge([animation, strategies, _interactive]),
@@ -262,6 +273,7 @@ class _StrategyPopupRoute extends PopupRoute<void> {
                               progress: progress,
                               sourceWidth: (source ?? anchor).width,
                               active: _interactive,
+                              isSourceCurrent: ownerPresent,
                               isCurrent: (feedback) =>
                                   ownerCurrent(feedback: feedback),
                             ),
@@ -277,6 +289,7 @@ class _StrategyPopupRoute extends PopupRoute<void> {
         },
       ),
     );
+    return WorkspaceWindow(controller: strategies.app, child: content);
   }
 }
 

@@ -21,6 +21,106 @@ void main() {
     addTearDown(fixture.dispose);
   }
 
+  test(
+    'mode retry reaches the same core without repeating restoration',
+    () async {
+      await create();
+      fixture.script(ApplicationContract.coreOperationMode, (request) {
+        request.complete(
+          null,
+          terminal: {
+            'complete': false,
+            'error': nativeFailure('java.io.IOException'),
+          },
+        );
+      });
+      await fixture.warmUp();
+      expect(fixture.modeProjection!['error'], isNotNull);
+      final snapshots = fixture
+          .calls(ApplicationContract.coreOperationSnapshot)
+          .length;
+      fixture.actualMode = 'direct';
+      await fixture.runtime.read('readMode', fixture.identity());
+      expect(
+        fixture.calls(ApplicationContract.coreOperationMode),
+        hasLength(2),
+      );
+      expect(
+        fixture.calls(ApplicationContract.coreOperationSnapshot),
+        hasLength(snapshots),
+      );
+      expect(fixture.modeProjection!['actual'], 'direct');
+      expect(fixture.modeProjection!['error'], isNull);
+    },
+  );
+
+  test('concurrent mode retries share the actual read', () async {
+    await create();
+    await fixture.warmUp();
+    final gate = Completer<void>();
+    final entered = fixture.next(ApplicationContract.coreOperationMode);
+    fixture.script(ApplicationContract.coreOperationMode, (request) async {
+      await gate.future;
+      request.complete({'mode': 'direct'});
+    });
+    final first = fixture.runtime.read('readMode', fixture.identity());
+    await entered;
+    final second = fixture.runtime.read('readMode', fixture.identity());
+    await fixture.flush();
+    expect(fixture.calls(ApplicationContract.coreOperationMode), hasLength(2));
+    gate.complete();
+    await Future.wait([first, second]);
+    expect(fixture.modeProjection!['actual'], 'direct');
+  });
+
+  test('a late retry cannot replace the mode confirmed by a setting', () async {
+    await create();
+    await fixture.warmUp();
+    final gate = Completer<void>();
+    final entered = fixture.next(ApplicationContract.coreOperationMode);
+    fixture.script(ApplicationContract.coreOperationMode, (request) async {
+      await gate.future;
+      request.complete({'mode': 'global'});
+    });
+    final reading = fixture.runtime.read('readMode', fixture.identity());
+    await entered;
+    await fixture.runtime.read('setMode', {
+      ...fixture.identity(),
+      'mode': 'direct',
+    }, operation: fixture.operation);
+    expect(fixture.modeProjection!['actual'], 'direct');
+    gate.complete();
+    await reading;
+    expect(fixture.modeProjection!['actual'], 'direct');
+  });
+
+  test(
+    'completed input identity wakes restoration after a cold status',
+    () async {
+      await create();
+      fixture.beforePlatformCall = (call) {
+        if (call.method == ApplicationContract.coreChannelStatus) {
+          return PlatformCallResult({
+            ...fixture.coreMap(),
+            'composition': null,
+          });
+        }
+        return null;
+      };
+      await fixture.runtime.restoreExisting();
+      expect(fixture.calls(ApplicationContract.coreOperationSnapshot), isEmpty);
+      fixture.beforePlatformCall = null;
+      final reading = fixture.next(ApplicationContract.coreOperationMode);
+      fixture.emit({
+        'event': ApplicationContract.coreEventInputRestored,
+        ...fixture.identity(),
+      });
+      await reading;
+      await fixture.flush();
+      expect(fixture.modeProjection!['actual'], fixture.actualMode);
+    },
+  );
+
   for (final preparedEarly in [false, true]) {
     for (final failed in [false, true]) {
       test(

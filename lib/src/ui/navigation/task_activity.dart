@@ -35,6 +35,7 @@ class AppTaskActivity extends InheritedWidget {
     this.isActiveNow,
     this.isActiveWithPopup,
     this.isSourceCurrent,
+    this.isVisibleNow,
     required super.child,
   });
 
@@ -55,6 +56,16 @@ class AppTaskActivity extends InheritedWidget {
   /// Without this callback, use current interaction state; do not treat disabled
   /// interaction as a temporary pause.
   final bool Function()? isSourceCurrent;
+
+  /// Allows visible foreground reads while input focus is temporarily elsewhere.
+  final bool Function()? isVisibleNow;
+
+  static bool isVisible(BuildContext context) {
+    if (!context.mounted) return false;
+    final activity = context
+        .dependOnInheritedWidgetOfExactType<AppTaskActivity>();
+    return activity?.isVisibleNow?.call() ?? activity?._current() ?? true;
+  }
 
   bool _current({Route<dynamic>? ownedPopup}) =>
       ownedPopup != null && isActiveWithPopup != null
@@ -132,5 +143,6 @@ class AppTaskActivity extends InheritedWidget {
       active != oldWidget.active ||
       isActiveNow != oldWidget.isActiveNow ||
       isActiveWithPopup != oldWidget.isActiveWithPopup ||
+      isVisibleNow != oldWidget.isVisibleNow ||
       isSourceCurrent != oldWidget.isSourceCurrent;
 }

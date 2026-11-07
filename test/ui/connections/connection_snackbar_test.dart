@@ -702,29 +702,71 @@ void main() {
   });
 
   testWidgets(
-    'filter menu removes notices without adding reads and waits for a valid read after closing',
+    'filter menu pauses and resumes the current notice without adding reads',
     (tester) async {
+      Future<void> paintNotice() async {
+        for (var frame = 0; frame < 3; frame++) {
+          await tester.pump();
+        }
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pump();
+      }
+
+      Future<void> nextRead() async {
+        final before = bridge.reads;
+        // Stop at the poll instead of consuming the rest of its next interval.
+        for (var tick = 0; tick < 100 && bridge.reads == before; tick++) {
+          await tester.pump(const Duration(milliseconds: 10));
+        }
+        await tester.pump();
+        expect(bridge.reads, before + 1);
+      }
+
       await show(tester, reduced: true);
-      await fail(tester);
+      bridge.data = _failed('原始读取错误');
+      await nextRead();
+      // Both notice animations finish before the next one-second poll.
+      await paintNotice();
       final reads = bridge.reads;
+      final oldDetails = tester.widget<TextButton>(noticeDetails()).onPressed!;
       await tester.tap(find.text('全部连接'));
       await tester.pump();
       await tester.pump();
       expect(find.byType(MenuItemButton), findsNWidgets(3));
       expect(getNotice(), findsNothing);
       expect(bridge.reads, reads);
-      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      oldDetails();
       await tester.pump();
-      await tester.pump();
-      expect(getNotice(), findsNothing);
+      expect(find.byType(AlertDialog), findsNothing);
       expect(bridge.reads, reads);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await paintNotice();
+      expect(find.byType(MenuItemButton), findsNothing);
+      expect(getNotice().hitTestable(), findsOneWidget);
+      expect(noticeDetails().hitTestable(), findsOneWidget);
+      expect(bridge.reads, reads);
+      final resumed = tester.state(getNotice());
       bridge.data = _failed('菜单关闭后的有效读取');
-      await tester.pump(const Duration(seconds: 1));
+      await nextRead();
       for (var frame = 0; frame < 5; frame++) {
         await tester.pump();
       }
       expect(getNotice(), findsOneWidget);
+      expect(tester.state(getNotice()), same(resumed));
       expect(bridge.reads, reads + 1);
+
+      await tester.tap(closeNotice().hitTestable());
+      await paintNotice();
+      expect(getNotice(), findsNothing);
+      expect(bridge.reads, reads + 1);
+      bridge.data = _failed('关闭提示后的同轮失败');
+      await nextRead();
+      for (var frame = 0; frame < 5; frame++) {
+        await tester.pump();
+      }
+      expect(getNotice(), findsNothing);
+      expect(bridge.reads, reads + 2);
       await tester.pumpWidget(const SizedBox());
     },
   );

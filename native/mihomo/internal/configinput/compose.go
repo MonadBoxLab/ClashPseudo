@@ -63,7 +63,10 @@ func ComposeWithProvenance(body []byte, overrides []Override, main ConfigOrigin)
 		source := SourceOrigin{Kind: "plugin", ID: overrides[i].ID, Revision: overrides[i].Revision, Name: overrides[i].Name, Role: overrides[i].Role}
 		priority[source] = i
 		origins.capture(part, source, "")
-		base = mergeConfigNode(base, part, overrides[i].Mode, true, origins)
+		base, err = mergeConfigNode(base, part, overrides[i].Mode, true, origins, make(map[configMergePair]bool))
+		if err != nil {
+			return nil, nil, fmt.Errorf("override %d: %w", i+1, err)
+		}
 	}
 	provenance := origins.project(base, priority)
 	if len(overrides) == 0 {
@@ -256,11 +259,20 @@ func namedConfigItems(node *yaml.Node) map[string]int {
 	return items
 }
 
-func mergeConfigNode(base, part *yaml.Node, mode string, root bool, origins nodeOrigins) *yaml.Node {
+type configMergePair struct{ base, part *yaml.Node }
+
+func mergeConfigNode(base, part *yaml.Node, mode string, root bool, origins nodeOrigins, active map[configMergePair]bool) (*yaml.Node, error) {
+	// Track original targets, not the temporary mappings expanded from merge keys.
+	pair := configMergePair{configValue(base), configValue(part)}
 	baseView, partView := configMapping(base), configMapping(part)
 	origins.inherit(baseView, base)
 	origins.inherit(partView, part)
 	if baseView.Kind == yaml.MappingNode && partView.Kind == yaml.MappingNode {
+		if active[pair] {
+			return nil, errors.New("cyclic mapping merge")
+		}
+		active[pair] = true
+		defer delete(active, pair)
 		base, part = baseView, partView
 		result := *base
 		result.Anchor = ""
@@ -277,28 +289,32 @@ func mergeConfigNode(base, part *yaml.Node, mode string, root bool, origins node
 			key, value := part.Content[i], part.Content[i+1]
 			position, exists := index[keyID(key)]
 			if exists && key.Kind == yaml.ScalarNode {
+				var err error
 				if root && namedConfigList(key.Value) && configValue(base.Content[position+1]).Kind == yaml.SequenceNode && configValue(value).Kind == yaml.SequenceNode {
-					result.Content[position+1] = mergeNamedConfigList(configValue(base.Content[position+1]), configValue(value), mode, origins)
+					result.Content[position+1], err = mergeNamedConfigList(configValue(base.Content[position+1]), configValue(value), mode, origins, active)
 				} else {
-					result.Content[position+1] = mergeConfigNode(base.Content[position+1], value, mode, false, origins)
+					result.Content[position+1], err = mergeConfigNode(base.Content[position+1], value, mode, false, origins, active)
+				}
+				if err != nil {
+					return nil, err
 				}
 			} else {
 				result.Content = append(result.Content, key, value)
 			}
 		}
-		return &result
+		return &result, nil
 	}
 	if baseView.Kind == yaml.SequenceNode && partView.Kind == yaml.SequenceNode && mode == "prepend" {
 		result := *partView
 		result.Anchor = ""
 		result.Content = append(append([]*yaml.Node(nil), partView.Content...), baseView.Content...)
 		origins.inherit(&result, base)
-		return &result
+		return &result, nil
 	}
-	return part
+	return part, nil
 }
 
-func mergeNamedConfigList(base, part *yaml.Node, mode string, origins nodeOrigins) *yaml.Node {
+func mergeNamedConfigList(base, part *yaml.Node, mode string, origins nodeOrigins, active map[configMergePair]bool) (*yaml.Node, error) {
 	index, items := namedConfigItems(base), namedConfigItems(part)
 	result := *base
 	result.Anchor = ""
@@ -314,9 +330,13 @@ func mergeNamedConfigList(base, part *yaml.Node, mode string, origins nodeOrigin
 	for _, item := range base.Content {
 		name, named := namedConfigName(item)
 		if position, exists := items[name]; named && exists && position >= 0 && index[name] >= 0 {
-			item = mergeConfigNode(item, part.Content[position], mode, false, origins)
+			var err error
+			item, err = mergeConfigNode(item, part.Content[position], mode, false, origins, active)
+			if err != nil {
+				return nil, err
+			}
 		}
 		result.Content = append(result.Content, item)
 	}
-	return &result
+	return &result, nil
 }

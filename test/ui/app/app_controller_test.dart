@@ -47,6 +47,14 @@ class SnapshotBridge extends AppBridge {
     return read();
   }
 
+  int modeReads = 0;
+  Future<void> Function(CoreSnapshot)? modeRead;
+  @override
+  Future<void> readMode(CoreSnapshot source) async {
+    modeReads++;
+    await modeRead?.call(source);
+  }
+
   int pathReads = 0;
   Future<Map<String, dynamic>> Function() readPaths = () async => {
     'storageEpoch': 0,
@@ -155,6 +163,39 @@ void main() {
       'purpose': 'RUNNING',
     },
   };
+
+  testWidgets(
+    'mode retry reaches its producer without rereading business files',
+    (tester) async {
+      final raw = unconfirmedModeSnapshot();
+      raw['modeError'] = const AppMessage('temporaryModeUnknown').toMap();
+      bridge.read = () async => AppSnapshot.fromMap(raw);
+      bridge.modeRead = (source) async {
+        expectSync(source.processId, 'mode-process');
+        raw.remove('modeError');
+        raw['mode'] = 'direct';
+      };
+      await controller.refresh();
+      final reads = store.reads;
+      expect(bridge.modeReads, 0);
+      await tester.pump(const Duration(seconds: 1));
+      expect(bridge.modeReads, 1);
+      expect(store.reads, reads);
+      expect(
+        controller.state.mode,
+        TunnelMode.direct,
+        reason:
+            '${controller.platformErrorMessage?.detail}; raw=$raw; reads=${bridge.reads}',
+      );
+      expect(controller.state.modeErrorMessage, isNull);
+      await controller.refreshMode();
+      expect(bridge.modeReads, 2);
+      expect(store.reads, reads);
+      controller.setForeground(false);
+      await controller.refreshMode();
+      expect(bridge.modeReads, 2);
+    },
+  );
 
   testWidgets(
     'unconfirmed mode refreshes without an error until actual mode arrives',
@@ -2028,11 +2069,11 @@ void main() {
       expect(controller.canChangeMode, isFalse);
       expect(controller.platformError, isNull);
       await tester.pump(const Duration(seconds: 1));
-      // Each successful refresh brackets the three stores with two snapshots.
-      expect(bridge.reads, 4);
+      expect(bridge.reads, 3);
+      expect(store.reads, 1);
       controller.setForeground(false);
       await tester.pump(const Duration(seconds: 60));
-      expect(bridge.reads, 4);
+      expect(bridge.reads, 3);
       bridge.read = () async =>
           const AppSnapshot(phase: 'RUNNING', mode: TunnelMode.direct);
       controller.setForeground(true);

@@ -12,6 +12,7 @@ class StrategyPopup extends StatefulWidget {
     this.anchored = false,
     this.active,
     this.isCurrent,
+    this.isSourceCurrent,
   });
   final StrategyController controller;
   final String name;
@@ -22,6 +23,7 @@ class StrategyPopup extends StatefulWidget {
   final bool anchored;
   final ValueNotifier<bool>? active;
   final bool Function(ModalRoute<dynamic>? feedback)? isCurrent;
+  final bool Function()? isSourceCurrent;
 
   @override
   State<StrategyPopup> createState() => _StrategyPopupState();
@@ -34,6 +36,19 @@ class _StrategyPopupState extends State<StrategyPopup> {
   double get progress => widget.progress;
   double get sourceWidth => widget.sourceWidth;
   ModalRoute<dynamic>? _feedback;
+  ValueNotifier<bool>? _choiceOwner;
+
+  bool get _choiceSourceCurrent =>
+      mounted &&
+      !_expired &&
+      (widget.active?.value ?? true) &&
+      (widget.isSourceCurrent?.call() ?? true);
+
+  void _releaseChoice() {
+    _choiceOwner?.value = false;
+    _choiceOwner = null;
+  }
+
   bool get _interactive =>
       mounted &&
       (widget.active?.value ?? true) &&
@@ -151,6 +166,7 @@ class _StrategyPopupState extends State<StrategyPopup> {
         (incoming?.matches(core) == true && candidate == null)) {
       _expired = true;
     }
+    if (!_choiceSourceCurrent) _releaseChoice();
     _focus.canRequestFocus = _interactive && controller.active;
     if (!_interactive || !controller.active) _focus.unfocus();
     if (!_ownsLifecycle ||
@@ -163,6 +179,7 @@ class _StrategyPopupState extends State<StrategyPopup> {
 
   @override
   void dispose() {
+    _releaseChoice();
     controller.removeListener(_contextChanged);
     widget.active?.removeListener(_contextChanged);
     _focus.dispose();
@@ -330,17 +347,15 @@ class _StrategyPopupState extends State<StrategyPopup> {
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!current() || !_interactive) {
-        if (current()) _delayNotice = null;
-        return;
-      }
+      if (!current() || !_choiceSourceCurrent) return;
       final retryAction = test.busy ? null : retry;
       final presented = await showLocalizedOperationNotice(
         context,
         summary,
         technicalDetail: detail,
         eligibilityChanges: changes,
-        isCurrent: () => current() && _interactive,
+        isCurrent: () => current() && _choiceSourceCurrent,
+        canPresent: () => _interactive,
         isCurrentWithPopup: (popup) =>
             current() && (widget.isCurrent?.call(popup) ?? true),
         onDetails: () => _showErrorDetails(
@@ -366,15 +381,7 @@ class _StrategyPopupState extends State<StrategyPopup> {
     final app = controller.app;
     final core = app.state.core;
     final epoch = app.storageEpoch;
-    final operation = controller.operationErrorMessage == error;
-    final notice = (
-      controller,
-      epoch,
-      core.identity,
-      error,
-      operation ? app.state.resultId : null,
-      operation ? app.lastCommand : null,
-    );
+    final notice = (controller, epoch, core.identity, error);
     if (_strategyNotice == notice) return;
     _strategyNotice = notice;
     bool current() =>
@@ -382,22 +389,17 @@ class _StrategyPopupState extends State<StrategyPopup> {
         _strategyNotice == notice &&
         epoch == app.storageEpoch &&
         core.matchesIdentity(app.state.core) &&
-        (operation
-                ? controller.operationErrorMessage
-                : controller.readErrorMessage) ==
-            error;
+        controller.readErrorMessage == error;
     final changes = Listenable.merge([controller, app]);
-    final retry = operation ? null : controller.retry;
+    final retry = controller.retry;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!current() || !_interactive) {
-        if (current()) _strategyNotice = null;
-        return;
-      }
+      if (!current() || !_choiceSourceCurrent) return;
       final presented = await showAppNotice(
         context,
         error,
         eligibilityChanges: changes,
-        isCurrent: () => current() && _interactive,
+        isCurrent: () => current() && _choiceSourceCurrent,
+        canPresent: () => _interactive,
         isCurrentWithPopup: (popup) =>
             current() && (widget.isCurrent?.call(popup) ?? true),
         onDetails: () => _showErrorDetails(
@@ -440,16 +442,14 @@ class _StrategyPopupState extends State<StrategyPopup> {
         strings.unrestoredLine(name, strategyUnrestoredReason(reason, strings));
     final changes = Listenable.merge([controller, app]);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!current() || !_interactive) {
-        if (current()) _unrestoredNotice = null;
-        return;
-      }
+      if (!current() || !_choiceSourceCurrent) return;
       final presented = await showLocalizedOperationNotice(
         context,
         summary,
         technicalDetail: detail,
         eligibilityChanges: changes,
-        isCurrent: () => current() && _interactive,
+        isCurrent: () => current() && _choiceSourceCurrent,
+        canPresent: () => _interactive,
         isCurrentWithPopup: (popup) =>
             current() && (widget.isCurrent?.call(popup) ?? true),
         onDetails: () => _showErrorDetails(summary, detail, current, changes),
@@ -490,14 +490,60 @@ class _StrategyPopupState extends State<StrategyPopup> {
     _delay?.abandon();
   }
 
-  void _choose(String? member) {
+  Future<void> _choose(String? member) async {
     if (!_interactive ||
         _expired ||
+        _choiceOwner != null ||
         _lastData?.matches(controller.app.state.core) != true ||
         controller.data?.generation != generation) {
       return;
     }
-    controller.choose(name, member, storageEpoch: _storageEpoch);
+    final app = controller.app;
+    final owner = _choiceOwner = ValueNotifier(true);
+    final previous = app.lastCommand;
+    try {
+      final choosing = controller.choose(
+        name,
+        member,
+        storageEpoch: _storageEpoch,
+        feedbackOwner: owner,
+      );
+      final command = app.lastCommand;
+      final result = await choosing;
+      bool current() =>
+          _choiceSourceCurrent && identical(app.lastCommand, command);
+      if (!mounted ||
+          identical(command, previous) ||
+          !owner.value ||
+          !current()) {
+        return;
+      }
+      if (result?.resultSuccess == true) {
+        app.acknowledgeLocalFeedback(owner, result: result);
+        return;
+      }
+      final error = result?.resultMessageDescription ?? app.commandErrorMessage;
+      if (error == null) return;
+      final changes = Listenable.merge([controller, app, ?widget.active]);
+      await showAppNotice(
+        context,
+        error,
+        identity: (command, result?.resultId),
+        isCurrent: current,
+        isCurrentWithPopup: (_) => current(),
+        eligibilityChanges: changes,
+        onDetails: () => _showErrorDetails(
+          error.summary,
+          error.technicalDetail,
+          () => _choiceSourceCurrent && identical(app.lastCommand, command),
+          changes,
+        ),
+        onPresented: () => app.acknowledgeLocalFeedback(owner, result: result),
+      );
+    } finally {
+      if (identical(_choiceOwner, owner)) _releaseChoice();
+      owner.dispose();
+    }
   }
 
   Widget _heading(
@@ -639,8 +685,7 @@ class _StrategyPopupState extends State<StrategyPopup> {
               ? (saved.member ?? '') != group.fixed
               : saved.member != group.now);
       final waiting = controller.changingGroup == name;
-      final errorMessage =
-          controller.operationErrorMessage ?? controller.readErrorMessage;
+      final errorMessage = controller.readErrorMessage;
       _scheduleStrategyNotice(errorMessage);
       _scheduleUnrestoredNotice(data);
       final showSelection =

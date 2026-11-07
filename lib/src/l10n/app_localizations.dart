@@ -1805,7 +1805,7 @@ abstract class AppLocalizations {
   /// No description provided for @applicationReconnectMessage.
   ///
   /// In en, this message translates to:
-  /// **'Saving will normally stop the current tunnel and reconnect with the current configuration and mode. Existing connections will drop. The setting is kept if reconnecting fails.'**
+  /// **'Saving will stop the current VPN or LAN proxy and reconnect with its actual configuration and mode. Existing connections will drop. The application list affects VPN traffic only. The setting is kept if reconnecting fails.'**
   String get applicationReconnectMessage;
 
   /// No description provided for @applicationReconnect.
@@ -4067,7 +4067,7 @@ abstract class AppLocalizations {
   /// No description provided for @accessSavedReconnected.
   ///
   /// In en, this message translates to:
-  /// **'Application access saved and the tunnel reconnected.'**
+  /// **'Application access saved and the connection re-established.'**
   String get accessSavedReconnected;
 
   /// No description provided for @overridesSavedNextStart.

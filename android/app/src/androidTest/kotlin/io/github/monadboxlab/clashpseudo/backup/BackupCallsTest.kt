@@ -2,6 +2,16 @@ package io.github.monadboxlab.clashpseudo.backup
 
 import android.app.Activity
 import android.content.Intent
+import android.content.ContentResolver
+import android.content.pm.ProviderInfo
+import android.database.Cursor
+import android.database.MatrixCursor
+import android.os.CancellationSignal
+import android.os.Looper
+import android.os.ParcelFileDescriptor
+import android.provider.DocumentsContract
+import android.provider.DocumentsProvider
+import androidx.test.filters.SdkSuppress
 import android.net.Uri
 import android.os.Bundle
 import androidx.test.platform.app.InstrumentationRegistry
@@ -31,7 +41,8 @@ class BackupCallsTest {
         fun runOne() { tasks.removeFirst().run() }
     }
     private data class Launch(val activity: Activity, val intent: Intent, val code: Int)
-    private class Harness(val f: BackupFixture, realDocumentWorker: Executor? = null, realStorageWorker: Executor? = null) {
+    private class Harness(val f: BackupFixture, realDocumentWorker: Executor? = null, realStorageWorker: Executor? = null,
+        resolver: ContentResolver? = null) {
         val storage = Queue()
         val documents = Queue()
         val posts = ConcurrentLinkedQueue<Runnable>()
@@ -50,7 +61,11 @@ class BackupCallsTest {
                 if (launchError) throw IOException("Injected missing picker")
                 launches.add(Launch(activity, intent, code))
             },
-            openInput = { uri -> assertEquals("content", uri.scheme); opens++; input() },
+            openInput = { uri ->
+                assertEquals("content", uri.scheme); opens++
+                if (resolver == null) input() else BackupCalls.openDocumentInput(resolver, uri)
+            },
+            displayName = { uri -> if (resolver == null) "" else BackupCalls.documentName(resolver, uri) },
             openOutput = { uri -> assertEquals("content", uri.scheme); opens++; output() },
             documentWorker = realDocumentWorker ?: documents, storageWorker = realStorageWorker ?: storage,
             post = { posts.add(it); Unit }, delay = { task, millis -> timers[task] = now + millis },
@@ -77,6 +92,70 @@ class BackupCallsTest {
             }
         }
     }
+    private class ConfigProvider(private val file: File, private val declaredSize: Long?) : DocumentsProvider() {
+        val threads = ConcurrentLinkedQueue<Thread>()
+        var descriptor: ParcelFileDescriptor? = null
+        override fun onCreate() = true
+        override fun queryRoots(projection: Array<out String>?) = MatrixCursor(arrayOf(DocumentsContract.Root.COLUMN_ROOT_ID))
+        override fun queryChildDocuments(parentDocumentId: String, projection: Array<out String>?, sortOrder: String?): Cursor =
+            MatrixCursor(arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID))
+        override fun queryDocument(documentId: String, projection: Array<out String>?): Cursor {
+            check(Looper.myLooper() != Looper.getMainLooper())
+            threads.add(Thread.currentThread())
+            return MatrixCursor(arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_SIZE)).apply {
+                addRow(arrayOf<Any?>("配置.yaml", declaredSize))
+            }
+        }
+        override fun openDocument(documentId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor {
+            check(Looper.myLooper() != Looper.getMainLooper())
+            threads.add(Thread.currentThread())
+            return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).also { descriptor = it }
+        }
+    }
+
+    @SdkSuppress(minSdkVersion = 29)
+    @Test fun documentProviderUnknownAndFalseSizesUseActualBytesOffMainAndCloseRealFd() = BackupFixture.use { f ->
+        f.old()
+        val original = f.current()
+        val limit = io.github.monadboxlab.clashpseudo.app.ApplicationContract.CONFIGURATION_TEXT_BYTES
+        for ((declared, actual) in listOf(null to 17, Long.MAX_VALUE to 17, 1L to limit + 1)) {
+            val file = File(f.root, "provider-body").apply { writeBytes(ByteArray(actual) { 'x'.code.toByte() }) }
+            val provider = ConfigProvider(file, declared)
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            provider.attachInfo(context, ProviderInfo().apply {
+                authority = "fixture.configs"
+                exported = true
+                grantUriPermissions = true
+                readPermission = "android.permission.MANAGE_DOCUMENTS"
+                writePermission = "android.permission.MANAGE_DOCUMENTS"
+            })
+            val worker = Executors.newSingleThreadExecutor { Thread(it, "config-document-test") }
+            val exited = CountDownLatch(1)
+            try {
+                val h = Harness(f, resolver = ContentResolver.wrap(provider), realDocumentWorker = Executor { task ->
+                    worker.execute { try { task.run() } finally { exited.countDown() } }
+                })
+                InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                    h.calls.pickConfig("provider", h::reply)
+                    h.select(uri = DocumentsContract.buildDocumentUri("fixture.configs", "config").toString())
+                }
+                assertTrue(exited.await(5, TimeUnit.SECONDS))
+                h.drain()
+                assertEquals(listOf("config-document-test", "config-document-test"), provider.threads.map { it.name })
+                assertFalse(checkNotNull(provider.descriptor).fileDescriptor.valid())
+                assertEquals(original, f.current())
+                if (actual <= limit) {
+                    assertEquals("ready", status(h))
+                    assertEquals("配置.yaml", h.replies.single()["name"])
+                    assertArrayEquals(file.readBytes(), h.replies.single()["bytes"] as ByteArray)
+                } else {
+                    assertEquals("textTooLargeImport", h.replies.single()["errorCode"])
+                    assertFalse(h.replies.single().containsKey("bytes"))
+                }
+            } finally { worker.shutdownNow(); provider.shutdown() }
+        }
+    }
+
     private fun archive(f: BackupFixture, candidate: BackupFiles.Candidate) = ByteArrayOutputStream().also {
         f.files.writeArchive(candidate.token, it, BackupFiles.Operation(BackupLease()))
     }.toByteArray()
@@ -84,6 +163,102 @@ class BackupCallsTest {
     private fun status(h: Harness) = h.replies.last()["status"]
     private fun busy(h: Harness) = h.calls.snapshot()["busy"] == true
     private fun capturing(h: Harness) = h.calls.snapshot()["capturing"] == true
+
+    @Test fun configPickerReadsActualBytesOnDocumentWorkerAndClosesBeforeReply() = BackupFixture.use { f ->
+        val h = Harness(f)
+        val bytes = "\uFEFF规则: []\r\n".toByteArray()
+        var closed = false
+        h.input = { object : ByteArrayInputStream(bytes) {
+            override fun available() = Int.MAX_VALUE
+            override fun close() { closed = true; super.close() }
+        } }
+        h.calls.pickConfig("config", h::reply)
+        assertEquals("*/*", h.launches.single().intent.type)
+        h.select()
+        assertEquals(0, h.opens)
+        assertTrue(h.replies.isEmpty())
+        assertTrue(h.storage.tasks.isEmpty())
+        h.documents()
+        assertTrue(closed)
+        assertEquals("ready", status(h))
+        assertArrayEquals(bytes, h.replies.single()["bytes"] as ByteArray)
+        assertFalse(busy(h))
+    }
+
+    @Test fun configPickerRejectsActualOverflowWithoutPublishingOrRetainingInput() = BackupFixture.use { f ->
+        val h = Harness(f)
+        val limit = io.github.monadboxlab.clashpseudo.app.ApplicationContract.CONFIGURATION_TEXT_BYTES
+        var read = 0
+        var closed = false
+        h.input = { object : InputStream() {
+            override fun available() = 0
+            override fun read(): Int { read++; return 'x'.code }
+            override fun read(bytes: ByteArray, offset: Int, length: Int): Int {
+                bytes.fill('x'.code.toByte(), offset, offset + length)
+                read += length
+                return length
+            }
+            override fun close() { closed = true }
+        } }
+        h.calls.pickConfig("oversized", h::reply)
+        h.select()
+        h.documents()
+        assertEquals(limit + 1, read)
+        assertTrue(closed)
+        assertEquals("textTooLargeImport", h.replies.single()["errorCode"])
+        assertFalse(h.replies.single().containsKey("bytes"))
+        assertFalse(busy(h))
+    }
+
+    @Test fun configCancellationAndActivityReplacementWaitForReadAndDescriptorClose() = BackupFixture.use { f ->
+        for (recreate in listOf(false, true)) {
+            val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+            val entered = java.util.concurrent.CountDownLatch(1)
+            val releaseRead = java.util.concurrent.CountDownLatch(1)
+            val closing = java.util.concurrent.CountDownLatch(1)
+            val releaseClose = java.util.concurrent.CountDownLatch(1)
+            val exited = java.util.concurrent.CountDownLatch(1)
+            val pipe = ParcelFileDescriptor.createPipe()
+            val stream = ParcelFileDescriptor.AutoCloseInputStream(pipe[0])
+            val h = Harness(f, realDocumentWorker = Executor { task -> executor.execute { try { task.run() } finally { exited.countDown() } } })
+            h.input = { object : InputStream() {
+                override fun read(): Int { entered.countDown(); check(releaseRead.await(5, java.util.concurrent.TimeUnit.SECONDS)); return stream.read() }
+                override fun close() {
+                    closing.countDown()
+                    try { check(releaseClose.await(5, java.util.concurrent.TimeUnit.SECONDS)) }
+                    finally { stream.close() }
+                }
+            } }
+            try {
+                h.calls.pickConfig("slow", h::reply)
+                val oldCode = h.launches.last().code
+                h.select()
+                assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                if (recreate) h.calls.attach(Harness.newActivity()) else h.calls.cancel("slow")
+                assertTrue(busy(h))
+                assertTrue(h.replies.isEmpty())
+                pipe[1].close()
+                releaseRead.countDown()
+                assertTrue(closing.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                h.drain()
+                assertTrue(pipe[0].fileDescriptor.valid())
+                assertTrue(busy(h))
+                assertTrue(h.replies.isEmpty())
+                releaseClose.countDown()
+                assertTrue(exited.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                assertFalse(pipe[0].fileDescriptor.valid())
+                h.drain()
+                assertEquals("cancelled", status(h))
+                assertFalse(h.replies.single().containsKey("bytes"))
+                assertFalse(busy(h))
+                h.select(code = oldCode)
+                assertEquals(1, h.opens)
+                assertEquals(1, h.replies.size)
+            } finally {
+                releaseRead.countDown(); releaseClose.countDown(); pipe[1].close(); executor.shutdownNow()
+            }
+        }
+    }
 
     @Test fun capturesFixedRawStoresAndUsesOnlyDartDefaultsForAbsentFilesBeforeAnyPicker() = BackupFixture.use { f ->
         val original = BackupFixture.values()

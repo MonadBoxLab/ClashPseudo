@@ -65,7 +65,10 @@ class CoreFixtureService : Service() {
                 override fun onExited(processId: String, requestId: Long, receipt: ParcelFileDescriptor) {
                     drainDocument(ParcelFileDescriptor.dup(receipt.fileDescriptor))
                 }
-            })
+            }).also { state ->
+                state.getParcelable<ParcelFileDescriptor>("details")?.let(::drainDocument)
+                state.remove("details")
+            }
             ready.countDown()
         }
         override fun onServiceDisconnected(name: ComponentName) { remote = null }

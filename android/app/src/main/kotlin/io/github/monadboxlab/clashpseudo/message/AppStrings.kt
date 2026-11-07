@@ -28,6 +28,12 @@ object AppStrings {
         display = Display(context.applicationContext, null, null, "cinnabar")
     }
 
+    @Synchronized
+    fun configurationChanged(context: Context) {
+        val current = requireNotNull(display)
+        display = current.copy(context = wrap(context.applicationContext, current.locale, current.nightMode))
+    }
+
     /** Only native presentation fields are projected; Dart still owns the saved preferences. */
     @Synchronized
     fun refresh(context: Context) {

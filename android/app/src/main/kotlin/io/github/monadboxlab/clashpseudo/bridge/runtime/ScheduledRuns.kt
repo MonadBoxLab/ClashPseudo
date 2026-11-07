@@ -15,10 +15,25 @@ import io.github.monadboxlab.clashpseudo.bridge.operation.OperationState
 import io.github.monadboxlab.clashpseudo.logic.LogicEngineHost
 import io.github.monadboxlab.clashpseudo.message.AppMessage
 import io.github.monadboxlab.clashpseudo.message.AppStrings
-import io.github.monadboxlab.clashpseudo.nativecore.CoreHost
 import io.github.monadboxlab.clashpseudo.vpn.NativeSession
 import io.github.monadboxlab.clashpseudo.vpn.PseudoVpnService
 import java.util.UUID
+
+internal fun matchesScheduledInput(call: MethodCall, core: Map<String, Any?>): Boolean {
+    if (core[Contract.CORE_FIELD_PHASE] != Contract.CORE_PHASE_READY ||
+        core["purpose"] != Contract.CORE_PURPOSE_RUNNING ||
+        (core["vpnRunning"] != true && core["lanRunning"] != true)) return false
+    for (field in listOf("processId", "inputId", "configId", "composition")) {
+        val value = core[field] as? String
+        if (value.isNullOrEmpty() || value != call.argument<String>(field)) return false
+    }
+    val generation = (core["generation"] as? Number)?.toLong() ?: return false
+    val revision = (core["revision"] as? Number)?.toInt() ?: return false
+    return generation > 0 && revision > 0 &&
+        generation == call.argument<Number>("generation")?.toLong() &&
+        revision == call.argument<Number>("revision")?.toInt() &&
+        (core["vpnRunning"] != true || generation == call.argument<Number>("sessionGeneration")?.toLong())
+}
 
 internal class ScheduledRuns(
     private val context: Context,
@@ -168,19 +183,11 @@ internal class ScheduledRuns(
 
     fun finishScheduledDownload(call: MethodCall, owner: String, result: MethodChannel.Result) {
         val run = scheduled
-        val session = PseudoVpnService.session.snapshot()
-        val core = PseudoVpnService.core.snapshot()
+        val core = CoreClient.installed().status()
         if (run == null || run.owner != owner || operations.command?.get("action") != "refreshSchedule" ||
             operations.command?.get("kind") != call.argument<String>("kind") ||
             operations.command?.get("id") != call.argument<String>("id") ||
-            session.phase != NativeSession.Phase.RUNNING ||
-            session.generation != call.argument<Number>("sessionGeneration")?.toLong() ||
-            session.configId != call.argument<String>("configId") ||
-            session.revision != call.argument<Int>("revision") ||
-            core.generation != call.argument<Number>("generation")?.toLong() ||
-            core.composition != call.argument<String>("composition") ||
-            core.configId != session.configId || core.revision != session.revision ||
-            core.purpose != CoreHost.Purpose.RUNNING || !PseudoVpnService.core.current(core.generation) ||
+            !matchesScheduledInput(call, core) ||
             !run.handoff()) {
             result.error("expired", null, AppMessage("operationFinished").toMap())
             return

@@ -48,6 +48,16 @@ class CoreSnapshot {
     purpose,
   );
 
+  Map<String, Object?> get wireIdentity => {
+    'processId': processId,
+    'inputId': inputId,
+    'generation': generation,
+    'configId': configId,
+    'revision': revision,
+    'composition': composition,
+    'purpose': purpose,
+  };
+
   bool matchesIdentity(CoreSnapshot other) =>
       hasIdentity && identity == other.identity;
 

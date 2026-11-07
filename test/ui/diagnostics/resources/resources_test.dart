@@ -1,4 +1,8 @@
 import 'package:clash_pseudo/src/model/platform_failure.dart';
+import 'package:clash_pseudo/src/model/application_contract.dart';
+
+import '../../../support/core_runtime_fixture.dart';
+
 import 'package:clash_pseudo/src/ui/locale/message_text.dart';
 import 'package:clash_pseudo/src/ui/navigation/route_observer.dart';
 import 'package:clash_pseudo/src/model/app_snapshot.dart';
@@ -88,6 +92,8 @@ Map<String, dynamic> resourcePage(
   CoreSnapshot source, {
   List<Map<String, dynamic>>? rows,
 }) => {
+  'processId': source.processId,
+  'inputId': source.inputId,
   'generation': source.generation,
   'configId': source.configId,
   'revision': source.revision,
@@ -498,6 +504,49 @@ rule-providers: {local-rule-provider: {type: inline, payload: []}}
     },
   );
 
+  test(
+    'resource update preserves the process and input captured by the reader',
+    () async {
+      final fixture = await CoreRuntimeFixture.create();
+      addTearDown(fixture.dispose);
+      await fixture.startAppRuntime();
+      final source = fixture.core;
+      final bridge = ResourceBridge();
+      final app = ResourceApp(bridge)
+        ..publish(AppSnapshot(phase: 'RUNNING', core: source));
+      final controller = ResourcesController(app)..setVisible(true);
+      addTearDown(() {
+        controller.dispose();
+        app.dispose();
+      });
+      bridge.replies.single.complete(resourcePage(source));
+      await Future<void>.delayed(Duration.zero);
+      final pending = controller.update('proxyProvider', 'remote');
+      final command = bridge.updates.single;
+      bridge.updateReplies.single.complete({
+        'update': {'status': 'ok'},
+      });
+      await pending;
+      expect(
+        source.matchesWireIdentity(Map<String, dynamic>.from(command)),
+        isTrue,
+      );
+      expect(command['processId'], source.processId);
+      expect(command['inputId'], source.inputId);
+      fixture.script(ApplicationContract.coreOperationResourceUpdate, (
+        request,
+      ) {
+        request.complete({'status': 'ok'});
+      });
+      final result = await fixture.execute(Map<String, dynamic>.from(command));
+      expect(result['success'], isTrue, reason: '$result');
+      expect(
+        fixture.calls(ApplicationContract.coreOperationResourceUpdate),
+        hasLength(1),
+      );
+    },
+  );
+
   test('accepted update survives leaving page and old results do not label new rows', () async {
     final bridge = ResourceBridge();
     final app = ResourceApp(bridge);
@@ -508,6 +557,8 @@ rule-providers: {local-rule-provider: {type: inline, payload: []}}
     final pending = controller.update('proxyProvider', 'remote');
     expect(bridge.updates.single, {
       'action': 'updateResource',
+      'processId': core(1).processId,
+      'inputId': core(1).inputId,
       'generation': 1,
       'composition': core(1).composition,
       'configId': 'main',

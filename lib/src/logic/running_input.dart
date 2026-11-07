@@ -177,6 +177,11 @@ class RunningInput {
     return true;
   }
 
+  bool matchesAccess(ApplicationAccess access, Iterable<String> packages) =>
+      preferences.access == access &&
+      preferences.packages.toSet().length == packages.toSet().length &&
+      preferences.packages.toSet().containsAll(packages);
+
   bool matchesSelection(
     ConfigEntry target,
     TunnelMode? mode,
@@ -187,10 +192,7 @@ class RunningInput {
       entry.body == target.body &&
       fallbackMode == mode &&
       sameParts(this.parts, parts) &&
-      this.preferences.access == preferences.access &&
-      this.preferences.packages.toSet().length ==
-          preferences.packages.toSet().length &&
-      this.preferences.packages.toSet().containsAll(preferences.packages) &&
+      matchesAccess(preferences.access, preferences.packages) &&
       target.choices.entries.every(
         (choice) =>
             entry.choices[choice.key]?.type == choice.value.type &&

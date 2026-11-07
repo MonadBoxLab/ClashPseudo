@@ -224,7 +224,7 @@ def _download_source(url, destination, fetch):
 
 
 def prepare_resource_sources(specs, destination, *, inputs=None, processing=GEOIP_DATA_PROCESSING, fetch=None):
-    """Prepare resource source archives at fixed commits; verify local archives and sources when resource-sources.json already exists."""
+    """Verify or download fixed source archives and publish metadata for the requested inputs and processing."""
     fetch = _resolver(fetch)
     require(isinstance(specs, dict) and set(GEO_SOURCE_REPOSITORIES) <= set(specs), "Missing frozen GeoIP/GeoSite inputs")
     fixed = {kind: resource_spec(specs[kind]) for kind in GEO_SOURCE_REPOSITORIES}
@@ -236,53 +236,60 @@ def prepare_resource_sources(specs, destination, *, inputs=None, processing=GEOI
     destination = Path(destination).absolute()
     require(destination.resolve() == destination and not destination.is_relative_to(ROOT),
             "Resource sources require a separate directory outside the repository without symbolic links")
+    rows = []
+    for kind in GEO_SOURCE_REPOSITORIES:
+        commit = fixed[kind]["sourceCommit"]
+        url, name = _source_expected(kind, commit)
+        row = {"kind": kind, "sourceCommit": commit, "sourceUrl": url, "file": name, "inputs": []}
+        if kind == "geoip":
+            row.update(inputs=geoip_inputs, processing=processing)
+        rows.append(row)
+    expected = {(row["kind"], source["sourceCommit"]): source
+                for row in rows for source in [row, *row["inputs"]]}
     manifest = destination / "resource-sources.json"
+    cached = {}
     if destination.exists():
         entries = {entry.name for entry in destination.iterdir()}
         if manifest.exists():
             prepared = read_resource_sources(destination)
-            recorded = {"resource-sources.json"} | {source["file"] for row in prepared["sources"]
-                                                    for source in [row, *row.get("inputs", [])]}
-            require(entries == recorded, "Resource source directory contains unregistered files: " + repr(sorted(entries - recorded)))
+            registered = {"resource-sources.json"} | {source["file"] for row in prepared["sources"]
+                                                      for source in [row, *row.get("inputs", [])]}
+            require(entries == registered, "Resource source directory contains unregistered files: " + repr(sorted(entries - registered)))
             for row in prepared["sources"]:
                 kind = row["kind"]
                 require(row["sourceCommit"] == fixed[kind]["sourceCommit"],
                         "Prepared resource sources differ from current frozen inputs: " + kind)
-            expected = {(item["sourceCommit"], item["sourceUrl"]) for item in geoip_inputs}
-            current = next(row for row in prepared["sources"] if row["kind"] == "geoip")
-            actual = {(item["sourceCommit"], item["sourceUrl"]) for item in current["inputs"]}
-            require(expected == actual, "Prepared GeoIP supplemental inputs differ from current inputs")
-            return manifest
-        require(not entries, "Resource source directory contains unregistered files; use a new empty directory: " + repr(sorted(entries)))
-    destination.mkdir(parents=True, exist_ok=True)
-    rows, total = [], 0
-    for kind in ("geoip", "geosite"):
-        commit = fixed[kind]["sourceCommit"]
-        url, name = _source_expected(kind, commit)
-        result = _download_source(url, destination / name, fetch)
-        total += result["bytes"]
-        require(total <= RESOURCE_TOTAL_LIMIT, "Total resource source size exceeds the limit")
-        row = {"kind": kind, "sourceCommit": commit, "sourceUrl": url, "file": name,
-               "bytes": result["bytes"], "sha256": result["sha256"]}
-        if kind == "geoip":
-            entries = []
-            for item in geoip_inputs:
-                measured = _download_source(item["sourceUrl"], destination / item["file"], fetch)
-                total += measured["bytes"]
-                require(total <= RESOURCE_TOTAL_LIMIT, "Total resource source size exceeds the limit")
-                entries.append(dict(item, bytes=measured["bytes"], sha256=measured["sha256"]))
-            row.update(inputs=entries, processing=processing)
+                for source in [row, *row.get("inputs", [])]:
+                    identity = (kind, source["sourceCommit"])
+                    requested = expected.get(identity)
+                    require(requested is not None and all(source.get(key) == requested[key]
+                                                         for key in ("sourceUrl", "file")),
+                            "Prepared resource source identity differs from current inputs: " + kind)
+                    cached[identity] = source
+            require(cached.keys() == expected.keys(), "Prepared resource sources differ from current inputs")
         else:
-            row["inputs"] = []
-        rows.append(row)
+            require(not entries, "Resource source directory contains unregistered files; use a new empty directory: " + repr(sorted(entries)))
+    destination.mkdir(parents=True, exist_ok=True)
+    total = 0
+    for identity, source in expected.items():
+        measured = cached[identity] if cached else _download_source(source["sourceUrl"], destination / source["file"], fetch)
+        total += measured["bytes"]
+        require(total <= RESOURCE_TOTAL_LIMIT, "Total resource source size exceeds the limit")
+        source.update(bytes=measured["bytes"], sha256=measured["sha256"])
     metadata = {"format": "clash-pseudo-resource-sources", "version": 1, "sources": rows}
+    data = json_bytes(metadata)
+    if cached and read_resource(manifest, 128 * 1024) == data:
+        return manifest
     partial = destination / "resource-sources.json.part"
-    with partial.open("xb") as output:
-        output.write(json_bytes(metadata))
-        output.flush()
-        os.fsync(output.fileno())
-    os.replace(partial, manifest)
-    sync_directory(destination)
+    try:
+        with partial.open("xb") as output:
+            output.write(data)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(partial, manifest)
+        sync_directory(destination)
+    finally:
+        partial.unlink(missing_ok=True)
     return manifest
 
 

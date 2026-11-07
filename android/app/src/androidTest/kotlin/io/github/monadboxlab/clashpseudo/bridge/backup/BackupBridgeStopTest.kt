@@ -2,6 +2,7 @@ package io.github.monadboxlab.clashpseudo.bridge.backup
 
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.test.platform.app.InstrumentationRegistry
 import io.flutter.plugin.common.MethodChannel
 import io.github.monadboxlab.clashpseudo.backup.BackupCalls
@@ -44,9 +45,31 @@ class BackupBridgeStopTest {
         fun backupValue(name: String): Any? = backupField(name).get(coordinator)
     }
 
+    private fun afterStartupScheduleSync(action: () -> Unit) {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val deadline = SystemClock.elapsedRealtime() + 30_000L
+        var completed = false
+        while (!completed) {
+            instrumentation.runOnMainSync {
+                val syncing = AppBridge.command?.get("action") == "syncSchedules" &&
+                    (AppBridge.operationId != null || AppBridge.logic.busy || AppBridge.operations.executorBusy)
+                if (syncing) {
+                    assertTrue("Startup schedule synchronization did not drain: operationId=${AppBridge.operationId}, " +
+                        "command=${AppBridge.command}, logicBusy=${AppBridge.logic.busy}, " +
+                        "executorBusy=${AppBridge.operations.executorBusy}", SystemClock.elapsedRealtime() < deadline)
+                    return@runOnMainSync
+                }
+                // Admission cannot race the fixture after this main-thread check.
+                action()
+                completed = true
+            }
+            if (!completed) SystemClock.sleep(25)
+        }
+    }
+
     private fun withRestore(action: (Fixture) -> Unit) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        instrumentation.runOnMainSync {
+        afterStartupScheduleSync {
             val context = instrumentation.targetContext
             CoreIpcTestDriver.assertNoGoInApplication()
             assertEquals(NativeSession.Phase.STOPPED, PseudoVpnService.session.snapshot().phase)
@@ -60,11 +83,13 @@ class BackupBridgeStopTest {
             val oldPending = pending.get(logic)
             val oldExecuting = executing.getBoolean(logic)
             val oldAdmitted = AppBridge.operations.admitted
-            assertNull(old["operationId"])
+            assertNull("Restore fixture requires idle admission: command=${AppBridge.command}, " +
+                "systemRestoreOwner=${old["systemRestoreOwner"]}, logicBusy=${logic.busy}", old["operationId"])
             assertNull(old["authorization"])
             assertNull(old["systemRestoreOwner"])
             assertNull(oldPending)
             assertFalse(oldExecuting)
+            assertFalse("Restore fixture requires a drained executor", AppBridge.operations.executorBusy)
             val owner = "backup-stop-test-${UUID.randomUUID()}"
             val token = UUID.randomUUID().toString()
             val command = mapOf("action" to "restoreBackup", "token" to token, "storageEpoch" to 7L)

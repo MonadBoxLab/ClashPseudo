@@ -95,6 +95,7 @@ class AppSnapshot {
     this.resourceStatus,
     this.scheduleStatus,
     this.backupResult,
+    this.modeResult,
     this.targetId,
     this.savedRevision,
     this.resultSuccess = false,
@@ -170,6 +171,7 @@ class AppSnapshot {
   final String? resourceStatus;
   final String? scheduleStatus;
   final Map<String, dynamic>? backupResult;
+  final Map<String, dynamic>? modeResult;
   final String? targetId;
   final int? savedRevision;
   final bool resultSuccess;
@@ -270,6 +272,7 @@ class AppSnapshot {
     resourceStatus: resourceStatus,
     scheduleStatus: scheduleStatus,
     backupResult: backupResult,
+    modeResult: modeResult,
     targetId: targetId,
     savedRevision: savedRevision,
     resultSuccess: resultSuccess,
@@ -384,6 +387,9 @@ class AppSnapshot {
           ? Map<String, dynamic>.unmodifiable(
               Map<String, dynamic>.from(data['backupResult'] as Map),
             )
+          : null,
+      modeResult: data['modeResult'] is Map
+          ? Map<String, dynamic>.unmodifiable(data['modeResult'] as Map)
           : null,
       targetId: data['targetId'] as String?,
       savedRevision: data['savedRevision'] as int?,

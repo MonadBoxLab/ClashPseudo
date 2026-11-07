@@ -311,6 +311,11 @@ void main() {
             phase: 'STOPPED',
             resultId: 'operation-1',
             resultSuccess: true,
+            modeResult: {
+              'status': 'saved',
+              'mode': 'global',
+              'storageEpoch': 0,
+            },
           );
           app.changed();
           await tester.pumpAndSettle();

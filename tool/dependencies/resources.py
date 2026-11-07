@@ -320,6 +320,16 @@ def prepare_bundled_assets(root, *, prepared=None, payloads=None, output=None, f
     return output
 
 
+def frozen_source_options(record):
+    """Use the release's source explanations instead of current preparation defaults."""
+    if "sourceInputs" not in record:
+        return {}
+    metadata = record["sourceInputs"]
+    resource_source_entries(metadata)
+    geoip = next(row for row in metadata["sources"] if row["kind"] == "geoip")
+    return {"inputs": geoip["inputs"], "processing": geoip["processing"]}
+
+
 def check_resource_source_selection(root, metadata):
     """Compare editable resource sources against commits in this release's frozen records."""
     record = read_release_resources(root)

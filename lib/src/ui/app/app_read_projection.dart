@@ -55,6 +55,8 @@ class AppReadProjection {
   bool _refreshing = false;
   Completer<void>? _refreshDone;
   bool _refreshAgain = false;
+  bool _refreshFiles = false;
+  bool _refreshMode = false;
   bool _disposed = false;
   bool _foreground = true;
   bool get foreground => _foreground;
@@ -89,8 +91,10 @@ class AppReadProjection {
     }
   }
 
-  Future<void> refresh() async {
+  Future<void> refresh({bool modeOnly = false}) async {
     if (_disposed || !_foreground) return;
+    _refreshFiles |= !modeOnly;
+    _refreshMode |= modeOnly;
     _retry?.cancel();
     if (_refreshing) {
       _refreshAgain = true;
@@ -105,6 +109,10 @@ class AppReadProjection {
     try {
       do {
         _refreshAgain = false;
+        final readFiles = _refreshFiles;
+        final readMode = _refreshMode;
+        _refreshFiles = false;
+        _refreshMode = false;
         final revision = _readRevision;
         bool current() =>
             !_disposed &&
@@ -124,6 +132,19 @@ class AppReadProjection {
           }
         }
         if (!current()) continue;
+        if (readMode &&
+            state.confirmed &&
+            state.core.ready &&
+            state.core.hasIdentity) {
+          try {
+            await platform.readMode(state.core).timeout(_readTimeout);
+          } catch (failure) {
+            readinessFailure = messages.temporaryModeUnknown.withDetail(
+              failure,
+            );
+          }
+          if (!current()) continue;
+        }
         final (snapshot, snapshotFailure) = await _readState();
         if (!current()) continue;
         state = snapshot;
@@ -145,7 +166,9 @@ class AppReadProjection {
           loading = false;
         }
         _changed();
-        if (state.storageReady && !state.storageRestoring) {
+        if ((readFiles || _storageEpoch != state.storageEpoch) &&
+            state.storageReady &&
+            !state.storageRestoring) {
           final epoch = state.storageEpoch;
           ConfigCollection? configs;
           List<OverrideEntry>? parts;
@@ -193,6 +216,7 @@ class AppReadProjection {
             // A restore crossing this read invalidates the projection, not the
             // draft. Read the new epoch before publishing any of its files.
             _refreshAgain = after.storageReady && !after.storageRestoring;
+            _refreshFiles = true;
             loading = false;
             _changed();
             continue;
@@ -220,20 +244,20 @@ class AppReadProjection {
       } while (_refreshAgain && !_disposed && runner == _runner && _foreground);
       if (_disposed || runner != _runner) return;
       _refreshing = false;
-      if (!state.storageReady ||
+      final filesPending =
+          !state.storageReady ||
           state.storageRestoring ||
           platformError != null ||
           configError != null ||
           preferencesError != null ||
-          overrideError != null ||
-          state.modeError != null ||
-          state.modeUnconfirmed) {
+          overrideError != null;
+      if (filesPending || state.modeError != null || state.modeUnconfirmed) {
         final seconds = _retrySeconds[_retryStep];
         if (_retryStep < _retrySeconds.length - 1) _retryStep++;
         if (_foreground) {
           _retry = Timer(
             Duration(seconds: seconds),
-            () => unawaited(refresh()),
+            () => unawaited(refresh(modeOnly: !filesPending)),
           );
         }
       } else {

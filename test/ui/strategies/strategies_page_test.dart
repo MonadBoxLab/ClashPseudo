@@ -1,3 +1,8 @@
+import 'dart:async';
+
+import 'package:clash_pseudo/src/model/operation_admission.dart';
+import 'package:clash_pseudo/src/model/platform_failure.dart';
+import 'package:clash_pseudo/src/ui/app/app_controller.dart';
 import 'package:clash_pseudo/src/ui/navigation/route_observer.dart';
 import 'package:clash_pseudo/src/ui/locale/message_text.dart';
 import 'package:clash_pseudo/src/ui/navigation/task_activity.dart';
@@ -18,6 +23,44 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/strategy_fakes.dart';
 import '../overrides/definitions/local_definitions_support.dart';
+
+class _FeedbackStrategyBridge extends StrategyBridgeFake {
+  final admission = Completer<void>();
+  final commands = <Map<String, Object?>>[];
+  bool reject = false;
+
+  @override
+  Future<OperationAdmission?> submit(Map<String, Object?> command) async {
+    commands.add(command);
+    await admission.future;
+    if (reject) {
+      throw PlatformFailure(
+        code: 'strategy',
+        details: messages.operationFailed.toMap(),
+      );
+    }
+    return const OperationAdmission(
+      operationId: 'choice',
+      remaining: Duration(seconds: 30),
+    );
+  }
+}
+
+class _FeedbackStrategyApp extends AppController {
+  _FeedbackStrategyApp(this.bridge) : super(bridge) {
+    loading = false;
+    configsLoaded = preferencesLoaded = overridesLoaded = true;
+    state = bridge.state;
+    collection = ConfigCollection(entries: [strategyEntry], selectedId: 'one');
+  }
+  final _FeedbackStrategyBridge bridge;
+
+  @override
+  Future<void> refresh() async {
+    state = await bridge.snapshot();
+    notifyListeners();
+  }
+}
 
 class _DelayStrategyBridge extends StrategyBridgeFake {
   Map<String, dynamic> _identity(CoreSnapshot core) => {
@@ -80,6 +123,77 @@ class _EpochPopupApp extends StrategyAppFake {
 }
 
 void main() {
+  for (final closeEarly in [false, true]) {
+    for (final rejected in [false, true]) {
+      testWidgets(
+        'strategy failure has one presenter closed=$closeEarly rejected=$rejected',
+        (tester) async {
+          final bridge = _FeedbackStrategyBridge()..reject = rejected;
+          final app = _FeedbackStrategyApp(bridge);
+          addTearDown(app.dispose);
+          await tester.pumpWidget(
+            MaterialApp(
+              navigatorObservers: [AppTaskNavigatorObserver()],
+              locale: const Locale('en'),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              home: AppShell(controller: app),
+            ),
+          );
+          await tester.pumpAndSettle();
+          tester
+              .widget<AppTaskScope>(find.byType(AppTaskScope))
+              .open(AppTask.strategies);
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const ValueKey('strategy-group-出口')));
+          await tester.pumpAndSettle();
+          final strings = AppLocalizations.of(
+            tester.element(find.byType(StrategyPopup)),
+          );
+          await tester.tap(find.byKey(const ValueKey('strategy-member-1')));
+          await tester.pump();
+          expect(app.hasLocalFeedbackOwner, isTrue);
+          if (closeEarly) {
+            await tester.tap(find.byTooltip(strings.closeStrategyPopup));
+            await tester.pumpAndSettle();
+            expect(app.hasLocalFeedbackOwner, isFalse);
+          }
+          bridge.admission.complete();
+          await tester.pump();
+          if (!rejected) {
+            bridge.state = const AppSnapshot(
+              phase: 'STOPPED',
+              core: previewCore,
+              resultId: 'choice',
+              resultSuccess: false,
+              resultMessage: AppMessage('operationFailed'),
+            );
+            await app.refresh();
+          }
+          await tester.pumpAndSettle();
+          expect(bridge.commands, hasLength(1));
+          expect(find.byType(SnackBar), findsOneWidget);
+          expect(app.hasLocalFeedbackOwner, isFalse);
+          await tester.tap(
+            find.descendant(
+              of: find.byType(SnackBar),
+              matching: find.byType(IconButton),
+            ),
+          );
+          await tester.pumpAndSettle();
+          if (!closeEarly) {
+            await tester.tap(find.byTooltip(strings.closeStrategyPopup));
+            await tester.pumpAndSettle();
+          }
+          await app.refresh();
+          await tester.pumpAndSettle();
+          expect(find.byType(SnackBar), findsNothing);
+          await tester.pumpWidget(const SizedBox());
+        },
+      );
+    }
+  }
+
   late StrategyBridgeFake bridge;
   late StrategyAppFake app;
   late AppTaskNavigatorObserver taskRoutes;
@@ -913,7 +1027,7 @@ void main() {
             app.state = const AppSnapshot(
               phase: 'STOPPED',
               core: previewCore,
-              resultId: 'emoji-choice',
+              resultId: 'operation-1',
               resultSuccess: true,
             );
             app.changed();
@@ -954,7 +1068,7 @@ void main() {
       app.state = const AppSnapshot(
         phase: 'STOPPED',
         core: previewCore,
-        resultId: 'done',
+        resultId: 'operation-1',
         resultSuccess: true,
       );
       app.changed();
@@ -1005,7 +1119,7 @@ void main() {
       app.state = const AppSnapshot(
         phase: 'STOPPED',
         core: previewCore,
-        resultId: 'late',
+        resultId: 'operation-1',
         resultSuccess: true,
       );
       app.changed();

@@ -79,6 +79,7 @@ class CoreHost internal constructor(
     @Volatile private var access: Map<String, Any?>? = null
     @Volatile private var pathsState: JSONObject? = null
     @Volatile private var listenerState = JSONArray()
+    private var listenerRevision = 0L
     @Volatile private var lanRunning = false
     @Volatile private var purpose: String? = null
     private data class LanBinding(val listenerName: String, val interfaceName: String, val interfaceIndex: Int, val address: String)
@@ -91,7 +92,7 @@ class CoreHost internal constructor(
     internal fun allocateRequestId(): Long = requestIds.next()
     internal fun document(bytes: ByteArray): ParcelFileDescriptor = transport.document(bytes)
 
-    fun status(): Bundle = Bundle().apply {
+    fun status(): Bundle = synchronized(stopping) { Bundle().apply {
         putInt(Contract.CORE_FIELD_PROTOCOL, Contract.CORE_IPC_VERSION)
         putString(Contract.CORE_FIELD_PROCESS_ID, processId)
         putInt("pid", Process.myPid())
@@ -106,11 +107,15 @@ class CoreHost internal constructor(
         putBoolean("lanIntent", lanIntent)
         putBoolean("vpnRunning", vpnRunning)
         putBoolean("lanRunning", lanRunning)
+        putLong(Contract.CORE_FIELD_LISTENER_REVISION, listenerRevision)
+        // CoreService moves complete rows and access into the existing details FD before Binder delivery.
+        putString("lanListeners", listenerState.toString())
+        access?.let { putString("applicationAccess", JSONObject(it).toString()) }
         pathsState?.let { putString("cleanupCandidates", it.toString()) }
         runningSince?.let { putLong("runningSinceElapsedMs", it) }
         PseudoVpnService.instance?.systemState()?.forEach { (key, value) -> if (value != null) putBoolean(key, value) }
         lastError?.let { putString(Contract.CORE_FIELD_ERROR, it.toString()) }
-    }
+    } }
 
     fun submit(request: Bundle, input: ParcelFileDescriptor, output: ParcelFileDescriptor): Bundle {
         CoreControl.identity(request, processId)
@@ -235,15 +240,19 @@ class CoreHost internal constructor(
         check(controlRequest.getLong(Contract.CORE_FIELD_GENERATION) == 1L) { "A new core process must have generation 1" }
         val arguments = request.getJSONObject("arguments")
         val purpose = arguments.getString("purpose")
-        this.purpose = purpose
-        check(purpose in setOf(Contract.CORE_PURPOSE_PREVIEW, Contract.CORE_PURPOSE_RUNNING)) { "Invalid core purpose" }
-        inputId = controlRequest.getString(Contract.CORE_FIELD_INPUT_ID)?.takeIf { it.isNotBlank() }
-            ?: throw IllegalArgumentException("Core preparation is missing inputId")
-        generation = controlRequest.getLong(Contract.CORE_FIELD_GENERATION).coerceAtLeast(1L)
-        configId = arguments.optStringOrNull("configId") ?: arguments.optStringOrNull("id")
-        revision = arguments.optInt("revision")
-        vpnIntent = purpose == Contract.CORE_PURPOSE_RUNNING && arguments.optBoolean("vpnIntent")
-        lanIntent = purpose == Contract.CORE_PURPOSE_RUNNING && arguments.optBoolean("lanIntent")
+        synchronized(stopping) {
+            checkPreparing(id)
+            this.purpose = purpose
+            check(purpose in setOf(Contract.CORE_PURPOSE_PREVIEW, Contract.CORE_PURPOSE_RUNNING)) { "Invalid core purpose" }
+            inputId = controlRequest.getString(Contract.CORE_FIELD_INPUT_ID)?.takeIf { it.isNotBlank() }
+                ?: throw IllegalArgumentException("Core preparation is missing inputId")
+            generation = controlRequest.getLong(Contract.CORE_FIELD_GENERATION).coerceAtLeast(1L)
+            configId = arguments.optStringOrNull("configId") ?: arguments.optStringOrNull("id")
+            revision = arguments.optInt("revision")
+            vpnIntent = purpose == Contract.CORE_PURPOSE_RUNNING && arguments.optBoolean("vpnIntent")
+            lanIntent = purpose == Contract.CORE_PURPOSE_RUNNING && arguments.optBoolean("lanIntent")
+            phase = Contract.CORE_PHASE_LOADING
+        }
         val selected = arguments.optJSONArray("lanInterfaces") ?: JSONArray()
         lanBindings = (0 until selected.length()).map { index ->
             val row = selected.getJSONObject(index)
@@ -255,7 +264,6 @@ class CoreHost internal constructor(
             check(localInterfaces.available(selectedAddress.interfaceName, selectedAddress.interfaceIndex, selectedAddress.address)) { "Selected LAN interface address is no longer available: ${selectedAddress.address}" }
         }
         check(UnderlyingNetworks.snapshot().key == network.key) { "Underlying network has changed; a new core process is required" }
-        phase = Contract.CORE_PHASE_LOADING
         statusChanged(status())
         CorePreparationObserver.beforeNativePrepare(context, processId, checkNotNull(inputId), configId,
             revision, id, arguments.getLong(Contract.CORE_FIELD_DEADLINE)) { stopping.get() || calls[id]?.get() != true }
@@ -284,28 +292,44 @@ class CoreHost internal constructor(
         val preparedResult = transport.result(Contract.CORE_OPERATION_PREPARE, id, parts, null, callback())
         ensureSuccess(preparedResult)
         val value = preparedResult.value
-        listenerState = value.optJSONArray("listeners") ?: JSONArray()
-        lanRunning = lanIntent && listenersRunning(listenerState)
-        localInterfaces.setActive(lanIntent)
+        CorePreparationObserver.afterNativePrepare(context, processId, checkNotNull(inputId), configId,
+            revision, id, arguments.getLong(Contract.CORE_FIELD_DEADLINE)) { stopping.get() || calls[id]?.get() != true }
+        synchronized(stopping) {
+            checkPreparing(id)
+            listenerState = value.optJSONArray("listeners") ?: JSONArray()
+            listenerRevision++
+            lanRunning = lanIntent && listenersRunning(listenerState)
+            localInterfaces.setActive(lanIntent)
+        }
         if (vpnIntent) {
             val specification = VpnSpecification.read(value.getJSONObject("vpnSpec").toString())
             check(specification.generation == generation && specification.networkKey == network.key) { "VPN specification does not match the current preparation" }
             val service = checkNotNull(PseudoVpnService.instance) { "VPN system resource host is unavailable" }
-            val attached = service.establish(specification, accessMode, packages, network)
-            access = attached.second
-            val attachId = allocateRequestId()
-            val attachParts = nativeParts(Contract.CORE_OPERATION_ATTACH, attachId, JSONObject().put("revision", specification.revision))
-            ensureSuccess(transport.result(Contract.CORE_OPERATION_ATTACH, attachId, attachParts, attached.first, callback()))
-            vpnRunning = true
-            runningSince = SystemClock.elapsedRealtime()
-            service.running()
+            val attached = synchronized(stopping) {
+                checkPreparing(id)
+                service.establish(specification, accessMode, packages, network)
+            }
+            service.attach(attached.first) {
+                checkPreparing(id)
+                val attachId = allocateRequestId()
+                val attachParts = nativeParts(Contract.CORE_OPERATION_ATTACH, attachId, JSONObject().put("revision", specification.revision))
+                ensureSuccess(transport.result(Contract.CORE_OPERATION_ATTACH, attachId, attachParts, attached.first, callback()))
+                synchronized(stopping) {
+                    checkPreparing(id)
+                    service.running(attached.first) {
+                        access = attached.second
+                        vpnRunning = true
+                        runningSince = SystemClock.elapsedRealtime()
+                        phase = Contract.CORE_PHASE_READY
+                        snapshotValue(value)
+                    }
+                }
+            }
+        } else synchronized(stopping) {
+            checkPreparing(id)
+            phase = Contract.CORE_PHASE_READY
+            snapshotValue(value)
         }
-        phase = Contract.CORE_PHASE_READY
-        value.put("platform", JSONObject().put("vpn", JSONObject().put("running", vpnRunning)
-            .put("applicationAccess", access?.let(::JSONObject) ?: JSONObject.NULL))
-            .put("lan", JSONObject().put("running", lanRunning)))
-            .put(Contract.CORE_FIELD_PROCESS_ID, processId).put(Contract.CORE_FIELD_INPUT_ID, inputId)
-            .put(Contract.CORE_FIELD_GENERATION, generation).put(Contract.CORE_FIELD_NETWORK_REVISION, network.revision)
         val sink = ParcelFileDescriptor.AutoCloseOutputStream(ParcelFileDescriptor.dup(output.fileDescriptor))
         sink.use {
             CoreFrames.write(it, CoreFrames.Frame(Contract.CORE_IPC_FRAME_DATA, value.toString().toByteArray(Charsets.UTF_8)))
@@ -313,6 +337,23 @@ class CoreHost internal constructor(
                 preparedResult.terminal.put(Contract.CORE_FIELD_EXITED, true).toString().toByteArray(Charsets.UTF_8)))
         }
         statusChanged(status())
+    }
+
+    private fun checkPreparing(id: Long) {
+        if (stopping.get() || calls[id]?.get() != true) {
+            throw CoreTransportException(Contract.CORE_ERROR_CANCELLED, "PREPARE no longer owns the running context")
+        }
+    }
+
+    private fun snapshotValue(value: JSONObject): JSONObject = synchronized(stopping) {
+        value.put("listeners", JSONArray(listenerState.toString())).put(Contract.CORE_FIELD_LISTENER_REVISION, listenerRevision)
+            .put("platform", JSONObject().put("vpn", JSONObject().put("running", vpnRunning)
+                .put("applicationAccess", access?.let(::JSONObject) ?: JSONObject.NULL))
+                .put("lan", JSONObject().put("running", lanRunning)))
+            .put(Contract.CORE_FIELD_PROCESS_ID, processId).put(Contract.CORE_FIELD_INPUT_ID, inputId)
+            .put(Contract.CORE_FIELD_GENERATION, generation).put(Contract.CORE_FIELD_NETWORK_REVISION, network.revision)
+            .put("configId", configId).put("revision", revision).put("purpose", purpose)
+            .put("vpnIntent", vpnIntent).put("lanIntent", lanIntent)
     }
 
     private fun listenersRunning(listeners: JSONArray): Boolean {
@@ -336,22 +377,36 @@ class CoreHost internal constructor(
                     JSONObject().put("action", "closeListeners").put("names", JSONArray(invalid))), null, callback())
             ensureSuccess(result)
             val outcomes = result.value.getJSONArray("listeners")
-            for (index in 0 until outcomes.length()) {
-                val outcome = outcomes.getJSONObject(index)
-                for (rowIndex in 0 until listenerState.length()) {
-                    val listener = listenerState.getJSONObject(rowIndex)
-                    if (listener.optString("name") == outcome.getString("name")) {
-                        listener.put("state", if (outcome.optBoolean("closed")) "closed" else "closeFailed")
-                        listener.put("error", outcome.opt("error") ?: JSONObject.NULL)
+            val changed = synchronized(stopping) {
+                if (stopping.get() || phase != Contract.CORE_PHASE_READY) return
+                for (index in 0 until outcomes.length()) {
+                    val outcome = outcomes.getJSONObject(index)
+                    for (rowIndex in 0 until listenerState.length()) {
+                        val listener = listenerState.getJSONObject(rowIndex)
+                        if (listener.optString("name") == outcome.getString("name")) {
+                            listener.put("state", if (outcome.optBoolean("closed")) "closed" else "closeFailed")
+                            listener.put("error", outcome.opt("error") ?: JSONObject.NULL)
+                        }
                     }
                 }
+                lanRunning = false
+                listenerRevision++
+                status().apply { putString("event", "listenersChanged") }
             }
-            lanRunning = false
-            statusChanged(status().apply { putString("event", "listenersChanged") })
+            statusChanged(changed)
         } catch (error: Throwable) {
-            lanRunning = false
-            lastError = CoreErrors.json(error)
-            statusChanged(status().apply { putString("event", "listenersChanged") })
+            val changed = synchronized(stopping) {
+                if (stopping.get() || phase != Contract.CORE_PHASE_READY) return
+                lanRunning = false
+                lastError = CoreErrors.json(error)
+                for (index in 0 until listenerState.length()) {
+                    val listener = listenerState.getJSONObject(index)
+                    if (listener.optString("name") in invalid) listener.put("state", "closeFailed").put("error", lastError)
+                }
+                listenerRevision++
+                status().apply { putString("event", "listenersChanged") }
+            }
+            statusChanged(changed)
         }
     }
 
@@ -379,10 +434,7 @@ class CoreHost internal constructor(
     private fun querySnapshot(id: Long, parts: Map<String, ByteArray>, output: ParcelFileDescriptor) {
         val result = transport.result(Contract.CORE_OPERATION_SNAPSHOT, id, parts, null, callback())
         ensureSuccess(result)
-        val value = result.value.put("listeners", listenerState)
-            .put("platform", JSONObject().put("vpn", JSONObject().put("running", vpnRunning)
-                .put("applicationAccess", access?.let(::JSONObject) ?: JSONObject.NULL))
-                .put("lan", JSONObject().put("running", lanRunning)))
+        val value = snapshotValue(result.value)
         ParcelFileDescriptor.AutoCloseOutputStream(ParcelFileDescriptor.dup(output.fileDescriptor)).use {
             CoreFrames.write(it, CoreFrames.Frame(Contract.CORE_IPC_FRAME_DATA, value.toString().toByteArray(Charsets.UTF_8)))
             CoreFrames.write(it, CoreFrames.Frame(Contract.CORE_IPC_FRAME_TERMINAL, result.terminal.toString().toByteArray(Charsets.UTF_8)))
@@ -471,10 +523,13 @@ class CoreHost internal constructor(
     }
 
     fun revoked(error: Throwable? = null) {
-        vpnRunning = false
-        access = null
-        if (error != null) lastError = CoreErrors.json(error)
-        statusChanged(status().apply { putString("event", "revoked") })
+        val revoked = synchronized(stopping) {
+            vpnRunning = false
+            access = null
+            if (error != null) lastError = CoreErrors.json(error)
+            status().apply { putString("event", "revoked") }
+        }
+        statusChanged(revoked)
     }
 
     fun networkChanged() {

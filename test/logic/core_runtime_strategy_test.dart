@@ -2015,12 +2015,172 @@ void main() {
     );
     final replacement = fixture.core.identity;
     final result = await fixture.execute({'action': 'systemRevoked', ...old});
-    expect(result['success'], isTrue);
-    expect(result['lanRestored'], isFalse);
+    expect(result['success'], isFalse);
+    expect(
+      (result['failure'] as Map)['code'],
+      ApplicationContract.coreErrorIdentityMismatch,
+    );
+    expect(result.containsKey('lanRestored'), isFalse);
     expect(fixture.core.identity, replacement);
     expect(fixture.exits, isEmpty);
     expect(fixture.publications, isEmpty);
     expect(fixture.calls(ApplicationContract.coreOperationPrepare), isEmpty);
+  });
+
+  for (final action in ['stop', 'systemRevoked']) {
+    for (final corrupt in [false, true]) {
+      test(
+        '$action awaits real exit before reporting a ${corrupt ? 'corrupt' : 'missing'} LAN record',
+        () async {
+          await create(lanOnly: true);
+          fixture.vpnIntent = true;
+          fixture.phase = 'RUNNING';
+          await fixture.writeRecord({'vpnIntent': true});
+          if (corrupt) await fixture.runInput.writeAsString('{');
+          var recordReads = 0;
+          fixture.beforePlatformCall = (call) {
+            if (call.method !=
+                ApplicationContract.coreChannelReadRunInputRecord) {
+              return null;
+            }
+            recordReads++;
+            return PlatformCallResult({
+              'inputId': fixture.core.inputId,
+              'saved': corrupt,
+              if (corrupt) 'path': fixture.runInput.path,
+            });
+          };
+          await fixture.startAppRuntime();
+          expect(recordReads, greaterThan(0));
+          final readsBeforeStop = recordReads;
+          final source = fixture.core;
+          final gate = Completer<void>();
+          final entered = Completer<void>();
+          fixture.onExit = (arguments) async {
+            expect(arguments['processId'], source.processId);
+            expect(arguments['reason'], action == 'stop' ? 'stop' : 'revoked');
+            entered.complete();
+            await gate.future;
+            fixture.replaceCore(phase: 'EMPTY');
+            fixture.phase = 'STOPPED';
+            fixture.lanRunning = false;
+            return {'exited': true};
+          };
+          final result = FutureProbe(
+            fixture.execute({
+              'action': action,
+              if (action == 'systemRevoked') ...fixture.identity(source),
+            }),
+          );
+          await entered.future;
+          expect(recordReads, greaterThan(readsBeforeStop));
+          expect(result.settled, isFalse);
+          expect(fixture.snapshot.running, isTrue);
+          expect(fixture.publications, isEmpty);
+          expect(
+            fixture.calls(ApplicationContract.coreOperationPrepare),
+            isEmpty,
+          );
+          gate.complete();
+          await result.done;
+          expect(result.value!['success'], isFalse);
+          expect(
+            (result.value!['failure'] as Map)['code'],
+            ApplicationContract.coreErrorCallFailed,
+          );
+          final message = result.value!['message'] as Map;
+          expect(message['id'], 'runningConfigUnavailable');
+          if (corrupt) expect(message['detail'], contains('FormatException'));
+          expect(fixture.exits, hasLength(1));
+          expect(fixture.snapshot.core.phase, 'EMPTY');
+          expect(fixture.snapshot.running, isFalse);
+          expect(fixture.snapshot.lanRunning, isFalse);
+          expect(fixture.publications, isEmpty);
+          expect(
+            fixture.calls(ApplicationContract.coreOperationPrepare),
+            isEmpty,
+          );
+          expect(fixture.authorizations, 0);
+        },
+      );
+    }
+  }
+
+  test('systemRevoked exits an incomplete core identity before reporting unavailable LAN recovery', () async {
+    await create(lanOnly: true);
+    fixture.core = CoreSnapshot.fromMap({
+      ...fixture.coreMap(),
+      'composition': null,
+    });
+    await fixture.startAppRuntime();
+    final source = fixture.core;
+    expect(source.composition, isNull);
+    final result = await fixture.execute({
+      'action': 'systemRevoked',
+      ...fixture.identity(source),
+    });
+    expect(result['success'], isFalse);
+    expect((result['message'] as Map)['id'], 'runningConfigUnavailable');
+    expect(
+      (result['failure'] as Map)['code'],
+      ApplicationContract.coreErrorCallFailed,
+    );
+    expect(fixture.exits.single['processId'], source.processId);
+    expect(fixture.exits.single['reason'], 'revoked');
+    expect(fixture.snapshot.core.phase, 'EMPTY');
+    expect(fixture.snapshot.lanRunning, isFalse);
+    expect(fixture.publications, isEmpty);
+    expect(fixture.calls(ApplicationContract.coreOperationPrepare), isEmpty);
+  });
+
+  test('systemRevoked accepts an event without composition and restores the same immutable LAN input', () async {
+    await create(lanOnly: true);
+    await fixture.startAppRuntime();
+    final source = fixture.core;
+    final command = {'action': 'systemRevoked', ...fixture.identity(source)}
+      ..remove('composition');
+    final result = await fixture.execute(command);
+    expect(result['success'], isTrue);
+    expect(result['lanRestored'], isTrue);
+    expect(fixture.exits.single['processId'], source.processId);
+    expect(fixture.snapshot.lanRunning, isTrue);
+    expect(fixture.snapshot.running, isFalse);
+    expect(fixture.core.inputId, isNot(source.inputId));
+    expect(fixture.core.composition, source.composition);
+    expect(
+      fixture.calls(ApplicationContract.coreOperationPrepare),
+      hasLength(1),
+    );
+    expect(fixture.authorizations, 0);
+  });
+
+  test('complete Stop exits LAN without reading or recovering the unavailable runtime record', () async {
+    await create(lanOnly: true);
+    var recordReads = 0;
+    fixture.beforePlatformCall = (call) {
+      if (call.method != ApplicationContract.coreChannelReadRunInputRecord) {
+        return null;
+      }
+      recordReads++;
+      return PlatformCallResult({
+        'inputId': fixture.core.inputId,
+        'saved': false,
+      });
+    };
+    await fixture.startAppRuntime();
+    expect(recordReads, greaterThan(0));
+    recordReads = 0;
+    final source = fixture.core;
+    await fixture.operation.stop(preserveLan: false);
+    expect(recordReads, 0);
+    expect(fixture.exits.single['processId'], source.processId);
+    expect(fixture.exits.single['reason'], 'stop');
+    expect(fixture.snapshot.core.phase, 'EMPTY');
+    expect(fixture.snapshot.running, isFalse);
+    expect(fixture.snapshot.lanRunning, isFalse);
+    expect(fixture.publications, isEmpty);
+    expect(fixture.calls(ApplicationContract.coreOperationPrepare), isEmpty);
+    expect(fixture.authorizations, 0);
   });
 
   test('systemRevoked cancelled by Stop while awaiting exit does not publish late LAN input', () async {

@@ -4,6 +4,7 @@ import io.github.monadboxlab.clashpseudo.app.ApplicationContract
 import io.github.monadboxlab.clashpseudo.message.AppMessage
 import android.app.Activity
 import android.content.Context
+import android.content.ContentResolver
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -11,6 +12,8 @@ import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
+import android.provider.OpenableColumns
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -36,8 +39,10 @@ class BackupCalls internal constructor(
     private val delay: (Runnable, Long) -> Unit,
     private val remove: (Runnable) -> Unit,
     private val clock: () -> Long,
+    private val displayName: (Uri) -> String = { "" },
 ) {
-    private enum class Kind { CAPTURE, IMPORT, EXPORT, INSPECT }
+    private enum class Kind { CAPTURE, IMPORT, EXPORT, INSPECT, CONFIG }
+    private class ConfigTooLarge : IOException("Configuration byte budget exceeded")
     private enum class Phase { PRIVATE_IO, PICKER, DOCUMENT_IO, CLEANUP }
     private class Request(
         val id: String,
@@ -138,6 +143,37 @@ class BackupCalls internal constructor(
         })
     }
 
+    fun pickConfig(requestId: String, reply: (Map<String, Any?>) -> Unit) {
+        val request = begin(requestId, Kind.CONFIG, reply) ?: return
+        picker(request, Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            type = "*/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        })
+    }
+
+    private fun readConfig(uri: Uri, operation: BackupFiles.Operation): Map<String, Any?> {
+        operation.check()
+        val name = displayName(uri)
+        operation.check()
+        val bytes = openInput(uri).use { input ->
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(32768)
+            val limit = ApplicationContract.CONFIGURATION_TEXT_BYTES
+            while (true) {
+                operation.check()
+                val count = input.read(buffer, 0, minOf(buffer.size, limit - output.size() + 1))
+                operation.check()
+                if (count < 0) break
+                if (count > limit - output.size()) throw ConfigTooLarge()
+                output.write(buffer, 0, count)
+            }
+            output.toByteArray()
+        }
+        operation.check()
+        return mapOf("name" to name, "bytes" to bytes)
+    }
+
     fun saveExport(requestId: String, token: String, title: String,
         reply: (Map<String, Any?>) -> Unit) {
         val request = begin(requestId, Kind.EXPORT, reply, token) ?: return
@@ -177,12 +213,16 @@ class BackupCalls internal constructor(
         // its waiter.
         request.activity = null
         runIo(request, documentWorker, createsCandidate = request.kind == Kind.IMPORT, work = { operation ->
-            if (request.kind == Kind.IMPORT) candidateView { files.prepareImport(openInput(uri), operation) }
+            if (request.kind == Kind.CONFIG) readConfig(uri, operation)
+            else if (request.kind == Kind.IMPORT) candidateView { files.prepareImport(openInput(uri), operation) }
             else {
                 files.writeArchive(checkNotNull(request.token), openOutput(uri), operation)
                 emptyMap()
             }
-        }) { view -> finish(request, result(request, if (request.kind == Kind.IMPORT) "ready" else "saved") + view) }
+        }) { view ->
+            if (request.kind == Kind.CONFIG && !request.active.get()) finish(request, checkNotNull(request.retirement))
+            else finish(request, result(request, if (request.kind == Kind.EXPORT) "saved" else "ready") + view)
+        }
         return true
     }
 
@@ -382,6 +422,8 @@ class BackupCalls internal constructor(
     )
 
     private fun errorCode(request: Request, error: Throwable?) = when {
+        error is ConfigTooLarge -> "textTooLargeImport"
+        request.kind == Kind.CONFIG -> "fileUnreadable"
         error is CancellationException -> "backupExpired"
         request.phase == Phase.DOCUMENT_IO -> "backupDocumentIoFailed"
         else -> "backupCaptureFailed"
@@ -404,20 +446,28 @@ class BackupCalls internal constructor(
         private val documentExecutor: Executor by lazy {
             Executors.newSingleThreadExecutor { work -> Thread(work, "pseudo-document-io").apply { isDaemon = true } }
         }
+        internal fun documentName(resolver: ContentResolver, uri: Uri): String =
+            resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (column >= 0 && cursor.moveToFirst() && !cursor.isNull(column)) cursor.getString(column) else ""
+            }.orEmpty()
+
+        internal fun openDocumentInput(resolver: ContentResolver, uri: Uri): InputStream {
+            val descriptor = resolver.openFileDescriptor(uri, "r") ?: throw IOException("Document descriptor unavailable")
+            try { return ParcelFileDescriptor.AutoCloseInputStream(descriptor) }
+            catch (error: Throwable) {
+                try { descriptor.close() } catch (cleanup: Throwable) { error.addSuppressed(cleanup) }
+                throw error
+            }
+        }
+
         @Synchronized fun get(context: Context, changed: () -> Unit): BackupCalls = instance ?: run {
             val resolver = context.applicationContext.contentResolver
             val files = BackupFiles.get(context)
             val handler = Handler(Looper.getMainLooper())
             BackupCalls(files, changed,
                 launch = { activity, intent, code -> activity.startActivityForResult(intent, code) },
-                openInput = { uri ->
-                    val descriptor = resolver.openFileDescriptor(uri, "r") ?: throw IOException("Document descriptor unavailable")
-                    try { ParcelFileDescriptor.AutoCloseInputStream(descriptor) }
-                    catch (error: Throwable) {
-                        try { descriptor.close() } catch (cleanup: Throwable) { error.addSuppressed(cleanup) }
-                        throw error
-                    }
-                },
+                openInput = { uri -> openDocumentInput(resolver, uri) },
                 openOutput = { uri ->
                     val descriptor = resolver.openFileDescriptor(uri, "wt") ?: throw IOException("Document descriptor unavailable")
                     try { ParcelFileDescriptor.AutoCloseOutputStream(descriptor) }
@@ -427,8 +477,9 @@ class BackupCalls internal constructor(
                     }
                 },
                 documentWorker = documentExecutor, storageWorker = files.ioExecutor,
-                post = { handler.post(it); Unit }, delay = { task, millis -> handler.postDelayed(task, millis); Unit },
+                post = { handler.post(it) }, delay = { task, millis -> handler.postDelayed(task, millis) },
                 remove = { handler.removeCallbacks(it) }, clock = { SystemClock.elapsedRealtime() },
+                displayName = { uri -> documentName(resolver, uri) },
             )
         }.also { instance = it }
     }

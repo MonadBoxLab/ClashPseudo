@@ -160,13 +160,14 @@ def run_resources(args):
     if args.preparation == "prepare-resource-sources":
         if not isinstance(specs, dict):
             raise ValueError("Frozen source resource arguments must be a JSON object keyed by kind")
-        current = resources.read_release_resources(args.project)["resources"]
+        record = resources.read_release_resources(args.project)
+        current = record["resources"]
         for kind in sources.GEO_SOURCE_REPOSITORIES:
             if any(specs[kind][field] != current[kind][field] for field in ("sourceCommit", "sourceUrl", "version")):
                 raise ValueError("Frozen source resource arguments differ from the application resource manifest: " + kind)
         if args.destination.resolve().is_relative_to(args.project.resolve()):
             raise ValueError("Frozen source directory must be outside the project")
-        manifest = sources.prepare_resource_sources(specs, args.destination)
+        manifest = sources.prepare_resource_sources(specs, args.destination, **resources.frozen_source_options(record))
         resources.check_resource_source_selection(args.project.resolve(), resources.read_resource_sources(manifest.parent))
         return {"status": "prepared", "sources": str(manifest)}
     if args.preparation == "prepare-resource":

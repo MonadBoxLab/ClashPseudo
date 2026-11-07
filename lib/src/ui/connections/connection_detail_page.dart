@@ -28,9 +28,7 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
   final _ruleActionsKey = GlobalKey();
   final _actionsMenu = GlobalKey();
   bool _ruleOpening = false;
-  bool _ruleFormOpen = false;
   ModalRoute<dynamic>? _ruleRoute;
-  bool _ruleMenuOpen = false;
   late final Object? _lease;
 
   bool get _live =>
@@ -47,6 +45,12 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
       widget.controller.app.interactive &&
       AppTaskActivity.isActive(context, ownedPopup: popup) &&
       widget.isPresented();
+
+  bool get _sourceCurrent =>
+      mounted &&
+      (widget.active || !widget.controller.app.foreground) &&
+      widget.controller.detailLease == _lease &&
+      AppTaskActivity.captureSource(context)();
 
   bool get _canPresent => _live && (ModalRoute.of(context)?.isCurrent ?? true);
 
@@ -89,8 +93,9 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
           message,
           title: (strings) => strings.disconnectFailedTitle,
           eligibilityChanges: controller,
+          canPresent: () => _canPresent,
           isCurrent: () =>
-              _canPresent &&
+              _sourceCurrent &&
               sameSelection() &&
               controller.closeMessageDescription == message,
           isCurrentWithPopup: (popup) =>
@@ -109,8 +114,9 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
           technicalDetail: (_) => ruleError,
           identity: (id, ruleError),
           eligibilityChanges: controller,
+          canPresent: () => _canPresent,
           isCurrent: () =>
-              _canPresent &&
+              _sourceCurrent &&
               sameSelection() &&
               controller.detail?.ruleError == ruleError,
           isCurrentWithPopup: (popup) =>
@@ -144,20 +150,18 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
 
   void _syncVisibility() {
     if (!mounted) return;
-    final current = ModalRoute.of(context)?.isCurrent ?? true;
     final workspace = context
         .findAncestorStateOfType<CollectionWorkspaceState>();
-    final masterVisible =
+    final reading =
         widget.active &&
-        AppTaskActivity.isActive(context) &&
-        widget.controller.app.interactive &&
-        workspace?.masterVisible == true &&
-        current;
-    // The main list and retained details share connection reads; returning to the list
-    // on narrow screens keeps reading.
-    // Detail actions check pane eligibility separately through _live.
+        widget.controller.app.foreground &&
+        AppTaskActivity.isVisible(context) &&
+        AppTaskActivity.routeIsActive(ModalRoute.of(context));
+    // List and retained detail share reads, independently of input eligibility.
     final visible =
-        masterVisible || (_live && (_ruleFormOpen || _ruleMenuOpen || current));
+        reading &&
+        (workspace?.masterPresented == true ||
+            (widget.controller.detailLease == _lease && widget.isPresented()));
     if (_visible == visible) return;
     _visible = visible;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -166,7 +170,6 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
   }
 
   void _closeRuleMenu() {
-    _ruleMenuOpen = false;
     widget.onMenuChanged(_ruleActionsKey, false);
     if (mounted) _syncVisibility();
   }
@@ -188,7 +191,8 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
         context,
         (strings) => strings.popupExpiredShort,
         title: (strings) => strings.ruleFormTitle,
-        isCurrent: () => _canPresent,
+        isCurrent: () => _sourceCurrent,
+        canPresent: () => _canPresent,
         isCurrentWithPopup: _liveWithPopup,
       );
       return;
@@ -208,7 +212,6 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
       )) {
         throw ConfigFailure(messages.strategyContextChangedRetry);
       }
-      _ruleFormOpen = true;
       _syncVisibility();
       await showLocalCustomForm(
         context,
@@ -253,8 +256,9 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
           context,
           error.message,
           title: (strings) => strings.ruleFormTitle,
+          canPresent: () => _canPresent,
           isCurrent: () =>
-              _canPresent &&
+              _sourceCurrent &&
               source.source.matchesIdentity(controller.app.state.core),
           isCurrentWithPopup: (popup) =>
               _liveWithPopup(popup) &&
@@ -268,8 +272,9 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
           context,
           const AppMessage('connectionRuleTargetsFailed').withDetail(failure),
           title: (strings) => strings.ruleFormTitle,
+          canPresent: () => _canPresent,
           isCurrent: () =>
-              _canPresent &&
+              _sourceCurrent &&
               source.source.matchesIdentity(controller.app.state.core),
           isCurrentWithPopup: (popup) =>
               _liveWithPopup(popup) &&
@@ -277,7 +282,6 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
         );
       }
     } finally {
-      _ruleFormOpen = false;
       if (mounted) {
         setState(() => _ruleOpening = false);
         _syncVisibility();
@@ -392,7 +396,6 @@ class _ConnectionDetailState extends State<_ConnectionDetail> {
                 ),
               ),
               onOpened: () {
-                _ruleMenuOpen = true;
                 widget.onMenuChanged(_ruleActionsKey, true);
                 _syncVisibility();
               },

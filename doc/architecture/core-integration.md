@@ -26,6 +26,8 @@ mihomo负责解析、协议、规则匹配、provider下载／解密／缓存、
 
 [configinput](../../native/mihomo/internal/configinput)执行用户明确启用的Compose。AppRuntime决定正文、片段顺序、role及来源身份，纯合成函数不选择插件、不保存业务文件、不持有内核会话。没有启用片段时返回原始字节；有片段时按合成目标处理映射、别名与merge key，保留独立引用、标量类型、值和顺序。修改锚点字段时其他别名引用保留原值。具体合并语义见[插件规则](../product/configurations.md#插件列表与合成)。
 
+自有Compose只在实际递归合并双方映射时检查当前递归栈：以merge key展开前的原始解引用节点pair为身份，重复进入同一pair即返回合成错误，退出时释放。正常共享子图、未触碰的循环和单侧循环不因此被拒绝；不做全树预检，也不改变mihomo解析行为。
+
 合成与来源计算不执行额外age解密，不读取或保存密钥。age-secret-key及provider的url、path、header、proxy、interval、size-limit等字段原样进入mihomo；下载、解密、格式解析和缓存均由公开provider实现。主配置及插件继续沿应用原有导入、下载和保存流程，不借用provider参数新增订阅协议。
 
 必要VPN缺省只在同一个RawConfig上补tun.enable、dns.enable及MTU1500，不复制上游mips和auto-route缺省，不为补缺省重编码正文。false、0、null和显式空值保持正式parser及平台接入的实际含义。没有本次明确模式意图时不注入mode，不改写profile；模式优先级见[偏好规则](data-and-operations.md#模式与策略偏好)。

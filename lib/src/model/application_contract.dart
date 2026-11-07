@@ -55,6 +55,7 @@ abstract final class ApplicationContract {
   static const coreChannelReadRunInputRecord = "readRunInputRecord";
   static const coreChannelLocalInterfaces = "localInterfaces";
   static const coreChannelRuntimeChanged = "runtimeChanged";
+  static const coreEventInputRestored = "inputRestored";
   static const uiEventLocalInterfacesChanged = "localInterfacesChanged";
   static const uiEventApplicationsChanged = "applicationsChanged";
   static const coreFieldProtocol = "protocol";
@@ -65,6 +66,7 @@ abstract final class ApplicationContract {
   static const coreFieldComposition = "composition";
   static const coreFieldRequestId = "requestId";
   static const coreFieldNetworkRevision = "networkRevision";
+  static const coreFieldListenerRevision = "listenerRevision";
   static const coreFieldStorageEpoch = "storageEpoch";
   static const coreFieldAdmittedAt = "admittedAt";
   static const coreFieldDeadline = "deadline";

@@ -10,7 +10,7 @@ import 'package:flutter/material.dart';
 
 import 'package:clash_pseudo/src/ui/navigation/task_activity.dart';
 
-import 'package:file_selector/file_selector.dart';
+import 'package:cross_file/cross_file.dart';
 
 import 'package:clash_pseudo/src/ui/app/app_controller.dart';
 import 'package:clash_pseudo/src/ui/theme/app_theme.dart';
@@ -101,7 +101,18 @@ class _OverridesPageState extends State<OverridesPage> {
     'expectedAddNoResolve': entry.addNoResolve,
   };
 
+  bool _fileRetired = false;
+  ConfigFileSelection? _fileSelection;
+  bool Function()? _fileCurrent;
+
+  void _cancelStaleFile() {
+    if (_fileCurrent?.call() == false) {
+      unawaited(_fileSelection?.cancel().catchError((Object _) {}));
+    }
+  }
+
   void _syncOwner() {
+    _cancelStaleFile();
     _scheduleReadNotice();
     _scheduleEntryNotice();
     if (_wasForeground && !app.foreground) {
@@ -143,6 +154,9 @@ class _OverridesPageState extends State<OverridesPage> {
   @override
   void didUpdateWidget(OverridesPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.active && !widget.active && app.foreground) {
+      _fileRetired = true;
+    }
     if (oldWidget.active != widget.active || !identical(oldWidget.app, app)) {
       _presentation++;
     }
@@ -275,6 +289,8 @@ class _OverridesPageState extends State<OverridesPage> {
 
   @override
   void dispose() {
+    _fileRetired = true;
+    unawaited(_fileSelection?.cancel().catchError((Object _) {}));
     app.removeListener(_syncOwner);
     _feedbackOwner.value = false;
     _feedbackOwner.dispose();
@@ -1158,7 +1174,7 @@ class _OverridesPageState extends State<OverridesPage> {
   }
 
   Future<void> _importFile({required int storageEpoch}) async {
-    final presentation = _presentation;
+    var presentation = _presentation;
     if (!mounted ||
         !_canResume(presentation) ||
         !_epochCurrent(storageEpoch, presentation) ||
@@ -1166,25 +1182,53 @@ class _OverridesPageState extends State<OverridesPage> {
         !app.canEditOverrides) {
       return;
     }
+    final owner = app;
+    final taskCurrent = AppTaskActivity.captureSource(context);
+    final route = _route;
+    var retired = false;
+    bool sourceCurrent() {
+      retired |=
+          _fileRetired ||
+          !mounted ||
+          !identical(owner, app) ||
+          !taskCurrent() ||
+          !AppTaskActivity.routeIsActive(route) ||
+          storageEpoch != owner.storageEpoch ||
+          storageEpoch != owner.state.storageEpoch;
+      return !retired;
+    }
+
+    Future<bool> resumeFile() async {
+      final rebuild = !owner.interactive || !widget.active;
+      if (!sourceCurrent()) {
+        if (mounted &&
+            identical(owner, app) &&
+            _canResume(presentation) &&
+            (storageEpoch != owner.storageEpoch ||
+                storageEpoch != owner.state.storageEpoch)) {
+          await _showMessage(messages.storageContextChanged);
+        }
+        return false;
+      }
+      if (!await owner.waitUntilInteractive()) return false;
+      if (rebuild) await WidgetsBinding.instance.endOfFrame;
+      if (!sourceCurrent() || !owner.interactive) return false;
+      presentation = _presentation;
+      return _canResume(presentation);
+    }
+
     setState(() => _importing = true);
     AppSnapshot? result;
+    _fileRetired = false;
+    _fileCurrent = sourceCurrent;
     try {
-      final file = await widget.selectFile();
-      if (!mounted || file == null || !_canResume(presentation)) {
-        return;
-      }
-      if (!_epochCurrent(storageEpoch, presentation)) {
-        await _showMessage(messages.storageContextChanged);
-        return;
-      }
+      final selection = widget.selectFile == selectConfigFile
+          ? (_fileSelection = ConfigFileSelection(owner.platform))
+          : null;
+      final file = await (selection?.select() ?? widget.selectFile());
+      if (file == null || !await resumeFile()) return;
       final body = await readConfigFile(file);
-      if (!mounted || !_canResume(presentation)) {
-        return;
-      }
-      if (!_epochCurrent(storageEpoch, presentation)) {
-        await _showMessage(messages.storageContextChanged);
-        return;
-      }
+      if (!await resumeFile() || !mounted) return;
       if (!app.canEditOverrides) {
         await _showFeedback((strings) => strings.operationBusyFile);
         return;
@@ -1212,6 +1256,7 @@ class _OverridesPageState extends State<OverridesPage> {
         );
       }
     } catch (error) {
+      if (!await resumeFile()) return;
       if (mounted &&
           _canResume(presentation) &&
           _epochCurrent(storageEpoch, presentation)) {
@@ -1222,9 +1267,11 @@ class _OverridesPageState extends State<OverridesPage> {
         );
       }
     } finally {
+      _fileCurrent = null;
+      _fileSelection = null;
       if (result?.resultSuccess == true &&
           const ['saved', 'applied'].contains(result?.overrideStatus)) {
-        app.acknowledgeLocalFeedback(_feedbackOwner, result: result);
+        owner.acknowledgeLocalFeedback(_feedbackOwner, result: result);
       }
       if (mounted) setState(() => _importing = false);
     }

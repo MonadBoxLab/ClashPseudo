@@ -25,6 +25,61 @@ class VpnSpecificationServiceTest {
     private val clients = listOf("io.github.monadboxlab.clashpseudo.validation.clienta",
         "io.github.monadboxlab.clashpseudo.validation.clientb")
 
+    @Test fun resourceClosureBetweenNativePrepareAndBuilderCannotAcquireALateTun() {
+        requireIdle()
+        val gate = io.github.monadboxlab.clashpseudo.nativecore.CorePreparationObserver
+        gate.armWorkerGate(context, afterNativePrepare = true)
+        try {
+            CoreIpcTestDriver.production().use { observer ->
+                CoreIpcTestDriver.fixture().use { control ->
+                    CoreIpcTestDriver.bindVpnResource(context).use {
+                        val preparation = prepareAtBuilderGate(observer)
+                        platform.await("Native PREPARE reaches the pre-Builder barrier") { gate.workerGateState(context) != null }
+                        val closed = control.debug.serviceControl(Fixture.CLOSE_RESOURCES)
+                        assertTrue("The binding keeps the closed Service alive before onDestroy", closed.getBoolean("sameService"))
+                        assertFalse(preparation.done)
+                        gate.releaseWorkerGate(context)
+                        val reply = preparation.await(20)
+                        assertFalse("A closed resource host must reject the late Builder", reply.terminal.getBoolean("complete"))
+                        observer.awaitDeath()
+                    }
+                }
+            }
+        } finally {
+            gate.releaseWorkerGate(context)
+            gate.removeWorkerGate(context)
+        }
+    }
+
+    @Test fun stopAfterNativePrepareWaitsForTheHeldRequestAndNeverPublishesReady() {
+        requireIdle()
+        val gate = io.github.monadboxlab.clashpseudo.nativecore.CorePreparationObserver
+        gate.armWorkerGate(context, afterNativePrepare = true)
+        val worker = java.util.concurrent.Executors.newCachedThreadPool()
+        try {
+            CoreIpcTestDriver.production().use { observer ->
+                val preparation = prepareAtBuilderGate(observer)
+                platform.await("Native PREPARE reaches the pre-Builder barrier") { gate.workerGateState(context) != null }
+                val exit = worker.submit { observer.exit() }
+                platform.await("Stop owns the core while preparation still holds its result FD") {
+                    gate.workerGateState(context)?.optBoolean("cancelObserved") == true
+                }
+                assertFalse(preparation.done)
+                assertFalse(exit.isDone)
+                assertFalse(observer.deathConfirmed)
+                gate.releaseWorkerGate(context)
+                exit.get(20, java.util.concurrent.TimeUnit.SECONDS)
+                assertTrue(observer.deathConfirmed)
+                assertFalse(preparation.await(5).terminal.getBoolean("complete"))
+                assertFalse(CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java))
+            }
+        } finally {
+            gate.releaseWorkerGate(context)
+            worker.shutdownNow()
+            gate.removeWorkerGate(context)
+        }
+    }
+
     @Test fun fileRouteSetChangesAndRevertsWholeServiceSpecificationAndInvalidatesPreAttachRevision() {
         requireIdleAndClients()
         for (attached in listOf(false, true)) CoreIpcTestDriver.fixture().use { driver ->
@@ -269,16 +324,42 @@ class VpnSpecificationServiceTest {
         }
     }
 
-    private fun requireIdleAndClients() {
+    private fun prepareAtBuilderGate(observer: CoreIpcTestDriver): CoreIpcTestDriver.Pending {
+        val inputId = java.util.UUID.randomUUID().toString()
+        val arguments = JSONObject().put("purpose", Contract.CORE_PURPOSE_RUNNING)
+            .put("vpnIntent", true).put("lanIntent", false)
+            .put("configId", "p5-worker-config-p5-load-worker-r7w12").put("revision", 2).put("mode", "rule")
+            .put("deadline", android.os.SystemClock.elapsedRealtime() + Contract.OPERATION_ORDINARY_TIMEOUT_MS)
+        val body = """
+            geo-auto-update: false
+            profile: {store-selected: false, store-fake-ip: false}
+            tun:
+              route-address: [198.18.0.0/16]
+              dns-hijack: []
+              include-package: [${context.packageName}]
+            rules: ['MATCH,REJECT']
+        """.trimIndent() + "\n"
+        return observer.submit(Contract.CORE_OPERATION_PREPARE, arguments, inputId, 1,
+            parts = mapOf(Contract.CORE_PART_CONFIG to body.toByteArray(),
+                Contract.CORE_PART_OVERRIDES to "[]".toByteArray(),
+                Contract.CORE_PART_OPTIONS to JSONObject().put("purpose", Contract.CORE_PURPOSE_RUNNING)
+                    .put("generation", 1).put("composition", "gate-$inputId").toString().toByteArray()))
+    }
+
+    private fun requireIdle() {
         platform.await("Application writer is idle") { !AppBridge.logic.busy && AppBridge.operationId == null && !AppBridge.pendingSystemRestore }
         assertFalse(CoreIpcTestDriver.servicePresent(context, PseudoVpnService::class.java))
         assertEquals(NativeSession.Phase.STOPPED, PseudoVpnService.session.snapshot().phase)
         assertNull("VPN must already be authorized; do not open the grant dialog", VpnService.prepare(context))
+        CoreIpcTestDriver.assertNoGoInApplication()
+    }
+
+    private fun requireIdleAndClients() {
+        requireIdle()
         val own = setOf(context.applicationInfo.uid, instrumentation.context.applicationInfo.uid)
         val uids = clients.map { context.packageManager.getApplicationInfo(it, 0).uid }
         assertEquals(2, uids.toSet().size)
         assertTrue(uids.none { it in own })
-        CoreIpcTestDriver.assertNoGoInApplication()
     }
 
     private fun assertWholeSpecification(value: VpnSpecification, prefix: Int) {

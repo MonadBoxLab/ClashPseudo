@@ -1,5 +1,6 @@
 import 'package:clash_pseudo/src/ui/navigation/task_activity.dart';
 import 'package:clash_pseudo/src/model/app_snapshot.dart';
+import 'package:clash_pseudo/src/model/core_snapshot.dart';
 import 'package:clash_pseudo/src/ui/components/feedback/operation_feedback.dart';
 import 'package:clash_pseudo/src/ui/settings/applications_page.dart';
 import 'package:clash_pseudo/src/ui/settings/settings_page.dart';
@@ -250,6 +251,52 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
+
+  for (final changed in [false, true]) {
+    testWidgets(
+      'LAN access confirms reconnect and retires changed core changed=$changed',
+      (tester) async {
+        final app = AccessApp(AccessBridge());
+        addTearDown(app.dispose);
+        AppSnapshot lan(String input) => AppSnapshot(
+          phase: 'STOPPED',
+          lanIntent: true,
+          lanRunning: true,
+          core: CoreSnapshot(
+            processId: 'process',
+            inputId: input,
+            generation: 8,
+            phase: 'READY',
+            purpose: 'RUNNING',
+            configId: 'one',
+            revision: 1,
+            composition: '["one",1]',
+          ),
+        );
+        app.state = lan('original');
+        await show(tester, ApplicationsPage(app: app));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('access-except')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('applications-save')));
+        await tester.pumpAndSettle();
+        final dialog = find.byType(AlertDialog);
+        expect(dialog, findsOneWidget);
+        expect(app.commands, isEmpty);
+        final confirm = tester
+            .widget<FilledButton>(
+              find.descendant(of: dialog, matching: find.byType(FilledButton)),
+            )
+            .onPressed!;
+        if (changed) app.publish(lan('replacement'));
+        confirm();
+        await tester.pumpAndSettle();
+        expect(app.commands, hasLength(changed ? 0 : 1));
+        if (!changed) expect(app.commands.single['access'], 'except');
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
 
   testWidgets(
     'an access confirmation owns only its popup and cannot resurrect an older session',
@@ -823,13 +870,22 @@ void main() {
           'access': 'except',
           'packages': ['app.alpha'],
         });
-        app.publish(const AppSnapshot(phase: 'RUNNING', writerBusy: true));
+        app.publish(
+          AppSnapshot(
+            phase: 'RUNNING',
+            core: app.state.core,
+            generation: app.state.generation,
+            writerBusy: true,
+          ),
+        );
         await tester.pump();
         stable();
         expect(tester.widget<TextButton>(save).onPressed, isNull);
         app.publish(
-          const AppSnapshot(
+          AppSnapshot(
             phase: 'RUNNING',
+            core: app.state.core,
+            generation: app.state.generation,
             resultId: 'operation-1',
             resultSuccess: false,
           ),
@@ -840,6 +896,7 @@ void main() {
           find.text(strings.applicationPolicyUnknownShort),
           findsOneWidget,
         );
+        expect(app.state.forwarding, isTrue);
         expect(tester.widget<TextButton>(save).onPressed, isNotNull);
         await tester.tap(save);
         await tester.pumpAndSettle();
@@ -851,6 +908,7 @@ void main() {
         app.publish(
           AppSnapshot(
             phase: 'RUNNING',
+            core: app.state.core,
             generation: 1,
             runningApplicationAccess: RunningApplicationAccess(
               generation: 1,

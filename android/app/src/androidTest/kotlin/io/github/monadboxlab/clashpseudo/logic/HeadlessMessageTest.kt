@@ -42,6 +42,34 @@ class HeadlessMessageTest {
     private val application get() = instrumentation.targetContext.applicationContext as PseudoApplication
     private fun main(action: () -> Unit) = instrumentation.runOnMainSync(action)
 
+    private fun languageContext(locale: Locale): Context = object : ContextWrapper(
+        application.createConfigurationContext(Configuration(application.resources.configuration).apply {
+            setLocale(locale)
+        })
+    ) {
+        override fun getApplicationContext(): Context = this
+    }
+
+    @Test
+    fun systemLanguageFollowsConfigurationChanges() {
+        val english = languageContext(Locale.ENGLISH)
+        val chinese = languageContext(Locale.SIMPLIFIED_CHINESE)
+        try {
+            main { AppStrings.initialize(english) }
+            assertEquals(english.getString(R.string.error_busy), AppStrings.get(R.string.error_busy))
+            main { AppStrings.configurationChanged(chinese) }
+            assertEquals("system", AppStrings.language)
+            assertEquals(chinese.getString(R.string.error_busy), AppStrings.get(R.string.error_busy))
+            main { AppStrings.configurationChanged(english) }
+            assertEquals(english.getString(R.string.error_busy), AppStrings.get(R.string.error_busy))
+        } finally {
+            main {
+                AppStrings.initialize(application)
+                AppStrings.refresh(application)
+            }
+        }
+    }
+
     @Test
     fun recreatedEnginesReturnDescriptionsAndNativeDisplayUsesSavedLanguage() {
         val fixture = File(application.cacheDir, "headless-messages-${UUID.randomUUID()}")
@@ -101,6 +129,7 @@ class HeadlessMessageTest {
             assertEquals("first=$first", true, first["success"])
             assertEquals("first=$first", AppMessage("settingsSaved"), AppMessage.fromMap(first["message"]))
             assertEquals("first=$first", "en", JSONObject(File(directory, "preferences.json").readText()).getString("language"))
+            main { AppStrings.configurationChanged(languageContext(Locale.SIMPLIFIED_CHINESE)) }
             assertEquals(
                 "first=$first",
                 application.createConfigurationContext(Configuration(application.resources.configuration).apply {
@@ -114,6 +143,7 @@ class HeadlessMessageTest {
             assertEquals("first=$first; recreated=$recreated", first["message"], recreated["message"])
             assertEquals("first=$first; recreated=$recreated", "zh", JSONObject(File(directory, "preferences.json").readText()).getString("language"))
             assertEquals("first=$first; recreated=$recreated", description, AppStrings.message(R.string.error_busy))
+            main { AppStrings.configurationChanged(languageContext(Locale.ENGLISH)) }
             assertEquals(
                 "first=$first; recreated=$recreated",
                 application.createConfigurationContext(Configuration(application.resources.configuration).apply {

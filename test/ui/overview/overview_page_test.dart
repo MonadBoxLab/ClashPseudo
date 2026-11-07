@@ -15,6 +15,7 @@ import 'package:clash_pseudo/src/model/connection_snapshot.dart';
 import 'package:clash_pseudo/src/model/core_snapshot.dart';
 import 'package:clash_pseudo/src/model/config_entry.dart';
 import 'package:clash_pseudo/src/ui/overview/overview_page.dart';
+import 'package:clash_pseudo/src/ui/strategies/mode_sheet.dart';
 import 'package:clash_pseudo/src/ui/configs/configs_page.dart';
 import 'package:clash_pseudo/src/ui/overview/widgets/traffic_panel.dart';
 import 'package:clash_pseudo/src/ui/overview/widgets/power_ripples.dart';
@@ -29,6 +30,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:clash_pseudo/src/ui/navigation/route_observer.dart';
 
 import '../../support/core_runtime_fixture.dart';
+import '../../support/preferences_fakes.dart';
+import '../../support/readonly_override_store.dart';
+import '../app/app_controller_test.dart' show MemoryStore, SnapshotBridge;
 
 class ViewBridge extends AppBridge {
   int vpnSettingsOpens = 0;
@@ -122,6 +126,7 @@ void main() {
     EdgeInsets padding = EdgeInsets.zero,
     bool active = true,
     bool shell = false,
+    AppController? owner,
     bool Function()? isActiveNow,
   }) => tester.pumpWidget(
     MaterialApp(
@@ -139,10 +144,13 @@ void main() {
         active: active,
         isActiveNow: isActiveNow,
         child: shell
-            ? AppShell(controller: controller)
+            ? AppShell(controller: owner ?? controller)
             : OperationFeedback(
-                controller: controller,
-                child: OverviewPage(controller: controller, active: active),
+                controller: owner ?? controller,
+                child: OverviewPage(
+                  controller: owner ?? controller,
+                  active: active,
+                ),
               ),
       ),
     ),
@@ -361,6 +369,209 @@ void main() {
       },
     );
   }
+
+  for (final outcome in ['success', 'file failure', 'storage failure']) {
+    testWidgets(
+      'cold startup keeps pending files quiet and reports actual $outcome',
+      (tester) async {
+        Future<void> paint() async {
+          for (var frame = 0; frame < 3; frame++) {
+            await tester.pump();
+          }
+          await tester.pump(const Duration(milliseconds: 400));
+          await tester.pump();
+        }
+
+        var snapshot = const AppSnapshot(
+          phase: 'STOPPED',
+          storageReady: false,
+          storageRestoring: true,
+          storageEpoch: 1,
+        );
+        final bridge = SnapshotBridge()..read = () async => snapshot;
+        final pending = Completer<ConfigCollection>();
+        final store = MemoryStore()..readResult = () => pending.future;
+        final app = AppController(
+          bridge,
+          store: store,
+          preferencesStore: MemoryPreferencesStore(),
+          overrideStore: ReadOnlyOverrideStore(),
+        );
+        addTearDown(app.dispose);
+        await app.initialize();
+        await show(tester, shell: true, owner: app);
+        await paint();
+        expect(store.reads, 0);
+        expect(app.errorMessage, isNull);
+        expect(find.byType(SnackBar), findsNothing);
+        expect(app.canEdit, isFalse);
+        expect(app.canEditOverrides, isFalse);
+        expect(app.canChangePreferences, isFalse);
+
+        if (outcome == 'storage failure') {
+          const failure = AppMessage(
+            'storageUnavailable',
+            detail: 'journal recovery failed 原文',
+          );
+          snapshot = const AppSnapshot(
+            phase: 'STOPPED',
+            storageReady: false,
+            storageEpoch: 1,
+            storageError: failure,
+          );
+          await app.refresh();
+          await paint();
+          expect(app.errorMessage, failure);
+          expect(app.platformErrorMessage, failure);
+          expect(store.reads, 0);
+          expect(app.canEdit, isFalse);
+        } else {
+          snapshot = const AppSnapshot(phase: 'STOPPED', storageEpoch: 1);
+          final refresh = app.refresh();
+          await tester.pump();
+          await tester.pump();
+          expect(store.reads, 1);
+          expect(app.state.storageReady, isTrue);
+          expect(app.state.storageEpoch, 1);
+          expect(app.storageEpoch, 0);
+          expect(app.configsLoaded, isFalse);
+          expect(app.errorMessage, isNull);
+          expect(find.byType(SnackBar), findsNothing);
+          expect(app.canEdit, isFalse);
+          expect(app.canEditOverrides, isFalse);
+          expect(app.canChangePreferences, isFalse);
+          if (outcome == 'file failure') {
+            pending.completeError(StateError('configuration read failed 原文'));
+          } else {
+            pending.complete(
+              ConfigCollection(entries: [config('one')], selectedId: 'one'),
+            );
+          }
+          await refresh;
+          await paint();
+          expect(app.storageEpoch, 1);
+          if (outcome == 'file failure') {
+            expect(app.errorMessage, app.configErrorMessage);
+            expect(
+              app.errorMessage?.detail,
+              contains('configuration read failed 原文'),
+            );
+            expect(app.canEdit, isFalse);
+          } else {
+            expect(app.errorMessage, isNull);
+            expect(app.configsCurrent, isTrue);
+            expect(app.canEdit, isTrue);
+            expect(app.canEditOverrides, isTrue);
+            expect(app.canChangePreferences, isTrue);
+          }
+        }
+        final notice = find.byType(SnackBar);
+        if (outcome == 'success') {
+          expect(notice, findsNothing);
+        } else {
+          expect(notice, findsOneWidget);
+          final strings = AppLocalizations.of(tester.element(notice));
+          expect(
+            find.descendant(
+              of: notice,
+              matching: find.text(app.errorMessage!.summary(strings)),
+            ),
+            findsOneWidget,
+          );
+        }
+        app.setForeground(false);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+
+  testWidgets(
+    'overview mode target survives focus loss and waits for its actual projection',
+    (tester) async {
+      const core = CoreSnapshot(
+        processId: 'mode-process',
+        inputId: 'mode-input',
+        generation: 1,
+        phase: 'READY',
+        purpose: 'RUNNING',
+        configId: 'one',
+        revision: 1,
+        composition: 'mode-composition',
+      );
+      AppSnapshot snapshot(TunnelMode actual, {bool completed = false}) =>
+          AppSnapshot.fromMap({
+            'phase': 'STOPPED',
+            'storageReady': true,
+            'storageEpoch': 0,
+            'lanRunning': true,
+            'mode': actual.name,
+            'core': {...core.wireIdentity, 'phase': 'READY'},
+            if (completed) ...{
+              'resultId': 'operation-1',
+              'resultSuccess': true,
+              'modeResult': {
+                'status': 'applied',
+                'mode': 'global',
+                'storageEpoch': 0,
+                ...core.wireIdentity,
+              },
+            },
+          });
+      controller.collection = ConfigCollection(
+        entries: [config('one')],
+        selectedId: 'one',
+        mode: TunnelMode.rule,
+      );
+      controller.state = snapshot(TunnelMode.rule);
+      await show(tester, shell: true);
+      await tester.pumpAndSettle();
+      final trigger = find.byKey(const ValueKey('mode-trigger'));
+      await tester.ensureVisible(trigger);
+      await tester.tap(trigger);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('mode-global')));
+      await tester.pump();
+      expect(controller.commands, [
+        {'action': 'setMode', 'mode': 'global', 'storageEpoch': 0},
+      ]);
+      expect(controller.hasLocalFeedbackOwner, isTrue);
+
+      controller.setInteractive(false);
+      await tester.pump();
+      expect(controller.hasLocalFeedbackOwner, isTrue);
+      expect(find.byType(ModeSheet), findsOneWidget);
+      controller.collection = ConfigCollection(
+        entries: [config('one')],
+        selectedId: 'one',
+        mode: TunnelMode.global,
+      );
+      controller.state = snapshot(TunnelMode.direct, completed: true);
+      controller.changed();
+      await tester.pump();
+      expect(controller.hasLocalFeedbackOwner, isTrue);
+      expect(find.byType(ModeSheet), findsOneWidget);
+
+      controller.setInteractive(true);
+      await tester.pumpAndSettle();
+      expect(find.byType(ModeSheet), findsOneWidget);
+      for (final mode in TunnelMode.values) {
+        expect(
+          tester
+              .widget<OutlinedButton>(find.byKey(ValueKey('mode-${mode.name}')))
+              .onPressed,
+          isNull,
+        );
+      }
+      controller.state = snapshot(TunnelMode.global, completed: true);
+      controller.changed();
+      await tester.pumpAndSettle();
+      expect(find.byType(ModeSheet), findsNothing);
+      expect(controller.hasLocalFeedbackOwner, isFalse);
+      expect(controller.commands, hasLength(1));
+      expect(find.byType(SnackBar), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 
   AppSnapshot recovery({
     String processId = 'process-one',

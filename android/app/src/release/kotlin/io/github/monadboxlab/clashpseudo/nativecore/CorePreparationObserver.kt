@@ -7,4 +7,8 @@ internal object CorePreparationObserver {
     @Suppress("UNUSED_PARAMETER")
     fun beforeNativePrepare(context: Context, processId: String, inputId: String, configId: String?,
                             revision: Int, requestId: Long, deadline: Long, cancelled: () -> Boolean) = Unit
+
+    @Suppress("UNUSED_PARAMETER")
+    fun afterNativePrepare(context: Context, processId: String, inputId: String, configId: String?,
+                           revision: Int, requestId: Long, deadline: Long, cancelled: () -> Boolean) = Unit
 }

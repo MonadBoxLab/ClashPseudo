@@ -50,14 +50,15 @@ class CoreClient private constructor(private val context: Context) {
     private val handshakeWaiters = mutableListOf<(Map<String, Any?>?, Throwable?) -> Unit>()
     private val exitWaiters = mutableMapOf<(Throwable?) -> Unit, String>()
     private var binding: Binding? = null
-    private var connection: Connection? = null
+    @Volatile private var connection: Connection? = null
+    @Volatile private var inputReads = 0
     @Volatile private var statusValue: Map<String, Any?> = mapOf(
         Contract.CORE_FIELD_PHASE to Contract.CORE_PHASE_DISCONNECTED)
     @Volatile var onEvent: (Map<String, Any?>) -> Unit = {}
     @Volatile var changed: (Boolean) -> Unit = {}
     val view = View()
     val resourceBusy: Boolean get() = calls.values.any { it.operation == Contract.CORE_OPERATION_RESOURCE_UPDATE && !it.drained }
-    val requestBusy: Boolean get() = documentReads.isNotEmpty() ||
+    val requestBusy: Boolean get() = inputReads != 0 || documentReads.isNotEmpty() ||
         calls.values.any { it.operation != Contract.CORE_OPERATION_LOGS && !it.drained }
     private var visible = false
     private var operationBusy = false
@@ -102,9 +103,63 @@ class CoreClient private constructor(private val context: Context) {
     private class Connection(val binding: Binding, val remote: ICoreService, val binder: IBinder, val death: IBinder.DeathRecipient) {
         var processId = ""
         var deathLinked = false
-        var confirmedDead = false
+        @Volatile var confirmedDead = false
         var callback: ICoreCallback? = null
         var statusSequence = 0L
+        var recoverySource: Map<String, Any?>? = null
+    }
+
+    private fun source(value: Map<String, Any?>): Map<String, Any?> = listOf(
+        Contract.CORE_FIELD_PROTOCOL, Contract.CORE_FIELD_PROCESS_ID, Contract.CORE_FIELD_INPUT_ID, Contract.CORE_FIELD_GENERATION,
+        Contract.CORE_FIELD_NETWORK_REVISION, "configId", "revision", "purpose", "vpnIntent", "lanIntent",
+    ).associateWith { key -> (value[key] as? Number)?.toLong() ?: value[key] }
+
+    private fun sameSource(first: Map<String, Any?>, second: Map<String, Any?>): Boolean =
+        !(first[Contract.CORE_FIELD_PROCESS_ID] as? String).isNullOrEmpty() && source(first) == source(second)
+
+    private fun currentStatus(owner: Connection, captured: Map<String, Any?>): Boolean {
+        val current = statusValue
+        return connection === owner && !owner.confirmedDead && owner.binder.isBinderAlive && sameSource(current, captured) &&
+            current[Contract.CORE_FIELD_PHASE] == captured[Contract.CORE_FIELD_PHASE]
+    }
+
+    private fun restoreInput(owner: Connection) {
+        val captured = statusValue
+        if (captured[Contract.CORE_FIELD_PHASE] != Contract.CORE_PHASE_READY ||
+            captured["purpose"] != Contract.CORE_PURPOSE_RUNNING) {
+            owner.recoverySource = null
+            return
+        }
+        if (captured[Contract.CORE_FIELD_COMPOSITION] is String || !currentStatus(owner, captured)) return
+        val source = source(captured)
+        if (source == owner.recoverySource) return
+        val inputId = captured[Contract.CORE_FIELD_INPUT_ID] as? String ?: return
+        val configId = captured["configId"] as? String ?: return
+        val revision = (captured["revision"] as? Number)?.toInt() ?: return
+        owner.recoverySource = source
+        inputReads++
+        io.execute {
+            val composition = runCatching {
+                check(currentStatus(owner, captured)) { "Core changed before reading its immutable input" }
+                val bytes = CorePrivateFiles.read(AppFiles.runRecord(context, inputId), AppFiles.MAX_RUN_RECORD_BYTES)
+                    ?: throw IOException("Actual preparation input record does not exist")
+                val raw = JSONObject(CoreFrames.utf8(bytes))
+                check(raw.getString(Contract.CORE_FIELD_INPUT_ID) == inputId) { "Run input record identity changed" }
+                check(raw.optBoolean("vpnIntent") == captured["vpnIntent"] && raw.optBoolean("lanIntent") == captured["lanIntent"]) {
+                    "Run input intent changed"
+                }
+                CoreInput.read(raw, configId, revision, raw.optStringOrNull("mode")).composition
+            }.getOrNull()
+            state.post {
+                inputReads--
+                if (composition != null && owner.recoverySource === source && currentStatus(owner, captured) &&
+                    statusValue[Contract.CORE_FIELD_COMPOSITION] == null) {
+                    publish(statusValue + (Contract.CORE_FIELD_COMPOSITION to composition))
+                    emit(source + mapOf("event" to Contract.CORE_EVENT_INPUT_RESTORED,
+                        Contract.CORE_FIELD_PHASE to statusValue[Contract.CORE_FIELD_PHASE]))
+                } else main.post { changed(false) }
+            }
+        }
     }
 
     init {
@@ -129,12 +184,17 @@ class CoreClient private constructor(private val context: Context) {
 
     fun refreshPresentation(reply: (Throwable?) -> Unit) {
         state.post {
+            try { refreshRecoveryNotice() }
+            catch (error: Throwable) { main.post { reply(error) }; return@post }
             val current = connection
-            if (current == null || current.confirmedDead) { main.post { reply(null) }; return@post }
+            if (current == null || current.confirmedDead) {
+                publish(statusValue + mapOf("alwaysOn" to null, "lockdown" to null))
+                main.post { reply(null) }; return@post
+            }
             try {
-                acceptStatus(current, current.remote.status(identity(current.processId)))
-                main.post { reply(null) }
+                acceptStatus(current, current.remote.status(identity(current.processId))) { error -> main.post { reply(error) } }
             } catch (error: Throwable) {
+                publish(statusValue + mapOf("alwaysOn" to null, "lockdown" to null))
                 communicationLost(current.binding, error)
                 main.post { reply(error) }
             }
@@ -195,7 +255,7 @@ class CoreClient private constructor(private val context: Context) {
                 override fun onStatus(snapshot: Bundle) {
                     CoreControl.sameUid(); CoreControl.check(snapshot)
                     state.post {
-                        if (connection === connected) try { acceptStatus(connected, snapshot) }
+                        try { acceptStatus(connected, snapshot) }
                         catch (error: Throwable) { communicationLost(connected.binding, error) }
                     }
                 }
@@ -226,9 +286,16 @@ class CoreClient private constructor(private val context: Context) {
             }
             connected.callback = callback
             val snapshot = connected.remote.handshake(Contract.CORE_IPC_VERSION, callback)
-            CoreControl.check(snapshot)
-            val processId = snapshot.getString(Contract.CORE_FIELD_PROCESS_ID)
-                ?: throw IOException("Core handshake is missing processId")
+            val processId = try {
+                CoreControl.check(snapshot)
+                snapshot.getString(Contract.CORE_FIELD_PROCESS_ID)
+                    ?: throw IOException("Core handshake is missing processId")
+            } finally {
+                snapshot.getParcelable<ParcelFileDescriptor>("details")?.let { descriptor ->
+                    snapshot.remove("details")
+                    descriptor.close()
+                }
+            }
             connected.processId = processId
             CoreControl.identity(snapshot, processId)
             acceptStatus(connected, connected.remote.status(identity(processId)))
@@ -305,10 +372,7 @@ class CoreClient private constructor(private val context: Context) {
                     try {
                         if (failure != null) throw failure
                         val decoded = JSONObject(CoreFrames.utf8(checkNotNull(bytes)))
-                        if (connection === owner && !owner.confirmedDead && owner.statusSequence == sequence &&
-                            statusValue[Contract.CORE_FIELD_INPUT_ID] == snapshot.getString(Contract.CORE_FIELD_INPUT_ID)) {
-                            publish(statusValue + mapOf(Contract.CORE_FIELD_ERROR to decoded.optJSONObject(Contract.CORE_FIELD_ERROR)?.toString()))
-                        }
+                        applyStatusDetails(owner, snapshot.map(), sequence, decoded)
                     } catch (caught: Throwable) { error = caught }
                     main.post { reply(error) }
                 }
@@ -321,22 +385,29 @@ class CoreClient private constructor(private val context: Context) {
         snapshot.remove("details")
         if (connection !== owner || owner.confirmedDead) { details?.close(); complete(IOException("Core status belongs to an old connection")); return }
         if (owner.processId.isNotEmpty()) CoreControl.identity(snapshot, owner.processId)
+        val value = mapOf<String, Any?>("alwaysOn" to null, "lockdown" to null) + snapshot.map() +
+            if (details == null) mapOf(Contract.CORE_FIELD_ERROR to null) else emptyMap()
+        val same = sameSource(statusValue, value)
+        val currentRevision = (statusValue[Contract.CORE_FIELD_LISTENER_REVISION] as? Number)?.toLong() ?: 0
+        val incomingRevision = (value[Contract.CORE_FIELD_LISTENER_REVISION] as? Number)?.toLong() ?: 0
+        if (same && (statusValue[Contract.CORE_FIELD_PHASE] == Contract.CORE_PHASE_STOPPING &&
+                value[Contract.CORE_FIELD_PHASE] != Contract.CORE_PHASE_STOPPING ||
+                incomingRevision < currentRevision && value[Contract.CORE_FIELD_PHASE] != Contract.CORE_PHASE_STOPPING)) {
+            details?.close(); complete(null); return
+        }
         val sequence = ++owner.statusSequence
-        val value = snapshot.map() + if (details == null) mapOf(Contract.CORE_FIELD_ERROR to null) else emptyMap()
-        val previous = if (statusValue[Contract.CORE_FIELD_PROCESS_ID] == owner.processId) statusValue else emptyMap()
+        val previous = if (same) statusValue else emptyMap()
         publish(previous + value)
+        restoreInput(owner)
         if (details != null) readDocument(owner.processId, details) { bytes, failure ->
             var error = failure
             try {
                 if (failure != null) throw failure
                 val decoded = JSONObject(CoreFrames.utf8(checkNotNull(bytes)))
-                if (connection === owner && !owner.confirmedDead && owner.statusSequence == sequence &&
-                    statusValue[Contract.CORE_FIELD_INPUT_ID] == snapshot.getString(Contract.CORE_FIELD_INPUT_ID)) {
-                    publish(statusValue + mapOf(Contract.CORE_FIELD_ERROR to decoded.optJSONObject(Contract.CORE_FIELD_ERROR)?.toString()))
-                }
+                applyStatusDetails(owner, value, sequence, decoded)
             } catch (caught: Throwable) {
                 error = caught
-                if (connection === owner && !owner.confirmedDead && owner.statusSequence == sequence) {
+                if (currentStatus(owner, value) && owner.statusSequence == sequence) {
                     publish(statusValue + mapOf(Contract.CORE_FIELD_ERROR to CoreErrors.json(caught).toString()))
                 }
             }
@@ -357,6 +428,22 @@ class CoreClient private constructor(private val context: Context) {
         val event = snapshot.getString("event")
         if (event != null) emit(value)
         schedulePreviewIdle()
+    }
+
+    private fun applyStatusDetails(owner: Connection, captured: Map<String, Any?>, sequence: Long, decoded: JSONObject) {
+        if (!currentStatus(owner, captured)) return
+        val extra = mutableMapOf<String, Any?>()
+        if (owner.statusSequence == sequence) extra[Contract.CORE_FIELD_ERROR] = decoded.optJSONObject(Contract.CORE_FIELD_ERROR)?.toString()
+        if (statusValue[Contract.CORE_FIELD_PHASE] == Contract.CORE_PHASE_READY &&
+            captured[Contract.CORE_FIELD_LISTENER_REVISION] == statusValue[Contract.CORE_FIELD_LISTENER_REVISION]) {
+            decoded.optJSONArray("lanListeners")?.let { rows ->
+                extra["lanListeners"] = (0 until rows.length()).map { rows.getJSONObject(it).objectMap() }
+            }
+            if (owner.statusSequence == sequence && decoded.has("applicationAccess")) {
+                extra["applicationAccess"] = decoded.optJSONObject("applicationAccess")?.objectMap()
+            }
+        }
+        if (extra.isNotEmpty()) publish(statusValue + extra)
     }
 
     private fun communicationLost(owner: Binding, error: Throwable) {
@@ -409,9 +496,11 @@ class CoreClient private constructor(private val context: Context) {
     private fun publish(value: Map<String, Any?>) {
         val record = lifecycle.snapshot()
         val retiring = record.processId == value[Contract.CORE_FIELD_PROCESS_ID] && record.stage == Contract.CORE_PHASE_STOPPING
-        val projected = if (retiring && value[Contract.CORE_FIELD_PHASE] in setOf(
+        val phaseProjected = if (retiring && value[Contract.CORE_FIELD_PHASE] in setOf(
                 Contract.CORE_PHASE_CONNECTED, Contract.CORE_PHASE_LOADING, Contract.CORE_PHASE_READY))
             value + (Contract.CORE_FIELD_PHASE to Contract.CORE_PHASE_STOPPING) else value
+        val projected = if (phaseProjected[Contract.CORE_FIELD_PHASE] in setOf(Contract.CORE_PHASE_STOPPING, Contract.CORE_PHASE_EXITED))
+            phaseProjected + mapOf("lanListeners" to emptyList<Map<String, Any?>>(), "applicationAccess" to null) else phaseProjected
         val statusChanged = statusValue != projected
         statusValue = projected
         session.project(projected)
@@ -470,6 +559,7 @@ class CoreClient private constructor(private val context: Context) {
                     CoreDataCleanup.get(context).requireReady()
                     lifecycle.starting(owner.processId, checkNotNull(inputId), body["userRecovery"] == true || body["explicitStart"] == true)
                     publish(statusValue + mapOf(Contract.CORE_FIELD_INPUT_ID to inputId,
+                        Contract.CORE_FIELD_GENERATION to generation,
                         Contract.CORE_FIELD_COMPOSITION to parts[Contract.CORE_PART_OPTIONS]?.let { JSONObject(CoreFrames.utf8(it)).optString(Contract.CORE_FIELD_COMPOSITION) },
                         "configId" to request.getJSONObject("arguments").optStringOrNull("configId"), "revision" to request.getJSONObject("arguments").optInt("revision"),
                         "purpose" to request.getJSONObject("arguments").optString("purpose"), "vpnIntent" to request.getJSONObject("arguments").optBoolean("vpnIntent"),
@@ -557,22 +647,7 @@ class CoreClient private constructor(private val context: Context) {
         io.execute {
             try {
                 call.failure?.let { throw it }
-                var frame = call.reader.read()
-                if (frame.kind == Contract.CORE_IPC_FRAME_DATA && call.operation in setOf(Contract.CORE_OPERATION_PREPARE, Contract.CORE_OPERATION_SNAPSHOT)) {
-                    val value = JSONObject(CoreFrames.utf8(frame.payload))
-                    val platform = value.optJSONObject("platform")
-                    val vpn = platform?.optJSONObject("vpn")
-                    val lan = platform?.optJSONObject("lan")
-                    val listeners = value.optJSONArray("listeners")
-                    state.post {
-                        if (connection?.processId == call.processId && !connection!!.confirmedDead) {
-                            publish(statusValue + mapOf("applicationAccess" to vpn?.optJSONObject("applicationAccess")?.objectMap(),
-                                "lanListeners" to listeners?.let { rows -> (0 until rows.length()).map { rows.getJSONObject(it).objectMap() } },
-                                "vpnRunning" to (vpn?.optBoolean("running") ?: statusValue["vpnRunning"]),
-                                "lanRunning" to (lan?.optBoolean("running") ?: statusValue["lanRunning"])))
-                        }
-                    }
-                }
+                val frame = call.reader.read()
                 if (frame.kind == Contract.CORE_IPC_FRAME_TERMINAL) {
                     call.terminal = true
                     // Go may write the terminal frame before returning from JNI; wait for the separate exit receipt first.
@@ -722,6 +797,8 @@ class CoreClient private constructor(private val context: Context) {
             if (owner.processId != processId) { main.post { reply(IOException("Exit request belongs to an old core process")) }; return@post }
             try {
                 if (lifecycle.snapshot().processId == processId) lifecycle.requestExit(processId, reason)
+                publish(statusValue + (Contract.CORE_FIELD_PHASE to Contract.CORE_PHASE_STOPPING))
+                owner.recoverySource = null
                 awaitExitDeadline(processId, deadline, reply)
                 owner.remote.requestExit(identity(processId).apply {
                     putLong(Contract.CORE_FIELD_ADMITTED_AT, admittedAt); putLong(Contract.CORE_FIELD_DEADLINE, deadline); putString("reason", reason)
@@ -813,18 +890,23 @@ class CoreClient private constructor(private val context: Context) {
     private fun failed(result: MethodChannel.Result, error: Throwable) = result.error(
         (error as? CoreTransportException)?.code ?: Contract.CORE_ERROR_CALL_FAILED, error.message, CoreErrors.json(error).toString())
 
+    private fun refreshRecoveryNotice() {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        if (manager.activeNotifications.any { it.id == 5 && it.tag == null }) publishRecoveryNotice()
+    }
+
     fun publishRecoveryNotice() {
         val manager = context.getSystemService(NotificationManager::class.java)
-        if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(NotificationChannel("core-recovery", context.getString(R.string.core_recovery_channel), NotificationManager.IMPORTANCE_DEFAULT))
+        if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(NotificationChannel("core-recovery", AppStrings.get(R.string.core_recovery_channel), NotificationManager.IMPORTANCE_DEFAULT))
         val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         manager.notify(5, NotificationCompat.Builder(context, "core-recovery").setSmallIcon(R.drawable.ic_vpn_notification)
-            .setContentTitle(context.getString(R.string.core_recovery_title)).setContentText(context.getString(R.string.core_recovery_body)).setContentIntent(open).setAutoCancel(true).build())
+            .setContentTitle(AppStrings.get(R.string.core_recovery_title)).setContentText(AppStrings.get(R.string.core_recovery_body))
+            .setContentIntent(open).setAutoCancel(true).setOnlyAlertOnce(true).build())
     }
 
     inner class View {
         val worker get() = io
-        fun snapshot(): CoreHost.Snapshot {
-            val value = statusValue
+        fun snapshot(value: Map<String, Any?> = statusValue): CoreHost.Snapshot {
             val raw = value[Contract.CORE_FIELD_PHASE]
             return CoreHost.Snapshot((value[Contract.CORE_FIELD_GENERATION] as? Number)?.toLong() ?: 0,
                 when (raw) { Contract.CORE_PHASE_LOADING -> CoreHost.Phase.LOADING; Contract.CORE_PHASE_READY -> CoreHost.Phase.READY

@@ -23,6 +23,7 @@ Future<bool> showAppNotice(
   bool error = true,
   bool? persist,
   bool Function()? isCurrent,
+  bool Function()? canPresent,
   bool Function(ModalRoute<dynamic>)? isCurrentWithPopup,
   Listenable? eligibilityChanges,
   Future<void> Function()? onDetails,
@@ -39,6 +40,7 @@ Future<bool> showAppNotice(
   error: error,
   persist: persist,
   isCurrent: isCurrent,
+  canPresent: canPresent,
   isCurrentWithPopup: isCurrentWithPopup,
   eligibilityChanges: eligibilityChanges,
   onDetails: onDetails,
@@ -48,6 +50,7 @@ Future<bool> showAppNotice(
   onClosed: onClosed,
 );
 
+/// [isCurrent] tracks source validity; [canPresent] only pauses presentation.
 Future<bool> showLocalizedOperationNotice(
   BuildContext context,
   String Function(AppLocalizations) summary, {
@@ -57,6 +60,7 @@ Future<bool> showLocalizedOperationNotice(
   bool error = true,
   bool? persist,
   bool Function()? isCurrent,
+  bool Function()? canPresent,
   bool Function(ModalRoute<dynamic>)? isCurrentWithPopup,
   Listenable? eligibilityChanges,
   Future<void> Function()? onDetails,
@@ -72,17 +76,29 @@ Future<bool> showLocalizedOperationNotice(
   final owner =
       AppTaskScope.maybeOf(context)?.owner ??
       WorkspaceScope.maybeOf(context)?.controller;
+  bool sourceValid() {
+    if (!context.mounted ||
+        !sourceCurrent() ||
+        (route != null &&
+            (!route.isActive ||
+                route.animation?.status == AnimationStatus.reverse))) {
+      return false;
+    }
+    if (isCurrent?.call() ?? true) return true;
+    final popup = route == null
+        ? null
+        : AppTaskNavigatorObserver.coveringPopup(route);
+    return popup != null && isCurrentWithPopup?.call(popup) == true;
+  }
+
   bool current() =>
-      context.mounted &&
+      sourceValid() &&
       AppTaskActivity.routeIsActive(route) &&
       taskCurrent() &&
-      sourceCurrent() &&
       (owner is! AppController || owner.interactive) &&
+      (canPresent?.call() ?? true) &&
       (isCurrent?.call() ?? true);
-  if (owner is AppController && !await owner.waitUntilInteractive()) {
-    return false;
-  }
-  if (!context.mounted || !current()) return false;
+  if (!sourceValid()) return false;
   final notice = _Notice(
     context: context,
     route: route,
@@ -92,6 +108,7 @@ Future<bool> showLocalizedOperationNotice(
     subject: subject,
     error: error,
     persist: persist ?? error,
+    sourceValid: sourceValid,
     eligible: current,
     isCurrentWithPopup: (popup) =>
         context.mounted &&
@@ -114,6 +131,10 @@ Future<bool> showLocalizedOperationNotice(
   );
   final host = context.findAncestorStateOfType<_OperationNoticeHostState>();
   if (host != null) return host.show(notice);
+  if (owner is AppController && !await owner.waitUntilInteractive()) {
+    return false;
+  }
+  if (!context.mounted || !current()) return false;
   final messenger = ScaffoldMessenger.maybeOf(context);
   if (messenger == null) return false;
   final media = MediaQuery.of(context);
@@ -408,6 +429,7 @@ class _Notice {
     required this.subject,
     required this.error,
     required this.persist,
+    required this.sourceValid,
     required this.eligible,
     required this.isCurrentWithPopup,
     required this.changes,
@@ -426,19 +448,13 @@ class _Notice {
   final String? subject;
   final bool error;
   final bool persist;
+  final bool Function() sourceValid;
   final bool Function() eligible;
   bool _retired = false;
   bool viewingDetails = false;
 
   bool current() {
-    if (!_retired && !eligible()) {
-      final popup = route == null
-          ? null
-          : AppTaskNavigatorObserver.coveringPopup(route!);
-      if (popup == null || isCurrentWithPopup?.call(popup) != true) {
-        _retired = true;
-      }
-    }
+    if (!_retired && !sourceValid()) _retired = true;
     return !_retired;
   }
 
@@ -514,7 +530,12 @@ class _Notice {
 
   void _acknowledgePaintedFrame(BuildContext noticeContext) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!noticeContext.mounted || !current() || presented.isCompleted) return;
+      if (!noticeContext.mounted ||
+          !current() ||
+          !eligible() ||
+          presented.isCompleted) {
+        return;
+      }
       final render = noticeContext.findRenderObject();
       if (render is! RenderBox ||
           !render.attached ||
@@ -548,6 +569,7 @@ class _Notice {
         builder: (noticeContext, constraints) {
           final media = MediaQuery.of(noticeContext);
           if (!current() ||
+              !eligible() ||
               !fits(
                 noticeContext,
                 constraints.maxWidth,
@@ -562,7 +584,7 @@ class _Notice {
           final strings = AppLocalizations.of(noticeContext);
           final colors = Theme.of(noticeContext).colorScheme;
           void close() {
-            if (!current()) {
+            if (!current() || !eligible()) {
               changed();
               return;
             }
@@ -571,7 +593,7 @@ class _Notice {
           }
 
           Future<void> details() async {
-            if (!current()) return;
+            if (!current() || !eligible()) return;
             viewingDetails = true;
             close();
             changed();
@@ -630,7 +652,7 @@ class _Notice {
                     if (onRetry != null)
                       TextButton(
                         onPressed: () {
-                          if (!current()) return;
+                          if (!current() || !eligible()) return;
                           close();
                           unawaited(onRetry!());
                         },

@@ -60,13 +60,18 @@ class _OverviewPageState extends State<OverviewPage> {
       widget.controller.foreground &&
       AppTaskActivity.isActive(context, ownedPopup: ownedPopup);
 
-  bool get _current {
-    if (!_ownsPresentation() || _covered) return false;
-    final route = ModalRoute.of(context);
-    return (route?.isActive ?? true) &&
-        (route?.isCurrent ?? true) &&
-        route?.animation?.status != AnimationStatus.reverse;
-  }
+  bool get _reading =>
+      mounted &&
+      widget.active &&
+      widget.controller.foreground &&
+      !_covered &&
+      AppTaskActivity.isVisible(context) &&
+      AppTaskActivity.routeIsActive(ModalRoute.of(context));
+
+  bool get _current =>
+      _reading &&
+      widget.controller.interactive &&
+      AppTaskActivity.isActive(context);
 
   Object? _noticeSource;
   final _readFaults = <String, AppMessage>{};
@@ -134,7 +139,7 @@ class _OverviewPageState extends State<OverviewPage> {
           ]),
           isCurrent: () =>
               source == _feedbackSource &&
-              _current &&
+              mounted &&
               fresh.entries.any(
                 (entry) => _readErrors[entry.key] == entry.value,
               ),
@@ -179,7 +184,7 @@ class _OverviewPageState extends State<OverviewPage> {
     if (SchedulerBinding.instance.schedulerPhase ==
         SchedulerPhase.persistentCallbacks) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && !_current) _traffic.setVisible(false);
+        if (mounted && !_reading) _traffic.setVisible(false);
       });
     } else {
       _traffic.setVisible(false);
@@ -189,14 +194,14 @@ class _OverviewPageState extends State<OverviewPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!AppTaskActivity.isActive(context)) _hideTraffic();
+    if (!_reading) _hideTraffic();
     _syncOwner();
   }
 
   @override
   void initState() {
     super.initState();
-    _traffic = TrafficController(widget.controller, isCurrent: () => _current);
+    _traffic = TrafficController(widget.controller, isCurrent: () => _reading);
     _traffic.addListener(_scheduleReadNotice);
     widget.controller.addListener(_syncOwner);
     _scroll.addListener(_checkVisible);
@@ -214,7 +219,7 @@ class _OverviewPageState extends State<OverviewPage> {
       _traffic.dispose();
       _traffic = TrafficController(
         widget.controller,
-        isCurrent: () => _current,
+        isCurrent: () => _reading,
       );
       _traffic.addListener(_scheduleReadNotice);
       widget.controller.addListener(_syncOwner);
@@ -241,7 +246,7 @@ class _OverviewPageState extends State<OverviewPage> {
             screen,
           ),
         );
-    _traffic.setVisible(networkVisible && _current);
+    _traffic.setVisible(networkVisible && _reading);
     if (visible != _heroVisible || networkVisible != _networkVisible) {
       setState(() {
         _heroVisible = visible;
@@ -292,8 +297,9 @@ class _OverviewPageState extends State<OverviewPage> {
   Widget _modeSurface(
     BuildContext popupContext,
     int presentation,
-    Widget child,
-  ) {
+    Widget child, {
+    required bool Function() sourceCurrent,
+  }) {
     final route = ModalRoute.of(popupContext)!;
     bool current({Route<dynamic>? ownedPopup}) =>
         presentation == _presentation &&
@@ -307,6 +313,11 @@ class _OverviewPageState extends State<OverviewPage> {
           active: active,
           isActiveNow: () => current(),
           isActiveWithPopup: (popup) => current(ownedPopup: popup),
+          isSourceCurrent: () =>
+              mounted &&
+              sourceCurrent() &&
+              route.isActive &&
+              route.animation?.status != AnimationStatus.reverse,
           child: IgnorePointer(
             ignoring: !active,
             child: ExcludeFocus(
@@ -324,6 +335,7 @@ class _OverviewPageState extends State<OverviewPage> {
     final controller = widget.controller;
     final epoch = controller.storageEpoch;
     final presentation = _presentation;
+    final taskSourceCurrent = AppTaskActivity.captureSource(context);
     await _open(
       () => showModalBottomSheet<void>(
         context: context,
@@ -338,6 +350,12 @@ class _OverviewPageState extends State<OverviewPage> {
           popupContext,
           presentation,
           ModeSheet(controller: controller, storageEpoch: epoch),
+          sourceCurrent: () =>
+              mounted &&
+              identical(widget.controller, controller) &&
+              controller.storageEpoch == epoch &&
+              presentation == _presentation &&
+              taskSourceCurrent(),
         ),
       ),
     );

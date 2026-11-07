@@ -44,7 +44,7 @@ OverrideStore以唯一role=lanProxy条目保存本功能的标准listeners YAML�
 
 装载回执、[CoreSnapshot](../../lib/src/model/core_snapshot.dart)与后续请求核对processId、generation、inputId、configId、revision、composition及purpose。composition沿完整输入身份，不截断为固定长度字符串。RUNNING另外记录VPN／局域网开启意图与实际资源；运行与所选配置不因名称相同而合并。
 
-默认进程冷启动后，先匹配内核Handshake的inputId与保留记录，再恢复RunningInput。记录缺失或不匹配时保留实际状态，拒绝定向替换；用户可以停止后按完整保存组合启动。页面另外核对自己的请求编号、查询watermark及可见性，旧结果不改变新进程或新页面。
+默认进程冷启动后，CoreClient用Handshake的processId、inputId及配置身份匹配保留记录，核对记录自身inputId和VPN／局域网意图，并从完整记录重算composition。读取前后确认仍为同一存活连接和READY来源，只补缺失身份；补全事件唤醒AppRuntime恢复RunningInput、模式和日志。完整组合不放入小型Binder控制字段。记录缺失或不匹配时保留实际状态，拒绝定向替换；停止仍按已确认进程身份退出，不能用最新保存组合冒充原输入。页面另外核对自己的请求编号、查询watermark及可见性，旧结果不改变新进程或新页面。
 
 | 操作 | 输入来源与变化范围 |
 | --- | --- |
@@ -61,6 +61,8 @@ URL、选项与正文在下载、转换及身份复核成功后一起发布。�
 ### 模式与策略偏好
 
 普通启动模式为合成显式mode→保存的可空回退→rule。当前会话明确选择的模式保存为以后缺省回退，YAML保持原值；仅策略、访问或路由的内部重连保留实际模式，正文／插件应用重新采用本次合成显式值。
+
+模式读取和重试向当前完整身份的core执行MODE，同源并发读取合并，MODE_SET开始前的旧读取不覆盖设置结果。snapshot只采用身份匹配的实际模式及读取错误；普通业务文件刷新与模式刷新分别执行。模式操作回执区分仅保存与实际应用，后者携带目标模式及目标core身份。浮板等本次成功回执和匹配目标的实际模式到齐后关闭，自身重连以回执中的新身份为准；等待超过预算时解除等待并提供未确认及重试反馈。
 
 每个配置的choices保存组类型及手动／自动意图，member:null表示自动，临时now属于运行状态。AppRuntime在发布新运行输入、结束旧进程及Handshake前校验整份saved choices；无效结构不发布输入或认领新context。default-selected维持上游初始语义；显式profile.store-selected启用时，先保留内核缓存，再由AppRuntime恢复有效应用选择并读回。恢复通过单项StrategySelect携restore:true执行，不写上游selected cache；显式用户选择成功且store-selected启用时才更新该cache。组缺失、类型不符及成员消失分别保留未恢复记录，显式选择成功后只清除对应组的记录。
 
@@ -102,6 +104,8 @@ AppRuntime的异常分支同时合并ConfigActions、OverrideActions与ScheduleA
 
 已发出的平台调用根据返回值记录结果。原operation取消或期限到达后，仍可通过只读snapshot()确认结果；读取继续绑定同一runtime、operation与storageEpoch。使用读取结果前检查confirmed及所需运行标识，写入或发起后续动作前再检查owner和剩余时间。
 
+资源更新命令携带点击时捕获的完整core身份，包括processId和inputId；宿主不把旧命令补成当前来源，AppRuntime在调用native前拒绝过期身份。
+
 内核磁盘清理在受理时和发布清理记录前分别复核storageEpoch与owner。候选由PATHS查询公开Cache、GeoIP、MMDB、ASN、GeoSite路径，保留实际名称及大小写；AppRuntime只将内核根内的路径去重为相对清单，请求字段为paths，不接受整目录清理意图。平台持久记录每项path、completed及error并阻止新装载，确认旧内核死亡及本地I/O结束后，在同一资源门禁内逐项检查、删除文件、同步目录并更新结果。中途失败保留已完成项目、当前错误及剩余清单，重试跳过已经完成的项；全部完成后才允许按最新完整保存组合重新启动。清理不结束UI或默认进程，不删除协议身份或provider自定义文件。lifecycle、资源锁和具体检查见[Android清理接入](android.md#内核数据清理)。
 
 ## 期限、取消与执行结束
@@ -123,7 +127,7 @@ DNS、普通查询和业务写入分别限制并发。切换页面只改变显�
 
 ## 后台更新交接
 
-周期更新保存正文后，准备完整私有运行输入，并检查实际 core context 的 processId、inputId、composition及记录版本，分别保留 VPN／局域网运行意图。在内部 Stop 前，将已保存结果返回网络 Worker；AppRuntime 继续使用同一 operationId 应用保存内容，分别记录应用结果和任务是否结束。
+周期更新仅对当前实际转发组合中的配置或插件执行定向应用，VPN-only、LAN-only及VPN+LAN使用同一成员判断；非实际成员只保存，正文未变不重连。保存正文后，准备完整私有运行输入，并检查实际 core context 的 processId、inputId、composition及记录版本，分别保留 VPN／局域网运行意图。在内部 Stop 前，将已保存结果返回网络 Worker；AppRuntime 继续使用同一 operationId 应用保存内容，分别记录应用结果和任务是否结束。
 
 交接前Worker停止时撤销owner；交接后，AppRuntime使用原owner继续应用。CONNECTED网络约束只管理交接前阶段，用户Stop、撤权和原期限仍可取消后续动作。该次执行结束前不接受冲突写入。110秒网络阶段与120秒总预算见[Android周期更新](android.md#周期更新)。
 
@@ -143,7 +147,9 @@ Go在合成时计算字段来源，provenance保留源ID／revision、加载名�
 
 ## 文本编辑适配
 
-正文页使用[ConfigTextPage](../../lib/src/ui/configs/editor/config_text_page.dart)。SDK file_selector返回单个XFile后，应用在大小限制内读取实际字节并严格解码；返回XFile前的缓存由文件插件管理。备份的SAF读写使用独立通道。
+正文页使用[ConfigTextPage](../../lib/src/ui/configs/editor/config_text_page.dart)。配置和插件文件导入通过自有Android SAF接入，在documentExecutor查询名称并读取实际字节，按16MiB正文预算累计检查，不按提供者声明的size预分配。完成I/O和FD关闭后返回名称及有界bytes，Dart用cross_file的XFile.fromData承载，复核字节预算并严格解码；cross_file不负责系统选择器或外部文件缓存。
+
+选择前捕获task／route／storageEpoch。SAF导致的暂时后台不使来源失效，返回后等待恢复交互并复核来源，再保存；离开任务、替换controller或整体恢复使旧结果失效。取消后停止后续动作，等已有读取和FD关闭后结束请求，Activity重建后的旧返回不交给新请求。
 
 saveLocal／saveOverride正文采用UTF-8 bytes传通道，GUI嵌套定义及replacement采用UTF-8 JSON bytes；外层保留action／storageEpoch等受理信息，owner由平台受理链固定。JSON传输预算与最终YAML预算各自核验。
 
@@ -190,7 +196,7 @@ PREPARED中断恢复旧数据，COMMITTED中断恢复新数据；回滚副本可
 
 原生返回路径后，应用继续记录仍在读取备份文件的Store任务。UI取消或放弃文件时标记retired，禁止新的读取或恢复；等最后一个使用者调用executorDrained后，再删除私有文件并返回清理结果。执行任务自己的读取已经返回时，先标记自身读取结束再等待discard；清理错误单独保留。迟到capture先等待私有文件清理，再返回实际内容及retired标记。
 
-原生committed=true表示文件已提交。整体resultSuccess还要求设置应用、调度及按最新意图重连完成；这些步骤分别保留状态和错误，失败、取消或未完成时resultSuccess为false，已提交文件仍记录为已提交。恢复前停止时保持停止，恢复前运行时则按恢复数据和最新用户意图决定是否重连。系统逐文件恢复见[Android机制](android.md#归档与文件访问)。
+原生committed=true表示文件已提交。整体resultSuccess还要求设置应用、调度及所要求的重连完成；这些步骤分别保留状态和错误，失败、取消或未完成时resultSuccess为false，已提交文件仍记录为已提交。恢复前捕获VPN与局域网的恢复资格，替换前完整停止，不沿普通Stop保留LAN。恢复后仅重启原先开启的功能；局域网还要求恢复后的lanProxy插件enabled，使用恢复后的完整配置组合重新检查地址。取消后不再启动，两项均无需恢复时保持停止。系统逐文件恢复见[Android机制](android.md#归档与文件访问)。
 
 ## 读取与反馈
 

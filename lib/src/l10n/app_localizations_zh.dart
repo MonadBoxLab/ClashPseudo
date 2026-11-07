@@ -915,7 +915,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get applicationReconnectMessage =>
-      '保存后会先正常停止当前接管，再按当前配置和模式重新连接，已有连接会中断。若重新连接失败，设置仍会保留。';
+      '保存后会停止当前 VPN 或局域网代理，保留实际运行的配置和模式重新连接，已有连接会中断。应用名单仅影响 VPN 接管范围；若重新连接失败，设置仍会保留。';
 
   @override
   String get applicationReconnect => '保存并重新连接';

@@ -11,6 +11,7 @@ import 'dart:typed_data';
 
 import 'package:clash_pseudo/src/ui/app/app_controller.dart';
 import 'package:clash_pseudo/src/ui/navigation/task_activity.dart';
+import 'package:clash_pseudo/src/ui/navigation/app_shell.dart';
 import 'package:clash_pseudo/src/ui/components/feedback/operation_feedback.dart';
 import 'package:clash_pseudo/src/ui/components/feedback/operation_notice.dart';
 import 'package:re_editor/re_editor.dart';
@@ -23,7 +24,7 @@ import 'package:clash_pseudo/src/ui/overrides/overrides_page.dart';
 import 'package:clash_pseudo/src/l10n/app_localizations.dart';
 import 'package:clash_pseudo/src/model/messages.dart';
 import 'package:clash_pseudo/src/platform/channel/app_bridge.dart';
-import 'package:file_selector/file_selector.dart';
+import 'package:cross_file/cross_file.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -52,6 +53,23 @@ class _SaveBridge extends AppBridge {
     return receiptId == null
         ? null
         : OperationAdmission(operationId: receiptId!, remaining: remaining);
+  }
+}
+
+class _PickerBridge extends _SaveBridge {
+  final selected = Completer<Map<Object?, Object?>>();
+  final cancelled = <String>[];
+  String? requestId;
+
+  @override
+  Future<Map<Object?, Object?>> pickConfigFile(String requestId) {
+    this.requestId = requestId;
+    return selected.future;
+  }
+
+  @override
+  Future<void> cancelConfigFile(String requestId) async {
+    cancelled.add(requestId);
   }
 }
 
@@ -212,6 +230,364 @@ Future<void> _openFileImport(
 
 void main() {
   final en = lookupAppLocalizations(const Locale('en'));
+
+  for (final resumesFirst in [false, true]) {
+    testWidgets(
+      'Settings plugin SAF survives focus loss before background resumesFirst=$resumesFirst',
+      (tester) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(1000, 1000);
+        addTearDown(tester.view.reset);
+        final bridge = _PickerBridge();
+        final app = _controller(bridge);
+        addTearDown(app.dispose);
+        await app.refresh();
+        await tester.pumpWidget(
+          MaterialApp(
+            navigatorObservers: [AppTaskNavigatorObserver()],
+            locale: const Locale('en'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: AppShell(controller: app),
+          ),
+        );
+        await tester.pumpAndSettle();
+        tester
+            .widget<AppTaskScope>(find.byType(AppTaskScope))
+            .open(AppTask.settings);
+        await tester.pumpAndSettle();
+        final plugins = find.widgetWithText(ListTile, en.overridePlugins);
+        await tester.ensureVisible(plugins);
+        await tester.tap(plugins);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip(en.addOverride));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(en.importFromFile));
+        await tester.pumpAndSettle();
+        expect(bridge.requestId, isNotNull);
+        final page = tester.state(find.byType(OverridesPage));
+
+        app.setInteractive(false);
+        await tester.pumpAndSettle();
+        expect(app.foreground, isTrue);
+        expect(bridge.cancelled, isEmpty);
+        app.setForeground(false);
+        await tester.pumpAndSettle();
+        expect(bridge.cancelled, isEmpty);
+        if (resumesFirst) {
+          app.setForeground(true);
+          await tester.pumpAndSettle();
+          app.setInteractive(true);
+          await tester.pumpAndSettle();
+        }
+        const body = 'rules:\n  - DOMAIN,plugin.example,REJECT\n';
+        bridge.selected.complete({
+          'requestId': bridge.requestId,
+          'status': 'ready',
+          'name': 'Selected.yaml',
+          'bytes': Uint8List.fromList(utf8.encode(body)),
+        });
+        await tester.pumpAndSettle();
+        if (!resumesFirst) {
+          expect(bridge.commands, isEmpty);
+          app.setForeground(true);
+          await tester.pumpAndSettle();
+          expect(bridge.commands, isEmpty);
+          app.setInteractive(true);
+          await tester.pumpAndSettle();
+        }
+        expect(tester.state(find.byType(OverridesPage)), same(page));
+        expect(bridge.cancelled, isEmpty);
+        expect(bridge.commands, hasLength(1));
+        expect(bridge.commands.single['action'], 'saveOverride');
+        expect(bridge.commands.single['name'], 'Selected');
+        expect(bridge.commands.single['body'], body);
+        bridge.state = const AppSnapshot(
+          phase: 'STOPPED',
+          resultId: 'save-operation',
+          resultSuccess: true,
+          overrideStatus: 'saved',
+        );
+        await app.refresh();
+        await tester.pumpAndSettle();
+        expect(bridge.commands, hasLength(1));
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
+
+  for (final fragment in [false, true]) {
+    for (final resumesFirst in [false, true]) {
+      testWidgets(
+        'SAF resumes before or after its result and imports once fragment=$fragment resumesFirst=$resumesFirst',
+        (tester) async {
+          final bridge = _SaveBridge();
+          final app = _controller(bridge);
+          addTearDown(app.dispose);
+          await app.refresh();
+          final selected = Completer<XFile?>();
+          await _showFeedback(
+            tester,
+            app,
+            page: ListenableBuilder(
+              listenable: app,
+              builder: (context, _) => AppTaskActivity(
+                active: app.interactive,
+                isSourceCurrent: () => true,
+                child: fragment
+                    ? OverridesPage(
+                        app: app,
+                        active: app.foreground,
+                        selectFile: () => selected.future,
+                      )
+                    : ConfigsPage(
+                        controller: app,
+                        active: app.foreground,
+                        selectFile: () => selected.future,
+                      ),
+              ),
+            ),
+          );
+          await tester.tap(find.byIcon(Icons.add).first);
+          await tester.pumpAndSettle();
+          await tester.tap(find.text(en.importFromFile));
+          await tester.pumpAndSettle();
+          app.setForeground(false);
+          await tester.pump();
+          if (resumesFirst) app.setForeground(true);
+          selected.complete(
+            XFile.fromData(
+              Uint8List.fromList(utf8.encode(_local.body)),
+              name: 'Selected.yaml',
+            ),
+          );
+          await tester.pumpAndSettle();
+          if (!resumesFirst) {
+            expect(bridge.commands, isEmpty);
+            app.setForeground(true);
+            await tester.pumpAndSettle();
+          }
+          expect(bridge.commands, hasLength(1));
+          expect(
+            bridge.commands.single['action'],
+            fragment ? 'saveOverride' : 'saveLocal',
+          );
+          expect(bridge.commands.single['body'], _local.body);
+          bridge.state = AppSnapshot(
+            phase: 'STOPPED',
+            resultId: 'save-operation',
+            resultSuccess: true,
+            configStatus: fragment ? null : 'saved',
+            overrideStatus: fragment ? 'saved' : null,
+          );
+          await app.refresh();
+          await tester.pumpAndSettle();
+          app.setForeground(false);
+          app.setForeground(true);
+          await tester.pumpAndSettle();
+          expect(bridge.commands, hasLength(1));
+          await tester.pumpWidget(const SizedBox());
+        },
+      );
+    }
+  }
+
+  for (final fragment in [false, true]) {
+    for (final invalidation in [
+      'left',
+      'task',
+      'epoch',
+      'controller',
+      'cancel',
+    ]) {
+      testWidgets(
+        'SAF rejects retired selections fragment=$fragment invalidation=$invalidation',
+        (tester) async {
+          final bridge = _SaveBridge();
+          final app = _controller(bridge);
+          final replacementBridge = _SaveBridge();
+          final replacement = _controller(replacementBridge);
+          addTearDown(app.dispose);
+          addTearDown(replacement.dispose);
+          await app.refresh();
+          await replacement.refresh();
+          final pageOwner = ValueNotifier(app);
+          final taskCurrent = ValueNotifier(true);
+          addTearDown(pageOwner.dispose);
+          addTearDown(taskCurrent.dispose);
+          final selected = Completer<XFile?>();
+          await _showFeedback(
+            tester,
+            app,
+            page: ListenableBuilder(
+              listenable: Listenable.merge([app, pageOwner, taskCurrent]),
+              builder: (_, _) => AppTaskActivity(
+                active: pageOwner.value.interactive && taskCurrent.value,
+                isSourceCurrent: () => taskCurrent.value,
+                child: fragment
+                    ? OverridesPage(
+                        app: pageOwner.value,
+                        active: pageOwner.value.foreground && taskCurrent.value,
+                        selectFile: () => selected.future,
+                      )
+                    : ConfigsPage(
+                        controller: pageOwner.value,
+                        active: pageOwner.value.foreground && taskCurrent.value,
+                        selectFile: () => selected.future,
+                      ),
+              ),
+            ),
+          );
+          await tester.tap(find.byIcon(Icons.add).first);
+          await tester.pumpAndSettle();
+          await tester.tap(find.text(en.importFromFile));
+          await tester.pumpAndSettle();
+          app.setForeground(false);
+          await tester.pump();
+          switch (invalidation) {
+            case 'left':
+              final page = tester.element(
+                find.byType(fragment ? OverridesPage : ConfigsPage),
+              );
+              Navigator.of(page).pop();
+            case 'task':
+              taskCurrent.value = false;
+            case 'epoch':
+              bridge.state = const AppSnapshot(
+                phase: 'STOPPED',
+                storageEpoch: 1,
+              );
+              await app.refresh();
+            case 'controller':
+              pageOwner.value = replacement;
+          }
+          await tester.pumpAndSettle();
+          app.setForeground(true);
+          if (invalidation == 'task') taskCurrent.value = true;
+          await tester.pumpAndSettle();
+          selected.complete(
+            invalidation == 'cancel'
+                ? null
+                : XFile.fromData(
+                    Uint8List.fromList(utf8.encode(_local.body)),
+                    name: 'Old.yaml',
+                  ),
+          );
+          await tester.pumpAndSettle();
+          expect(bridge.commands, isEmpty);
+          expect(replacementBridge.commands, isEmpty);
+          await tester.pumpWidget(const SizedBox());
+        },
+      );
+    }
+  }
+
+  for (final readback in [
+    'confirmed',
+    'failed',
+    'unconfirmedSuccess',
+    'replaced',
+    'epoch',
+    'notSaved',
+  ]) {
+    testWidgets(
+      'source receipt retires the old submission identity readback=$readback',
+      (tester) async {
+        final bridge = _SaveBridge();
+        final app = _controller(bridge);
+        addTearDown(app.dispose);
+        const original = ConfigEntry(
+          id: 'remote',
+          name: 'Remote',
+          kind: ConfigKind.remote,
+          source: 'https://example.com/old.yaml',
+          revision: 1,
+          body: 'rules: []\n',
+        );
+        final store = app.store! as _SaveStore;
+        store.collection = ConfigCollection(entries: [original]);
+        await app.refresh();
+        await _showFeedback(tester, app, page: ConfigsPage(controller: app));
+        await tester.tap(find.byTooltip(en.moreActions));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(en.changeSourceUpdate));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byType(TextField),
+          'https://example.com/new.yaml',
+        );
+        await tester.tap(find.text(en.saveAndUpdate));
+        await tester.pump();
+        expect(bridge.commands.single['revision'], 1);
+        if (readback == 'failed' || readback == 'unconfirmedSuccess') {
+          store.readResult = () async =>
+              throw ConfigFailure(messages.fileUnreadable);
+        } else if (readback != 'notSaved') {
+          store.collection = ConfigCollection(
+            entries: [
+              ConfigEntry.fromJson({
+                ...original.toJson(),
+                'revision': readback == 'replaced' ? 3 : 2,
+                'source': readback == 'replaced'
+                    ? 'https://example.com/other.yaml'
+                    : 'https://example.com/new.yaml',
+              }),
+            ],
+          );
+        }
+        bridge.state = AppSnapshot(
+          phase: 'STOPPED',
+          resultId: 'save-operation',
+          resultSuccess: readback == 'unconfirmedSuccess',
+          configStatus: readback == 'notSaved'
+              ? 'notSaved'
+              : readback == 'unconfirmedSuccess'
+              ? 'saved'
+              : 'applyFailed',
+          targetId: original.id,
+          savedRevision: readback == 'notSaved' ? null : 2,
+          storageEpoch: readback == 'epoch' ? 1 : 0,
+          resultMessage: readback == 'unconfirmedSuccess'
+              ? messages.configSaved
+              : messages.configSavedReconnectIncomplete,
+        );
+        await app.refresh();
+        await tester.pumpAndSettle();
+        if (readback == 'notSaved') {
+          expect(find.byType(TextField), findsOneWidget);
+          expect(
+            tester.widget<TextField>(find.byType(TextField)).controller!.text,
+            'https://example.com/new.yaml',
+          );
+        } else {
+          expect(find.byType(TextField), findsNothing);
+        }
+        expect(bridge.commands, hasLength(1));
+        if (readback == 'confirmed') {
+          expect(
+            find.text(messages.configSavedReconnectIncomplete.resolve(en)),
+            findsOneWidget,
+          );
+          final notice = tester.element(find.byType(SnackBar));
+          await app.refresh();
+          await tester.pumpAndSettle();
+          expect(tester.element(find.byType(SnackBar)), same(notice));
+          expect(app.hasLocalFeedbackOwner, isFalse);
+          await tester.tap(find.byTooltip(en.moreActions));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text(en.changeSourceUpdate));
+          await tester.pumpAndSettle();
+          expect(
+            tester.widget<TextField>(find.byType(TextField)).controller!.text,
+            'https://example.com/new.yaml',
+          );
+        }
+        app.setForeground(false);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
 
   for (final replaceEpoch in [false, true]) {
     testWidgets(

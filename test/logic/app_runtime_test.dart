@@ -57,6 +57,7 @@ void main() {
   int connectionCloses = 0;
   Completer<Map<String, dynamic>>? connectionSample;
   Completer<String>? connectionClose;
+  Completer<void>? observationRetained;
 
   Future<Object?> send(String method, Object? arguments) {
     final raw = snapshot['core'];
@@ -115,6 +116,7 @@ void main() {
     connectionCloses = 0;
     connectionSample = null;
     connectionClose = null;
+    observationRetained = null;
     schedules.clear();
     scheduleKinds.clear();
     starts.clear();
@@ -249,7 +251,11 @@ void main() {
         case 'runtimeState':
           return snapshot;
         case 'retain':
-          expect(args['observationOwner'], isNotEmpty);
+          expectSync(args['observationOwner'], isNotEmpty);
+          if (args['value'] == true &&
+              observationRetained?.isCompleted == false) {
+            observationRetained!.complete();
+          }
           return null;
         case 'sampleConnections':
           connectionReads++;
@@ -424,9 +430,8 @@ void main() {
         // so runtime callbacks, observer timers and channel replies all run under
         // the same FakeAsync clock, rather than setUp's real async zone.
         await runtime.start();
-        Future<Object?> reply(String method, Object? arguments) async {
+        Future<void> waitFor(Future<Object?> pending, String boundary) async {
           var settled = false;
-          final pending = send(method, arguments);
           unawaited(
             pending.then<void>(
               (_) {
@@ -437,14 +442,23 @@ void main() {
               },
             ),
           );
-          // Advance zero-duration observer timers as well as microtask replies.
-          await tester.pump(Duration.zero);
-          await tester.pump(const Duration(milliseconds: 1));
-          expect(
-            settled,
-            isTrue,
-            reason: '$method reply did not drain its microtasks',
-          );
+          final clock = Stopwatch()..start();
+          while (!settled && clock.elapsed < const Duration(seconds: 5)) {
+            await tester.pump(Duration.zero);
+            if (!settled) {
+              // Real file I/O and root-zone stream cleanup must also drain;
+              // fake time stays fixed until the requested boundary is reached.
+              await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+            }
+          }
+          clock.stop();
+          expect(settled, isTrue, reason: '$boundary did not complete');
+          await pending;
+        }
+
+        Future<Object?> reply(String method, Object? arguments) async {
+          final pending = send(method, arguments);
+          await waitFor(pending, '$method reply');
           return pending;
         }
 
@@ -483,8 +497,10 @@ void main() {
           },
         };
         try {
+          final retained = observationRetained = Completer<void>();
           await tester.runAsync(() => transport.runtime.restoreExisting());
           await reply('runtimeState', snapshot);
+          await waitFor(retained.future, 'first accepted connection sample');
           expect(connectionReads, 1);
           expect((await observedConnection())['active'], isTrue);
           final oldSample = connectionSample =
@@ -492,9 +508,16 @@ void main() {
           samples.add(oldSample);
           snapshot['elapsedMs'] = 1000;
           snapshot['elapsedRealtimeMs'] = 1000;
+          final sampling = transport.next(
+            ApplicationContract.coreOperationConnections,
+          );
           await tester.pump(const Duration(seconds: 1));
+          await waitFor(sampling, 'older sample admission');
           expect(connectionReads, 2);
           connectionClose = Completer<String>();
+          final closing = transport.next(
+            ApplicationContract.coreOperationConnectionClose,
+          );
           var settled = false;
           final pending =
               send('execute', {
@@ -510,7 +533,7 @@ void main() {
                 settled = true;
                 return value as Map;
               });
-          await tester.pump();
+          await waitFor(closing, 'connection close admission');
           expect(connectionCloses, 1);
           await tester.pump(const Duration(seconds: 6));
           expect(
@@ -525,11 +548,7 @@ void main() {
           expect(concurrent['message'], messages.operationInProgress.toMap());
           expect(stops, 0);
           connectionClose!.complete(status);
-          await tester.pump();
-          // subscription.cancel returns a root-zone Future; drain actual microtasks
-          // before checking the same Reply.
-          await tester.runAsync(() => Future<void>.value());
-          await tester.pump();
+          await waitFor(pending, 'connection close result');
           expect(
             settled,
             isTrue,

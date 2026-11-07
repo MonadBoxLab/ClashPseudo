@@ -1297,9 +1297,9 @@ void main() {
             resultId: 'operation',
             resultSuccess: successful,
             resultMessage: message,
-            configStatus: 'saved',
+            configStatus: successful ? 'saved' : 'notSaved',
             targetId: second.id,
-            savedRevision: second.revision,
+            savedRevision: successful ? second.revision + 1 : null,
           );
           bridge.pending = Completer<String?>();
           Element? localFeedback;
@@ -1341,6 +1341,15 @@ void main() {
             if (source) 'source': draft else 'name': draft,
             'storageEpoch': 1,
           });
+          if (successful) {
+            store.collection = store.collection.replace(
+              ConfigEntry.fromJson({
+                ...second.toJson(),
+                if (source) 'source': draft else 'name': draft,
+                'revision': second.revision + 1,
+              }),
+            );
+          }
           bridge.pending!.complete(
             outcome == 'pending-without-error' ? null : 'operation',
           );

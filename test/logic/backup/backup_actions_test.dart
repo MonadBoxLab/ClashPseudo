@@ -38,8 +38,13 @@ AppSnapshot _running({
   int epoch = 41,
   String id = 'original',
   int revision = 3,
+  bool vpn = true,
+  bool lan = false,
 }) => AppSnapshot(
-  phase: 'RUNNING',
+  phase: vpn ? 'RUNNING' : 'STOPPED',
+  vpnIntent: vpn,
+  lanIntent: lan,
+  lanRunning: lan,
   generation: 5,
   configId: id,
   revision: revision,
@@ -47,6 +52,8 @@ AppSnapshot _running({
   storageEpoch: epoch,
   mode: TunnelMode.rule,
   core: CoreSnapshot(
+    processId: 'backup-process',
+    inputId: 'backup-input',
     generation: 8,
     phase: 'READY',
     purpose: 'RUNNING',
@@ -186,7 +193,11 @@ class _BackupPlatform extends AppBridge {
     if (!stopEntered.isCompleted) stopEntered.complete();
     final pending = stopping;
     if (pending != null) await pending.future;
-    if (stopReleases) state = _stopped(epoch: state.storageEpoch);
+    if (stopReleases) {
+      state = preserveLan && state.lanIntent
+          ? _running(epoch: state.storageEpoch, vpn: false, lan: true)
+          : _stopped(epoch: state.storageEpoch);
+    }
     if (staleAfterRelease) state = state.asStale();
   }
 
@@ -265,7 +276,13 @@ class _BackupPlatform extends AppBridge {
     if (failStart) throw const FormatException('private loader data');
     state = wrongRunningIdentity
         ? _stopped(epoch: state.storageEpoch)
-        : _running(epoch: state.storageEpoch, id: id, revision: revision);
+        : _running(
+            epoch: state.storageEpoch,
+            id: id,
+            revision: revision,
+            vpn: starts.last['vpnIntent'] == true,
+            lan: starts.last['lanIntent'] == true,
+          );
     if (staleAfterStart) state = state.asStale();
   }
 }
@@ -869,6 +886,55 @@ void main() {
         'storageEpoch': 41,
         ...?extra,
       });
+
+  for (final vpn in [false, true]) {
+    for (final lan in [false, true]) {
+      for (final enabled in [false, true]) {
+        test(
+          'restore preserves original intents vpn=$vpn lan=$lan enabled=$enabled',
+          () async {
+            final overrides = OverrideStore(candidate);
+            await overrides.save([
+              ...await overrides.read(),
+              OverrideEntry(
+                id: 'lan',
+                name: 'LAN',
+                kind: ConfigKind.local,
+                role: OverrideRole.lanProxy,
+                revision: 1,
+                body: 'listeners: []',
+                enabled: enabled,
+              ),
+            ]);
+            platform.state = vpn || lan
+                ? _running(vpn: vpn, lan: lan)
+                : _stopped();
+            final result = await restore();
+            expect(result['success'], isTrue);
+            expect(_details(result)['committed'], isTrue);
+            expect(
+              platform.events.where((event) => event == 'stop'),
+              hasLength(vpn || lan ? 1 : 0),
+            );
+            final restart = vpn || lan && enabled;
+            expect(platform.starts, hasLength(restart ? 1 : 0));
+            expect(
+              platform.events.where((event) => event == 'authorize'),
+              hasLength(vpn ? 1 : 0),
+            );
+            if (restart) {
+              expect(platform.starts.single['vpnIntent'], vpn);
+              expect(platform.starts.single['lanIntent'], lan && enabled);
+            }
+            expect(platform.state.running, vpn);
+            expect(platform.state.lanRunning, lan && enabled);
+            expect((await overrides.read()).last.enabled, enabled);
+            expect((await OverrideStore(stores).read()).last.enabled, enabled);
+          },
+        );
+      }
+    }
+  }
 
   test(
     'inspection fully validates three Stores, not the old damaged data',

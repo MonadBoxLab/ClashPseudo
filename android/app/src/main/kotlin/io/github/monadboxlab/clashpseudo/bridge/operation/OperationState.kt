@@ -33,6 +33,7 @@ internal class OperationState(private val now: () -> Long = SystemClock::elapsed
     var resourceStatus: String? = null
     var scheduleStatus: String? = null
     var backupResult: Map<*, *>? = null
+    var modeResult: Map<*, *>? = null
     var targetId: String? = null
     var savedRevision: Int? = null
     private var remainingOverride: (() -> Long)? = null
@@ -84,6 +85,7 @@ internal class OperationState(private val now: () -> Long = SystemClock::elapsed
         overrideStatus = null
         resourceStatus = null
         scheduleStatus = null
+        modeResult = null
         targetId = null
         savedRevision = null
     }
@@ -103,6 +105,11 @@ internal class OperationState(private val now: () -> Long = SystemClock::elapsed
         scheduleStatus = (outcome["scheduleStatus"] as? String)?.takeIf { it in setOf("synced", "failed") }
         targetId = outcome["targetId"] as? String ?: command?.get("id") as? String
         savedRevision = (outcome["savedRevision"] as? Number)?.toInt()?.takeIf { it > 0 }
+        modeResult = (outcome["modeResult"] as? Map<*, *>)?.takeIf {
+            command?.get("action") == "setMode" && outcome["success"] == true &&
+                it["status"] in setOf("saved", "applied") && it["mode"] == command?.get("mode")
+        }?.filterKeys { it in setOf("status", "mode", "storageEpoch", "processId", "inputId",
+            "generation", "configId", "revision", "composition", "purpose") }?.toMap()
         resultSuccess = outcome["success"] == true
         resultMessage = AppMessage.fromMap(outcome["message"])
             ?: if (outcome["message"] == null && resultSuccess) null else unconfirmed(outcome["message"])

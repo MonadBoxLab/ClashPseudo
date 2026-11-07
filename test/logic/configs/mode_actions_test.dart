@@ -6,16 +6,115 @@ import 'dart:io';
 
 import 'package:clash_pseudo/src/logic/configs/config_actions.dart';
 import 'package:clash_pseudo/src/model/config_entry.dart';
+import 'package:clash_pseudo/src/model/override_entry.dart';
 import 'package:clash_pseudo/src/logic/configs/config_store.dart';
 import 'package:clash_pseudo/src/model/tunnel_mode.dart';
 import 'package:clash_pseudo/src/model/app_message.dart';
 import 'package:clash_pseudo/src/model/app_preferences.dart';
+import 'package:clash_pseudo/src/model/strategy_snapshot.dart';
+import 'package:clash_pseudo/src/model/platform_failure.dart';
 import 'package:clash_pseudo/src/logic/storage/preferences_store.dart';
 import 'package:clash_pseudo/src/platform/channel/app_bridge.dart';
 import 'package:clash_pseudo/src/ui/locale/model_text.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/config_action_fakes.dart';
+
+class _ModeReceiptPlatform extends PlatformFake {
+  CoreSnapshot? modeTarget;
+  void Function()? afterMode;
+
+  void loadActual(ConfigEntry entry, {required bool vpn}) {
+    load(
+      entry,
+      mode: TunnelMode.rule,
+      parts: [
+        if (!vpn)
+          const OverrideEntry(
+            id: 'lan',
+            name: 'LAN',
+            kind: ConfigKind.local,
+            role: OverrideRole.lanProxy,
+            revision: 1,
+            body: 'listeners: []',
+            enabled: true,
+          ),
+      ],
+    );
+    loaded.addAll({
+      'inputId': 'initial-input',
+      'vpnIntent': vpn,
+      'lanIntent': !vpn,
+    });
+    _project();
+  }
+
+  void _project() {
+    state = AppSnapshot(
+      phase: loaded['vpnIntent'] == true ? 'RUNNING' : 'STOPPED',
+      vpnIntent: loaded['vpnIntent'] == true,
+      lanIntent: loaded['lanIntent'] == true,
+      lanRunning: loaded['lanIntent'] == true,
+      generation: state.generation,
+      configId: state.core.configId,
+      revision: state.core.revision,
+      storageEpoch: 23,
+      mode: state.mode,
+      core: CoreSnapshot(
+        processId: 'process-${state.core.generation}',
+        inputId: loaded['inputId'] as String,
+        generation: state.core.generation,
+        phase: 'READY',
+        purpose: 'RUNNING',
+        configId: state.core.configId,
+        revision: state.core.revision,
+        composition: state.core.composition,
+      ),
+    );
+  }
+
+  @override
+  Future<StrategySnapshot> strategies(CoreSnapshot coreIdentity) async =>
+      StrategySnapshot(
+        processId: coreIdentity.processId,
+        inputId: coreIdentity.inputId,
+        generation: coreIdentity.generation,
+        configId: coreIdentity.configId!,
+        revision: coreIdentity.revision!,
+        composition: coreIdentity.composition!,
+        purpose: coreIdentity.purpose!,
+        globalReferenced: false,
+        unrestored: const {},
+        groups: const [],
+      );
+
+  @override
+  Future<void> start({
+    required String id,
+    required int revision,
+    required TunnelMode? mode,
+    bool explicitStart = true,
+    String? path,
+  }) async {
+    await super.start(
+      id: id,
+      revision: revision,
+      mode: mode,
+      explicitStart: explicitStart,
+      path: path,
+    );
+    _project();
+  }
+
+  @override
+  Future<TunnelMode> setMode(TunnelMode mode, CoreSnapshot coreIdentity) async {
+    modeTarget = coreIdentity;
+    events.add('mode:${mode.name}');
+    if (failMode) throw PlatformFailure(code: 'mode');
+    afterMode?.call();
+    return mode;
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -50,6 +149,118 @@ void main() {
     );
   });
   tearDown(() => directory.delete(recursive: true));
+
+  test(
+    'saved mode receipt identifies storage without inventing a runtime target',
+    () async {
+      platform.state = const AppSnapshot(phase: 'STOPPED', storageEpoch: 23);
+      await actions.execute({'action': 'setMode', 'mode': 'global'});
+      expect((await store.read()).mode, TunnelMode.global);
+      expect(actions.result['modeResult'], {
+        'status': 'saved',
+        'mode': 'global',
+        'storageEpoch': 23,
+      });
+      expect(platform.events, isEmpty);
+    },
+  );
+
+  for (final vpn in [false, true]) {
+    test(
+      'hot mode receipt retains its native target across a later core replacement vpn=$vpn',
+      () async {
+        final bridge = _ModeReceiptPlatform()
+          ..input = File('${directory.path}/receipt.input');
+        bridge.loadActual(entry, vpn: vpn);
+        final target = bridge.state.core;
+        bridge.afterMode = () => bridge.loadActual(other, vpn: vpn);
+        final action = ConfigActions(
+          store,
+          DownloadFake(),
+          bridge,
+          bridge.input!,
+        );
+        await action.execute({'action': 'setMode', 'mode': 'global'});
+        expect(bridge.modeTarget!.identity, target.identity);
+        expect(bridge.state.core.identity, isNot(target.identity));
+        expect(action.result['modeResult'], {
+          'status': 'applied',
+          'mode': 'global',
+          'storageEpoch': 23,
+          ...target.wireIdentity,
+        });
+        expect((await store.read()).mode, TunnelMode.global);
+        expect(bridge.events, ['mode:global']);
+      },
+    );
+
+    test(
+      'mode reconnect receipt names its newly prepared input vpn=$vpn',
+      () async {
+        await store.save(
+          ConfigCollection(entries: [entry], selectedId: entry.id),
+        );
+        await PreferencesStore(directory)
+            .save(const AppPreferences(reconnectOnRoutingChange: true));
+        final bridge = _ModeReceiptPlatform()
+          ..input = File('${directory.path}/receipt.input');
+        bridge.loadActual(entry, vpn: vpn);
+        final previous = bridge.state.core;
+        final action = ConfigActions(
+          store,
+          DownloadFake(),
+          bridge,
+          bridge.input!,
+        );
+        await action.execute({'action': 'setMode', 'mode': 'global'});
+        final target = bridge.state.core;
+        expect(target.processId, isNot(previous.processId));
+        expect(target.inputId, isNot(previous.inputId));
+        expect(target.inputId, bridge.loaded['inputId']);
+        expect(bridge.state.running, vpn);
+        expect(bridge.state.lanRunning, !vpn);
+        expect(bridge.loaded['body'], entry.body);
+        expect(bridge.loaded['routingOverride'], 'global');
+        expect(bridge.events, ['stop', 'start:one']);
+        expect(action.result['modeResult'], {
+          'status': 'applied',
+          'mode': 'global',
+          'storageEpoch': 23,
+          ...target.wireIdentity,
+        });
+        final receipt = action.result['modeResult'];
+        bridge.loadActual(other, vpn: vpn);
+        expect(action.result['modeResult'], receipt);
+        expect((action.result['modeResult'] as Map)['inputId'], target.inputId);
+        expect(await bridge.input!.exists(), isFalse);
+      },
+    );
+  }
+
+  test(
+    'failed mode publication cannot retain an earlier applied receipt',
+    () async {
+      final bridge = _ModeReceiptPlatform()
+        ..input = File('${directory.path}/receipt.input');
+      bridge.loadActual(entry, vpn: true);
+      final action = ConfigActions(
+        store,
+        DownloadFake(),
+        bridge,
+        bridge.input!,
+      );
+      await action.execute({'action': 'setMode', 'mode': 'global'});
+      expect(action.result['modeResult'], isNotNull);
+      bridge.failMode = true;
+      await expectLater(
+        action.execute({'action': 'setMode', 'mode': 'direct'}),
+        throwsA(isA<ConfigFailure>()),
+      );
+      expect(action.result['modeResult'], isNull);
+      expect(action.result['configStatus'], 'applyFailed');
+      expect((await store.read()).mode, TunnelMode.direct);
+    },
+  );
 
   test('stage failure after save reports partial completion without changing native', () async {
     platform.load(entry, mode: TunnelMode.rule);

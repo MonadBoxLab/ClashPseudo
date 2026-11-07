@@ -10,6 +10,7 @@ class TaskPane extends StatelessWidget {
     required this.isActiveNow,
     required this.isActiveWithPopup,
     required this.isSourceCurrent,
+    required this.isVisibleNow,
     required this.child,
   });
 
@@ -18,6 +19,7 @@ class TaskPane extends StatelessWidget {
   final bool Function() isActiveNow;
   final bool Function(Route<dynamic>) isActiveWithPopup;
   final bool Function() isSourceCurrent;
+  final bool Function() isVisibleNow;
   final Widget child;
 
   @override
@@ -47,6 +49,10 @@ class TaskPane extends StatelessWidget {
         isActiveWithPopup: (popup) =>
             parentCurrent(ownedPopup: popup) && isActiveWithPopup(popup),
         isSourceCurrent: () => parentSource() && isSourceCurrent(),
+        isVisibleNow: () =>
+            context.mounted &&
+            AppTaskActivity.isVisible(context) &&
+            isVisibleNow(),
         child: IgnorePointer(
           ignoring: !active,
           child: ExcludeFocus(

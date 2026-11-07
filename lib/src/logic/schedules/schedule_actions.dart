@@ -127,8 +127,8 @@ class ScheduleActions {
           messages.statusUnconfirmedVerify.withDetail(state.errorMessage),
         );
       }
-      if (!state.running || state.configId != id) {
-        if (!state.running &&
+      if (!state.forwarding || state.core.configId != id) {
+        if (!state.forwarding &&
             state.core.purpose == 'PREVIEW' &&
             state.core.configId == id) {
           await platform.releasePreview();
@@ -245,7 +245,7 @@ class ScheduleActions {
           messages.statusUnconfirmedVerify.withDetail(state.errorMessage),
         );
       }
-      if (!state.running) {
+      if (!state.forwarding) {
         if (state.core.purpose == 'PREVIEW') await platform.releasePreview();
         return _outcome(
           'saved',

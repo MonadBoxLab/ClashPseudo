@@ -135,14 +135,11 @@ class AppController extends ChangeNotifier {
   AppMessage? get errorMessage =>
       platformErrorMessage ??
       ((!state.storageReady || state.storageRestoring)
-          ? messages.storageUnavailable
+          ? state.storageError
           : null) ??
       configErrorMessage ??
       overrideErrorMessage ??
       preferencesErrorMessage ??
-      (state.storageEpoch != storageEpoch
-          ? messages.storageUnavailable
-          : null) ??
       commandErrorMessage ??
       (!state.coreDataReady
           ? AppMessage.fromNullable(state.coreCleanup['error']) ??
@@ -247,6 +244,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> refresh() => _read.refresh();
+  Future<void> refreshMode() => _read.refresh(modeOnly: true);
 
   /// When a page owns command feedback, global notices wait until it confirms display
   /// or relinquishes ownership.

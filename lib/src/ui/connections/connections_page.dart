@@ -81,6 +81,11 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
     widget.app.state.core.identity,
   );
 
+  bool get _feedbackSourceCurrent =>
+      mounted &&
+      (widget.active || !widget.app.foreground) &&
+      AppTaskActivity.captureSource(context)();
+
   bool _feedbackLive({ModalRoute<dynamic>? popup}) =>
       mounted &&
       widget.active &&
@@ -111,7 +116,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
         _confirmed = _feedbackLive();
       }
     }
-    if (!_feedbackLive()) _confirmed = false;
+    if (!_feedbackSourceCurrent) _confirmed = false;
     if (!_noticeEligible) _retireNotice();
   }
 
@@ -122,7 +127,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
       controller.available &&
       controller.errorSource == ConnectionErrorSource.read &&
       _feedbackSource == _sourceIdentity &&
-      _feedbackLive();
+      _feedbackSourceCurrent;
 
   void _scheduleOperationNotices(BuildContext noticeContext) {
     _operationErrors.removeWhere(
@@ -138,8 +143,8 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
       final failures = List.of(_operationErrors);
       _operationErrors.clear();
       for (final failure in failures) {
-        bool current({ModalRoute<dynamic>? popup}) =>
-            failure.source == _sourceIdentity && _feedbackLive(popup: popup);
+        bool current() =>
+            failure.source == _sourceIdentity && _feedbackSourceCurrent;
         if (!current()) continue;
         unawaited(
           showAppNotice(
@@ -149,7 +154,9 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
             identity: failure.identity,
             eligibilityChanges: controller,
             isCurrent: current,
-            isCurrentWithPopup: (popup) => current(popup: popup),
+            canPresent: _feedbackLive,
+            isCurrentWithPopup: (popup) =>
+                current() && _feedbackLive(popup: popup),
           ),
         );
       }
@@ -175,6 +182,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
           persist: true,
           identity: ticket,
           isCurrent: current,
+          canPresent: _feedbackLive,
           eligibilityChanges: controller,
           onDetails: () async {
             if (!current()) return;
@@ -222,14 +230,15 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
     }
   }
 
-  bool get _active {
-    if (!mounted || !widget.active || !AppTaskActivity.isActive(context)) {
-      return false;
-    }
-    final route = ModalRoute.of(context);
-    return (route?.isActive ?? true) &&
-        route?.animation?.status != AnimationStatus.reverse;
-  }
+  bool get _reading =>
+      mounted &&
+      widget.active &&
+      widget.app.foreground &&
+      AppTaskActivity.isVisible(context) &&
+      AppTaskActivity.routeIsActive(ModalRoute.of(context));
+
+  bool get _active =>
+      _reading && widget.app.interactive && AppTaskActivity.isActive(context);
 
   bool get _masterLive =>
       _active &&
@@ -240,7 +249,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
   void initState() {
     super.initState();
     _feedbackSource = _sourceIdentity;
-    controller = ConnectionController(widget.app, isActive: () => _active)
+    controller = ConnectionController(widget.app, isActive: () => _reading)
       ..addListener(_changed);
     _searchText.addListener(_searchChanged);
   }
@@ -298,7 +307,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
   void _syncVisibility() {
     // MenuAnchor remains in this route; only an actual covering route hides it.
     if (_detailOpen) return;
-    final visible = _active && (ModalRoute.of(context)?.isCurrent ?? true);
+    final visible = _reading;
     if (_visible == visible) return;
     _visible = visible;
     WidgetsBinding.instance.addPostFrameCallback((_) {

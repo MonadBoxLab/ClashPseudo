@@ -19,7 +19,14 @@ import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** System DNS uses only the Network captured during preparation and does not rewrite the user's nameserver. */
-internal class AndroidSystemDns(private val snapshot: UnderlyingSnapshot, private val executor: Executor) {
+internal class AndroidSystemDns(
+    private val snapshot: UnderlyingSnapshot,
+    private val executor: Executor,
+    private val rawQuery: (android.net.Network, ByteArray, Executor, CancellationSignal, DnsResolver.Callback<ByteArray>) -> Unit =
+        { network, wire, callbacks, cancellation, callback ->
+            DnsResolver.getInstance().rawQuery(network, wire, DnsResolver.FLAG_EMPTY, callbacks, cancellation, callback)
+        },
+) {
     private class Query(val cancellation: CancellationSignal? = null) {
         val cancelled = AtomicBoolean(false)
         val finished = CountDownLatch(1)
@@ -28,17 +35,19 @@ internal class AndroidSystemDns(private val snapshot: UnderlyingSnapshot, privat
         @Volatile var error: Throwable? = null
         @Volatile var exited = false
         @Volatile var submitted = false
+        var returned = false
     }
     private val pending = ConcurrentHashMap<Long, Query>()
     private val closed = AtomicBoolean(false)
     private val registration = Object()
     private var invocations = 0
-    val idle: Boolean get() = synchronized(registration) { invocations == 0 && pending.isEmpty() }
+    private var callbackRunnables = 0
+    val idle: Boolean get() = synchronized(registration) { invocations == 0 && callbackRunnables == 0 && pending.isEmpty() }
     fun awaitIdle(deadline: Long) {
         var interrupted = false
         try {
             synchronized(registration) {
-                while (invocations != 0 || pending.isNotEmpty()) {
+                while (invocations != 0 || callbackRunnables != 0 || pending.isNotEmpty()) {
                     val left = deadline - SystemClock.elapsedRealtime()
                     if (left <= 0) return
                     try { registration.wait(left) } catch (_: InterruptedException) { interrupted = true }
@@ -46,11 +55,33 @@ internal class AndroidSystemDns(private val snapshot: UnderlyingSnapshot, privat
             }
         } finally { if (interrupted) Thread.currentThread().interrupt() }
     }
-    private fun completed(requestId: Long, query: Query) = synchronized(registration) {
-        pending.remove(requestId, query)
-        registration.notifyAll()
+    private fun settle(query: Query, answer: ByteArray? = null, rcode: Int? = null, error: Throwable? = null) = synchronized(query) {
+        if (!query.exited) {
+            if (!query.cancelled.get()) { query.answer = answer; query.rcode = rcode; query.error = error }
+            query.exited = true
+            query.finished.countDown()
+            synchronized(registration) {
+                if (query.returned) pending.entries.removeAll { it.value === query }
+                registration.notifyAll()
+            }
+        }
+    }
+
+    // Android may enqueue a runnable which observes cancellation and never invokes Callback.
+    private val callbacks = Executor { command ->
+        synchronized(registration) { callbackRunnables++ }
+        val released = AtomicBoolean(false)
+        fun release() {
+            if (released.compareAndSet(false, true)) synchronized(registration) {
+                callbackRunnables--
+                registration.notifyAll()
+            }
+        }
+        try { executor.execute { try { command.run() } finally { release() } } }
+        catch (error: Throwable) { release(); throw error }
     }
     private fun returned(requestId: Long, query: Query) = synchronized(registration) {
+        query.returned = true
         if (query.exited) pending.remove(requestId, query)
         invocations--
         registration.notifyAll()
@@ -83,21 +114,10 @@ internal class AndroidSystemDns(private val snapshot: UnderlyingSnapshot, privat
                 Contract.CORE_ERROR_CAPABILITY_UNAVAILABLE, "No underlying system network was available during preparation")
             if (query.cancelled.get()) { query.exited = true; return failure(CoreTransportException(Contract.CORE_ERROR_CANCELLED, "System DNS request was cancelled before execution"), true, true) }
             if (closed.get()) throw CoreTransportException(Contract.CORE_ERROR_CANCELLED, "The core owning system DNS has stopped")
-            DnsResolver.getInstance().rawQuery(network, wire, DnsResolver.FLAG_EMPTY, executor, query.cancellation,
+            rawQuery(network, wire, callbacks, checkNotNull(query.cancellation),
                 object : DnsResolver.Callback<ByteArray> {
-                    override fun onAnswer(answer: ByteArray, rcode: Int) {
-                        query.answer = answer
-                        query.rcode = rcode
-                        query.exited = true
-                        query.finished.countDown()
-                        completed(requestId, query)
-                    }
-                    override fun onError(error: DnsResolver.DnsException) {
-                        query.error = error
-                        query.exited = true
-                        query.finished.countDown()
-                        completed(requestId, query)
-                    }
+                    override fun onAnswer(answer: ByteArray, rcode: Int) { settle(query, answer, rcode) }
+                    override fun onError(error: DnsResolver.DnsException) { settle(query, error = error) }
                 })
             query.submitted = true
             query.finished.await()
@@ -110,7 +130,12 @@ internal class AndroidSystemDns(private val snapshot: UnderlyingSnapshot, privat
                 } ?: JSONObject.NULL).put("cancelled", query.cancelled.get()).put("exited", query.exited)
                 .toString().toByteArray(Charsets.UTF_8)
         } catch (error: Throwable) {
-            if (!query.submitted) query.exited = true
+            if (!query.submitted) settle(query, error = error)
+            else if (!query.exited) {
+                query.cancelled.set(true)
+                try { query.cancellation?.cancel(); settle(query) }
+                catch (cancel: Throwable) { if (cancel !== error) error.addSuppressed(cancel) }
+            }
             return failure(error, query.cancelled.get(), query.exited)
         } finally { returned(requestId, query) }
     }
@@ -143,7 +168,7 @@ internal class AndroidSystemDns(private val snapshot: UnderlyingSnapshot, privat
     private fun cancel(requestId: Long, allowClosed: Boolean): ByteArray {
         synchronized(registration) {
             if (closed.get() && !allowClosed) return JSONObject()
-                .put("cancelled", true).put("exited", pending.isEmpty()).put("error", JSONObject.NULL)
+                .put("cancelled", true).put("exited", invocations == 0 && callbackRunnables == 0 && pending.isEmpty()).put("error", JSONObject.NULL)
                 .toString().toByteArray(Charsets.UTF_8)
             invocations++
         }
@@ -164,13 +189,19 @@ internal class AndroidSystemDns(private val snapshot: UnderlyingSnapshot, privat
         var error: Throwable? = null
         queries.forEach { query ->
             if (query.cancelled.compareAndSet(false, true)) {
-                try { query.cancellation?.cancel() } catch (failure: Throwable) {
+                try {
+                    query.cancellation?.let { cancellation ->
+                        cancellation.cancel()
+                        // CancellationSignal may return without any Callback; invocation and executor drain remain separate.
+                        settle(query)
+                    }
+                } catch (failure: Throwable) {
                     if (error == null) error = failure else if (error !== failure) error!!.addSuppressed(failure)
                 }
-                // The original call keeps waiting for the actual system callback; a cancellation receipt does not release its execution slot.
             }
         }
-        return JSONObject().put("cancelled", beforeRegistration || queries.isNotEmpty()).put("exited", !beforeRegistration && queries.all { it.exited })
+        val exited = synchronized(registration) { !beforeRegistration && callbackRunnables == 0 && queries.all { it.exited && it.returned } }
+        return JSONObject().put("cancelled", beforeRegistration || queries.isNotEmpty()).put("exited", exited)
             .put("error", error?.let { CoreErrors.json(it) } ?: JSONObject.NULL).toString().toByteArray(Charsets.UTF_8)
     }
 

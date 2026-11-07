@@ -13,6 +13,7 @@ import '../../model/app_platform.dart';
 import '../configs/config_actions.dart';
 import '../configs/config_downloader.dart';
 import '../../model/config_entry.dart';
+import '../../model/override_entry.dart';
 import '../configs/config_store.dart';
 import '../overrides/override_store.dart';
 import '../../model/backup_data.dart';
@@ -189,13 +190,14 @@ class BackupActions {
           before.core.blocked) {
         throw ConfigFailure(messages.operationInProgress);
       }
-      final restart = before.running;
-      if (restart) {
+      final restoreVpn = before.running;
+      final restoreLan = before.lanIntent;
+      if (before.core.purpose == 'RUNNING' || restoreVpn) {
         if (!_runningIdentity(before)) {
           throw ConfigFailure(messages.runningConfigUnavailable);
         }
         detail['connectionStatus'] = 'unconfirmed';
-        await ConfigActions.stop(platform);
+        await ConfigActions.stop(platform, preserveLan: false);
         final stopped = await platform.snapshot();
         if (!_released(stopped)) {
           throw ConfigFailure(messages.coreContextUnconfirmed);
@@ -262,22 +264,35 @@ class BackupActions {
           runInput: runInput,
         ).sync();
       });
-      if (restart) {
+      if (restoreVpn || restoreLan) {
         try {
           await platform.checkOperation();
-          await ConfigActions(
-            _guardedStore(installedEpoch),
-            ConfigDownloader(),
-            platform,
-            runInput,
-          ).execute({'action': 'start'});
-          // The start receipt has arrived; later cancellation cannot mark the start as
-          // unexecuted.
-          final actual = await platform.snapshot();
-          if (!actual.confirmed || !_runningIdentity(actual)) {
-            throw ConfigFailure(messages.runningConfigUnavailable);
+          final lanIntent =
+              restoreLan &&
+              (await OverrideStore(directory).read()).any(
+                (part) => part.role == OverrideRole.lanProxy && part.enabled,
+              );
+          if (restoreVpn || lanIntent) {
+            await ConfigActions(
+              _guardedStore(installedEpoch),
+              ConfigDownloader(),
+              platform,
+              runInput,
+            ).execute({
+              'action': 'start',
+              'vpnIntent': restoreVpn,
+              'lanIntent': lanIntent,
+            });
+            final actual = await platform.snapshot();
+            if (!_runningIdentity(actual) ||
+                actual.running != restoreVpn ||
+                actual.lanRunning != lanIntent) {
+              throw ConfigFailure(messages.runningConfigUnavailable);
+            }
+            detail['connectionStatus'] = 'restored';
+          } else {
+            detail['connectionStatus'] = 'notStarted';
           }
-          detail['connectionStatus'] = 'restored';
         } catch (error, stack) {
           detail['connectionFailure'] = failureValue(error, stack);
           detail['connectionStatus'] = _expired(error) ? 'cancelled' : 'failed';
@@ -571,17 +586,15 @@ bool _released(AppSnapshot state) =>
 
 bool _runningIdentity(AppSnapshot state) =>
     state.confirmed &&
-    state.running &&
-    state.generation > 0 &&
-    state.configId?.isNotEmpty == true &&
-    state.revision != null &&
-    state.revision! > 0 &&
     state.core.ready &&
     state.core.purpose == 'RUNNING' &&
-    state.core.generation > 0 &&
-    state.core.configId == state.configId &&
-    state.core.revision == state.revision &&
-    state.core.composition?.isNotEmpty == true;
+    state.core.hasIdentity &&
+    state.core.processId?.isNotEmpty == true &&
+    state.core.inputId?.isNotEmpty == true &&
+    (!state.running ||
+        (state.generation > 0 &&
+            state.core.configId == state.configId &&
+            state.core.revision == state.revision));
 
 bool _expired(Object error) =>
     error is PlatformFailure &&

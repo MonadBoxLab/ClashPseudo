@@ -136,6 +136,12 @@ class CoreService : Service() {
             details.put(Contract.CORE_FIELD_ERROR, org.json.JSONObject(text))
             remove(Contract.CORE_FIELD_ERROR)
         }
+        getString("lanListeners")?.let { text ->
+            details.put("lanListeners", org.json.JSONArray(text))
+            remove("lanListeners")
+        }
+        details.put("applicationAccess", getString("applicationAccess")?.let { org.json.JSONObject(it) } ?: org.json.JSONObject.NULL)
+        remove("applicationAccess")
         if (details.length() != 0) putParcelable("details", host.document(details.toString().toByteArray(Charsets.UTF_8)))
         try { CoreControl.check(this) }
         catch (error: Throwable) {

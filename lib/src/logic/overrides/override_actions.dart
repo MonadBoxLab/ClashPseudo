@@ -314,6 +314,19 @@ class OverrideActions {
     await _publish(entries, after, saved.id);
     try {
       final state = await platform.snapshot();
+      if (!state.confirmed) {
+        throw ConfigFailure(
+          messages.statusUnconfirmedVerify.withDetail(state.errorMessage),
+        );
+      }
+      if (!enabled &&
+          state.core.purpose == 'RUNNING' &&
+          state.core.phase != 'EMPTY' &&
+          !state.running) {
+        await platform.stop(preserveLan: false);
+        result = {...result, 'overrideStatus': 'applied'};
+        return _message(messages.overrideSettingsSaved);
+      }
       if (state.recoveryRequired) return messages.overrideSettingsSaved;
       if (state.forwarding) {
         final loaded = await RunningInput.read(platform, state);

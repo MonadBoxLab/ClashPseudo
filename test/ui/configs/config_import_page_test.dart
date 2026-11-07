@@ -12,7 +12,7 @@ import 'package:clash_pseudo/src/model/config_entry.dart';
 import 'package:clash_pseudo/src/model/messages.dart';
 import 'package:re_editor/re_editor.dart';
 import 'package:clash_pseudo/src/platform/channel/app_bridge.dart';
-import 'package:file_selector/file_selector.dart';
+import 'package:cross_file/cross_file.dart';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:clash_pseudo/src/l10n/app_localizations.dart';

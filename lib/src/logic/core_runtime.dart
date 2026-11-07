@@ -42,6 +42,11 @@ class CoreRuntime implements RuntimeCore {
   Object? logError;
   final _unrestored = <String, String>{};
   Map<String, Object?>? _mode;
+  int _modeRevision = 0;
+  bool _modeSetting = false;
+  Future<String?>? _modeReadFlight;
+  CoreSnapshot? _modeReadSource;
+  int? _modeReadRevision;
   String? _restoredProcess;
   Future<void>? _restoreFlight;
   Map<String, dynamic>? _refresh;
@@ -598,6 +603,9 @@ class CoreRuntime implements RuntimeCore {
         final source = await _source(arguments);
         final owner = arguments['owner'] as String?;
         switch (method) {
+          case 'readMode':
+            await _readMode(source);
+            return null;
           case 'strategies':
             return jsonEncode(await _strategyResponse(source));
           case 'nodes':
@@ -649,6 +657,8 @@ class CoreRuntime implements RuntimeCore {
               changed();
             }
           case 'setMode':
+            _modeRevision++;
+            _modeSetting = true;
             try {
               final result = await _result(
                 source,
@@ -694,6 +704,7 @@ class CoreRuntime implements RuntimeCore {
                 notify: false,
               );
             } finally {
+              _modeSetting = false;
               changed();
             }
           case 'resources':
@@ -1643,19 +1654,43 @@ class CoreRuntime implements RuntimeCore {
     final state = await platform.snapshot();
     final source = state.core;
     if (source.processId == null) return false;
+    bool sameRevokedSource(CoreSnapshot current) =>
+        source.processId == current.processId &&
+        source.inputId == current.inputId &&
+        source.generation == current.generation &&
+        source.configId == current.configId &&
+        source.revision == current.revision &&
+        source.purpose == current.purpose &&
+        source.networkRevision == current.networkRevision;
     if (revoked &&
-        (!source.ready ||
-            !source.matchesWireIdentity(Map<String, dynamic>.from(arguments)) ||
-            arguments['networkRevision'] != source.networkRevision)) {
-      return false;
+        (source.processId != arguments['processId'] ||
+            source.inputId != arguments['inputId'] ||
+            source.generation != arguments['generation'] ||
+            source.configId != arguments['configId'] ||
+            source.revision != arguments['revision'] ||
+            source.purpose != arguments['purpose'] ||
+            arguments['networkRevision'] != source.networkRevision ||
+            (arguments['composition'] != null &&
+                arguments['composition'] != source.composition))) {
+      throw PlatformFailure(
+        code: ApplicationContract.coreErrorIdentityMismatch,
+      );
     }
-    final record = await inputFor(source);
+    Map<String, dynamic>? record;
+    Object? recordFailure;
+    if (arguments['preserveLan'] != false) {
+      try {
+        record = await inputFor(source);
+      } catch (error) {
+        recordFailure = error;
+      }
+    }
     if (revoked) {
-      if (record?['lanIntent'] != true) return false;
       final current = (await platform.snapshot()).core;
-      if (!source.matchesIdentity(current) ||
-          source.networkRevision != current.networkRevision) {
-        return false;
+      if (!sameRevokedSource(current)) {
+        throw PlatformFailure(
+          code: ApplicationContract.coreErrorIdentityMismatch,
+        );
       }
     } else if (arguments['preserveLan'] != false &&
         record?['lanIntent'] == true &&
@@ -1668,6 +1703,16 @@ class CoreRuntime implements RuntimeCore {
       reason: revoked ? 'revoked' : 'stop',
       operation: operation,
     );
+    if (arguments['preserveLan'] != false &&
+        record == null &&
+        (revoked || state.lanIntent)) {
+      throw PlatformFailure(
+        code: ApplicationContract.coreErrorCallFailed,
+        details: messages.runningConfigUnavailable
+            .withDetail(recordFailure)
+            .toMap(),
+      );
+    }
     if (arguments['preserveLan'] != false && record?['lanIntent'] == true) {
       if (revoked) {
         final current = (await platform.snapshot()).core;
@@ -1799,6 +1844,9 @@ class CoreRuntime implements RuntimeCore {
       delays.setVisible(visible);
     }
     client.event(event);
+    if (event['event'] == ApplicationContract.coreEventInputRestored) {
+      unawaited(restoreExisting());
+    }
     _refreshEvent(event);
     if (event['exited'] == true &&
         event['requestId'] == null &&
@@ -1885,6 +1933,44 @@ class CoreRuntime implements RuntimeCore {
     bool strict = false,
     bool notify = true,
   }) async {
+    if (strict) {
+      return _readModeOnce(
+        source,
+        revision: _modeRevision,
+        expected: expected,
+        strict: true,
+        notify: notify,
+      );
+    }
+    if (_modeSetting) return null;
+    final pending = _modeReadFlight;
+    if (pending != null &&
+        _modeReadRevision == _modeRevision &&
+        _modeReadSource?.matchesIdentity(source) == true) {
+      return pending;
+    }
+    final work = _readModeOnce(source, revision: _modeRevision, notify: notify);
+    _modeReadFlight = work;
+    _modeReadSource = source;
+    _modeReadRevision = _modeRevision;
+    try {
+      return await work;
+    } finally {
+      if (identical(_modeReadFlight, work)) {
+        _modeReadFlight = null;
+        _modeReadSource = null;
+        _modeReadRevision = null;
+      }
+    }
+  }
+
+  Future<String?> _readModeOnce(
+    CoreSnapshot source, {
+    required int revision,
+    String? expected,
+    bool strict = false,
+    bool notify = true,
+  }) async {
     String? actual;
     try {
       final result = await _result(
@@ -1905,7 +1991,9 @@ class CoreRuntime implements RuntimeCore {
       }
       actual = value as String;
       final current = (await platform.snapshot()).core;
-      if (current.ready && source.matchesIdentity(current)) {
+      if (revision == _modeRevision &&
+          current.ready &&
+          source.matchesIdentity(current)) {
         _mode = {
           ...envelope(source),
           'actual': actual,
@@ -1929,7 +2017,9 @@ class CoreRuntime implements RuntimeCore {
       return actual;
     } catch (error) {
       final current = (await platform.snapshot()).core;
-      if (current.ready && source.matchesIdentity(current)) {
+      if (revision == _modeRevision &&
+          current.ready &&
+          source.matchesIdentity(current)) {
         _mode = {
           ...envelope(source),
           'actual': actual,

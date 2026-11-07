@@ -44,6 +44,7 @@ class _StartupBridge extends AppBridge {
 
   bool ready = true;
   bool restoring = false;
+  AppMessage? storageError;
   bool failSnapshot = false;
   bool running = false;
   bool pendingRestore = false;
@@ -70,6 +71,7 @@ class _StartupBridge extends AppBridge {
       'pendingRestore': pendingRestore,
       'storageReady': ready,
       'storageRestoring': restoring,
+      'storageError': storageError?.toMap(),
       'storageEpoch': 7,
       'networkEpoch': 1,
       'dnsBusy': false,
@@ -341,18 +343,36 @@ void main() {
   testWidgets(
     'startup closed storage exposes its error and retries without reading stores',
     (tester) async {
-      final fixture = _Startup()..bridge.ready = false;
+      final failure = messages.storageUnavailable.withDetail(
+        'java.io.EOFException: journal recovery failed 原文',
+      );
+      final fixture = _Startup()
+        ..bridge.ready = false
+        ..bridge.storageError = failure;
       await withStartup(tester, fixture, () async {
         await frame(tester);
         expect(find.byType(AppShell), findsOneWidget);
         final controller = fixture.app;
-        expect(controller.errorMessage, messages.storageUnavailable);
+        expect(controller.errorMessage, failure);
+        expect(controller.platformErrorMessage, failure);
         expect(controller.preferencesLoaded, isFalse);
         expect(controller.canEdit, isFalse);
+        expect(controller.canEditOverrides, isFalse);
+        expect(controller.canChangePreferences, isFalse);
         expect(fixture.configs.reads, 0);
         expect(fixture.overrides.reads, 0);
+        await frame(tester);
+        expect(find.byType(SnackBar), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byType(SnackBar),
+            matching: find.text(failure.summary(en)),
+          ),
+          findsOneWidget,
+        );
         final before = fixture.bridge.snapshots;
         fixture.bridge.ready = true;
+        fixture.bridge.storageError = null;
         await tester.pump(const Duration(seconds: 1));
         expect(fixture.bridge.snapshots, greaterThan(before));
         await frame(tester);
@@ -428,6 +448,8 @@ void main() {
         expect(find.byType(AppShell), findsOneWidget);
         final shell = tester.element(find.byType(AppShell));
         expect(fixture.app.state.storageRestoring, isTrue);
+        expect(fixture.app.errorMessage, isNull);
+        expect(find.byType(SnackBar), findsNothing);
         expect(fixture.app.preferencesLoaded, isFalse);
         expect(fixture.app.canEdit, isFalse);
         expect(fixture.app.canChangePreferences, isFalse);

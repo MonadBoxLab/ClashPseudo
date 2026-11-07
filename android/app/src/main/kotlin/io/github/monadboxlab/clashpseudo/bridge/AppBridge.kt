@@ -157,8 +157,7 @@ object AppBridge {
             authorizationResult(false)
             if (!logic.cancelBeforeExecution(owner, message)) {
                 logic.cancel(owner)
-                CoreClient.get(context).cancelOwner(owner)
-                native.abandon()
+                native.abandon(owner)
             }
             notifyUi()
         }
@@ -241,7 +240,7 @@ object AppBridge {
                         privacyNotice(call, result) { activity.get() === owner }
                     "appInfo" -> applications.appInfo(result)
                     "snapshot" -> snapshot(null, result)
-                    "strategies", "rules", "nodes", "runtimeConfig", "resources", "logs",
+                    "strategies", "rules", "nodes", "runtimeConfig", "resources", "logs", "readMode",
                     "delayStart", "delayRead", "delayCancel", "appMemory", "coreMemory", "dnsQuery",
                     "clearDnsCache", "flushFakeIp", "cancelDnsQuery", "coreCleanupCandidates" ->
                         logic.read(call.method, call.arguments as? Map<String, Any?> ?: emptyMap(), result)
@@ -250,11 +249,16 @@ object AppBridge {
                     "traffic" -> logic.traffic(result)
                     "releaseDetail" -> logic.releaseDetail(call.argument<String>("detailOwner").orEmpty(), result)
                     "openVpnSettings" -> openVpnSettings(result)
-                    "vpnStatus" -> result.success(vpnStatus())
+                    "vpnStatus" -> vpnStatus(result)
                     "applications" -> applications.applications(result)
                     "applicationIcon" -> applications.applicationIcon(call, result)
                     Contract.CORE_CHANNEL_LOCAL_INTERFACES -> readLocalInterfaces(result)
                     "syncSchedules" -> syncSchedules(call, result)
+                    "pickConfigFile" -> backups.pickConfig(call.argument<String>("requestId").orEmpty(), result::success)
+                    "cancelConfigFile" -> {
+                        backups.cancel(call.argument<String>("requestId").orEmpty())
+                        result.success(null)
+                    }
                     "backupPickImport", "backupSaveExport", "backupCancel", "backupDiscard" ->
                         backupCoordinator.backupUi(call, owner, result)
                     "submit" -> submit(call, result)
@@ -631,6 +635,7 @@ object AppBridge {
         operations.overrideStatus = null
         operations.resourceStatus = null
         operations.scheduleStatus = null
+        operations.modeResult = null
         operations.targetId = null
         operations.savedRevision = null
         try {
@@ -912,15 +917,16 @@ object AppBridge {
         }
     }
 
-    private fun vpnStatus(): Map<String, Any?> {
-        val remote = CoreClient.get(context).status()
-        val alwaysOn = remote["alwaysOn"] as? Boolean
-        val lockdown = remote["lockdown"] as? Boolean
-        return mapOf(
-            "alwaysOn" to alwaysOn,
-            "lockdown" to lockdown,
-            "supported" to (Build.VERSION.SDK_INT >= 24),
-        )
+    private fun vpnStatus(result: MethodChannel.Result) {
+        val client = CoreClient.get(context)
+        client.refreshPresentation { failure ->
+            val remote = if (failure == null) client.status() else emptyMap()
+            result.success(mapOf(
+                "alwaysOn" to (remote["alwaysOn"] as? Boolean),
+                "lockdown" to (remote["lockdown"] as? Boolean),
+                "supported" to (Build.VERSION.SDK_INT >= 24),
+            ))
+        }
     }
 
     /** Open the public system VPN settings action. */
@@ -1070,7 +1076,7 @@ object AppBridge {
             expected["purpose"] == actual["purpose"] &&
             expected["configId"] == actual["configId"] &&
             (expected["revision"] as? Number)?.toLong() == (actual["revision"] as? Number)?.toLong() &&
-            (!expected.containsKey("composition") || expected["composition"] == actual["composition"]) &&
+            (expected["composition"] == null || expected["composition"] == actual["composition"]) &&
             listOf(Contract.CORE_FIELD_GENERATION, Contract.CORE_FIELD_NETWORK_REVISION).all {
                 val left = expected[it]
                 val right = actual[it]
@@ -1139,8 +1145,23 @@ object AppBridge {
         notifyUi()
     }
 
+    internal fun currentModeProjection(core: Map<String, Any?>, value: Any?): Map<*, *>? {
+        val mode = value as? Map<*, *> ?: return null
+        val strings = listOf("processId", "inputId", "composition", "configId", "purpose")
+        if (strings.any { (core[it] as? String).isNullOrEmpty() || mode[it] != core[it] }) return null
+        if (listOf("generation", "revision").any {
+                val current = (core[it] as? Number)?.toLong()
+                current == null || current <= 0 || (mode[it] as? Number)?.toLong() != current
+            }) return null
+        return mode
+    }
+
     private fun snapshotMap(state: NativeSession.Snapshot): Map<String, Any?> {
         val storage = BackupFiles.get(context).transaction.snapshot()
+        val client = CoreClient.get(context)
+        val remote = client.status()
+        val core = client.view.snapshot(remote).toMap() + ("networkRevision" to remote["networkRevision"])
+        val mode = currentModeProjection(core, logic.runtimeProjection["mode"])
         return mapOf(
             "storageReady" to storage.ready, "storageRestoring" to storage.restoring,
             "storageEpoch" to storage.epoch, "storageError" to storage.issue?.toMap(),
@@ -1160,10 +1181,10 @@ object AppBridge {
             "resourceBusy" to resourceBusy,
             "dnsBusy" to (logic.runtimeProjection["dnsBusy"] == true),
             "dnsOperation" to logic.runtimeProjection["dnsOperation"],
-            "networkEpoch" to CoreClient.get(context).status()["networkRevision"],
+            "networkEpoch" to remote["networkRevision"],
             "pendingSystemStart" to pendingSystemRestore,
-            "mode" to (logic.runtimeProjection["mode"] as? Map<*, *>)?.get("actual"),
-            "modeError" to (logic.runtimeProjection["mode"] as? Map<*, *>)?.get("error"),
+            "mode" to mode?.get("actual"),
+            "modeError" to mode?.get("error"),
             "pendingStart" to (command?.get("action") in setOf("start", "refreshRuntime")),
             "pendingRestore" to pendingRestore,
             "writerBusy" to (exitingForCleanup || logic.busy || operations.executorBusy || operationId != null || storagePublishing || backupCapturing),
@@ -1172,16 +1193,17 @@ object AppBridge {
             "configStatus" to operations.configStatus, "overrideStatus" to operations.overrideStatus,
             "resourceStatus" to operations.resourceStatus, "scheduleStatus" to operations.scheduleStatus,
             "backupResult" to operations.backupResult,
+            "modeResult" to operations.modeResult,
             "targetId" to operations.targetId, "savedRevision" to operations.savedRevision,
             "runningApplicationAccess" to PseudoVpnService.core.applicationAccess(state.generation),
-            "core" to (PseudoVpnService.core.snapshot().toMap() + mapOf("networkRevision" to CoreClient.get(context).status()["networkRevision"])),
+            "core" to core,
             "logSource" to logic.runtimeProjection["logSource"],
-            "vpnIntent" to CoreClient.get(context).status()["vpnIntent"],
-            "lanIntent" to CoreClient.get(context).status()["lanIntent"],
-            "lanRunning" to CoreClient.get(context).status()["lanRunning"],
-            "lanListeners" to CoreClient.get(context).status()["lanListeners"],
-            "recoveryRequired" to CoreClient.get(context).lifecycle.snapshot().recoveryRequired,
-            "coreLifecycle" to CoreClient.get(context).status()["coreLifecycle"],
+            "vpnIntent" to remote["vpnIntent"],
+            "lanIntent" to remote["lanIntent"],
+            "lanRunning" to remote["lanRunning"],
+            "lanListeners" to remote["lanListeners"],
+            "recoveryRequired" to client.lifecycle.snapshot().recoveryRequired,
+            "coreLifecycle" to remote["coreLifecycle"],
         )
     }
 }

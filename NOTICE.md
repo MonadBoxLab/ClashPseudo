@@ -23,7 +23,7 @@ Flutter 构建将引擎、Dart 及所用包的版权和许可合并至 APK 的 `
 | --- | --- |
 | flutter_svg、path_parsing、xml、petitparser | MIT |
 | vector_graphics、vector_graphics_codec、vector_graphics_compiler | BSD-3-Clause |
-| file_selector 及平台实现、cross_file、plugin_platform_interface | BSD-3-Clause |
+| cross_file | BSD-3-Clause |
 | re_editor、re_highlight、isolate_manager、isolate_contactor | MIT |
 | yaml | MIT；Dart project authors／Kirill Simonov |
 | yaml_edit | BSD-3-Clause；Dart project authors |

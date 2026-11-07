@@ -42,6 +42,10 @@ yaml与yaml_edit通过hosted声明接入，应用使用span／SourceEdit处理�
 
 re_editor的本地源码位于[third_party/sources/re_editor](../../third_party/sources/re_editor)。MIT原文、官方归档SHA-256、补丁及上游PR #118关系见[PATCHES](../../third_party/sources/re_editor/PATCHES.md)和[LICENSE](../../third_party/sources/re_editor/LICENSE)。该源码包含生命周期管理、编辑提交检查、IME处理及默认关闭的测试状态记录修改。升级时逐项核对补丁所用接口；改用hosted版本时，以编辑、IME和生命周期测试检查对应行为，并更新PATCHES及通知。
 
+## 文件导入与cross_file
+
+cross_file固定为0.3.5+5，声明与归档摘要分别见pubspec.yaml和pubspec.lock。配置及插件导入由自有Android SAF接入负责选择、后台有界读取和FD关闭；Dart仅用XFile.fromData承载已读取的bytes，并复用流式字节检查及严格UTF-8解码。file_selector及其平台实现已移除，cross_file不承担系统选择器或外部文件缓存。cross_file的许可原文随所选Pub源码保留，并由Flutter构建流程合入NOTICES.Z；升级时核对实际使用的XFile接口及随包通知。
+
 ## Dart覆盖率开发依赖
 
 coverage为hosted开发依赖，供[采集工具](../../tool/coverage/flutter.dart)和测试配置使用，采用BSD-3-Clause，Copyright 2014 the Dart project authors。实际版本及归档校验见[pubspec.lock](../../pubspec.lock)。
@@ -165,7 +169,7 @@ APK 核验工具的 `--xnet-source` 填写上述有效 x/net 模块的原始 zip
 | `kind` | `geoip`或`geosite` |
 | `sourceCommit` | 同次 release 资源记录中的 40 位小写十六进制提交 |
 | `sourceUrl` | GeoIP填写`https://github.com/v2fly/geoip/archive/<sourceCommit>.tar.gz`；GeoSite使用`domain-list-community`的对应固定提交URL |
-| `file` | 清单同目录内的普通文件名，例如`geoip-converter-<commit>.tar.gz` |
+| `file` | 清单同目录内的普通文件名；prepare生成`geoip-<commit>.tar.gz`或`domain-list-community-<commit>.tar.gz` |
 | `bytes`／`sha256` | 该归档的实测正整数大小和64位小写SHA-256 |
 | `inputs` | 补充输入数组，每项填写独立的commit、URL、文件名、大小、摘要及非空`description` |
 | `processing` | 转换器、配置、补充输入与分发DAT之间的处理步骤 |
@@ -183,7 +187,9 @@ python3 -I -B tool/main.py dependencies prepare-resource-sources \
   --destination /var/tmp/new-fixed-source-materials
 ```
 
-成功输出的`sources`指向`resource-sources.json`。再次使用同一目录时，工具核对已登记原件的大小、SHA-256和固定来源后复用。缺少GeoIP补充输入时，补齐该次数据来源记录后重跑。
+成功输出的`sources`指向`resource-sources.json`。再次使用同一准备目录时，先校验真实归档的固定commit、URL、规范文件名、字节数与SHA-256，并拒绝额外文件；通过后按本次明确的inputs／processing重建规范metadata，以临时文件、fsync和replace原子发布。仅说明变化不重新下载归档，metadata相同则不重写；发布失败保留旧manifest，处理失败原因后可重跑。归档身份或字节不符时拒绝复用，核对固定记录后使用新的空目录。
+
+新资源候选采用本次解析的补充输入及处理说明。固定release的CLI和源码包准备从release顶层`sourceInputs`清单透传冻结的description与processing，不用后来代码中的默认文字覆盖；最终继续严格比较完整metadata与冻结清单，包括大小、摘要、路径和说明。缺少GeoIP补充输入时，补齐该次数据来源记录后重跑。
 
 #### 发布材料与重跑
 

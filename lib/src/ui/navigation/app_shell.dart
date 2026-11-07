@@ -95,17 +95,15 @@ class _AppShellState extends State<AppShell> {
         AppTaskActivity.isActive(noticeContext) &&
         AppTaskActivity.routeIsActive(ModalRoute.of(noticeContext)) &&
         _routes.stack.lastOrNull is! PopupRoute<dynamic>;
-    if (!canPresent()) {
-      if (_recoveryDialog == null) _recoveryTicket = null;
-      return;
-    }
+    if (!canPresent()) return;
     if (_recoveryDismissed || _recoveryTicket != null) return;
     final ticket = _recoveryTicket = Object();
     bool current() =>
+        mounted &&
+        noticeContext.mounted &&
         _recoveryTicket == ticket &&
         source == _currentRecoverySource &&
-        app.state.recoveryRequired &&
-        canPresent();
+        app.state.recoveryRequired;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!current()) {
         if (_recoveryTicket == ticket) _recoveryTicket = null;
@@ -118,6 +116,7 @@ class _AppShellState extends State<AppShell> {
           identity: ticket,
           eligibilityChanges: Listenable.merge([app, _routes]),
           isCurrent: current,
+          canPresent: canPresent,
           isCurrentWithPopup: (popup) =>
               mounted &&
               source == _currentRecoverySource &&
@@ -472,10 +471,12 @@ class _AppShellState extends State<AppShell> {
     required Route<dynamic>? outer,
     Route<dynamic>? root,
     Route<dynamic>? ownedPopup,
+    bool requireInteraction = true,
   }) =>
       mounted &&
       _task == task &&
-      widget.controller.interactive &&
+      widget.controller.foreground &&
+      (!requireInteraction || widget.controller.interactive) &&
       AppTaskActivity.routeIsActive(outer, ownedPopup: ownedPopup) &&
       _routes.stack.isNotEmpty &&
       identical(root, _routes.stack.first) &&
@@ -502,12 +503,12 @@ class _AppShellState extends State<AppShell> {
       identical(_navigator.currentState, innerNavigator) &&
       identical(root.navigator, innerNavigator) &&
       identical(_routes.stack.firstOrNull, root) &&
-      AppTaskActivity.routeIsActive(outer) &&
-      AppTaskActivity.routeIsActive(root);
+      AppTaskNavigatorObserver.isCurrentPage(outer) &&
+      AppTaskNavigatorObserver.isCurrentPage(root);
 
   bool _pagePresent(Route<dynamic>? root) =>
       mounted &&
-      widget.controller.interactive &&
+      widget.controller.foreground &&
       identical(root, _routes.stack.firstOrNull) &&
       root != null &&
       AppTaskNavigatorObserver.isCurrentPage(root) &&
@@ -545,6 +546,12 @@ class _AppShellState extends State<AppShell> {
               selected: _task == task,
               active: active && _task == task,
               isActiveNow: () => _taskActive(task, root: root, outer: outer),
+              isVisibleNow: () => _taskActive(
+                task,
+                root: root,
+                outer: outer,
+                requireInteraction: false,
+              ),
               isActiveWithPopup: (popup) => _taskActive(
                 task,
                 root: root,
@@ -602,7 +609,7 @@ class _AppShellState extends State<AppShell> {
         outerNavigator != null &&
         outerNavigator.mounted &&
         identical(outer.navigator, outerNavigator) &&
-        AppTaskActivity.routeIsActive(outer);
+        AppTaskNavigatorObserver.isCurrentPage(outer);
     bool current({Route<dynamic>? ownedPopup}) =>
         mounted &&
         identical(widget.controller, app) &&
@@ -620,6 +627,12 @@ class _AppShellState extends State<AppShell> {
           isActiveNow: activeNow,
           isActiveWithPopup: activeWithPopup,
           isSourceCurrent: sourceCurrent,
+          isVisibleNow: () =>
+              mounted &&
+              identical(widget.controller, app) &&
+              app.foreground &&
+              AppTaskActivity.isVisible(context) &&
+              AppTaskActivity.routeIsActive(outer),
           child: child!,
         ),
         child: Builder(builder: _workspace),

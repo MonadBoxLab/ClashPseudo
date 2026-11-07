@@ -101,13 +101,13 @@ Android使用一个应用Gradle模块。bridge/operation持有唯一OperationSta
 
 每个界面任务使用固定目的地标识，并保留同一控制器、草稿和读取请求。Bar／Rail、常驻入口数量及单栏／双栏切换只改变布局；设置目录与常驻导航进入同一任务。
 
-外层 MaterialApp 和 AppShell 内部 Navigator 各有 AppTaskNavigatorObserver，记录 push／pop／remove／replace 后的 Route 栈并通知订阅者。五个主任务的 Page.active 由任务选中、app.interactive 和内外根 Page 是否在场共同计算：
+外层 MaterialApp 和 AppShell 内部 Navigator 各有 AppTaskNavigatorObserver，记录 push／pop／remove／replace 后的 Route 栈并通知订阅者。五个主任务的Page.active由任务选中、app.foreground和内外根Page是否在场共同计算，输入动作另外要求app.interactive：
 
 - Page 为 active、未 reverse 且 current 时，判为在场。
 - 非 current 时，同栈上方全为 PopupRoute 才继续在场；Popup 及其 reverse 期间保留底页。
 - 上方再推入 Page 时，observer 通知底页退出在场状态。
 
-[AppTaskActivity](../../lib/src/ui/navigation/task_activity.dart)的 active 是声明式订阅snapshot。`capture(context)` 在来源仍 active 时捕获并订阅同一 InheritedElement，异步callback读取该element当前widget，检查页面是否仍允许操作。默认动作要求原 Route current、active、未 reverse。
+[AppTaskActivity](../../lib/src/ui/navigation/task_activity.dart)的active是交互资格的声明式snapshot。`capture(context)`捕获并订阅同一InheritedElement，异步callback读取其当前widget并检查是否仍允许操作；默认动作要求原Route为current、active且未reverse。必要读取通过`isVisible`检查前台及未被覆盖的当前任务，不要求窗口有输入焦点。SAF和待显示反馈使用`captureSource`保留task／route来源，暂时失焦或进入系统选择器不等于来源失效；实际切任务、退出页面或替换owner后不再使用旧结果。
 
 自有浮层通过 `isActive(context, ownedPopup: ...)` 关联：observer 核对同一 Navigator、原页上方全为 PopupRoute，且链尾为所持有的 current／active／未 reverse 浮层。等待浮层关闭后清除所持Route，再按原页面是否current、active和未reverse检查。TaskPane 和 FocusedPageRoute 对命中、焦点及语义使用同一条件。
 

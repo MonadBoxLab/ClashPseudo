@@ -55,6 +55,7 @@ class _Platform extends AppBridge {
   _Platform(this.input);
   final File input;
   Map<String, dynamic> loaded = {
+    'inputId': 'scheduled-input',
     'vpnIntent': true,
     'lanIntent': false,
     'id': 'one',
@@ -69,7 +70,9 @@ class _Platform extends AppBridge {
     'access': 'all',
     'packages': <String>[],
   };
-  void loadParts(List<Map<String, dynamic>> parts) {
+  void loadParts(List<Map<String, dynamic>> parts, {bool vpn = true}) {
+    loaded['vpnIntent'] = vpn;
+    loaded['lanIntent'] = !vpn;
     loaded['overrides'] = parts;
     final composition = jsonEncode([
       'one',
@@ -78,12 +81,17 @@ class _Platform extends AppBridge {
     ]);
     loaded['composition'] = composition;
     state = AppSnapshot(
-      phase: 'RUNNING',
+      phase: vpn ? 'RUNNING' : 'STOPPED',
+      vpnIntent: vpn,
+      lanIntent: !vpn,
+      lanRunning: !vpn,
       generation: 4,
-      configId: 'one',
-      revision: 1,
+      configId: vpn ? 'one' : null,
+      revision: vpn ? 1 : null,
       mode: TunnelMode.global,
       core: CoreSnapshot(
+        processId: 'scheduled-process',
+        inputId: 'scheduled-input',
         generation: 8,
         phase: 'READY',
         purpose: 'RUNNING',
@@ -95,14 +103,14 @@ class _Platform extends AppBridge {
   }
 
   @override
-  Future<Map<String, dynamic>?> runningRecord(CoreSnapshot core) async => {
-    ...jsonDecode(jsonEncode(loaded)) as Map<String, dynamic>,
-    'inputId': core.inputId,
-  };
+  Future<Map<String, dynamic>?> runningRecord(CoreSnapshot core) async =>
+      jsonDecode(jsonEncode(loaded)) as Map<String, dynamic>;
   Map<String, dynamic>? actualChoices;
   @override
   Future<StrategySnapshot> strategies(CoreSnapshot coreIdentity) async =>
       StrategySnapshot(
+        processId: coreIdentity.processId,
+        inputId: coreIdentity.inputId,
         generation: coreIdentity.generation,
         configId: 'one',
         revision: 1,
@@ -150,6 +158,8 @@ class _Platform extends AppBridge {
     revision: 1,
     mode: TunnelMode.global,
     core: const CoreSnapshot(
+      processId: 'scheduled-process',
+      inputId: 'scheduled-input',
       generation: 8,
       phase: 'READY',
       purpose: 'RUNNING',
@@ -258,6 +268,76 @@ void main() {
     await configs.save(ConfigCollection(entries: [config], selectedId: 'one'));
   });
   tearDown(() => directory.delete(recursive: true));
+
+  for (final kind in ['config', 'override']) {
+    for (final member in [false, true]) {
+      test(
+        'LAN scheduled $kind applies only actual members member=$member',
+        () async {
+          await overrides.save([part]);
+          platform.loadParts([
+            {
+              'id': 'lan',
+              'name': 'LAN',
+              'role': 'lanProxy',
+              'revision': 1,
+              'mode': 'prepend',
+              'body': 'listeners: []',
+              'source': null,
+            },
+            if (member || kind == 'config')
+              {
+                'id': part.id,
+                'name': part.name,
+                'role': null,
+                'revision': part.revision,
+                'mode': 'replace',
+                'body': part.body,
+                'source': part.source,
+              },
+          ], vpn: false);
+          if (!member && kind == 'config') {
+            await configs.save(
+              ConfigCollection(
+                entries: [
+                  config,
+                  ConfigEntry(
+                    id: 'other',
+                    name: 'Other',
+                    source: 'https://fixture.test/other',
+                    revision: 1,
+                    body: '{}',
+                    update: const UpdatePolicy(enabled: true),
+                  ),
+                ],
+                selectedId: 'other',
+              ),
+            );
+          }
+          platform.beforeScheduledApply = () async {
+            expect(await platform.input.exists(), isTrue);
+            expect(platform.events, isEmpty);
+            final expected = platform.handedOff!['expected'] as AppSnapshot;
+            expect(expected.core.processId, 'scheduled-process');
+            expect(expected.core.inputId, 'scheduled-input');
+            expect(expected.running, isFalse);
+            expect(expected.forwarding, isTrue);
+          };
+          final result = await actions.refresh(
+            kind,
+            kind == 'config' ? (member ? config.id : 'other') : part.id,
+          );
+          expect(result['scheduleStatus'], member ? 'applied' : 'saved');
+          expect(platform.handoffCalls, member ? 1 : 0);
+          expect(platform.events, member ? ['stop', 'start'] : isEmpty);
+          if (member) {
+            expect(platform.startedInput!['vpnIntent'], isFalse);
+            expect(platform.startedInput!['lanIntent'], isTrue);
+          }
+        },
+      );
+    }
+  }
 
   for (final kind in ['config', 'override']) {
     test(
@@ -891,7 +971,15 @@ void main() {
     expect(await platform.input.exists(), isFalse);
   });
 
-  for (final changed in ['session', 'core', 'composition', 'mode', 'phase']) {
+  for (final changed in [
+    'session',
+    'core',
+    'composition',
+    'mode',
+    'phase',
+    'process',
+    'input',
+  ]) {
     test(
       'a changed running $changed is rejected before internal stop',
       () async {
@@ -904,6 +992,12 @@ void main() {
             revision: 1,
             mode: changed == 'mode' ? TunnelMode.direct : TunnelMode.global,
             core: CoreSnapshot(
+              processId: changed == 'process'
+                  ? 'replacement-process'
+                  : 'scheduled-process',
+              inputId: changed == 'input'
+                  ? 'replacement-input'
+                  : 'scheduled-input',
               generation: changed == 'core' ? 9 : 8,
               phase: changed == 'phase' ? 'FAILED' : 'READY',
               purpose: 'RUNNING',

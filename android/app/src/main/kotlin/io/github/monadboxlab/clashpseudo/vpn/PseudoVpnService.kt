@@ -34,6 +34,7 @@ class PseudoVpnService : VpnService() {
     private var notificationText = R.string.notify_preparing
     @Volatile private var waitingForRuntime = false
     @Volatile private var destroyed = false
+    @Volatile private var resourcesClosed = false
     private var latestSystemStartId = 0
     private var coreBinding: android.content.ServiceConnection? = null
 
@@ -45,6 +46,7 @@ class PseudoVpnService : VpnService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (resourcesClosed || destroyed || instance !== this) return START_NOT_STICKY
         when (intent?.action) {
             ACTION_RESOURCE_HOST -> showNotification(R.string.notify_preparing)
             null, SERVICE_INTERFACE -> {
@@ -83,7 +85,7 @@ class PseudoVpnService : VpnService() {
     internal fun establish(specification: VpnSpecification, access: String, packages: List<String>,
                            underlying: UnderlyingSnapshot): Pair<ParcelFileDescriptor, Map<String, Any?>> {
         check(Looper.myLooper() != Looper.getMainLooper()) { "VPN establishment must run off the main thread" }
-        check(descriptor == null) { "This process already holds a TUN descriptor" }
+        synchronized(this) { checkOpen() }
         check(prepare(this) == null) { "VPN authorization is no longer valid" }
         val builder = Builder().setSession("Clash Pseudo").setMtu(specification.mtu).setBlocking(false)
         specification.addresses.forEach { (address, prefix) -> builder.addAddress(address, prefix) }
@@ -99,32 +101,55 @@ class PseudoVpnService : VpnService() {
                 true
             } catch (_: PackageManager.NameNotFoundException) { false }
         }
-        val acquired = builder.establish() ?: throw IOException("Android refused to establish the VPN")
-        try {
-            synchronized(this) {
-                check(!destroyed && instance === this && descriptor == null) { "VPN system resource host has ended or already holds a TUN" }
-                descriptor = acquired
+        val acquired = synchronized(this) {
+            checkOpen()
+            // Closing and Builder acquisition share one gate; no native call runs under it.
+            (builder.establish() ?: throw IOException("Android refused to establish the VPN")).also {
+                descriptor = it
+                notificationText = if (missing || policy.missing) R.string.notify_running_missing_apps else R.string.notify_running
             }
-        } catch (error: Throwable) {
-            try { acquired.close() } catch (close: Throwable) { if (close !== error) error.addSuppressed(close) }
-            throw error
         }
-        notificationText = if (missing || policy.missing) R.string.notify_running_missing_apps else R.string.notify_running
         return acquired to mapOf("access" to policy.access, "packages" to policy.packages,
             "source" to if (specification.filter.configured) "configuration" else "preferences")
     }
 
-    internal fun running() { main.post { showNotification(notificationText) } }
+    private fun checkOpen() {
+        check(!resourcesClosed && !destroyed && instance === this && descriptor == null) {
+            "VPN system resource host has ended or already holds a TUN"
+        }
+    }
+
+    @Synchronized internal fun running(acquired: ParcelFileDescriptor, publish: () -> Unit) {
+        check(!resourcesClosed && !destroyed && instance === this && descriptor === acquired) { "VPN attachment was closed before publication" }
+        publish()
+        running()
+    }
+
+    internal fun running() { main.post { if (descriptor != null) showNotification(notificationText) } }
 
     internal fun systemState(): Map<String, Boolean?> = mapOf(
         "alwaysOn" to if (Build.VERSION.SDK_INT >= 29) isAlwaysOn else null,
         "lockdown" to if (Build.VERSION.SDK_INT >= 29) isLockdownEnabled else null,
     )
 
-    internal fun closeResources() {
-        val held = synchronized(this) { descriptor.also { descriptor = null } }
+    internal fun attach(acquired: ParcelFileDescriptor, action: () -> Unit) {
+        try { action() }
+        catch (error: Throwable) {
+            try { closeResources(acquired) }
+            catch (close: Throwable) { if (close !== error) error.addSuppressed(close) }
+            throw error
+        }
+    }
+
+    internal fun closeResources(expected: ParcelFileDescriptor? = null) {
+        val held = synchronized(this) {
+            if (expected != null && descriptor !== expected) return
+            resourcesClosed = true
+            waitingForRuntime = false
+            descriptor.also { descriptor = null }
+        }
         try { held?.close() }
-        finally { main.post { if (descriptor == null) stopResources() } }
+        finally { main.post { if (instance === this && resourcesClosed) stopResources() } }
     }
 
     override fun onRevoke() {
@@ -142,7 +167,7 @@ class PseudoVpnService : VpnService() {
 
     override fun onDestroy() {
         waitingForRuntime = false
-        val held = synchronized(this) { destroyed = true; descriptor.also { descriptor = null } }
+        val held = synchronized(this) { destroyed = true; resourcesClosed = true; descriptor.also { descriptor = null } }
         var failure: Throwable? = null
         try { held?.close() } catch (error: Throwable) { failure = error }
         finally {
@@ -162,7 +187,8 @@ class PseudoVpnService : VpnService() {
 
     internal fun refreshNotification() { if (descriptor != null || waitingForRuntime) showNotification(notificationText) }
 
-    private fun showNotification(text: Int) {
+    @Synchronized private fun showNotification(text: Int) {
+        if (resourcesClosed || destroyed || instance !== this) return
         val manager = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(NotificationChannel(CHANNEL,
             AppStrings.get(R.string.notify_channel_vpn), NotificationManager.IMPORTANCE_LOW))
@@ -187,11 +213,16 @@ class PseudoVpnService : VpnService() {
             private set
         private var hostReady = CountDownLatch(1)
         internal fun awaitResourceHost(context: Context, deadline: Long = SystemClock.elapsedRealtime()) {
-            if (instance != null) return
+            instance?.let { service ->
+                check(!service.resourcesClosed && !service.destroyed) { "VPN system resource host has already closed" }
+                return
+            }
             val intent = Intent(context, PseudoVpnService::class.java).setAction(ACTION_RESOURCE_HOST)
             if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
             val remaining = (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
-            check(hostReady.await(remaining, TimeUnit.MILLISECONDS) && instance != null) { "VPN system resource host was not acquired within the original admission deadline" }
+            check(hostReady.await(remaining, TimeUnit.MILLISECONDS) && instance?.let { !it.resourcesClosed && !it.destroyed } == true) {
+                "VPN system resource host was not acquired within the original admission deadline"
+            }
         }
         val session get() = CoreClient.session
         val core get() = CoreClient.installed().view

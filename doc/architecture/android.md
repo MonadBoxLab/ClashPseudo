@@ -65,7 +65,7 @@ ServiceConnection断开、绑定失效、事务错误或超时记录为通信中
 2. 默认进程先持久记录starting，再建立或连接本次`:core`；绑定本身不装载配置。
 3. `:core`取得数据资源锁，捕获本次Network、DNS和本地接口，安装信任、日志及系统callback。
 4. Go执行一次Compose、一次UnmarshalRawConfig、同一RawConfig上的必要缺省、一次ParseRawConfig及一次hub.ApplyConfig；延后的监听使用公开构造器各创建一次。
-5. 请求VPN时，Kotlin按同次vpnSpec建立TUN，并通过JNI交给公开sing_tun.New；只在实际接管成功后报告VPN运行。
+5. 请求VPN时，Kotlin按同次vpnSpec建立TUN，并通过JNI交给公开sing_tun.New；只在实际接管成功后报告VPN运行。Builder取得PFD、登记资源与closeResources使用同一生命周期门禁；已关闭宿主不再接收或发布TUN，取消或ATTACH失败时回收本次仍归Kotlin持有的原PFD，JNI／Go独立副本按各自所有权退出。
 6. 默认进程核对inputId及装载回执，记录running；AppRuntime在上游profile恢复后执行应用策略恢复并读回结果。
 
 PREVIEW用于实际策略、规则、provider和DNS诊断，不申请VPN授权，不启动外部监听、Controller、UI下载、TUN或NTP。没有可见预览页面且没有已受理任务持续30秒后结束预览进程；页面只是失焦时保留。
@@ -110,7 +110,7 @@ Builder与Go使用同次解析的地址、MTU、路由、排除项及DNS规格�
 
 [UnderlyingNetworks](../../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/vpn/network/UnderlyingNetworks.kt)通过ConnectivityManager和LinkProperties捕获非VPN的Network、handle、DNS地址、privateDnsServerName、isPrivateDnsActive及revision。每个装载进程只使用一个snapshot，socket和系统 DNS callback不重新读取最新网络。
 
-- API29及以上使用指定Network的DnsResolver.rawQuery字节数组接口，配合FLAG_EMPTY、独立callback执行器和CancellationSignal。保留响应、RCODE、DnsException.code及cause；失败不转明文UDP或公共DNS。
+- API29及以上使用指定Network的DnsResolver.rawQuery字节数组接口，配合FLAG_EMPTY、独立callback执行器和CancellationSignal。平台取消可能不再调用Callback，取消返回后结算本方等待，并忽略迟到结果；同步JNI invocation、已排队或执行中的callback runnable及取消调用仍分别等待实际退出。保留响应、RCODE、DnsException.code及cause；失败不转明文UDP或公共DNS。
 - API24—28的主机地址查询调用Network.getAllByName，按地址族返回实际结果。没有公开原始消息能力的ExchangeContext／ECH返回具体能力错误，不合成带TTL或RCODE的DNS报文。取消等待不等于不可取消的系统查询已经退出。
 - 显式nameserver: system仍走上游独立systemClient。dns.UpdateSystemDNS只在初始化时调用一次：无私人DNS时提供底层IP:53，私人DNS已启用、严格模式或无网络时传nil。配置七处system与私人DNS组合的能力检查见[Go接入](core-integration.md#android-system-dns)。
 
@@ -124,7 +124,7 @@ ConnectivityManager观察全部可见非VPN网络，不要求INTERNET或VALIDATE
 
 已识别蜂窝、VPN、stacked接口及回环地址不可选。未知类型不自动启用，用户确认用途后可选择，类型仍显示未知。应用只使用系统已接管的USB网卡，不申请原始USB、定位、附近Wi-Fi或热点创建权限，不调用隐藏热点接口或配置驱动。
 
-本功能生成标准命名listeners，绑定所选具体本地地址，不使用通配监听。创建前重新检查接口身份和地址；失效时关闭对应实际监听并显示中断，等待用户选择当前地址后重启。平台只做必要protect，不增加物理入站网卡过滤、来源规则、代理协议或鉴权实现。
+本功能生成标准命名listeners，绑定所选具体本地地址，不使用通配监听。创建前重新检查接口身份和地址；失效时关闭对应实际监听并显示中断，等待用户选择当前地址后重启。CoreHost在同一同步边界捕获完整rows及listenerRevision，CoreService通过已有details FD发送rows；CoreClient只将同来源、当前revision的结果并入READY状态，空rows也覆盖旧列表，停止或换进程后的迟到结果不恢复旧监听。平台只做必要protect，不增加物理入站网卡过滤、来源规则、代理协议或鉴权实现。
 
 保存及表单行为见[配置与插件](../product/configurations.md)，连接方法见[运行与策略](../product/runtime-and-strategies.md)。VPN切换或完整重载允许现有局域网连接短暂断开，另一功能的开启意图保持，实际监听恢复结果另报。
 
@@ -150,7 +150,7 @@ Manifest声明SUPPORTS_ALWAYS_ON。系统先创建VpnService时，它绑定默�
 
 READY且lanIntent仍为true时，先等待logic、原executor、core请求、资源调用、文件发布及备份读取实际结束，再由同一AppRuntime读取原不可变运行输入，等待旧进程死亡及本地I/O结束，生成新inputId、仅将vpnIntent置false并装载LAN-only新进程。不改用最新保存组合，不重新计算期限，不改变lanProxy正文或enabled。等待期间原期限到达则记录LAN恢复未完成并请求旧进程退出；STARTING或没有可保留局域网服务时直接进入退出流程。通信中断仍保留未确认，不作为成功恢复或真实drain。
 
-API29+按实际服务能力读取Always-on／lockdown，无法读取时显示未知。普通Stop在已确认常开时引导系统设置；普通内核错误不作为系统撤销。
+API29+按实际服务能力读取Always-on／lockdown；从系统设置返回时向当前远端服务重新请求status，不只读取本地缓存。读取失败、旧连接结果或没有可读服务实例时显示未知，不为查询创建core。普通Stop在已确认常开时引导系统设置；普通内核错误不作为系统撤销。
 
 ## 系统入口
 
@@ -159,6 +159,8 @@ Shortcuts通过非导出activity-alias区分固定start／stop；公开MainActiv
 Tile使用BIND_QUICK_SETTINGS_TILE，锁屏unlockAndRun后重读实际动作；widget采用不可变的明确PendingIntent。状态读取期间再有变化时标记dirty，返回后补读一次；实例销毁只移除该实例引用。
 
 磁贴通过系统快捷设置、小组件通过Launcher选择器添加。品牌源为[branding](../../assets/branding/README.md)，桌面、启动与widget共享素材，通知和Tile使用单色轮廓。系统入口都进入同一业务执行链，不创建另一份AppRuntime。
+
+应用没有通知权限申请或通知设置按钮。Android 13及以上需在系统“应用 → Clash Pseudo → 通知”中允许通知；未授权时前台服务仍可运行，但通知抽屉中的服务控制不可见。VPN、局域网及恢复通知使用AppStrings中的应用语言；`:core`配置变化保留已同步语言，偏好变化后刷新仍存在的恢复通知，不重新发布已经撤下的通知。
 
 ## 安装级提示标记
 
@@ -174,7 +176,7 @@ Dart AppBridge的privacyNoticeShown与markPrivacyNoticeShown由默认进程文�
 
 归档先按预算复制实际字节，再检查ZIP固定条目、逐项及总展开量、CRC和SHA，最后由AppRuntime复用Store校验正文及业务关系。支持stored／deflated、data descriptor和manifest首／末项；额外、目录、重复或缺失条目拒绝。预算见[数据contract](data-and-operations.md#归档格式与大小限制)。
 
-[BackupCalls](../../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/backup/BackupCalls.kt)使用系统OPEN／CREATE_DOCUMENT、OPENABLE及一次性URI授权。私有文件由BackupFiles.ioExecutor处理，外部文件提供者由独立documentExecutor处理。取消后不发起后续动作，已有I/O和close返回前不放开冲突操作；已写外部文件不因回执迟到或私有清理失败而自动删除。
+[BackupCalls](../../android/app/src/main/kotlin/io/github/monadboxlab/clashpseudo/backup/BackupCalls.kt)使用系统OPEN／CREATE_DOCUMENT、OPENABLE及一次性URI授权。配置和插件导入也通过该接入的CONFIG请求读取单个文件，MainActivity仅分发结果；名称查询、实际字节读取及FD关闭均在documentExecutor，读取上限沿正文预算，不信任提供者声明的size。私有备份文件由BackupFiles.ioExecutor处理。取消后不发起后续动作，已有I/O和close返回前不放开冲突操作；Activity重建使旧请求失效，已写外部文件不因回执迟到或私有清理失败而自动删除。
 
 备份文件按实际使用者保留。放弃后标记retired，拒绝新读取与恢复，等最后一个executorDrained后清理。committed表示原生文件已经提交，整体成功还要求设置、调度及所要求的重连完成。
 

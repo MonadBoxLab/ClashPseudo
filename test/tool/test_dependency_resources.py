@@ -1178,22 +1178,98 @@ class OfficialPreparationTest(unittest.TestCase):
         self.assertEqual(sources.prepare_resource_sources(specs, self.base / "sources", inputs=inputs,
                                                          fetch=download), manifest)
         self.assertEqual(self.requests, [])
-        for row in metadata["sources"]:
-            for source in [row, *row.get("inputs", [])]:
-                registered_name = row["kind"] + "-registered-" + source["sourceCommit"] + ".tar.gz"
-                (manifest.parent / source["file"]).rename(manifest.parent / registered_name)
-                source["file"] = registered_name
-        metadata["sources"][1].pop("inputs")
-        manifest.write_bytes(common_io.json_bytes(metadata))
-        registered_bytes = manifest.read_bytes()
-        with mock.patch.object(sources, "fetch", side_effect=AssertionError("offline resume fetched")) as offline:
-            self.assertEqual(sources.prepare_resource_sources(specs, manifest.parent, inputs=inputs), manifest)
-            offline.assert_not_called()
-        self.assertEqual(manifest.read_bytes(), registered_bytes)
-        self.assertEqual(resources.read_resource_sources(manifest.parent), metadata)
         (self.base / "sources" / geoip["file"]).write_bytes(b"x" * geoip["bytes"])
         with self.assertRaisesRegex(ValueError, "digest differs"):
             sources.prepare_resource_sources(specs, self.base / "sources", inputs=inputs, fetch=download)
+        self.assertEqual(self.requests, [])
+
+    def source_fixture(self):
+        self.by_url.update({resources._source_expected(kind, commit)[0]: data
+                            for kind, commit, data in (("geoip", "a" * 40, b"converter"),
+                                                       ("geoip", "c" * 40, b"data"),
+                                                       ("geosite", "b" * 40, b"rules"))})
+        specs = resources.prepared_specs(self.prepare())
+        manifest = sources.prepare_resource_sources(specs, self.base / "sources", fetch=self.fetch)
+        self.requests.clear()
+        return specs, manifest
+
+    def test_reused_source_metadata_is_rebuilt_and_then_idempotent(self):
+        specs, manifest = self.source_fixture()
+        original = resources.read_resource_sources(manifest.parent)
+        expected = json.loads(common_io.json_bytes(original))
+        expected["sources"][0]["inputs"][0]["description"] = "Updated data explanation"
+        expected["sources"][0]["processing"] = "Updated converter explanation"
+        self.freeze_record(expected, prepared=self.base / "prepared")
+        before = {path.name: (path.read_bytes(), path.stat().st_mtime_ns)
+                  for path in manifest.parent.iterdir() if path != manifest}
+        options = {"inputs": expected["sources"][0]["inputs"],
+                   "processing": expected["sources"][0]["processing"]}
+        sources.prepare_resource_sources(specs, manifest.parent, **options, fetch=self.fetch)
+        actual = resources.read_resource_sources(manifest.parent)
+        self.assertEqual(actual, expected)
+        resources.check_resource_source_selection(self.root, actual)
+        stat = manifest.stat()
+        sources.prepare_resource_sources(specs, manifest.parent, **options, fetch=self.fetch)
+        self.assertEqual((manifest.stat().st_ino, manifest.stat().st_mtime_ns),
+                         (stat.st_ino, stat.st_mtime_ns))
+        self.assertEqual({path.name: (path.read_bytes(), path.stat().st_mtime_ns)
+                          for path in manifest.parent.iterdir() if path != manifest}, before)
+        self.assertEqual(self.requests, [])
+        with self.assertRaisesRegex(ValueError, "differs from the release record"):
+            resources.check_resource_source_selection(self.root, original)
+
+    def test_source_metadata_publish_failure_keeps_previous_manifest_and_allows_retry(self):
+        specs, manifest = self.source_fixture()
+        before = {path.name: path.read_bytes() for path in manifest.parent.iterdir()}
+        replace = sources.os.replace
+        def fail_manifest(source, target):
+            if Path(target) == manifest:
+                raise OSError("manifest publication failed")
+            return replace(source, target)
+        with mock.patch.object(sources.os, "replace", side_effect=fail_manifest), \
+                self.assertRaisesRegex(OSError, "manifest publication failed"):
+            sources.prepare_resource_sources(specs, manifest.parent, processing="New processing", fetch=self.fetch)
+        self.assertEqual({path.name: path.read_bytes() for path in manifest.parent.iterdir()}, before)
+        sources.prepare_resource_sources(specs, manifest.parent, processing="New processing", fetch=self.fetch)
+        self.assertEqual(resources.read_resource_sources(manifest.parent)["sources"][0]["processing"],
+                         "New processing")
+        self.assertEqual(self.requests, [])
+
+    def test_source_reuse_rejects_archive_identity_and_payload_changes(self):
+        specs, manifest = self.source_fixture()
+        original = resources.read_resource_sources(manifest.parent)
+        for source_index in (0, 1, 2):
+            for field, value in (("sourceCommit", "d" * 40), ("sourceUrl", "https://example.test/archive"),
+                                 ("file", "renamed.tar.gz"), ("bytes", 1), ("sha256", "0" * 64),
+                                 ("payload", None), ("extra", None)):
+                with self.subTest(source=source_index, field=field):
+                    changed = json.loads(common_io.json_bytes(original))
+                    row = [changed["sources"][0], changed["sources"][0]["inputs"][0],
+                           changed["sources"][1]][source_index]
+                    path = manifest.parent / row["file"]
+                    data = path.read_bytes()
+                    extra = manifest.parent / "extra"
+                    if field == "file":
+                        path.rename(manifest.parent / value)
+                    if field == "payload":
+                        path.write_bytes(b"x" * len(data))
+                    elif field == "extra":
+                        extra.write_bytes(b"unregistered")
+                    else:
+                        row[field] = value
+                    manifest.write_bytes(common_io.json_bytes(changed))
+                    before = manifest.read_bytes()
+                    try:
+                        with self.assertRaises(ValueError):
+                            sources.prepare_resource_sources(specs, manifest.parent, processing="New processing",
+                                                             fetch=self.fetch)
+                        self.assertEqual(manifest.read_bytes(), before)
+                    finally:
+                        if field == "file":
+                            (manifest.parent / value).rename(path)
+                        path.write_bytes(data)
+                        extra.unlink(missing_ok=True)
+                        manifest.write_bytes(common_io.json_bytes(original))
         self.assertEqual(self.requests, [])
 
     def test_sources_require_explicit_geoip_inputs_and_reject_empty_placeholders(self):
@@ -1355,6 +1431,34 @@ class OfficialPreparationTest(unittest.TestCase):
                 self.assertEqual(archive.extractfile("dependencies/data/" + kind + "/" + row["file"]).read(),
                                  (result["sources"].parent / row["file"]).read_bytes())
 
+    def test_release_source_assets_keep_frozen_explanations(self):
+        from tool.artifacts import package_sources, verify_release_licenses
+        from tool.dependencies import validation
+        _, manifest = self.source_fixture()
+        expected = resources.read_resource_sources(manifest.parent)
+        expected["sources"][0]["inputs"][0]["description"] = "Frozen data explanation"
+        expected["sources"][0]["processing"] = "Frozen release processing"
+        self.freeze_record(expected, prepared=self.base / "prepared")
+        for name in ("NOTICE.md", "doc/legal/dependencies.md", *verify_release_licenses.ASSETS):
+            path = self.root / name
+            if not path.exists():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"Fixture license notice\n")
+        output = self.base / "release"
+        output.mkdir()
+        import tarfile
+        def package(updater, evidence, source, *, commit, resource_sources):
+            with tarfile.open(source, "w:gz") as archive:
+                package_sources.add_resource_sources(archive, updater.root, resource_sources)
+        with mock.patch.object(sources, "fetch", self.fetch), \
+                mock.patch.object(package_sources, "create", side_effect=package):
+            assets = validation._source_assets(mock.Mock(root=self.root), self.base / "evidence", output,
+                                               "1.0.0", "f" * 40)
+        self.assertEqual(resources.read_resource_sources(output / "resource-sources"), expected)
+        with tarfile.open(output / assets[0], "r:gz") as archive:
+            self.assertEqual(json.loads(archive.extractfile("build-inputs/resource-sources.json").read()), expected)
+        self.assertEqual(len(self.requests), 3)
+
     def test_fixed_source_cli_never_resolves_latest_or_updates_application_inputs(self):
         self.by_url.update({resources._source_expected(kind, commit)[0]: data
                             for kind, commit, data in (("geoip", "a" * 40, b"converter"),
@@ -1364,7 +1468,10 @@ class OfficialPreparationTest(unittest.TestCase):
         geo.parent.mkdir(parents=True)
         geo.write_bytes(common_io.json_bytes({"files": [self.pinned["geoip"], self.pinned["geosite"]]}))
         fixed_sources = sources.prepare_resource_sources(resources.prepared_specs(self.prepare()),
-                                                       self.base / "fixed-source-fixture", fetch=self.fetch)
+                                                       self.base / "fixed-source-fixture",
+                                                       inputs=[{"sourceCommit": "c" * 40,
+                                                                "description": "Frozen release data explanation"}],
+                                                       processing="Frozen release processing", fetch=self.fetch)
         self.freeze_record(resources.read_resource_sources(fixed_sources.parent), prepared=self.base / "prepared")
         specs = self.base / "fixed-specs.json"
         specs.write_bytes(common_io.json_bytes({kind: self.pinned[kind] for kind in ("geoip", "geosite")}))

@@ -75,6 +75,7 @@ class AppRuntime {
       case 'strategies':
       case 'setStrategy':
       case 'setMode':
+      case 'readMode':
       case 'nodes':
       case 'rules':
       case 'runtimeConfig':

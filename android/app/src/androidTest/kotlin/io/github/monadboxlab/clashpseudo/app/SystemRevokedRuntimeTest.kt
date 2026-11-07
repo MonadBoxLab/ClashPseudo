@@ -34,7 +34,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.Inet4Address
 import java.net.InetAddress
@@ -82,7 +81,7 @@ class SystemRevokedRuntimeTest {
         }
         assertEquals("LAN input must not be published while the old request is unread", beforeFiles, runRecords())
         assertEquals(running.status["processId"], client.status()["processId"])
-        assertTrue(drain(held).terminal.getBoolean("complete"))
+        assertTrue(drainTerminal(held).getBoolean("complete"))
         try {
             platform.await("Restore only LAN after revoke", 120_000) {
                 val status = client.status()
@@ -273,11 +272,11 @@ class SystemRevokedRuntimeTest {
         try {
             val identity = publish(record)
             val at = SystemClock.elapsedRealtime()
-            val prepared = drain(submit(Contract.CORE_OPERATION_PREPARE, identity, mapOf("purpose" to Contract.CORE_PURPOSE_RUNNING,
+            val prepared = drainTerminal(submit(Contract.CORE_OPERATION_PREPARE, identity, mapOf("purpose" to Contract.CORE_PURPOSE_RUNNING,
                 "vpnIntent" to true, "lanIntent" to true, "explicitStart" to true, "admittedAt" to at,
                 "deadline" to at + Contract.OPERATION_ORDINARY_TIMEOUT_MS, "lanInterfaces" to listOf(mapOf(
                     "listenerName" to name, "interfaceName" to row["interfaceName"], "interfaceIndex" to row["interfaceIndex"], "address" to row["address"])))))
-            assertTrue(prepared.terminal.toString(), prepared.terminal.getBoolean("complete"))
+            assertTrue(prepared.toString(), prepared.getBoolean("complete"))
             platform.await("VPN and LAN are actually ready") { client.status()["phase"] == Contract.CORE_PHASE_READY &&
                 client.status()["vpnRunning"] == true && client.status()["lanRunning"] == true && !AppBridge.logic.busy }
             val status = platform.status()
@@ -388,18 +387,20 @@ class SystemRevokedRuntimeTest {
             assertTrue((it["requestId"] as Number).toLong() > 0L)
         }
 
-    private fun drain(admission: Map<*, *>): CoreIpcTestDriver.Reply {
-        val output = ByteArrayOutputStream()
+    private fun drainTerminal(admission: Map<*, *>): JSONObject {
+        var dataBytes = 0L
         while (true) {
             val frame = platform.channel(Contract.CORE_CHANNEL_READ, mapOf("processId" to admission["processId"],
                 "requestId" to admission["requestId"])) as Map<*, *>
             val bytes = frame["payload"] as ByteArray
             when ((frame["kind"] as Number).toInt()) {
-                Contract.CORE_IPC_FRAME_DATA -> { output.write(bytes); check(output.size() <= Contract.CORE_IPC_QUEUE_BYTES) }
+                Contract.CORE_IPC_FRAME_DATA -> {
+                    dataBytes += bytes.size
+                    check(dataBytes <= Contract.CORE_IPC_QUEUE_BYTES)
+                }
                 Contract.CORE_IPC_FRAME_TERMINAL -> {
                     assertEquals(true, (frame["nativeReceipt"] as Map<*, *>)["exited"])
-                    return CoreIpcTestDriver.Reply(if (output.size() == 0) JSONObject() else JSONObject(CoreFrames.utf8(output.toByteArray())),
-                        JSONObject(CoreFrames.utf8(bytes)))
+                    return JSONObject(CoreFrames.utf8(bytes))
                 }
                 else -> error("Unexpected frame kind in this call: ${frame["kind"]}")
             }

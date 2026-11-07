@@ -8,6 +8,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../app/app_controller.dart';
+import '../../model/app_snapshot.dart';
 import '../../model/core_snapshot.dart';
 import '../../model/delay_result.dart';
 import '../../model/tunnel_mode.dart';
@@ -323,20 +324,25 @@ class StrategyController extends ChangeNotifier {
     _changed();
   }
 
-  Future<void> choose(String name, String? member, {int? storageEpoch}) async {
+  Future<AppSnapshot?> choose(
+    String name,
+    String? member, {
+    int? storageEpoch,
+    ValueListenable<bool>? feedbackOwner,
+  }) async {
     final epoch = storageEpoch ?? app.storageEpoch;
-    if (!canChoose) return;
+    if (!canChoose) return null;
     final group = data!.find(name);
     if (group == null ||
         !group.selectable ||
         (member == null && !group.automatic) ||
         (member != null && !group.hasMember(member))) {
-      return;
+      return null;
     }
     final actual = data!;
     changingGroup = name;
     notifyListeners();
-    await app.submit({
+    final command = <String, Object?>{
       'action': 'setStrategy',
       'storageEpoch': epoch,
       'id': actual.configId,
@@ -347,10 +353,19 @@ class StrategyController extends ChangeNotifier {
       'composition': actual.composition,
       'name': name,
       'choice': StrategyChoice(type: group.type!, member: member).toJson(),
-    });
-    if (_disposed) return;
-    if (app.commandError != null) changingGroup = null;
-    notifyListeners();
+    };
+    final AppSnapshot? result;
+    if (feedbackOwner == null) {
+      await app.submit(command);
+      result = null;
+    } else {
+      result = await app.submitAndWait(command, feedbackOwner: feedbackOwner);
+    }
+    if (!_disposed) {
+      if (app.commandError != null) changingGroup = null;
+      notifyListeners();
+    }
+    return result;
   }
 
   @override

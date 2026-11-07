@@ -61,7 +61,7 @@ class PseudoApplication : Application() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         if (AppProcess.isCore(this)) {
-            AppStrings.initialize(this)
+            AppStrings.configurationChanged(this)
             PseudoVpnService.instance?.refreshNotification()
             io.github.monadboxlab.clashpseudo.nativecore.CoreService.instance?.refreshNotification()
             return
@@ -81,6 +81,9 @@ class PseudoApplication : Application() {
             AppWorkService.instance?.refreshNotification()
         } catch (_: Exception) {
             Log.w("PseudoStrings", "Unable to refresh work notification")
+        }
+        io.github.monadboxlab.clashpseudo.nativecore.CoreClient.get(this).refreshPresentation { error ->
+            if (error != null) Log.w("PseudoStrings", "Unable to refresh core notification", error)
         }
         SystemControls.refresh(this)
     }

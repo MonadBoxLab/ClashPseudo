@@ -40,9 +40,12 @@ class _Platform extends AppBridge {
   final events = <String>[];
   Map<String, dynamic>? started;
   bool failStart = false;
+  bool failStop = false;
+  bool mismatchRecordAccess = false;
   bool expired = false;
   int _coreGeneration = 8;
   final loaded = <String, dynamic>{
+    'inputId': 'running-input',
     'vpnIntent': true,
     'lanIntent': false,
     'id': 'one',
@@ -66,6 +69,8 @@ class _Platform extends AppBridge {
     revision: 1,
     mode: TunnelMode.global,
     core: CoreSnapshot(
+      processId: 'running-process',
+      inputId: 'running-input',
       generation: 8,
       phase: 'READY',
       purpose: 'RUNNING',
@@ -74,7 +79,14 @@ class _Platform extends AppBridge {
       composition: '["one",1]',
     ),
   );
-  void loadParts(List<OverrideEntry> parts) {
+  void loadParts(
+    List<OverrideEntry> parts, {
+    bool vpn = true,
+    bool lan = false,
+    bool healthy = true,
+  }) {
+    loaded['vpnIntent'] = vpn;
+    loaded['lanIntent'] = lan;
     loaded['overrides'] = [
       for (final part in parts)
         {
@@ -93,12 +105,33 @@ class _Platform extends AppBridge {
       for (final part in parts) [part.id, part.revision, part.mode.name],
     ]);
     state = AppSnapshot(
-      phase: 'RUNNING',
+      phase: vpn ? 'RUNNING' : 'STOPPED',
+      vpnIntent: vpn,
+      lanIntent: lan,
+      lanRunning: lan && healthy,
+      lanListeners: [
+        if (lan) ...[
+          {
+            'name': 'first',
+            'network': 'tcp',
+            'address': '192.0.2.1:7890',
+            'state': healthy ? 'bound' : 'failed',
+          },
+          {
+            'name': 'second',
+            'network': 'tcp',
+            'address': '192.0.2.2:7890',
+            'state': 'bound',
+          },
+        ],
+      ],
       generation: 4,
       configId: 'one',
       revision: 1,
       mode: TunnelMode.global,
       core: CoreSnapshot(
+        processId: 'running-process',
+        inputId: 'running-input',
         generation: 8,
         phase: 'READY',
         purpose: 'RUNNING',
@@ -160,6 +193,7 @@ class _Platform extends AppBridge {
   @override
   Future<void> stop({bool preserveLan = true}) async {
     events.add('stop');
+    if (failStop) throw PlatformFailure(code: 'closeFailed');
     state = AppSnapshot(phase: 'STOPPED', generation: state.generation);
     afterStop?.call();
   }
@@ -176,29 +210,38 @@ class _Platform extends AppBridge {
     if (failStart) throw PlatformFailure(code: 'start');
     started = jsonDecode(await input.readAsString()) as Map<String, dynamic>;
     loaded.addAll(started!);
+    if (mismatchRecordAccess) loaded['access'] = 'all';
     if (mismatchChoice) {
       loaded['choices'] = <String, dynamic>{
         'Proxy': <String, dynamic>{'type': 'select', 'member': 'A'},
       };
     }
     state = AppSnapshot(
-      phase: 'RUNNING',
+      phase: started!['vpnIntent'] == true ? 'RUNNING' : 'STOPPED',
+      vpnIntent: started!['vpnIntent'] == true,
+      lanIntent: started!['lanIntent'] == true,
+      lanRunning: started!['lanIntent'] == true,
       generation: state.generation + 1,
-      runningApplicationAccess: RunningApplicationAccess(
-        generation: state.generation + 1,
-        access: mismatchAccess
-            ? ApplicationAccess.all
-            : ApplicationAccess.values.byName(started!['access'] as String),
-        packages: mismatchAccess
-            ? []
-            : (started!['packages'] as List).cast<String>(),
-      ),
+      runningApplicationAccess: started!['vpnIntent'] != true
+          ? null
+          : RunningApplicationAccess(
+              generation: state.generation + 1,
+              access: mismatchAccess
+                  ? ApplicationAccess.all
+                  : ApplicationAccess.values.byName(
+                      started!['access'] as String,
+                    ),
+              packages: mismatchAccess
+                  ? []
+                  : (started!['packages'] as List).cast<String>(),
+            ),
       configId: id,
       revision: revision,
       mode: started!['routingOverride'] == null
           ? mode ?? TunnelMode.rule
           : TunnelMode.parse(started!['routingOverride']),
       core: CoreSnapshot(
+        processId: 'running-process-${_coreGeneration + 1}',
         inputId: started!['inputId'] as String,
         generation: ++_coreGeneration,
         phase: 'READY',
@@ -276,6 +319,165 @@ void main() {
     await overrides.save([part]);
   });
   tearDown(() => directory.delete(recursive: true));
+
+  const lanPart = OverrideEntry(
+    id: 'lan',
+    name: 'LAN',
+    kind: ConfigKind.local,
+    role: OverrideRole.lanProxy,
+    revision: 1,
+    body: 'listeners: []',
+    enabled: true,
+  );
+  for (final vpn in [false, true]) {
+    for (final healthy in [false, true]) {
+      test(
+        'explicit LAN disable releases its context vpn=$vpn healthy=$healthy',
+        () async {
+          await overrides.save([part, lanPart]);
+          platform.loadParts(
+            [part, lanPart],
+            vpn: vpn,
+            lan: true,
+            healthy: healthy,
+          );
+          if (!vpn) {
+            // Full Stop must not require the run record.
+            platform.loaded.clear();
+          }
+          await parts.execute({
+            'action': 'setLanProxyEnabled',
+            'id': 'lan',
+            'revision': 1,
+            'enabled': false,
+          });
+          expect((await overrides.read()).last.enabled, isFalse);
+          expect(parts.result['overrideStatus'], 'applied');
+          expect(platform.events, vpn ? ['stop', 'start'] : ['stop']);
+          expect(platform.state.running, vpn);
+          expect(platform.state.lanRunning, isFalse);
+          if (vpn) {
+            expect(platform.started!['vpnIntent'], isTrue);
+            expect(platform.started!['lanIntent'], isFalse);
+            expect(
+              (platform.started!['overrides'] as List).single['id'],
+              part.id,
+            );
+            expect(platform.started!['access'], 'only');
+            expect(platform.started!['packages'], ['fixture.loaded']);
+          } else {
+            expect(platform.state.core.phase, 'EMPTY');
+          }
+        },
+      );
+    }
+  }
+
+  test('LAN disable stops a context after every listener has failed', () async {
+    await overrides.save([lanPart]);
+    platform.loadParts([lanPart], vpn: false, lan: true, healthy: false);
+    platform.state = AppSnapshot(
+      phase: 'STOPPED',
+      lanIntent: true,
+      core: platform.state.core,
+      generation: platform.state.generation,
+      lanListeners: [
+        for (final listener in platform.state.lanListeners)
+          {...listener, 'state': 'failed'},
+      ],
+    );
+    platform.loaded.clear();
+    await parts.execute({
+      'action': 'setLanProxyEnabled',
+      'id': 'lan',
+      'revision': 1,
+      'enabled': false,
+    });
+    expect(platform.events, ['stop']);
+    expect(platform.state.core.phase, 'EMPTY');
+    expect(parts.result['overrideStatus'], 'applied');
+  });
+
+  test('failed LAN close preserves disabled preference and reports application failure', () async {
+    await overrides.save([lanPart]);
+    platform.loadParts([lanPart], vpn: false, lan: true, healthy: false);
+    platform.failStop = true;
+    await parts.execute({
+      'action': 'setLanProxyEnabled',
+      'id': 'lan',
+      'revision': 1,
+      'enabled': false,
+    });
+    expect((await overrides.read()).single.enabled, isFalse);
+    expect(platform.events, ['stop']);
+    expect(platform.state.core.phase, 'READY');
+    expect(parts.result['overrideStatus'], 'applyFailed');
+    expect(parts.result['success'], isFalse);
+  });
+
+  test(
+    'LAN access rejects a reconnected record with different access',
+    () async {
+      platform.loadParts([lanPart], vpn: false, lan: true);
+      platform.mismatchRecordAccess = true;
+      final actions = ConfigActions(configs, download, platform, input);
+      await expectLater(
+        actions.execute({
+          'action': 'setApplicationAccess',
+          'access': 'except',
+          'packages': ['fixture.new'],
+        }),
+        throwsA(
+          isA<ConfigFailure>().having(
+            (error) => error.message.id,
+            'saved failure',
+            'accessSavedReconnectFailed',
+          ),
+        ),
+      );
+      expect(
+        (await PreferencesStore(directory).read()).access,
+        ApplicationAccess.except,
+      );
+      expect(platform.events, ['stop', 'start']);
+      expect(actions.result['success'], isFalse);
+    },
+  );
+
+  test('LAN access reconnect confirms its new record without a TUN and skips same-value retry', () async {
+    platform.loadParts([part, lanPart], vpn: false, lan: true);
+    final actions = ConfigActions(configs, download, platform, input);
+    final command = {
+      'action': 'setApplicationAccess',
+      'access': 'except',
+      'packages': ['fixture.new'],
+    };
+    await actions.execute(command);
+    expect(platform.events, ['stop', 'start']);
+    expect(platform.state.running, isFalse);
+    expect(platform.state.lanRunning, isTrue);
+    expect(platform.state.runningApplicationAccess, isNull);
+    expect(platform.started!['access'], 'except');
+    expect(platform.started!['packages'], ['fixture.new']);
+    expect(platform.started!['body'], main.body);
+    expect((platform.started!['overrides'] as List).map((part) => part['id']), [
+      part.id,
+      lanPart.id,
+    ]);
+    platform.events.clear();
+    await actions.execute(command);
+    expect(platform.events, isEmpty);
+    await actions.execute({'action': 'start'});
+    expect(platform.events, ['authorize', 'start']);
+    expect(platform.state.running, isTrue);
+    expect(
+      platform.state.runningApplicationAccess!.matches(
+        ApplicationAccess.except,
+        ['fixture.new'],
+      ),
+      isTrue,
+    );
+  });
 
   test('actual selection of public Selector types survives plugin update reconnect', () async {
     platform.strategyRawType = 'Selector';
@@ -1067,6 +1269,8 @@ void main() {
         input,
       ).execute({'action': 'setMode', 'mode': 'global'});
       await StrategyActions(configs, platform, runInput: input).execute({
+        'processId': platform.state.core.processId,
+        'inputId': platform.state.core.inputId,
         'id': 'one',
         'revision': 1,
         'generation': 8,
@@ -1088,6 +1292,8 @@ void main() {
       input,
     ).execute({'action': 'setMode', 'mode': 'direct'});
     await StrategyActions(configs, platform, runInput: input).execute({
+      'processId': platform.state.core.processId,
+      'inputId': platform.state.core.inputId,
       'id': 'one',
       'revision': 1,
       'generation': 8,
@@ -1111,6 +1317,8 @@ void main() {
         ConfigCollection(entries: [pending], selectedId: 'one'),
       );
       await StrategyActions(configs, platform, runInput: input).execute({
+        'processId': platform.state.core.processId,
+        'inputId': platform.state.core.inputId,
         'id': 'one',
         'revision': 1,
         'generation': 8,
@@ -1137,6 +1345,8 @@ void main() {
       platform.mismatchChoice = true;
       await expectLater(
         StrategyActions(configs, platform, runInput: input).execute({
+          'processId': platform.state.core.processId,
+          'inputId': platform.state.core.inputId,
           'id': 'one',
           'revision': 1,
           'generation': 8,
@@ -1920,6 +2130,8 @@ void main() {
       }),
     );
     await StrategyActions(configs, platform, runInput: input).execute({
+      'processId': platform.state.core.processId,
+      'inputId': platform.state.core.inputId,
       'id': 'one',
       'revision': 1,
       'generation': 8,

@@ -16,6 +16,8 @@ void main() {
     revision: 1,
     mode: TunnelMode.rule,
     core: CoreSnapshot(
+      processId: 'scheduled-process',
+      inputId: 'scheduled-input',
       generation: 8,
       phase: 'READY',
       purpose: 'RUNNING',
@@ -54,6 +56,34 @@ void main() {
         'kind': 'override',
         'id': 'part',
         'sessionGeneration': 4,
+        'processId': 'scheduled-process',
+        'inputId': 'scheduled-input',
+        'generation': 8,
+        'composition': '["one",1]',
+        'configId': 'one',
+        'revision': 1,
+      });
+    },
+  );
+
+  test(
+    'LAN handoff uses the core identity rather than the absent VPN session',
+    () async {
+      final bridge = AppBridge(operationId: 'scheduled-owner');
+      final lan = AppSnapshot(
+        phase: 'STOPPED',
+        lanIntent: true,
+        lanRunning: true,
+        core: expected.core,
+      );
+      await bridge.finishScheduledDownload(lan, kind: 'config', id: 'one');
+      expect(calls.single.arguments, {
+        'owner': 'scheduled-owner',
+        'kind': 'config',
+        'id': 'one',
+        'sessionGeneration': 0,
+        'processId': 'scheduled-process',
+        'inputId': 'scheduled-input',
         'generation': 8,
         'composition': '["one",1]',
         'configId': 'one',

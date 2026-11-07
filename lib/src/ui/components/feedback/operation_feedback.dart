@@ -457,29 +457,36 @@ class _OperationFeedbackState extends State<OperationFeedback> {
         if (submissionFailed) _failedCommand = command;
         return;
       }
-      var showSubmissionFailure = submissionFailed;
-      if (submissionFailed) {
-        _failedCommand = command;
-        showSubmissionFailure = !controller.feedbackHandledLocally(
-          command,
-          submissionFailed: true,
-        );
-      }
+      final showSubmissionFailure =
+          submissionFailed &&
+          !controller.feedbackHandledLocally(command, submissionFailed: true);
+      if (submissionFailed && !showSubmissionFailure) _failedCommand = command;
       if (!showSubmissionFailure) {
         if (!completed) return;
-        _result = state.resultId;
         if (controller.feedbackHandledLocally(
           command,
           submissionFailed: false,
           resultId: state.resultId,
         )) {
+          _result = state.resultId;
           return;
         }
       }
+      void consume() {
+        if (showSubmissionFailure) {
+          _failedCommand = command;
+        } else {
+          _result = state.resultId;
+        }
+      }
+
       final message = showSubmissionFailure
           ? controller.commandErrorMessage
           : state.resultMessageDescription;
-      if (message == null) return;
+      if (message == null) {
+        consume();
+        return;
+      }
       final success = !showSubmissionFailure && state.resultSuccess;
       if (success &&
           const [
@@ -493,6 +500,7 @@ class _OperationFeedbackState extends State<OperationFeedback> {
             'reorderOverrides',
             'deleteOverride',
           ].contains(command['action'])) {
+        consume();
         return;
       }
       bool current() =>
@@ -503,9 +511,10 @@ class _OperationFeedbackState extends State<OperationFeedback> {
           (showSubmissionFailure
               ? identical(controller.commandErrorMessage, message)
               : controller.state.resultId == state.resultId);
+      var presented = false;
       _presenting = true;
       try {
-        await showAppNotice(
+        presented = await showAppNotice(
           context,
           message,
           error: !success,
@@ -514,10 +523,11 @@ class _OperationFeedbackState extends State<OperationFeedback> {
           isCurrentWithPopup: (_) => current(),
           eligibilityChanges: controller,
           identity: (command, showSubmissionFailure, state.resultId),
+          onPresented: consume,
         );
       } finally {
         _presenting = false;
-        if (mounted) _changed();
+        if (mounted && (presented || !current())) _changed();
       }
     });
     WidgetsBinding.instance.ensureVisualUpdate();

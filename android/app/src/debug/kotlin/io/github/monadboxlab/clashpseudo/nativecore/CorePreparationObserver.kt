@@ -14,11 +14,12 @@ internal object CorePreparationObserver {
     private fun directory(context: Context) = File(context.noBackupFilesDir, "worker-starting-fixture")
     private fun file(context: Context, name: String) = File(directory(context), name)
 
-    fun armWorkerGate(context: Context, failAfterCancellation: Boolean = false) {
+    fun armWorkerGate(context: Context, failAfterCancellation: Boolean = false, afterNativePrepare: Boolean = false) {
+        check(!failAfterCancellation || !afterNativePrepare)
         val directory = directory(context)
         check(directory.mkdir()) { "Worker STARTING fixture directory already exists or cannot be created" }
         check(OsConstants.S_ISDIR(Os.lstat(directory.path).st_mode))
-        CorePrivateFiles.write(file(context, "armed"), byteArrayOf(if (failAfterCancellation) 2 else 1))
+        CorePrivateFiles.write(file(context, "armed"), byteArrayOf(if (afterNativePrepare) 3 else if (failAfterCancellation) 2 else 1))
     }
 
     fun workerGateState(context: Context): JSONObject? =
@@ -47,9 +48,18 @@ internal object CorePreparationObserver {
     }
 
     fun beforeNativePrepare(context: Context, processId: String, inputId: String, configId: String?,
-                            revision: Int, requestId: Long, deadline: Long, cancelled: () -> Boolean) {
+                            revision: Int, requestId: Long, deadline: Long, cancelled: () -> Boolean) =
+        observe(context, processId, inputId, configId, revision, requestId, deadline, cancelled, false)
+
+    fun afterNativePrepare(context: Context, processId: String, inputId: String, configId: String?,
+                           revision: Int, requestId: Long, deadline: Long, cancelled: () -> Boolean) =
+        observe(context, processId, inputId, configId, revision, requestId, deadline, cancelled, true)
+
+    private fun observe(context: Context, processId: String, inputId: String, configId: String?,
+                        revision: Int, requestId: Long, deadline: Long, cancelled: () -> Boolean, afterNativePrepare: Boolean) {
         if (configId != CONFIG_ID || revision != 2) return
         val armed = CorePrivateFiles.read(file(context, "armed"), 1) ?: return
+        if ((armed.single() == 3.toByte()) != afterNativePrepare) return
         val failAfterCancellation = armed.single() == 2.toByte()
         fun cancellationFailure(): Nothing {
             if (failAfterCancellation) throw IllegalStateException("Preparation failed after Stop",
@@ -69,7 +79,7 @@ internal object CorePreparationObserver {
             while (true) {
                 if (cancelled()) {
                     CorePrivateFiles.write(file(context, "cancelled"), byteArrayOf(1))
-                    if (!failAfterCancellation || CorePrivateFiles.read(file(context, "released"), 1) != null) cancellationFailure()
+                    if ((!failAfterCancellation && !afterNativePrepare) || CorePrivateFiles.read(file(context, "released"), 1) != null) cancellationFailure()
                 }
                 check(SystemClock.elapsedRealtime() < deadline) { "Worker STARTING gate exceeded the original admission deadline" }
                 if (CorePrivateFiles.read(file(context, "released"), 1) != null) break

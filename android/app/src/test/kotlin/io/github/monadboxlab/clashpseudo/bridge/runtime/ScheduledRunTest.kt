@@ -6,9 +6,32 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import org.junit.Assert.*
+import io.flutter.plugin.common.MethodCall
 import org.junit.Test
 
 class ScheduledRunTest {
+    @Test fun lanHandoffRequiresTheCompleteCurrentRunningInput() {
+        val status = mapOf<String, Any?>(
+            "phase" to "ready", "purpose" to "RUNNING", "processId" to "process",
+            "inputId" to "input", "generation" to 8L, "configId" to "one",
+            "revision" to 2, "composition" to "[\"one\",2]", "vpnRunning" to false, "lanRunning" to true,
+        )
+        val arguments = status + ("sessionGeneration" to 0L)
+        fun accepts(current: Map<String, Any?> = status, request: Map<String, Any?> = arguments) =
+            matchesScheduledInput(MethodCall("finishScheduledDownload", request), current)
+        assertTrue(accepts())
+        for (field in listOf("processId", "inputId", "generation", "configId", "revision", "composition")) {
+            assertFalse("Changed $field must retire handoff", accepts(status + (field to "changed")))
+            assertFalse("Missing $field must retire handoff", accepts(request = arguments - field))
+        }
+        assertFalse(accepts(status + ("phase" to "stopping")))
+        assertFalse(accepts(status + ("purpose" to "PREVIEW")))
+        assertFalse(accepts(status + ("lanRunning" to false)))
+        val vpn = status + mapOf("vpnRunning" to true, "lanRunning" to false)
+        assertFalse(accepts(vpn))
+        assertTrue(accepts(vpn, arguments + ("sessionGeneration" to 8L)))
+    }
+
     @Test fun queueingBeforeAdmissionKeepsTheWholeNetworkBudget() {
         var clock = 1000L
         val run = ScheduledRuns.ScheduledRun({ false }, { clock })

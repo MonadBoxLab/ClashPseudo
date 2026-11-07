@@ -321,6 +321,97 @@ func TestComposePreservesSourceAndProviderOrder(t *testing.T) {
 	}
 }
 
+func TestComposeRejectsActiveMappingPairs(t *testing.T) {
+	for _, fixture := range []struct{ name, body string }{
+		{"direct", "unknown: &loop {next: *loop}\n"},
+		{"expanded", "defaults: &defaults {kept: true}\nunknown: &loop {<<: *defaults, next: *loop}\n"},
+		{"mutual", "unknown: &outer {next: &inner {next: *outer}}\n"},
+		{"named", "proxies: [&loop {name: shared, next: *loop}]\n"},
+	} {
+		for _, mode := range []string{"prepend", "replace"} {
+			t.Run(fixture.name+"/"+mode, func(t *testing.T) {
+				output, provenance, err := ComposeWithProvenance([]byte(fixture.body),
+					[]Override{overrideFixture(mode, fixture.body)}, ConfigOrigin{})
+				if err == nil || !strings.Contains(err.Error(), "cyclic mapping merge") {
+					t.Fatalf("expected cyclic mapping merge error, got %v", err)
+				}
+				if output != nil || provenance != nil {
+					t.Fatal("failed composition published partial output or provenance")
+				}
+			})
+		}
+	}
+}
+
+func TestComposeAllowsSharedMappingPairs(t *testing.T) {
+	for _, mode := range []string{"prepend", "replace"} {
+		result := composeFixture(t,
+			"first: &shared {retained: true, changed: old}\nsecond: *shared\n",
+			overrideFixture(mode, "first: &shared {changed: new}\nsecond: *shared\n"))
+		for _, key := range []string{"first", "second"} {
+			value := result[key].(map[string]any)
+			if value["retained"] != true || value["changed"] != "new" {
+				t.Fatalf("shared mapping was not merged independently: %v", result)
+			}
+		}
+	}
+}
+
+func TestComposeAllowsFiniteMergeWithOneCyclicSide(t *testing.T) {
+	const cycle = "unknown: &loop {next: *loop}\n"
+	const finite = "unknown: {next: {added: true}}\n"
+	for _, fixture := range []struct{ base, part string }{{cycle, finite}, {finite, cycle}} {
+		for _, mode := range []string{"prepend", "replace"} {
+			output, err := Compose([]byte(fixture.base), []Override{overrideFixture(mode, fixture.part)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			root, err := configurationMapping(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			value := root.Content[mappingIndex(root)["unknown"]+1]
+			nested := value.Content[mappingIndex(value)["next"]+1]
+			position, exists := mappingIndex(nested)["added"]
+			if !exists || nested.Content[position+1].Value != "true" {
+				t.Fatalf("finite merge lost the nested field: %q", output)
+			}
+		}
+	}
+}
+
+func TestComposePreservesUnmergedMappingCycles(t *testing.T) {
+	const cycle = "unknown: &loop {next: *loop}\n"
+	for _, fixture := range []struct{ name, base, part string }{
+		{"untouched", cycle, "other: true\n"},
+		{"added", "other: true\n", cycle},
+		{"replaced", "unknown: old\n", cycle},
+		{"finite-merge", cycle, "unknown: {added: true}\n"},
+	} {
+		for _, mode := range []string{"prepend", "replace"} {
+			t.Run(fixture.name+"/"+mode, func(t *testing.T) {
+				output, err := Compose([]byte(fixture.base), []Override{overrideFixture(mode, fixture.part)})
+				if err != nil {
+					t.Fatal(err)
+				}
+				root, err := configurationMapping(output)
+				if err != nil {
+					t.Fatal(err)
+				}
+				value := root.Content[mappingIndex(root)["unknown"]+1]
+				target := configValue(value.Content[mappingIndex(value)["next"]+1])
+				if configValue(target.Content[mappingIndex(target)["next"]+1]) != target {
+					t.Fatal("unmerged cycle lost its alias target")
+				}
+			})
+		}
+	}
+	output, err := Compose([]byte(cycle), nil)
+	if err != nil || string(output) != cycle {
+		t.Fatalf("unchanged cyclic input was not preserved: %q, %v", output, err)
+	}
+}
+
 func TestComposeLimits(t *testing.T) {
 	body := []byte("#" + strings.Repeat("x", MaxConfigText-1))
 	if _, err := Compose(body, nil); err != nil {

@@ -481,7 +481,7 @@
   "applicationListFailed": "无法读取已安装应用列表。",
   "applicationAllowEmpty": "选择“仅选中应用”时，至少需要选择一个应用。",
   "applicationReconnectTitle": "保存并重新连接？",
-  "applicationReconnectMessage": "保存后会先正常停止当前接管，再按当前配置和模式重新连接，已有连接会中断。若重新连接失败，设置仍会保留。",
+  "applicationReconnectMessage": "保存后会停止当前 VPN 或局域网代理，保留实际运行的配置和模式重新连接，已有连接会中断。应用名单仅影响 VPN 接管范围；若重新连接失败，设置仍会保留。",
   "applicationReconnect": "保存并重新连接",
   "applicationAccessNotice": "选定范围内应用的流量由 VPN 接管，其余应用使用系统网络连接。保存后重新连接，新设置才会生效。",
   "searchApplications": "搜索应用名称或包名",

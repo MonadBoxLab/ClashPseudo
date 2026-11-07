@@ -1,7 +1,16 @@
+import 'dart:async';
+
 import 'package:clash_pseudo/src/l10n/app_localizations.dart';
 import 'package:clash_pseudo/src/model/app_message.dart';
+import 'package:clash_pseudo/src/model/app_snapshot.dart';
+import 'package:clash_pseudo/src/ui/components/feedback/operation_feedback.dart';
 import 'package:clash_pseudo/src/ui/components/feedback/operation_notice.dart';
 import 'package:clash_pseudo/src/ui/navigation/route_observer.dart';
+import 'package:clash_pseudo/src/ui/navigation/task_activity.dart';
+import 'package:clash_pseudo/src/ui/navigation/workspace_window.dart';
+
+import '../../../support/strategy_fakes.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -12,6 +21,8 @@ Future<BuildContext> _host(
   ValueNotifier<double>? height,
   FocusNode? focus,
   TextEditingController? editor,
+  Widget Function(Widget)? wrap,
+  StrategyAppFake? feedbackApp,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = Size(width, 900);
@@ -28,7 +39,7 @@ Future<BuildContext> _host(
       builder: (context, child) => MediaQuery(
         data: MediaQuery.of(context)
             .copyWith(textScaler: TextScaler.linear(scale)),
-        child: child!,
+        child: wrap?.call(child!) ?? child!,
       ),
       home: Scaffold(
         bottomNavigationBar: const SizedBox(
@@ -49,7 +60,7 @@ Future<BuildContext> _host(
                     child: Builder(
                       builder: (context) {
                         origin = context;
-                        return Scaffold(
+                        final content = Scaffold(
                           body: ListView(
                             children: [
                               TextField(
@@ -61,6 +72,12 @@ Future<BuildContext> _host(
                             ],
                           ),
                         );
+                        return feedbackApp == null
+                            ? content
+                            : OperationFeedback(
+                                controller: feedbackApp,
+                                child: content,
+                              );
                       },
                     ),
                   ),
@@ -77,6 +94,180 @@ Future<BuildContext> _host(
 }
 
 void main() {
+  for (final rejected in [false, true]) {
+    testWidgets(
+      'global feedback remains pending until painted rejected=$rejected',
+      (tester) async {
+        final app = StrategyAppFake(StrategyBridgeFake());
+        final height = ValueNotifier(64.0);
+        addTearDown(app.dispose);
+        addTearDown(height.dispose);
+        await _host(
+          tester,
+          height: height,
+          feedbackApp: app,
+          wrap: (child) => WorkspaceWindow(controller: app, child: child),
+        );
+        app.lastCommand = {'action': 'setStrategy'};
+        if (rejected) {
+          app.commandErrorMessage = const AppMessage('operationFailed');
+        } else {
+          app.state = const AppSnapshot(
+            phase: 'STOPPED',
+            core: previewCore,
+            resultId: 'failed-choice',
+            resultSuccess: false,
+            resultMessage: AppMessage('operationFailed'),
+          );
+        }
+        app.changed();
+        await tester.pumpAndSettle();
+        expect(find.byType(SnackBar), findsNothing);
+        app.setInteractive(false);
+        await tester.pumpAndSettle();
+        height.value = 700;
+        await tester.pumpAndSettle();
+        expect(find.byType(SnackBar), findsNothing);
+        app.setInteractive(true);
+        await tester.pumpAndSettle();
+        expect(find.byType(SnackBar), findsOneWidget);
+        await tester.tap(
+          find.descendant(
+            of: find.byType(SnackBar),
+            matching: find.byType(IconButton),
+          ),
+        );
+        await tester.pumpAndSettle();
+        app.changed();
+        await tester.pumpAndSettle();
+        expect(find.byType(SnackBar), findsNothing);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
+
+  for (final invalidate in [false, true]) {
+    testWidgets(
+      'queued notice survives focus loss and acknowledges only paint invalidated=$invalidate',
+      (tester) async {
+        final app = StrategyAppFake(StrategyBridgeFake());
+        final height = ValueNotifier(64.0);
+        final source = ValueNotifier(true);
+        addTearDown(app.dispose);
+        addTearDown(height.dispose);
+        addTearDown(source.dispose);
+        final origin = await _host(
+          tester,
+          height: height,
+          wrap: (child) => WorkspaceWindow(
+            controller: app,
+            child: ListenableBuilder(
+              listenable: app,
+              builder: (_, _) => AppTaskActivity(
+                active: app.interactive,
+                isActiveNow: () => app.interactive,
+                isSourceCurrent: () => true,
+                child: child,
+              ),
+            ),
+          ),
+        );
+        var acknowledgements = 0;
+        bool? completed;
+        final shown = showLocalizedOperationNotice(
+          origin,
+          (_) => 'Queued failure',
+          isCurrent: () => source.value,
+          eligibilityChanges: source,
+          onPresented: () => acknowledgements++,
+        ).then((value) => completed = value);
+        await tester.pumpAndSettle();
+        expect(completed, isNull);
+        app.setInteractive(false);
+        await tester.pumpAndSettle();
+        expect(completed, isNull);
+        expect(acknowledgements, 0);
+        if (invalidate) {
+          source.value = false;
+          source.value = true;
+        }
+        app.setInteractive(true);
+        await tester.pumpAndSettle();
+        expect(acknowledgements, 0);
+        height.value = 700;
+        await tester.pumpAndSettle();
+        expect(await shown, !invalidate);
+        expect(acknowledgements, invalidate ? 0 : 1);
+        await tester.pump();
+        expect(acknowledgements, invalidate ? 0 : 1);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
+
+  testWidgets(
+    'temporary presentation gate keeps a queued notice until it can paint',
+    (tester) async {
+      final height = ValueNotifier(64.0);
+      final canPresent = ValueNotifier(true);
+      addTearDown(height.dispose);
+      addTearDown(canPresent.dispose);
+      final origin = await _host(tester, height: height);
+      var acknowledgements = 0;
+      final shown = showLocalizedOperationNotice(
+        origin,
+        (_) => 'Queued failure',
+        canPresent: () => canPresent.value,
+        eligibilityChanges: canPresent,
+        onPresented: () => acknowledgements++,
+      );
+      await tester.pumpAndSettle();
+      canPresent.value = false;
+      height.value = 700;
+      await tester.pumpAndSettle();
+      expect(acknowledgements, 0);
+      expect(find.byType(SnackBar), findsNothing);
+      canPresent.value = true;
+      await tester.pumpAndSettle();
+      expect(await shown, isTrue);
+      expect(acknowledgements, 1);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('queued notice pauses under a popup without losing its source', (
+    tester,
+  ) async {
+    final height = ValueNotifier(64.0);
+    addTearDown(height.dispose);
+    final origin = await _host(tester, height: height);
+    var acknowledgements = 0;
+    final shown = showLocalizedOperationNotice(
+      origin,
+      (_) => 'Queued failure',
+      onPresented: () => acknowledgements++,
+    );
+    await tester.pumpAndSettle();
+    final navigator = Navigator.of(origin);
+    unawaited(
+      navigator.push(
+        DialogRoute<void>(
+          context: origin,
+          builder: (_) => const AlertDialog(content: Text('Temporary cover')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    height.value = 700;
+    await tester.pumpAndSettle();
+    expect(acknowledgements, 0);
+    navigator.pop();
+    await tester.pumpAndSettle();
+    expect(await shown, isTrue);
+    expect(acknowledgements, 1);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('shrinking host retains content size and interaction', (
     tester,
   ) async {

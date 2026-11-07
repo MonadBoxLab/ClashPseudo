@@ -44,6 +44,66 @@ class AppBridgeResultTest {
         }
     }
 
+    @Test fun modeReceiptSurvivesFinishAndSnapshotUntilNativeFeedbackIsCleared() {
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val names = listOf("operationId", "operationAdmittedAt", "operationDeadline", "command", "operation", "resultId", "resultMessage",
+                "resultSuccess", "resourceStatus", "scheduleStatus", "configStatus", "overrideStatus",
+                "connectionStatus", "targetId", "savedRevision")
+            val fields = names.associateWith { BridgeTestState.field(it) }
+            val previous = fields.mapValues { it.value.get(AppBridge) }
+            val previousMode = AppBridge.operations.modeResult
+            try {
+                assertNull(AppBridge.operationId)
+                assertFalse(AppBridge.logic.busy)
+                for (status in listOf("saved", "applied")) {
+                    val target = if (status == "applied") mapOf<String, Any?>(
+                        "processId" to "mode-process", "inputId" to "mode-input", "generation" to 8L,
+                        "configId" to "config", "revision" to 3, "composition" to "[\"config\",3]", "purpose" to "RUNNING",
+                    ) else emptyMap()
+                    val receipt = target + mapOf("status" to status, "mode" to "global", "storageEpoch" to AppBridge.runtimeState()["storageEpoch"])
+                    fields.getValue("operationId").set(AppBridge, "mode-$status")
+                    fields.getValue("command").set(AppBridge, mapOf("action" to "setMode", "mode" to "global"))
+                    AppBridge.finish("mode-$status", mapOf("success" to true, "configStatus" to "saved", "modeResult" to receipt))
+                    assertNull(AppBridge.operationId)
+                    assertEquals("mode-$status", AppBridge.runtimeState()["resultId"])
+                    assertEquals(receipt, AppBridge.runtimeState()["modeResult"])
+                    AppBridge.finish("late-owner", mapOf("success" to true, "modeResult" to (receipt + ("mode" to "direct"))))
+                    assertEquals(receipt, AppBridge.runtimeState()["modeResult"])
+                    AppBridge.nativeChanged(false)
+                    assertEquals(receipt, AppBridge.runtimeState()["modeResult"])
+                    AppBridge.nativeChanged()
+                    assertNull(AppBridge.runtimeState()["modeResult"])
+                    assertNull(AppBridge.runtimeState()["resultId"])
+                }
+            } finally {
+                fields.forEach { (name, field) -> field.set(AppBridge, previous[name]) }
+                AppBridge.operations.modeResult = previousMode
+                PseudoVpnService.core.setOperationBusy(AppBridge.operationId != null || AppBridge.logic.busy ||
+                    AppBridge.runtimeState()["resourceBusy"] == true)
+            }
+        }
+    }
+
+    @Test fun modeProjectionRejectsEveryChangedIdentityFieldIncludingOldErrors() {
+        val core = mapOf<String, Any?>("processId" to "process", "inputId" to "input", "generation" to 8L,
+            "configId" to "config", "revision" to 3, "composition" to "[\"config\",3]", "purpose" to "RUNNING")
+        for (error in listOf(null, AppMessage("temporaryModeUnknown").toMap())) {
+            val mode = core + mapOf("actual" to if (error == null) "global" else null, "error" to error)
+            assertSame(mode, AppBridge.currentModeProjection(core, mode))
+            val numericVariant = mode + mapOf("generation" to 8, "revision" to 3L)
+            assertSame(numericVariant, AppBridge.currentModeProjection(core, numericVariant))
+            for (field in core.keys) {
+                val changed = if (field in listOf("generation", "revision")) 99L else "changed"
+                assertNull("Old $field carried actual or error into the new context",
+                    AppBridge.currentModeProjection(core + (field to changed), mode))
+                assertNull("Missing $field was accepted", AppBridge.currentModeProjection(core - field, mode))
+                assertNull("Incomplete mode $field was accepted", AppBridge.currentModeProjection(core, mode - field))
+            }
+        }
+        assertNull(AppBridge.currentModeProjection(core, null))
+        assertNull(AppBridge.currentModeProjection(core, "global"))
+    }
+
     @Test fun admissionAndServiceReadTheSameRemainingOperationBudget() {
         waitForStartupReconciliation()
         InstrumentationRegistry.getInstrumentation().runOnMainSync {

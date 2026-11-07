@@ -430,7 +430,7 @@ class _StrategiesPageState extends State<StrategiesPage> {
       if (!mounted) return;
       if (!_visibilityReady) setState(() => _visibilityReady = true);
       widget.controller.setVisible(
-        widget.active && (_memberOpen || _pageInteractive),
+        widget.active && (_memberOpen || AppTaskActivity.isVisible(context)),
       );
     });
   }
@@ -438,7 +438,7 @@ class _StrategiesPageState extends State<StrategiesPage> {
   bool get _pageInteractive =>
       mounted &&
       widget.active &&
-      widget.controller.app.foreground &&
+      widget.controller.app.interactive &&
       AppTaskActivity.isActive(context) &&
       AppTaskActivity.routeIsActive(ModalRoute.of(context));
 
@@ -502,7 +502,6 @@ class _StrategiesPageState extends State<StrategiesPage> {
 
   Object? _noticeSource;
   bool _readNoticed = false;
-  Object? _operationNoticed;
   Object? _unrestoredNoticed;
 
   void _feedbackChanged() {
@@ -518,25 +517,15 @@ class _StrategiesPageState extends State<StrategiesPage> {
         app.state.core.errorMessage ??
         app.platformErrorMessage;
     if (read == null) _readNoticed = false;
-    final operation = controller.operationErrorMessage;
-    final operationId = (app.state.resultId, app.lastCommand);
-    final message = operation != null && operationId != _operationNoticed
-        ? operation
-        : !_readNoticed
-        ? read
-        : null;
+    final message = !_readNoticed ? read : null;
     if (message != null && _pageInteractive) {
-      if (identical(message, operation)) {
-        _operationNoticed = operationId;
-      } else {
-        _readNoticed = true;
-      }
+      _readNoticed = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || !_pageInteractive || _noticeSource != source) return;
         showAppNotice(
           context,
           message,
-          isCurrent: () => _pageInteractive && _noticeSource == source,
+          isCurrent: () => mounted && widget.active && _noticeSource == source,
           isCurrentWithPopup: (popup) =>
               mounted &&
               widget.active &&
@@ -570,7 +559,7 @@ class _StrategiesPageState extends State<StrategiesPage> {
               ),
             )
             .join('\n'),
-        isCurrent: () => _pageInteractive && _noticeSource == source,
+        isCurrent: () => mounted && widget.active && _noticeSource == source,
         isCurrentWithPopup: (popup) =>
             mounted &&
             widget.active &&

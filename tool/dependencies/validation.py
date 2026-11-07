@@ -141,7 +141,8 @@ def _source_assets(updater, evidence, output, version, commit):
     from tool.dependencies.sources import prepare_resource_sources
 
     record = resources.read_release_resources(updater.root)
-    source_inputs = prepare_resource_sources(record["resources"], output / "resource-sources")
+    source_inputs = prepare_resource_sources(record["resources"], output / "resource-sources",
+                                             **resources.frozen_source_options(record))
     source = output / f"clash-pseudo-{version}-sources.tar.gz"
     package_sources.create(updater, evidence, source, commit=commit, resource_sources=source_inputs)
     licenses = output / f"clash-pseudo-{version}-licenses.tar.gz"

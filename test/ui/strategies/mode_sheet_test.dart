@@ -5,6 +5,7 @@ import 'dart:async';
 
 import 'package:clash_pseudo/src/model/app_snapshot.dart';
 import 'package:clash_pseudo/src/model/core_snapshot.dart';
+import 'package:clash_pseudo/src/model/application_contract.dart';
 import 'package:clash_pseudo/src/ui/app/app_controller.dart';
 import 'package:clash_pseudo/src/ui/theme/app_theme.dart';
 import 'package:clash_pseudo/src/ui/components/feedback/operation_feedback.dart';
@@ -31,6 +32,41 @@ const _modeFailureDetail =
     '模式保存失败：https://user:pass@fixture.test/?token=原文🙂\n'
     'Authorization: Bearer fixture';
 
+const _vpnCore = CoreSnapshot(
+  processId: 'vpn-process',
+  inputId: 'vpn-input',
+  generation: 1,
+  phase: 'READY',
+  purpose: 'RUNNING',
+  configId: 'one',
+  revision: 1,
+  composition: '["one",1]',
+);
+const _lanCore = CoreSnapshot(
+  processId: 'lan-process',
+  inputId: 'lan-input',
+  generation: 1,
+  phase: 'READY',
+  purpose: 'RUNNING',
+  configId: 'one',
+  revision: 1,
+  composition: 'lan-composition',
+);
+const _savedGlobalReceipt = <String, dynamic>{
+  'status': 'saved',
+  'mode': 'global',
+  'storageEpoch': 0,
+};
+Map<String, dynamic> _appliedModeReceipt(
+  CoreSnapshot target,
+  TunnelMode mode,
+) => {
+  'status': 'applied',
+  'mode': mode.name,
+  'storageEpoch': 0,
+  ...target.wireIdentity,
+};
+
 class ModeController extends AppController {
   ModeController() : super(AppBridge()) {
     loading = false;
@@ -39,6 +75,12 @@ class ModeController extends AppController {
   }
   @override
   Future<void> refresh() async {}
+
+  int modeRefreshes = 0;
+  @override
+  Future<void> refreshMode() async {
+    modeRefreshes++;
+  }
 
   int epoch = 0;
   Completer<void>? reply;
@@ -154,6 +196,7 @@ void main() {
     String corePhase = 'ready',
     String? resultId,
     bool resultSuccess = false,
+    Map<String, dynamic>? modeResult,
   }) => AppSnapshot.fromMap({
     'phase': 'STOPPED',
     'storageReady': true,
@@ -162,16 +205,8 @@ void main() {
     'mode': mode?.name,
     'resultId': resultId,
     'resultSuccess': resultSuccess,
-    'core': {
-      'phase': corePhase,
-      'processId': 'lan-process',
-      'inputId': 'lan-input',
-      'generation': 1,
-      'configId': 'one',
-      'revision': 1,
-      'composition': 'lan-composition',
-      'purpose': 'RUNNING',
-    },
+    'modeResult': modeResult,
+    'core': {..._lanCore.wireIdentity, 'phase': corePhase},
   });
 
   testWidgets('LAN mode waits for actual and returns to fallback after exit', (
@@ -267,6 +302,7 @@ void main() {
           mode: actual,
           resultId: 'operation-1',
           resultSuccess: true,
+          modeResult: _appliedModeReceipt(_lanCore, TunnelMode.direct),
         );
         controller.changed();
         await tester.pumpAndSettle();
@@ -275,6 +311,7 @@ void main() {
           actual == TunnelMode.direct ? findsNothing : findsOneWidget,
         );
         expect(controller.collection.mode, TunnelMode.direct);
+        await tester.pumpWidget(const SizedBox());
       },
     );
   }
@@ -439,6 +476,10 @@ void main() {
         }
         controller.state = const AppSnapshot(
           phase: 'RUNNING',
+          generation: 1,
+          configId: 'one',
+          revision: 1,
+          core: _vpnCore,
           mode: TunnelMode.global,
         );
         controller.collection = ConfigCollection(
@@ -468,6 +509,10 @@ void main() {
         );
         controller.state = const AppSnapshot(
           phase: 'RUNNING',
+          generation: 1,
+          configId: 'one',
+          revision: 1,
+          core: _vpnCore,
           modeError: AppMessage(
             'androidErrorModeUnconfirmed',
             detail: 'original mode read error',
@@ -657,6 +702,7 @@ void main() {
       phase: 'STOPPED',
       resultId: 'operation-1',
       resultSuccess: true,
+      modeResult: _savedGlobalReceipt,
     );
     controller.changed();
     Navigator.of(context).push<void>(
@@ -695,6 +741,7 @@ void main() {
       phase: 'STOPPED',
       resultId: 'operation-1',
       resultSuccess: true,
+      modeResult: _savedGlobalReceipt,
     );
     controller.changed();
     active = false; // No declarative rebuild before the pending post-frame pop.
@@ -712,8 +759,11 @@ void main() {
       storageEpoch: controller.epoch,
       resultId: resultId,
       resultSuccess: resultId != null,
+      modeResult: resultId == null ? null : _savedGlobalReceipt,
       core: switch (invalidation) {
         'ready' => const CoreSnapshot(
+          processId: 'preview-process',
+          inputId: 'preview-input',
           generation: 7,
           phase: 'READY',
           configId: 'one',
@@ -765,6 +815,7 @@ void main() {
           phase: 'STOPPED',
           resultId: 'operation-1',
           resultSuccess: true,
+          modeResult: _savedGlobalReceipt,
         );
         controller.changed();
         replaceEmptyContext(invalidation, resultId: 'operation-1');
@@ -789,6 +840,8 @@ void main() {
       controller.state = const AppSnapshot(
         phase: 'STOPPED',
         core: CoreSnapshot(
+          processId: 'replacement-preview-process',
+          inputId: 'replacement-preview-input',
           generation: 8,
           phase: 'READY',
           configId: 'one',
@@ -810,6 +863,10 @@ void main() {
     (tester) async {
       controller.state = const AppSnapshot(
         phase: 'RUNNING',
+        generation: 1,
+        configId: 'one',
+        revision: 1,
+        core: _vpnCore,
         mode: TunnelMode.rule,
         modeError: AppMessage('androidErrorModeUnconfirmed'),
       );
@@ -862,6 +919,7 @@ void main() {
       phase: 'STOPPED',
       resultId: 'operation-1',
       resultSuccess: true,
+      modeResult: _savedGlobalReceipt,
     );
     controller.changed();
     await tester.pumpAndSettle();
@@ -874,6 +932,10 @@ void main() {
     (tester) async {
       controller.state = const AppSnapshot(
         phase: 'RUNNING',
+        generation: 1,
+        configId: 'one',
+        revision: 1,
+        core: _vpnCore,
         mode: TunnelMode.rule,
       );
       await show(tester);
@@ -894,6 +956,10 @@ void main() {
       );
       controller.state = const AppSnapshot(
         phase: 'RUNNING',
+        generation: 1,
+        configId: 'one',
+        revision: 1,
+        core: _vpnCore,
         mode: TunnelMode.rule,
         operation: AppMessage('stageSwitchingMode'),
       );
@@ -901,11 +967,16 @@ void main() {
       await tester.pump();
       expect(find.text('已保存：全局；供下次启动使用。'), findsNothing);
       expect(find.byType(ModeSheet), findsOneWidget);
-      controller.state = const AppSnapshot(
+      controller.state = AppSnapshot(
         phase: 'RUNNING',
+        generation: 1,
+        configId: 'one',
+        revision: 1,
+        core: _vpnCore,
         mode: TunnelMode.global,
         resultId: 'operation-1',
         resultSuccess: true,
+        modeResult: _appliedModeReceipt(_vpnCore, TunnelMode.global),
       );
       controller.changed();
       await tester.pump();
@@ -915,6 +986,231 @@ void main() {
       expect(find.byType(ModeSheet), findsNothing);
       await tester.pumpWidget(const SizedBox());
       expect(tester.binding.transientCallbackCount, 0);
+    },
+  );
+
+  AppSnapshot runtimeModeSnapshot({
+    required CoreSnapshot core,
+    TunnelMode mode = TunnelMode.rule,
+    bool vpn = true,
+    Map<String, dynamic>? receipt,
+  }) => AppSnapshot(
+    phase: vpn ? 'RUNNING' : 'STOPPED',
+    generation: core.generation,
+    configId: core.configId,
+    revision: core.revision,
+    core: core,
+    vpnIntent: vpn,
+    lanIntent: !vpn,
+    lanRunning: !vpn,
+    mode: mode,
+    resultId: receipt == null ? null : 'operation-1',
+    resultSuccess: receipt != null,
+    modeResult: receipt,
+  );
+
+  for (final vpn in [false, true]) {
+    for (final actualFirst in [false, true]) {
+      testWidgets(
+        'mode closes only after both explicit receipt and actual vpn=$vpn actualFirst=$actualFirst',
+        (tester) async {
+          final target = vpn ? _vpnCore : _lanCore;
+          final receipt = _appliedModeReceipt(target, TunnelMode.global);
+          controller.state = runtimeModeSnapshot(core: target, vpn: vpn);
+          controller.collection = ConfigCollection(
+            entries: [],
+            mode: TunnelMode.rule,
+          );
+          await show(tester);
+          await open(tester);
+          await tester.tap(find.byKey(const ValueKey('mode-global')));
+          await tester.pump();
+          controller.collection = ConfigCollection(
+            entries: [],
+            mode: TunnelMode.global,
+          );
+          controller.state = runtimeModeSnapshot(
+            core: target,
+            vpn: vpn,
+            mode: actualFirst ? TunnelMode.global : TunnelMode.rule,
+            receipt: actualFirst ? null : receipt,
+          );
+          controller.changed();
+          await tester.pump();
+          expect(find.byType(ModeSheet), findsOneWidget);
+          expect(
+            tester
+                .widget<OutlinedButton>(
+                  find.byKey(const ValueKey('mode-direct')),
+                )
+                .onPressed,
+            isNull,
+          );
+          controller.state = runtimeModeSnapshot(
+            core: target,
+            vpn: vpn,
+            mode: TunnelMode.global,
+            receipt: receipt,
+          );
+          controller.changed();
+          await tester.pump();
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 400));
+          expect(find.byType(ModeSheet), findsNothing);
+          expect(controller.commands, hasLength(1));
+          expect(controller.state.resultSuccess, isTrue);
+          await tester.pumpWidget(const SizedBox());
+        },
+      );
+    }
+  }
+
+  const reconnectedCore = CoreSnapshot(
+    processId: 'reconnected-process',
+    inputId: 'reconnected-input',
+    generation: 2,
+    phase: 'READY',
+    purpose: 'RUNNING',
+    configId: 'one',
+    revision: 1,
+    composition: '["one",1]',
+  );
+  const unrelatedCore = CoreSnapshot(
+    processId: 'unrelated-process',
+    inputId: 'unrelated-input',
+    generation: 3,
+    phase: 'READY',
+    purpose: 'RUNNING',
+    configId: 'one',
+    revision: 1,
+    composition: '["one",1]',
+  );
+  for (final unrelated in [false, true]) {
+    testWidgets(
+      'mode reconnect follows only the receipt target unrelated=$unrelated',
+      (tester) async {
+        controller.state = runtimeModeSnapshot(core: _vpnCore);
+        controller.collection = ConfigCollection(
+          entries: [],
+          mode: TunnelMode.rule,
+        );
+        await show(tester);
+        await open(tester);
+        await tester.tap(find.byKey(const ValueKey('mode-global')));
+        await tester.pump();
+        controller.state = const AppSnapshot(
+          phase: 'STOPPED',
+          writerBusy: true,
+          operationId: 'operation-1',
+        );
+        controller.changed();
+        await tester.pump();
+        expect(controller.hasLocalFeedbackOwner, isTrue);
+        controller.collection = ConfigCollection(
+          entries: [],
+          mode: TunnelMode.global,
+        );
+        final receipt = _appliedModeReceipt(reconnectedCore, TunnelMode.global);
+        controller.state = runtimeModeSnapshot(
+          core: unrelated ? unrelatedCore : reconnectedCore,
+          mode: TunnelMode.global,
+          receipt: receipt,
+        );
+        controller.changed();
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(
+          find.byType(ModeSheet),
+          unrelated ? findsOneWidget : findsNothing,
+        );
+        expect(controller.commands, hasLength(1));
+        if (unrelated) {
+          expect(controller.hasLocalFeedbackOwner, isFalse);
+          expect(
+            tester
+                .widget<OutlinedButton>(
+                  find.byKey(const ValueKey('mode-direct')),
+                )
+                .onPressed,
+            isNotNull,
+          );
+        }
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
+
+  testWidgets(
+    'mode projection timeout releases choices and retries the producer without failing the completed operation',
+    (tester) async {
+      controller.state = runtimeModeSnapshot(core: _vpnCore);
+      controller.collection = ConfigCollection(
+        entries: [],
+        mode: TunnelMode.rule,
+      );
+      await show(tester);
+      await open(tester);
+      await tester.tap(find.byKey(const ValueKey('mode-global')));
+      await tester.pump();
+      controller.collection = ConfigCollection(
+        entries: [],
+        mode: TunnelMode.global,
+      );
+      controller.state = runtimeModeSnapshot(
+        core: _vpnCore,
+        receipt: _appliedModeReceipt(_vpnCore, TunnelMode.global),
+      );
+      controller.changed();
+      await tester.pump();
+      expect(
+        tester
+            .widget<OutlinedButton>(find.byKey(const ValueKey('mode-direct')))
+            .onPressed,
+        isNull,
+      );
+      await tester.pump(
+        const Duration(
+          milliseconds: ApplicationContract.operationUiGraceMs + 1,
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(find.byType(ModeSheet), findsOneWidget);
+      expect(controller.state.resultSuccess, isTrue);
+      expect(
+        tester
+            .widget<OutlinedButton>(find.byKey(const ValueKey('mode-direct')))
+            .onPressed,
+        isNotNull,
+      );
+      final strings = AppLocalizations.of(
+        tester.element(find.byType(ModeSheet)),
+      );
+      final notice = find.descendant(
+        of: find.byType(ModeSheet),
+        matching: find.byType(SnackBar),
+      );
+      expect(notice, findsOneWidget);
+      expect(
+        find.descendant(
+          of: notice,
+          matching: find.text(messages.temporaryModeUnknown.summary(strings)),
+        ),
+        findsOneWidget,
+      );
+      expect(controller.modeRefreshes, 0);
+      final retry = find.descendant(
+        of: notice,
+        matching: find.text(strings.retry),
+      );
+      expect(retry.hitTestable(), findsOneWidget);
+      await tester.tap(retry);
+      await tester.pump();
+      expect(controller.modeRefreshes, 1);
+      expect(controller.commands, hasLength(1));
+      expect(controller.state.resultSuccess, isTrue);
+      await tester.pumpWidget(const SizedBox());
     },
   );
 
@@ -1006,6 +1302,10 @@ void main() {
   ) async {
     controller.state = const AppSnapshot(
       phase: 'RUNNING',
+      generation: 1,
+      configId: 'one',
+      revision: 1,
+      core: _vpnCore,
       mode: TunnelMode.rule,
     );
     await show(tester, workspaceNavigator: true);
@@ -1017,6 +1317,10 @@ void main() {
     );
     controller.state = const AppSnapshot(
       phase: 'RUNNING',
+      generation: 1,
+      configId: 'one',
+      revision: 1,
+      core: _vpnCore,
       mode: TunnelMode.rule,
       resultId: 'operation-1',
       resultMessage: AppMessage('modeNotConfirmed', detail: _modeFailureDetail),
@@ -1133,6 +1437,10 @@ void main() {
       );
       controller.state = const AppSnapshot(
         phase: 'RUNNING',
+        generation: 1,
+        configId: 'one',
+        revision: 1,
+        core: _vpnCore,
         modeError: AppMessage('androidErrorModeUnconfirmed'),
       );
       await show(tester);

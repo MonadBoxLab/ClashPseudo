@@ -8,7 +8,7 @@ import 'package:clash_pseudo/src/model/operation_admission.dart';
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:file_selector/file_selector.dart';
+import 'package:cross_file/cross_file.dart';
 import 'package:clash_pseudo/src/ui/configs/editor/config_text_page.dart';
 import 'package:clash_pseudo/src/ui/configs/dialogs/import_dialog.dart';
 import 'package:re_editor/re_editor.dart';

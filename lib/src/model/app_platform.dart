@@ -295,6 +295,14 @@ class AppPlatform {
     return Map<String, dynamic>.from(value ?? {});
   }
 
+  Future<Map<Object?, Object?>> pickConfigFile(String requestId) async =>
+      Map<Object?, Object?>.from(
+        await _call<Map>('pickConfigFile', {'requestId': requestId}) ?? {},
+      );
+
+  Future<void> cancelConfigFile(String requestId) =>
+      _call<void>('cancelConfigFile', {'requestId': requestId});
+
   Future<Map<String, dynamic>> backupPickImport(String requestId) async =>
       Map<String, dynamic>.from(
         await _call<Map>('backupPickImport', {'requestId': requestId}) ?? {},
@@ -395,10 +403,12 @@ class AppPlatform {
     'kind': kind,
     'id': id,
     'sessionGeneration': expected.generation,
+    'processId': expected.core.processId,
+    'inputId': expected.core.inputId,
     'generation': expected.core.generation,
     'composition': expected.core.composition,
-    'configId': expected.configId,
-    'revision': expected.revision,
+    'configId': expected.core.configId,
+    'revision': expected.core.revision,
   });
   Future<void> start({
     required String id,
@@ -573,14 +583,8 @@ class AppPlatform {
   }
 
   Map<String, Object?> _dnsIdentity(CoreSnapshot core) => {
-    'processId': core.processId,
-    'inputId': core.inputId,
+    ...core.wireIdentity,
     'networkRevision': core.networkRevision,
-    'generation': core.generation,
-    'composition': core.composition,
-    'configId': core.configId,
-    'revision': core.revision,
-    'purpose': core.purpose,
   };
 
   Future<Map<String, dynamic>> dnsQuery(
@@ -643,13 +647,6 @@ class AppPlatform {
     List<Map<String, Object?>> targets, {
     required String kind,
   }) => _call<void>('syncSchedules', {'kind': kind, 'targets': targets});
-
-  Future<Map<String, dynamic>> refreshSchedule({
-    required String kind,
-    required String id,
-  }) async => Map<String, dynamic>.from(
-    await _call<Map>('refreshSchedule', {'kind': kind, 'id': id}) ?? {},
-  );
 
   Future<Map<String, dynamic>> runtimeState() async =>
       Map<String, dynamic>.from(await _call<Map>('runtimeState') ?? {});
@@ -725,6 +722,9 @@ class AppPlatform {
     'name': name,
     'choice': choice.toJson(),
   });
+
+  Future<void> readMode(CoreSnapshot core) =>
+      _coreCall<void>('readMode', _dnsIdentity(core));
 
   Future<TunnelMode> setMode(TunnelMode mode, CoreSnapshot core) async =>
       TunnelMode.parse(

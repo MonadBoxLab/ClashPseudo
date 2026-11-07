@@ -6,6 +6,53 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class OperationStateTest {
+    @Test fun successfulModeReceiptsRetainOnlyTheirDeclaredTargetAndClearWithFeedback() {
+        val state = OperationState { 40_000L }
+        for (status in listOf("saved", "applied")) {
+            state.replaceOwner("mode-$status")
+            state.command = mapOf("action" to "setMode", "mode" to "global")
+            val target = if (status == "applied") mapOf<String, Any?>(
+                "processId" to "process", "inputId" to "input", "generation" to 8L,
+                "configId" to "config", "revision" to 3, "composition" to "[\"config\",3]", "purpose" to "RUNNING",
+            ) else emptyMap()
+            val expected = target + mapOf("status" to status, "mode" to "global", "storageEpoch" to 23)
+            val receipt = (expected + ("unrelated" to "not-a-mode-field")).toMutableMap()
+            state.finish("mode-$status", mapOf("success" to true, "modeResult" to receipt)) {
+                fail("Successful mode receipt requested an error message"); AppMessage("operationFinished")
+            }
+            assertEquals("mode-$status", state.resultId)
+            assertTrue(state.resultSuccess)
+            assertEquals(expected, state.modeResult)
+            receipt["inputId"] = "late-unrelated-input"
+            assertEquals(expected, state.modeResult)
+            state.clearResultFeedback()
+            assertNull(state.modeResult)
+            assertNull(state.resultId)
+        }
+    }
+
+    @Test fun nonModeOrUnsuccessfulResultsCannotReuseAnAppliedModeTarget() {
+        val valid = mapOf("status" to "applied", "mode" to "global", "storageEpoch" to 23,
+            "processId" to "process", "inputId" to "input", "generation" to 8,
+            "configId" to "config", "revision" to 3, "composition" to "[\"config\",3]", "purpose" to "RUNNING")
+        for (reason in listOf("action", "failure", "status", "mode", "missing")) {
+            val state = OperationState { 40_000L }
+            state.command = mapOf("action" to "setMode", "mode" to "global")
+            state.finish("old", mapOf("success" to true, "modeResult" to valid)) { AppMessage("operationFinished") }
+            assertNotNull(state.modeResult)
+            state.command = mapOf("action" to if (reason == "action") "saveLocal" else "setMode", "mode" to "global")
+            val mode = when (reason) {
+                "status" -> valid + ("status" to "unconfirmed")
+                "mode" -> valid + ("mode" to "direct")
+                "missing" -> null
+                else -> valid
+            }
+            state.finish("new", mapOf("success" to (reason != "failure"), "modeResult" to mode)) { AppMessage("operationFinished") }
+            assertEquals("new", state.resultId)
+            assertNull("Invalid $reason retained a previous mode target", state.modeResult)
+        }
+    }
+
     @Test fun stopHandoffKeepsTheOriginalAdmissionAndDeadlineAfterOwnerReplacement() {
         var now = 40_000L
         val state = OperationState { now }

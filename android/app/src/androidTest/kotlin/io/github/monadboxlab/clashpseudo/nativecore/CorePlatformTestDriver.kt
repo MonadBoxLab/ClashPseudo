@@ -84,7 +84,8 @@ class CorePlatformTestDriver(val context: Context = InstrumentationRegistry.getI
         val stage = File(AppFiles.work(context), "run-input-test-${UUID.randomUUID()}")
         check(stage.parentFile!!.isDirectory || stage.parentFile!!.mkdirs())
         check(stage.createNewFile())
-        CorePrivateFiles.write(stage, input.snapshotBytes())
+        CorePrivateFiles.write(stage, JSONObject(CoreFrames.utf8(input.snapshotBytes())).put("inputId", inputId)
+            .put("vpnIntent", vpn).put("lanIntent", false).toString().toByteArray(Charsets.UTF_8))
         try {
             val publication = channel(Contract.CORE_CHANNEL_PUBLISH_RUN_INPUT, mapOf("path" to stage.path, "inputId" to inputId)) as Map<*, *>
             assertEquals(true, publication["saved"])

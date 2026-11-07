@@ -959,7 +959,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get applicationReconnectMessage =>
-      'Saving will normally stop the current tunnel and reconnect with the current configuration and mode. Existing connections will drop. The setting is kept if reconnecting fails.';
+      'Saving will stop the current VPN or LAN proxy and reconnect with its actual configuration and mode. Existing connections will drop. The application list affects VPN traffic only. The setting is kept if reconnecting fails.';
 
   @override
   String get applicationReconnect => 'Save and reconnect';
@@ -2256,7 +2256,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get accessSavedReconnected =>
-      'Application access saved and the tunnel reconnected.';
+      'Application access saved and the connection re-established.';
 
   @override
   String get overridesSavedNextStart =>

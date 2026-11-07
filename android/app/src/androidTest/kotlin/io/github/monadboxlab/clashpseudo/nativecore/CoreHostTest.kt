@@ -12,6 +12,31 @@ import org.junit.Test
 import java.io.IOException
 
 class CoreHostTest {
+    @Test fun freshClientHandshakeDoesNotSerializeAnAlreadyClosedStatusDescriptor() {
+        val platform = CorePlatformTestDriver()
+        val client = CoreClient.get(platform.context)
+        var previousProcess: String? = null
+        repeat(2) {
+            CoreIpcTestDriver.production().use { driver ->
+                try {
+                    assertNotEquals(previousProcess, driver.processId)
+                    val control = driver.service.status(driver.controlIdentity())
+                    assertTrue("A fresh process publishes its status through a details FD", control.containsKey("details"))
+                    CoreIpcTestDriver.readStatusDetails(control)
+                    val connected = platform.handshake()
+                    assertEquals(driver.processId, connected[Contract.CORE_FIELD_PROCESS_ID])
+                    assertEquals(Contract.CORE_PHASE_CONNECTED, connected[Contract.CORE_FIELD_PHASE])
+                    platform.await("The initial status document drains") { !client.requestBusy }
+                    assertEquals(driver.processId, platform.status()[Contract.CORE_FIELD_PROCESS_ID])
+                } finally { driver.exit() }
+                platform.await("The client confirms the original process death") {
+                    client.status()[Contract.CORE_FIELD_PHASE] == Contract.CORE_PHASE_EXITED && !client.requestBusy
+                }
+                previousProcess = driver.processId
+            }
+        }
+    }
+
     @Test fun previewUsesProductionIpcWithoutCreatingVpnResources() {
         CoreIpcTestDriver.production().use { driver ->
             val result = driver.prepare(DIRECT.toByteArray(Charsets.UTF_8))
@@ -24,6 +49,16 @@ class CoreHostTest {
             assertTrue(snapshot.terminal.toString(), snapshot.terminal.getBoolean("complete"))
             assertTrue(snapshot.value.getBoolean("prepared"))
             assertFalse(snapshot.value.getBoolean("attached"))
+            val control = driver.service.status(driver.controlIdentity())
+            CoreControl.check(control)
+            assertFalse("Listener rows must not occupy the Binder control plane", control.containsKey("lanListeners"))
+            assertFalse(control.containsKey("applicationAccess"))
+            assertTrue(control.containsKey("details"))
+            val full = CoreIpcTestDriver.readStatusDetails(control)
+            assertEquals(snapshot.value.getLong(Contract.CORE_FIELD_LISTENER_REVISION), full.getLong(Contract.CORE_FIELD_LISTENER_REVISION))
+            assertEquals(snapshot.value.getJSONArray("listeners").toString(), full.getString("lanListeners"))
+            assertEquals(driver.processId, full.getString("processId"))
+            assertEquals(snapshot.value.getString("inputId"), full.getString("inputId"))
             driver.exit()
             assertTrue(driver.deathConfirmed)
         }

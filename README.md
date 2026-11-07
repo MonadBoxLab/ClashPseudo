@@ -30,6 +30,14 @@ Clash Pseudo 是基于 mihomo 的 Android 网络接管与策略分流客户端�
 
 > 应用通过公开接口接入 mihomo，没有维护 patch 或 fork。内核的修复随依赖版本更新引入。
 
+## 系统快捷入口与通知
+
+- **快捷设置磁贴**：下拉系统快捷设置，打开编辑界面，将 Clash Pseudo 磁贴移入已启用区域。
+- **桌面小组件**：长按桌面空白处，在 Launcher 的小组件选择器中找到 Clash Pseudo，拖到桌面后使用启停按钮；点击主体打开总览。
+- **通知**：Android 13 及以上，到系统“设置 → 应用 → Clash Pseudo → 通知”允许通知，再回应用启动服务。未授权时服务仍可运行，但通知抽屉中不显示相应控制，可从应用总览停止。
+
+这些入口由系统或 Launcher 提供，菜单名称因设备而异。详细操作见[运行控制](doc/product/runtime-and-strategies.md#android系统入口)。
+
 ## 隐私与许可
 
 Clash Pseudo 不采集或上报任何用户数据，不提供任何代理节点或订阅服务。

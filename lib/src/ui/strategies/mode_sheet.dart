@@ -10,6 +10,8 @@ import '../components/feedback/operation_notice.dart';
 import '../../l10n/app_localizations.dart';
 import '../navigation/route_observer.dart';
 import '../navigation/task_activity.dart';
+import '../../model/app_snapshot.dart';
+import '../../model/application_contract.dart';
 import '../../model/core_snapshot.dart';
 import '../../model/messages.dart';
 import '../../model/tunnel_mode.dart';
@@ -29,6 +31,11 @@ class _ModeSheetState extends State<ModeSheet> {
   final _feedbackOwner = ValueNotifier<bool>(false);
   bool _feedbackPresented = false;
   CoreSnapshot? _submissionCore;
+  bool Function()? _sourceCurrent;
+  Map<String, Object?>? _command;
+  AppSnapshot? _result;
+  Timer? _confirmation;
+  bool _closing = false;
   ModalRoute<dynamic>? _route;
   Listenable? _routeChanges;
   late final int _storageEpoch;
@@ -73,22 +80,88 @@ class _ModeSheetState extends State<ModeSheet> {
       _routeChanges?.addListener(_syncFeedbackOwner);
     }
     _syncFeedbackOwner();
+    _confirmProjection();
   }
 
   void _syncFeedbackOwner() {
     if (!_feedbackOwner.value || _feedbackPresented || !mounted) return;
-    final core = _submissionCore;
-    if (!_eligible ||
-        core == null ||
-        !_sameContext(widget.controller, _storageEpoch, core)) {
+    if (_sourceCurrent?.call() != true ||
+        _route?.isActive == false ||
+        _storageEpoch != widget.controller.storageEpoch ||
+        (_command != null &&
+            !identical(_command, widget.controller.lastCommand))) {
       _feedbackOwner.value = false;
+      _confirmation?.cancel();
+      _result = null;
+      _target = null;
     }
+  }
+
+  void _confirmProjection() {
+    final result = _result;
+    final mode = _target;
+    final controller = widget.controller;
+    if (result == null || mode == null || !_feedbackOwner.value || _closing) {
+      return;
+    }
+    final receipt = result.modeResult;
+    if (receipt == null ||
+        receipt['mode'] != mode.name ||
+        receipt['storageEpoch'] != _storageEpoch) {
+      return;
+    }
+    final state = controller.state;
+    final applied = receipt['status'] == 'applied';
+    if (applied &&
+        state.core.hasIdentity &&
+        !state.core.matchesWireIdentity(receipt) &&
+        _submissionCore?.matchesIdentity(state.core) != true) {
+      _feedbackOwner.value = false;
+      _confirmation?.cancel();
+      _result = null;
+      _target = null;
+      return;
+    }
+    bool projectionConfirmed() {
+      final latest = controller.state;
+      final savedSource =
+          latest.core.matchesWireIdentity(receipt) ||
+          (receipt['processId'] == null &&
+              _submissionCore != null &&
+              _sameContext(controller, _storageEpoch, _submissionCore!));
+      return controller.configsCurrent &&
+          controller.collection.mode == mode &&
+          latest.confirmed &&
+          (applied
+              ? latest.forwarding &&
+                    latest.core.matchesWireIdentity(receipt) &&
+                    latest.mode == mode
+              : receipt['status'] == 'saved' &&
+                    !latest.usesRuntimeMode &&
+                    savedSource);
+    }
+
+    if (!projectionConfirmed() || !_eligible) return;
+    _closing = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted &&
+          _eligible &&
+          _feedbackOwner.value &&
+          identical(_result, result) &&
+          projectionConfirmed()) {
+        _confirmation?.cancel();
+        controller.acknowledgeLocalFeedback(_feedbackOwner, result: result);
+        Navigator.of(context).pop();
+      } else {
+        _closing = false;
+      }
+    });
   }
 
   void _changed() {
     if (!mounted) return;
     _syncFeedbackOwner();
-    if (_storageEpoch != widget.controller.storageEpoch) _target = null;
+    _confirmProjection();
     setState(() {});
   }
 
@@ -105,6 +178,10 @@ class _ModeSheetState extends State<ModeSheet> {
     _feedbackOwner.value = false;
     _feedbackPresented = false;
     _submissionCore = core;
+    _sourceCurrent = AppTaskActivity.captureSource(context);
+    _command = null;
+    _result = null;
+    _confirmation?.cancel();
     _feedbackOwner.value = true;
     setState(() => _target = mode);
     final pending = controller.submitAndWait({
@@ -112,32 +189,51 @@ class _ModeSheetState extends State<ModeSheet> {
       'mode': mode.name,
       'storageEpoch': _storageEpoch,
     }, feedbackOwner: _feedbackOwner);
-    final command = controller.lastCommand;
+    final command = _command = controller.lastCommand;
     final result = await pending;
     if (!mounted) return;
-    setState(() => _target = null);
     bool current({ModalRoute<dynamic>? popup}) =>
         mounted &&
         noticeContext.mounted &&
         _feedbackOwner.value &&
         identical(controller.lastCommand, command) &&
-        _sameContext(controller, _storageEpoch, core) &&
-        _eligibleWithPopup(popup);
+        _storageEpoch == controller.storageEpoch &&
+        _sourceCurrent?.call() == true;
     if (!current()) {
       _feedbackOwner.value = false;
+      setState(() => _target = null);
       return;
     }
     if (result?.resultSuccess == true) {
-      controller.acknowledgeLocalFeedback(_feedbackOwner, result: result);
-      if (controller.configsCurrent &&
-          controller.collection.mode == mode &&
-          (controller.state.usesRuntimeMode
-              ? controller.state.mode == mode
-              : controller.state.phase == 'STOPPED')) {
-        Navigator.of(context).pop();
+      _result = result;
+      _confirmProjection();
+      if (_target != null) {
+        _confirmation = Timer(
+          const Duration(milliseconds: ApplicationContract.operationUiGraceMs),
+          () async {
+            if (!current()) return;
+            setState(() {
+              _target = null;
+              _result = null;
+            });
+            controller.acknowledgeLocalFeedback(_feedbackOwner, result: result);
+            final presented = await showAppNotice(
+              noticeContext,
+              messages.temporaryModeUnknown,
+              eligibilityChanges: controller,
+              isCurrent: current,
+              isCurrentWithPopup: (popup) => current(popup: popup),
+              identity: ('mode-projection', command, result!.resultId),
+              onRetry: controller.refreshMode,
+            );
+            if (!presented && mounted) _feedbackOwner.value = false;
+          },
+        );
       }
+      setState(() {});
       return;
     }
+    setState(() => _target = null);
     final message =
         result?.resultMessageDescription ??
         controller.commandErrorMessage ??
@@ -173,7 +269,7 @@ class _ModeSheetState extends State<ModeSheet> {
   void _readFeedback(BuildContext feedbackContext) {
     final controller = widget.controller;
     final error = controller.state.modeErrorMessage;
-    if (error == null || !controller.interactive) {
+    if (error == null) {
       _modeNotice = null;
       return;
     }
@@ -198,13 +294,13 @@ class _ModeSheetState extends State<ModeSheet> {
         feedbackContext,
         error,
         eligibilityChanges: controller,
-        isCurrent: () => current() && _eligible,
-        isCurrentWithPopup: (popup) => current() && _eligibleWithPopup(popup),
+        isCurrent: current,
+        isCurrentWithPopup: (_) => current(),
         identity: ('mode-read', notice),
         onRetry: () async {
           if (!current() || !_eligible) return;
           _modeNotice = null;
-          await controller.refresh();
+          await controller.refreshMode();
           if (mounted) setState(() {});
         },
       );
@@ -374,6 +470,7 @@ class _ModeSheetState extends State<ModeSheet> {
   void dispose() {
     widget.controller.removeListener(_changed);
     _routeChanges?.removeListener(_syncFeedbackOwner);
+    _confirmation?.cancel();
     _feedbackOwner.value = false;
     _feedbackOwner.dispose();
     super.dispose();

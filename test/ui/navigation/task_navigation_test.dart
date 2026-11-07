@@ -1,6 +1,9 @@
 import 'dart:async';
 
 import 'package:clash_pseudo/src/l10n/app_localizations.dart';
+import 'package:clash_pseudo/src/model/app_snapshot.dart';
+import 'package:clash_pseudo/src/model/connection_snapshot.dart';
+import 'package:clash_pseudo/src/model/traffic_snapshot.dart';
 import 'package:clash_pseudo/src/model/core_snapshot.dart';
 import 'package:clash_pseudo/src/ui/components/reading/original_text_view.dart';
 import 'package:clash_pseudo/src/ui/diagnostics/resources/resources_page.dart';
@@ -22,9 +25,61 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/connection_fakes.dart' as connections;
 import '../../support/strategy_fakes.dart';
 import '../diagnostics/configuration/runtime_fakes.dart' show response;
 import '../diagnostics/rules/rule_fakes.dart' show rulePage;
+
+class _ReadingBridge extends StrategyBridgeFake {
+  _ReadingBridge() {
+    state = const AppSnapshot(phase: 'RUNNING', core: connections.core);
+    data = strategyData(core: connections.core);
+  }
+  int memoryReads = 0;
+  int trafficReads = 0;
+  int connectionReads = 0;
+  final detailOwners = <String?>[];
+
+  @override
+  Future<Map<String, dynamic>> appMemory() async {
+    memoryReads++;
+    return {
+      'valid': true,
+      'sampledAt': DateTime.now().millisecondsSinceEpoch,
+      'processRssBytes': 1024,
+    };
+  }
+
+  @override
+  Future<TrafficSnapshot> traffic() async {
+    trafficReads++;
+    return TrafficSnapshot.fromMap({
+      ...response(state.core),
+      'phase': 'RUNNING',
+      'sessionGeneration': 0,
+      'elapsedMs': 1000,
+      'sampledAt': 1000,
+      'fresh': true,
+      'upload': 0,
+      'download': 0,
+      'activeCount': 1,
+      'points': <Object>[],
+    });
+  }
+
+  @override
+  Future<ConnectionSnapshot> recentConnections({
+    Map<String, Object?>? detail,
+    String? detailOwner,
+  }) async {
+    connectionReads++;
+    detailOwners.add(detailOwner);
+    return connections.snapshot([connections.row('one')]);
+  }
+
+  @override
+  Future<void> releaseConnectionDetail({required String owner}) async {}
+}
 
 class _InsetsBridge extends StrategyBridgeFake {
   @override
@@ -123,6 +178,79 @@ void main() {
 
     bool active(WidgetTester tester, Type type) =>
         AppTaskActivity.isActive(tester.element(page(type)));
+
+    for (final scene in ['overview', 'connections', 'detail']) {
+      testWidgets(
+        'visible $scene keeps reading without interaction and pauses when covered',
+        (tester) async {
+          final bridge = _ReadingBridge();
+          await mount(tester, bridge: bridge, reduceMotion: true);
+          if (scene != 'overview') {
+            await open(tester, AppTask.connections);
+            await tester.pumpAndSettle();
+            if (scene == 'detail') {
+              await tester.tap(find.text('one.fixture.test'));
+              await tester.pumpAndSettle();
+            }
+          }
+          int reads() => scene == 'overview'
+              ? bridge.trafficReads
+              : bridge.connectionReads;
+          final origin = tester.element(
+            page(scene == 'overview' ? OverviewPage : ConnectionsPage),
+          );
+          expect(reads(), greaterThan(0));
+          final before = reads();
+          final memoryBefore = bridge.memoryReads;
+          app.setInteractive(false);
+          await tester.pump();
+          expect(AppTaskActivity.isActive(origin), isFalse);
+          expect(AppTaskActivity.isVisible(origin), isTrue);
+          tester
+              .widget<AppTaskScope>(find.byType(AppTaskScope))
+              .open(AppTask.settings);
+          await tester.pump(const Duration(seconds: 2));
+          await tester.pump();
+          expect(reads(), greaterThan(before));
+          if (scene == 'overview') {
+            expect(bridge.memoryReads, greaterThan(memoryBefore));
+          }
+          if (scene == 'detail') expect(bridge.detailOwners.last, isNotNull);
+          expect(
+            tester.widget<AppTaskScope>(find.byType(AppTaskScope)).task,
+            scene == 'overview' ? AppTask.overview : AppTask.connections,
+          );
+          app.setForeground(false);
+          await tester.pumpAndSettle();
+          final background = reads();
+          await tester.pump(const Duration(seconds: 3));
+          expect(reads(), background);
+          app.setForeground(true);
+          app.setInteractive(true);
+          await tester.pumpAndSettle();
+          expect(reads(), greaterThan(background));
+          final navigator = Navigator.of(origin, rootNavigator: true);
+          unawaited(
+            navigator.push(
+              DialogRoute<void>(
+                context: origin,
+                builder: (_) =>
+                    const AlertDialog(content: Text('Temporary cover')),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final covered = reads();
+          expect(AppTaskActivity.isVisible(origin), isFalse);
+          await tester.pump(const Duration(seconds: 3));
+          expect(reads(), covered);
+          navigator.pop();
+          await tester.pumpAndSettle();
+          expect(reads(), greaterThan(covered));
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
 
     group('focused_insets', () {
       for (final scene in [
@@ -1672,7 +1800,11 @@ void main() {
         await tester.pump();
         expect(
           tester.widget<OverviewPage>(find.byType(OverviewPage)).active,
-          isFalse,
+          isTrue,
+        );
+        expect(
+          AppTaskActivity.isVisible(tester.element(find.byType(OverviewPage))),
+          isTrue,
         );
         expect(
           AppTaskActivity.isActive(tester.element(find.byType(OverviewPage))),

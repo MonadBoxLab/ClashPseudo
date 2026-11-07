@@ -1,12 +1,15 @@
 import 'package:clash_pseudo/src/ui/locale/message_text.dart';
 
+import 'dart:async';
 import 'dart:convert';
+
+import 'package:clash_pseudo/src/platform/channel/app_bridge.dart';
 
 import 'package:clash_pseudo/src/model/config_entry.dart';
 import 'package:clash_pseudo/src/ui/configs/dialogs/config_file.dart';
 import 'package:clash_pseudo/src/model/config_text.dart';
 import 'package:clash_pseudo/src/model/app_preferences.dart';
-import 'package:file_selector/file_selector.dart';
+import 'package:cross_file/cross_file.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -30,24 +33,77 @@ class _GrowingFile extends XFile {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('SAF returns bounded bytes and preserves cancellation', () async {
+    const channel = MethodChannel('io.github.monadboxlab.clashpseudo/app');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    Map<String, Object?> response = {'status': 'cancelled'};
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      expect(call.method, 'pickConfigFile');
+      return {...response, 'requestId': call.arguments['requestId']};
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    expect(await selectConfigFile(), isNull);
+    response = {
+      'status': 'ready',
+      'bytes': Uint8List.fromList(utf8.encode('规则: []\n')),
+      'name': '中文.yaml',
+    };
+    final file = (await selectConfigFile())!;
+    expect(file.name, '中文.yaml');
+    expect(await readConfigFile(file), '规则: []\n');
+    response = {'status': 'failed', 'errorCode': 'textTooLargeImport'};
+    await expectLater(selectConfigFile(), throwsA(isA<ConfigFailure>()));
+    response = {
+      'status': 'ready',
+      'retired': true,
+      'bytes': Uint8List(1),
+      'name': 'stale.yaml',
+    };
+    expect(await selectConfigFile(), isNull);
+  });
   test(
-    'single picker leaves provider MIME unrestricted and preserves cancel',
+    'cancelling a selection waits for the original document drain reply',
     () async {
-      const channel = MethodChannel('plugins.flutter.io/file_selector');
-      final calls = <MethodCall>[];
+      const channel = MethodChannel('io.github.monadboxlab.clashpseudo/app');
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final reading = Completer<Map<String, Object?>>();
+      final opened = Completer<void>();
+      final cancelled = Completer<void>();
+      String? requestId;
       messenger.setMockMethodCallHandler(channel, (call) async {
-        calls.add(call);
+        if (call.method == 'pickConfigFile') {
+          requestId = call.arguments['requestId'] as String;
+          opened.complete();
+          return reading.future;
+        }
+        expect(call.method, 'cancelConfigFile');
+        expect(call.arguments['requestId'], requestId);
+        cancelled.complete();
         return null;
       });
       addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
-      expect(await selectConfigFile(), isNull);
-      expect(calls.single.method, 'openFile');
-      expect(calls.single.arguments['acceptedTypeGroups'], isEmpty);
-      expect(calls.single.arguments['multiple'], isFalse);
+      final selection = ConfigFileSelection(AppBridge());
+      var finished = false;
+      final pending = selection.select();
+      await opened.future;
+      final cancellation = selection.cancel().then((_) => finished = true);
+      await cancelled.future;
+      await Future<void>.delayed(Duration.zero);
+      expect(finished, isFalse);
+      reading.complete({
+        'requestId': requestId,
+        'status': 'ready',
+        'bytes': Uint8List(1),
+        'name': 'late.yaml',
+      });
+      expect(await pending, isNull);
+      await cancellation;
+      expect(finished, isTrue);
     },
   );
+
   test('file decoding keeps BOM, empty and malformed YAML as text', () async {
     for (final text in ['', '\u{feff}中文🌐\r\n', '[invalid YAML']) {
       final file = XFile.fromData(

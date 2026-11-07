@@ -12,7 +12,8 @@ import 'package:flutter/rendering.dart';
 import 'package:clash_pseudo/src/l10n/app_localizations.dart';
 import 'package:clash_pseudo/src/model/messages.dart';
 
-import 'package:file_selector/file_selector.dart';
+import 'package:cross_file/cross_file.dart';
+import 'package:clash_pseudo/src/model/app_snapshot.dart';
 
 import 'package:clash_pseudo/src/ui/app/app_controller.dart';
 import 'package:clash_pseudo/src/ui/theme/app_theme.dart';
@@ -76,7 +77,18 @@ class _ConfigsPageState extends State<ConfigsPage>
   bool _canResume(int presentation) =>
       _live(presentation) && (_route?.isCurrent ?? true);
 
+  bool _fileRetired = false;
+  ConfigFileSelection? _fileSelection;
+  bool Function()? _fileCurrent;
+
+  void _cancelStaleFile() {
+    if (_fileCurrent?.call() == false) {
+      unawaited(_fileSelection?.cancel().catchError((Object _) {}));
+    }
+  }
+
   void _syncOwner() {
+    _cancelStaleFile();
     _scheduleReadNotice();
     _scheduleEntryNotice();
     if (_wasForeground && !controller.foreground) {
@@ -109,6 +121,9 @@ class _ConfigsPageState extends State<ConfigsPage>
   @override
   void didUpdateWidget(ConfigsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.active && !widget.active && controller.foreground) {
+      _fileRetired = true;
+    }
     if (oldWidget.active != widget.active ||
         !identical(oldWidget.controller, controller)) {
       _presentation++;
@@ -584,6 +599,8 @@ class _ConfigsPageState extends State<ConfigsPage>
 
   @override
   void dispose() {
+    _fileRetired = true;
+    unawaited(_fileSelection?.cancel().catchError((Object _) {}));
     controller.removeListener(_syncOwner);
     _feedbackOwner.value = false;
     _feedbackOwner.dispose();
@@ -694,7 +711,7 @@ class _ConfigsPageState extends State<ConfigsPage>
   }
 
   Future<void> _add(String kind, int? storageEpoch) async {
-    final presentation = _presentation;
+    var presentation = _presentation;
     if (storageEpoch == null ||
         !_canResume(presentation) ||
         _adding ||
@@ -702,6 +719,31 @@ class _ConfigsPageState extends State<ConfigsPage>
       return;
     }
     final strings = AppLocalizations.of(context);
+    final owner = controller;
+    final taskCurrent = AppTaskActivity.captureSource(context);
+    final route = _route;
+    var retired = false;
+    bool sourceCurrent() {
+      retired |=
+          _fileRetired ||
+          !mounted ||
+          !identical(owner, controller) ||
+          !taskCurrent() ||
+          !AppTaskActivity.routeIsActive(route) ||
+          storageEpoch != owner.storageEpoch ||
+          storageEpoch != owner.state.storageEpoch;
+      return !retired;
+    }
+
+    Future<bool> resumeFile() async {
+      final rebuild = !owner.interactive || !widget.active;
+      if (!sourceCurrent() || !await owner.waitUntilInteractive()) return false;
+      if (rebuild) await WidgetsBinding.instance.endOfFrame;
+      if (!sourceCurrent() || !owner.interactive) return false;
+      presentation = _presentation;
+      return _canResume(presentation);
+    }
+
     setState(() => _adding = true);
     try {
       if (kind == 'url') {
@@ -755,21 +797,15 @@ class _ConfigsPageState extends State<ConfigsPage>
           ),
         );
       } else {
-        final file = await widget.selectFile();
-        if (!mounted ||
-            file == null ||
-            !_canResume(presentation) ||
-            storageEpoch != controller.storageEpoch ||
-            storageEpoch != controller.state.storageEpoch) {
-          return;
-        }
+        _fileRetired = false;
+        _fileCurrent = sourceCurrent;
+        final selection = widget.selectFile == selectConfigFile
+            ? (_fileSelection = ConfigFileSelection(owner.platform))
+            : null;
+        final file = await (selection?.select() ?? widget.selectFile());
+        if (file == null || !await resumeFile()) return;
         final body = await readConfigFile(file);
-        if (!mounted ||
-            !_canResume(presentation) ||
-            storageEpoch != controller.storageEpoch ||
-            storageEpoch != controller.state.storageEpoch) {
-          return;
-        }
+        if (!await resumeFile()) return;
         if (!controller.canEdit) {
           await _showFeedback((strings) => strings.operationBusyFile);
           return;
@@ -806,6 +842,7 @@ class _ConfigsPageState extends State<ConfigsPage>
         }
       }
     } catch (error) {
+      if (kind == 'file' && !await resumeFile()) return;
       if (mounted &&
           _canResume(presentation) &&
           storageEpoch == controller.storageEpoch) {
@@ -816,6 +853,8 @@ class _ConfigsPageState extends State<ConfigsPage>
         );
       }
     } finally {
+      _fileCurrent = null;
+      _fileSelection = null;
       if (mounted) setState(() => _adding = false);
     }
   }
@@ -848,6 +887,8 @@ class _ConfigsPageState extends State<ConfigsPage>
     final owner = controller;
     final pageRoute = _route;
     final taskCurrent = AppTaskActivity.capture(context);
+    AppSnapshot? unconfirmedSave;
+    var savedReceipt = false;
     await _showDialog<String>(
       builder: (dialogContext) => ConfigFieldDialog(
         isCurrent: () => _live(presentation),
@@ -858,7 +899,10 @@ class _ConfigsPageState extends State<ConfigsPage>
               !AppTaskActivity.routeIsActive(ModalRoute.of(dialogContext))) {
             return false;
           }
-          if (!_live(presentation) || !controller.canEdit) {
+          if (savedReceipt ||
+              !identical(owner, controller) ||
+              !_live(presentation) ||
+              !controller.canEdit) {
             return false;
           }
           final editRoute = ModalRoute.of(dialogContext)!;
@@ -886,10 +930,44 @@ class _ConfigsPageState extends State<ConfigsPage>
           var acknowledged = false;
           try {
             final result = await pending;
-            if (submitted == null ||
-                identical(previousCommand, submitted) ||
-                !identical(owner.lastCommand, submitted) ||
-                !readerCurrent()) {
+            if (submitted == null || identical(previousCommand, submitted)) {
+              return false;
+            }
+            if (source &&
+                result != null &&
+                const [
+                  'saved',
+                  'applied',
+                  'applyFailed',
+                ].contains(result.configStatus)) {
+              savedReceipt = true;
+              final current = owner.collection.find(result.targetId);
+              final verified =
+                  identical(owner.lastCommand, submitted) &&
+                  readerCurrent() &&
+                  result.targetId == entry.id &&
+                  result.savedRevision != null &&
+                  result.storageEpoch == storageEpoch &&
+                  owner.storageEpoch == storageEpoch &&
+                  owner.state.storageEpoch == storageEpoch &&
+                  owner.configsCurrent &&
+                  current?.revision == result.savedRevision &&
+                  current?.source == value;
+              if (verified && result.resultSuccess) {
+                owner.acknowledgeLocalFeedback(_feedbackOwner, result: result);
+                acknowledged = owner.feedbackHandledLocally(
+                  submitted,
+                  submissionFailed: false,
+                  resultId: result.resultId,
+                );
+              } else if (!verified && result.resultSuccess) {
+                unconfirmedSave = result;
+              }
+              // A saved receipt retires the captured entry, including when readback fails.
+              // Application failures transfer to global feedback after this form closes.
+              return true;
+            }
+            if (!identical(owner.lastCommand, submitted) || !readerCurrent()) {
               return false;
             }
             if (result?.resultSuccess == true &&
@@ -957,6 +1035,27 @@ class _ConfigsPageState extends State<ConfigsPage>
         },
       ),
     );
+    if (unconfirmedSave != null &&
+        mounted &&
+        identical(owner, controller) &&
+        storageEpoch == owner.storageEpoch &&
+        _canResume(presentation)) {
+      await showAppNotice(
+        context,
+        messages.saveUnconfirmed,
+        eligibilityChanges: owner,
+        isCurrent: () =>
+            mounted &&
+            identical(owner, controller) &&
+            storageEpoch == owner.storageEpoch &&
+            _canResume(presentation),
+        onRetry: owner.refresh,
+        onPresented: () => owner.acknowledgeLocalFeedback(
+          _feedbackOwner,
+          result: unconfirmedSave,
+        ),
+      );
+    }
   }
 
   Future<bool> _update(

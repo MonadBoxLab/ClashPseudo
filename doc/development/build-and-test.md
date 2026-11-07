@@ -226,12 +226,13 @@ python3 -I -B -m unittest discover -s test/tool -v
 git diff --check
 ```
 
-格式检查与Go并发诊断沿现有工具单独执行：
+格式检查单独执行：
 
 ```sh
 dart format --output=none --set-exit-if-changed lib test tool/coverage benchmark
-GOTOOLCHAIN=local go -C native/mihomo test -mod=readonly -tags=cmfa,with_gvisor -race ./...
 ```
+
+应用测试只覆盖自有接口调用、平台适配、状态和lifecycle；上游测试及Go race的约束见[裁剪与内核接入边界](../../CLAUDE.md#裁剪与内核接入边界)。
 
 检查结果按入口记录：Flutter报告页面、业务及平台桥断言，Go报告生产tags下的接入调用，JVM／instrumentation报告Android机制，Python报告工具输入、失败和清理结果。失败时保留原输出、失败用例及所用输入；修改后重新执行对应入口。记录字段见[结果记录](verification.md#结果口径)。
 

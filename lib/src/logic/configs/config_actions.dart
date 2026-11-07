@@ -37,7 +37,10 @@ class ConfigActions {
   final File? systemInput;
   Map<String, Object?> result = const {};
 
-  static Future<AppMessage> stop(AppPlatform platform) async {
+  static Future<AppMessage> stop(
+    AppPlatform platform, {
+    bool preserveLan = true,
+  }) async {
     Object? stageFailure;
     StackTrace? stageStack;
     try {
@@ -48,7 +51,7 @@ class ConfigActions {
       stageStack = stack;
     }
     try {
-      await platform.stop();
+      await platform.stop(preserveLan: preserveLan);
     } catch (failure, stack) {
       if (stageFailure == null) rethrow;
       throw ConfigFailure(
@@ -143,6 +146,7 @@ class ConfigActions {
           selected,
           collection.mode,
           vpnIntent: command['vpnIntent'] != false,
+          lanIntent: command['lanIntent'] as bool?,
         );
         return messages.tunnelStarted;
       default:
@@ -542,9 +546,35 @@ class ConfigActions {
             'revision': selected.revision,
           });
         }
+        final savedContext = await platform.snapshot();
+        result = {
+          ...result,
+          'modeResult': {
+            'status': 'saved',
+            'mode': mode.name,
+            'storageEpoch': state.storageEpoch,
+            if (savedContext.core.hasIdentity)
+              ...savedContext.core.wireIdentity,
+          },
+        };
         return messages.modeSavedNextStart;
       }
-      if (state.mode == mode) return messages.modeConfirmed;
+      void applied(AppSnapshot target) {
+        result = {
+          ...result,
+          'modeResult': {
+            'status': 'applied',
+            'mode': mode.name,
+            'storageEpoch': state.storageEpoch,
+            ...target.core.wireIdentity,
+          },
+        };
+      }
+
+      if (state.mode == mode) {
+        applied(state);
+        return messages.modeConfirmed;
+      }
       await platform.stage(messages.stageSwitchingMode);
       final preferences = await PreferencesStore(store.directory).read();
       if (preferences.reconnectOnRoutingChange) {
@@ -562,9 +592,11 @@ class ConfigActions {
         if (!actual.confirmed || !actual.forwarding || actual.mode != mode) {
           throw const FormatException('Mode not confirmed');
         }
+        applied(actual);
       } else {
         final actual = await platform.setMode(mode, state.core);
         if (actual != mode) throw const FormatException('Mode not confirmed');
+        applied(state);
       }
     } catch (failure) {
       result = {...result, 'configStatus': 'applyFailed', 'success': false};
@@ -631,6 +663,9 @@ class ConfigActions {
       if (loaded == null) {
         throw ConfigFailure(messages.runningConfigUnavailable);
       }
+      if (!loaded.vpnIntent && loaded.matchesAccess(access, packages)) {
+        return messages.settingsSaved;
+      }
       await platform.stage(messages.stageReconnectAccess);
       await loaded.reconnect(
         platform,
@@ -640,11 +675,33 @@ class ConfigActions {
         preferences: loaded.preferences.withAccess(access, packages),
       );
       final actual = await platform.snapshot();
-      if (!actual.confirmed ||
-          !actual.running ||
-          actual.runningApplicationAccess?.generation != actual.generation ||
-          actual.runningApplicationAccess?.matches(access, packages) != true) {
+      if (!actual.confirmed || !actual.forwarding) {
         throw ConfigFailure(messages.runningConfigUnavailable);
+      }
+      if (loaded.vpnIntent) {
+        if (!actual.running ||
+            actual.runningApplicationAccess?.generation != actual.generation ||
+            actual.runningApplicationAccess?.matches(access, packages) !=
+                true) {
+          throw ConfigFailure(messages.runningConfigUnavailable);
+        }
+      } else {
+        final applied = await RunningInput.read(platform, actual);
+        final confirmed = await platform.snapshot();
+        if (applied == null ||
+            applied.vpnIntent ||
+            !applied.lanIntent ||
+            actual.running ||
+            actual.core.inputId == loaded.inputId ||
+            actual.core.configId != state.core.configId ||
+            actual.core.revision != state.core.revision ||
+            actual.core.composition != state.core.composition ||
+            !applied.matchesAccess(access, packages) ||
+            !confirmed.confirmed ||
+            !confirmed.forwarding ||
+            !confirmed.core.matchesIdentity(actual.core)) {
+          throw ConfigFailure(messages.runningConfigUnavailable);
+        }
       }
     } catch (failure, stack) {
       result = {...result, 'success': false};
@@ -661,6 +718,7 @@ class ConfigActions {
     ConfigEntry entry,
     TunnelMode? mode, {
     bool vpnIntent = true,
+    bool? lanIntent,
   }) async {
     if (vpnIntent) {
       await platform.stage(messages.stageWaitingVpnAuth);
@@ -677,6 +735,7 @@ class ConfigActions {
         overrides: await OverrideStore(store.directory).read(),
         preferences: await PreferencesStore(store.directory).read(),
         vpnIntent: vpnIntent,
+        lanIntent: lanIntent,
       );
       await platform.start(id: entry.id, revision: entry.revision, mode: mode);
     } finally {

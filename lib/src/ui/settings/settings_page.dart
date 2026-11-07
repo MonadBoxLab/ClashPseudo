@@ -283,7 +283,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                     active:
                                         mounted &&
                                         identical(app, owner) &&
-                                        owner.interactive &&
+                                        owner.foreground &&
                                         (AppTaskScope.maybeOf(routeContext)
                                                     ?.task ==
                                                 null

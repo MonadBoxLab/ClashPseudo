@@ -294,11 +294,7 @@ class ResourcesController extends ChangeNotifier {
     try {
       final result = await app.submitAndWait({
         'action': 'updateResource',
-        'generation': expected.generation,
-        'composition': expected.composition,
-        'configId': expected.configId,
-        'revision': expected.revision,
-        'purpose': expected.purpose,
+        ...expected.wireIdentity,
         'kind': kind,
         'name': name,
       });

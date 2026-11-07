@@ -509,7 +509,11 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
     final owner = app;
     final epoch = owner.state.storageEpoch;
     final preferences = app.preferences;
-    final session = (app.state.generation, app.state.phase);
+    final session = (
+      app.state.generation,
+      app.state.phase,
+      app.state.core.identity,
+    );
     ModalRoute<dynamic>? confirmation;
     bool sameSource() =>
         mounted &&
@@ -518,7 +522,8 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
         epoch == app.state.storageEpoch &&
         _storageEpoch == app.storageEpoch &&
         identical(preferences, app.preferences) &&
-        session == (app.state.generation, app.state.phase);
+        session ==
+            (app.state.generation, app.state.phase, app.state.core.identity);
     bool current() => sameSource() && _current(ownedPopup: confirmation);
     if (_access == ApplicationAccess.only && _selected.isEmpty) {
       await showLocalizedOperationNotice(
@@ -537,7 +542,7 @@ class _ApplicationsPageState extends State<ApplicationsPage> {
     }
     setState(() => _saving = true);
     try {
-      if (app.state.running) {
+      if (app.state.forwarding) {
         final accepted = await confirmAction(
           context,
           title: (strings) => strings.applicationReconnectTitle,

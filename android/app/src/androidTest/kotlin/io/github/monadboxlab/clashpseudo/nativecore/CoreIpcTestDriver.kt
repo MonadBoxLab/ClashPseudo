@@ -142,7 +142,7 @@ class CoreIpcTestDriver private constructor(private val fixture: Boolean) : Clos
         return pipes { input, output, writer ->
             val control = Bundle(identity).apply {
                 putInt("operation", operation); putLong("generation", generation); putString("inputId", inputId)
-                remove("cleanupCandidates"); remove("error")
+                remove("cleanupCandidates"); remove("error"); remove("lanListeners"); remove("applicationAccess")
             }
             val receipt = service.submit(control, input, output)
             assertTrue(receipt.getBoolean("accepted"))
