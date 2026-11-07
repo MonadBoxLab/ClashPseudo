@@ -2,8 +2,6 @@ import 'package:clash_pseudo/src/ui/locale/message_text.dart';
 
 import 'dart:typed_data';
 
-import 'package:cross_file/cross_file.dart';
-
 import 'package:clash_pseudo/src/model/app_platform.dart';
 import 'package:clash_pseudo/src/platform/channel/app_bridge.dart';
 
@@ -11,7 +9,15 @@ import 'package:clash_pseudo/src/model/config_entry.dart';
 import 'package:clash_pseudo/src/model/config_text.dart';
 import 'package:clash_pseudo/src/model/messages.dart';
 
-Future<XFile?> selectConfigFile() => ConfigFileSelection(AppBridge()).select();
+class ConfigFile {
+  const ConfigFile(this.bytes, {this.name = ''});
+
+  final Uint8List bytes;
+  final String name;
+}
+
+Future<ConfigFile?> selectConfigFile() =>
+    ConfigFileSelection(AppBridge()).select();
 
 class ConfigFileSelection {
   ConfigFileSelection(this.platform);
@@ -20,13 +26,13 @@ class ConfigFileSelection {
   static int _sequence = 0;
   late final String _id =
       'config-file-${DateTime.now().microsecondsSinceEpoch}-${++_sequence}';
-  Future<XFile?>? _pending;
+  Future<ConfigFile?>? _pending;
   Future<void>? _cancelling;
   bool _cancelled = false;
 
-  Future<XFile?> select() => _pending ??= _select();
+  Future<ConfigFile?> select() => _pending ??= _select();
 
-  Future<XFile?> _select() async {
+  Future<ConfigFile?> _select() async {
     if (_cancelled) return null;
     final result = await platform.pickConfigFile(_id);
     if (_cancelled ||
@@ -49,7 +55,7 @@ class ConfigFileSelection {
     if (bytes.length > maxConfigBytes) {
       throw ConfigFailure(messages.textTooLargeImport);
     }
-    return XFile.fromData(bytes, name: name, path: name);
+    return ConfigFile(bytes, name: name);
   }
 
   Future<void> cancel() => _cancelling ??= _cancel();
@@ -66,15 +72,11 @@ class ConfigFileSelection {
   }
 }
 
-Future<String> readConfigFile(XFile file) async {
-  final bytes = BytesBuilder(copy: false);
-  await for (final chunk in file.openRead()) {
-    if (bytes.length + chunk.length > maxConfigBytes) {
-      throw ConfigFailure(messages.textTooLargeImport);
-    }
-    bytes.add(chunk);
+Future<String> readConfigFile(ConfigFile file) async {
+  if (file.bytes.length > maxConfigBytes) {
+    throw ConfigFailure(messages.textTooLargeImport);
   }
-  return decodeConfigText(bytes.takeBytes());
+  return decodeConfigText(file.bytes);
 }
 
 String configFileName(String name) {

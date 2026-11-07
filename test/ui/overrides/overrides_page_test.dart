@@ -8,7 +8,7 @@ import 'package:clash_pseudo/src/model/operation_admission.dart';
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:cross_file/cross_file.dart';
+import 'package:clash_pseudo/src/ui/configs/dialogs/config_file.dart';
 import 'package:clash_pseudo/src/ui/configs/editor/config_text_page.dart';
 import 'package:clash_pseudo/src/ui/configs/dialogs/import_dialog.dart';
 import 'package:re_editor/re_editor.dart';
@@ -260,7 +260,7 @@ Widget _receiptFeedbackHost(OverridePageApp app) => MaterialApp(
 
 Widget pluginHost(
   OverridePageApp app, {
-  Future<XFile?> Function()? selectFile,
+  Future<ConfigFile?> Function()? selectFile,
   bool feedback = false,
   bool Function()? isActiveNow,
   ValueNotifier<bool>? reducedMotion,
@@ -2118,7 +2118,7 @@ void main() {
           body: '{}',
         ),
       ];
-      final selected = Completer<XFile?>();
+      final selected = Completer<ConfigFile?>();
       await tester.pumpWidget(
         pluginHost(app, selectFile: () => selected.future),
       );
@@ -2132,9 +2132,9 @@ void main() {
       app.restoreSameIdentity('rules: ["DOMAIN,restored.test,DIRECT"]');
       await tester.pumpAndSettle();
       selected.complete(
-        XFile.fromData(
+        ConfigFile(
           utf8.encode('rules: ["DOMAIN,imported.test,DIRECT"]'),
-          path: 'draft.yaml',
+          name: 'draft.yaml',
         ),
       );
       await tester.pumpAndSettle();
@@ -2860,7 +2860,7 @@ void main() {
       (tester) async {
         final app = OverridePageApp();
         addTearDown(app.dispose);
-        final selected = Completer<XFile?>();
+        final selected = Completer<ConfigFile?>();
         var selections = 0;
         await tester.pumpWidget(
           pluginHost(
@@ -2888,9 +2888,7 @@ void main() {
         if (leave) await tester.pumpWidget(const SizedBox());
         final body =
             '${String.fromCharCode(0xfeff)}rules:\r\n  - MATCH,DIRECT\n# 片段\r\n';
-        selected.complete(
-          XFile.fromData(utf8.encode(body), path: 'fixture.yaml'),
-        );
+        selected.complete(ConfigFile(utf8.encode(body), name: 'fixture.yaml'));
         await tester.pumpAndSettle();
         if (leave) {
           expect(app.commands, isEmpty);

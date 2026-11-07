@@ -12,7 +12,7 @@ import 'package:clash_pseudo/src/model/config_entry.dart';
 import 'package:clash_pseudo/src/model/messages.dart';
 import 'package:re_editor/re_editor.dart';
 import 'package:clash_pseudo/src/platform/channel/app_bridge.dart';
-import 'package:cross_file/cross_file.dart';
+import 'package:clash_pseudo/src/ui/configs/dialogs/config_file.dart';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:clash_pseudo/src/l10n/app_localizations.dart';
@@ -83,7 +83,7 @@ void main() {
   late _ImportApp app;
   Future<void> show(
     WidgetTester tester,
-    Future<XFile?> Function() picker,
+    Future<ConfigFile?> Function() picker,
   ) async {
     app = _ImportApp();
     addTearDown(app.dispose);
@@ -121,10 +121,8 @@ void main() {
     const body = '\u{feff}中文🌐\r\n';
     await show(
       tester,
-      () async => XFile.fromData(
-        Uint8List.fromList(utf8.encode(body)),
-        path: '自建.yaml',
-      ),
+      () async =>
+          ConfigFile(Uint8List.fromList(utf8.encode(body)), name: '自建.yaml'),
     );
     await tester.tap(find.text('从文件导入'));
     await tester.pumpAndSettle();
@@ -142,10 +140,8 @@ void main() {
     const body = '\u{feff}中文🌐\r\n';
     await show(
       tester,
-      () async => XFile.fromData(
-        Uint8List.fromList(utf8.encode(body)),
-        path: '自建.yaml',
-      ),
+      () async =>
+          ConfigFile(Uint8List.fromList(utf8.encode(body)), name: '自建.yaml'),
     );
     app.saveSuccess = false;
     await tester.tap(find.text('从文件导入'));
@@ -194,7 +190,7 @@ void main() {
   testWidgets('late selection after leaving does not submit a body', (
     tester,
   ) async {
-    final file = Completer<XFile?>();
+    final file = Completer<ConfigFile?>();
     await show(tester, () => file.future);
     await tester.tap(find.text('从文件导入'));
     await tester.pumpAndSettle();
@@ -210,7 +206,7 @@ void main() {
     );
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
-    file.complete(XFile.fromData(Uint8List.fromList([65]), name: 'late.txt'));
+    file.complete(ConfigFile(Uint8List.fromList([65]), name: 'late.txt'));
     await tester.pumpAndSettle();
     expect(app.saved, isEmpty);
     expect(tester.takeException(), isNull);
@@ -222,11 +218,11 @@ void main() {
           ? 'file import rejects the opening epoch after restore while picking'
           : 'restore retires the file menu without opening its picker',
       (tester) async {
-        final pending = Completer<XFile?>();
+        final pending = Completer<ConfigFile?>();
         const body = 'old selected file body';
-        final file = XFile.fromData(
+        final file = ConfigFile(
           Uint8List.fromList(utf8.encode(body)),
-          path: 'old.yaml',
+          name: 'old.yaml',
         );
         await show(tester, () => pending.future);
         final add = find.byTooltip('添加配置');
@@ -246,7 +242,7 @@ void main() {
           expect(tester.getRect(add), anchor);
           expect(find.byType(AlertDialog), findsNothing);
           pending.complete(file);
-          expect(await file.readAsString(), body);
+          expect(await readConfigFile(file), body);
           expect(tester.takeException(), isNull);
           return;
         }
@@ -264,7 +260,7 @@ void main() {
         expect(app.published, isEmpty);
         expect(app.collection.entries.single.body, 'restored body');
         expect(find.byType(AlertDialog), findsNothing);
-        expect(await file.readAsString(), body);
+        expect(await readConfigFile(file), body);
         expect(tester.getRect(add), anchor);
         expect(find.text('Restored'), findsOneWidget);
         expect(find.byType(ConfigTextPage), findsNothing);

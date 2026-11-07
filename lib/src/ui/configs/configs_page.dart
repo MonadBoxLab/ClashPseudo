@@ -12,7 +12,6 @@ import 'package:flutter/rendering.dart';
 import 'package:clash_pseudo/src/l10n/app_localizations.dart';
 import 'package:clash_pseudo/src/model/messages.dart';
 
-import 'package:cross_file/cross_file.dart';
 import 'package:clash_pseudo/src/model/app_snapshot.dart';
 
 import 'package:clash_pseudo/src/ui/app/app_controller.dart';
@@ -42,7 +41,7 @@ class ConfigsPage extends StatefulWidget {
   });
   final AppController controller;
   final bool active;
-  final Future<XFile?> Function() selectFile;
+  final Future<ConfigFile?> Function() selectFile;
 
   @override
   State<ConfigsPage> createState() => _ConfigsPageState();

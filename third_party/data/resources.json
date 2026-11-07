@@ -63,9 +63,6 @@
       "coverage": {
         "selected": "1.16.0"
       },
-      "cross_file": {
-        "selected": "0.3.5+5"
-      },
       "flutter_lints": {
         "selected": "6.0.0"
       },

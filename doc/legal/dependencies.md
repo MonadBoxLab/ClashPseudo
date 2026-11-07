@@ -42,9 +42,9 @@ yaml与yaml_edit通过hosted声明接入，应用使用span／SourceEdit处理�
 
 re_editor的本地源码位于[third_party/sources/re_editor](../../third_party/sources/re_editor)。MIT原文、官方归档SHA-256、补丁及上游PR #118关系见[PATCHES](../../third_party/sources/re_editor/PATCHES.md)和[LICENSE](../../third_party/sources/re_editor/LICENSE)。该源码包含生命周期管理、编辑提交检查、IME处理及默认关闭的测试状态记录修改。升级时逐项核对补丁所用接口；改用hosted版本时，以编辑、IME和生命周期测试检查对应行为，并更新PATCHES及通知。
 
-## 文件导入与cross_file
+## 文件导入
 
-cross_file在pubspec.yaml中使用兼容版本范围，实际版本与归档摘要记录在提交的pubspec.lock中；发布前由更新器检查可解析的新版本，同步更新声明范围和锁文件。配置及插件导入由自有Android SAF接入负责选择、后台有界读取和FD关闭；Dart仅用XFile.fromData承载已读取的bytes，并复用流式字节检查及严格UTF-8解码。file_selector及其平台实现已移除，cross_file不承担系统选择器或外部文件缓存。cross_file的许可原文随所选Pub源码保留，并由Flutter构建流程合入NOTICES.Z；升级时核对实际使用的XFile接口及随包通知。
+配置及插件导入由自有Android SAF接入负责选择、后台有界读取和FD关闭。Dart通过ConfigFile接收名称与bytes，复核字节预算并严格解码UTF-8；文件导入不依赖额外的Pub文件选择器或文件容器包。
 
 ## Dart覆盖率开发依赖
 
@@ -193,7 +193,7 @@ python3 -I -B tool/main.py dependencies prepare-resource-sources \
 
 #### 发布材料与重跑
 
-`Dependency release`先主动更新依赖与资源，再结合当前源码相对最近公开发布的变化决定候选；源码、依赖或资源任一更新及首次发布都会构建发布。最近公开发布包含pre-release，依赖报告为unchanged不跳过源码更新。尚无公开发布时，首次仍默认以scope=all升级依赖，但保留声明中的major.minor.patch显示版本，只将versionCode安装版本加一，并同步pubspec.yaml与资源记录；其后实际更新按原规则将patch与versionCode各加一，同轮源码和依赖更新只递增一次。流程在同一候选提交上完成正式签名的四APK构建和源码打包。源码包使用候选提交，版本、tag与Release的Source指向同一输入；许可包及`SHA256SUMS`与四包一并上传。发布类型由workflow默认值或本次手动选择决定，两种类型都使用release variant。
+`Android Distribution`先主动更新依赖与资源，再结合当前源码相对最近公开发布的变化决定候选；源码、依赖或资源任一更新及首次发布都会构建发布。最近公开发布包含pre-release，依赖报告为unchanged不跳过源码更新。尚无公开发布时，首次仍默认以scope=all升级依赖，但保留声明中的major.minor.patch显示版本，只将versionCode安装版本加一，并同步pubspec.yaml与资源记录；其后实际更新按原规则将patch与versionCode各加一，同轮源码和依赖更新只递增一次。流程在同一候选提交上完成正式签名的四APK构建和源码打包。源码包使用候选提交，版本、tag与Release的Source指向同一输入；许可包及`SHA256SUMS`与四包一并上传。发布类型由workflow默认值或本次手动选择决定，两种类型都使用release variant。
 
 发布 job 失败时重跑失败 job，继续使用原 artifact 中的 Git bundle 和构建材料。tag 已指向本轮候选时继续上传草稿；已公开且资产一致时结束，不改写已公开字节。基准在首次推送前改变时重新准备候选；artifact 过期则按失败报告处理缺失材料，不重建另一批字节替代原产物。
 

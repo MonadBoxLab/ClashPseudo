@@ -10,8 +10,6 @@ import 'package:flutter/material.dart';
 
 import 'package:clash_pseudo/src/ui/navigation/task_activity.dart';
 
-import 'package:cross_file/cross_file.dart';
-
 import 'package:clash_pseudo/src/ui/app/app_controller.dart';
 import 'package:clash_pseudo/src/ui/theme/app_theme.dart';
 import 'package:clash_pseudo/src/ui/components/input/choice_menu_button.dart';
@@ -38,7 +36,7 @@ class OverridesPage extends StatefulWidget {
   });
   final AppController app;
   final bool active;
-  final Future<XFile?> Function() selectFile;
+  final Future<ConfigFile?> Function() selectFile;
   @override
   State<OverridesPage> createState() => _OverridesPageState();
 }

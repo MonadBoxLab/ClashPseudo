@@ -147,7 +147,7 @@ Go在合成时计算字段来源，provenance保留源ID／revision、加载名�
 
 ## 文本编辑适配
 
-正文页使用[ConfigTextPage](../../lib/src/ui/configs/editor/config_text_page.dart)。配置和插件文件导入通过自有Android SAF接入，在documentExecutor查询名称并读取实际字节，按16MiB正文预算累计检查，不按提供者声明的size预分配。完成I/O和FD关闭后返回名称及有界bytes，Dart用cross_file的XFile.fromData承载，复核字节预算并严格解码；cross_file不负责系统选择器或外部文件缓存。
+正文页使用[ConfigTextPage](../../lib/src/ui/configs/editor/config_text_page.dart)。配置和插件文件导入通过自有Android SAF接入，在documentExecutor查询名称并读取实际字节，按16MiB正文预算累计检查，不按提供者声明的size预分配。完成I/O和FD关闭后返回名称及有界bytes，Dart用ConfigFile承载，复核字节预算并严格解码UTF-8。
 
 选择前捕获task／route／storageEpoch。SAF导致的暂时后台不使来源失效，返回后等待恢复交互并复核来源，再保存；离开任务、替换controller或整体恢复使旧结果失效。取消后停止后续动作，等已有读取和FD关闭后结束请求，Activity重建后的旧返回不交给新请求。
 

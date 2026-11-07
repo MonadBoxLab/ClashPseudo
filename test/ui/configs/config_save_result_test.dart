@@ -24,7 +24,7 @@ import 'package:clash_pseudo/src/ui/overrides/overrides_page.dart';
 import 'package:clash_pseudo/src/l10n/app_localizations.dart';
 import 'package:clash_pseudo/src/model/messages.dart';
 import 'package:clash_pseudo/src/platform/channel/app_bridge.dart';
-import 'package:cross_file/cross_file.dart';
+import 'package:clash_pseudo/src/ui/configs/dialogs/config_file.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -208,9 +208,9 @@ Future<void> _openFileImport(
   AppController app, {
   required bool fragment,
 }) async {
-  Future<XFile?> selectFile() async => XFile.fromData(
+  Future<ConfigFile?> selectFile() async => ConfigFile(
     Uint8List.fromList(utf8.encode(_local.body)),
-    path: 'Imported.yaml',
+    name: 'Imported.yaml',
   );
 
   await _showFeedback(
@@ -326,7 +326,7 @@ void main() {
           final app = _controller(bridge);
           addTearDown(app.dispose);
           await app.refresh();
-          final selected = Completer<XFile?>();
+          final selected = Completer<ConfigFile?>();
           await _showFeedback(
             tester,
             app,
@@ -357,7 +357,7 @@ void main() {
           await tester.pump();
           if (resumesFirst) app.setForeground(true);
           selected.complete(
-            XFile.fromData(
+            ConfigFile(
               Uint8List.fromList(utf8.encode(_local.body)),
               name: 'Selected.yaml',
             ),
@@ -416,7 +416,7 @@ void main() {
           final taskCurrent = ValueNotifier(true);
           addTearDown(pageOwner.dispose);
           addTearDown(taskCurrent.dispose);
-          final selected = Completer<XFile?>();
+          final selected = Completer<ConfigFile?>();
           await _showFeedback(
             tester,
             app,
@@ -469,7 +469,7 @@ void main() {
           selected.complete(
             invalidation == 'cancel'
                 ? null
-                : XFile.fromData(
+                : ConfigFile(
                     Uint8List.fromList(utf8.encode(_local.body)),
                     name: 'Old.yaml',
                   ),

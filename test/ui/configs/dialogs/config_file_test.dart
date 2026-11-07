@@ -9,26 +9,8 @@ import 'package:clash_pseudo/src/model/config_entry.dart';
 import 'package:clash_pseudo/src/ui/configs/dialogs/config_file.dart';
 import 'package:clash_pseudo/src/model/config_text.dart';
 import 'package:clash_pseudo/src/model/app_preferences.dart';
-import 'package:cross_file/cross_file.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-class _GrowingFile extends XFile {
-  _GrowingFile() : super('fixture');
-  bool cancelled = false;
-  @override
-  Future<int> length() async => 1;
-  @override
-  Stream<Uint8List> openRead([int? start, int? end]) async* {
-    try {
-      yield Uint8List(maxConfigBytes);
-      yield Uint8List(1);
-      fail('Reader must stop at the byte limit');
-    } finally {
-      cancelled = true;
-    }
-  }
-}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -106,7 +88,7 @@ void main() {
 
   test('file decoding keeps BOM, empty and malformed YAML as text', () async {
     for (final text in ['', '\u{feff}中文🌐\r\n', '[invalid YAML']) {
-      final file = XFile.fromData(
+      final file = ConfigFile(
         Uint8List.fromList(utf8.encode(text)),
         name: 'config.yaml',
       );
@@ -115,18 +97,14 @@ void main() {
   });
 
   test(
-    'declared and streamed byte limits reject without partial content',
+    'byte limit rejects oversized content and accepts the exact boundary',
     () async {
       await expectLater(
-        readConfigFile(XFile.fromData(Uint8List(maxConfigBytes + 1))),
+        readConfigFile(ConfigFile(Uint8List(maxConfigBytes + 1))),
         throwsA(isA<ConfigFailure>()),
       );
-      final growing = _GrowingFile();
-      await expectLater(readConfigFile(growing), throwsA(isA<ConfigFailure>()));
-      expect(growing.cancelled, isTrue);
       expect(
-        (await readConfigFile(XFile.fromData(Uint8List(maxConfigBytes))))
-            .length,
+        (await readConfigFile(ConfigFile(Uint8List(maxConfigBytes)))).length,
         maxConfigBytes,
       );
     },
@@ -134,7 +112,7 @@ void main() {
 
   test('invalid UTF-8 file is rejected', () async {
     await expectLater(
-      readConfigFile(XFile.fromData(Uint8List.fromList([0xff]))),
+      readConfigFile(ConfigFile(Uint8List.fromList([0xff]))),
       throwsA(isA<ConfigFailure>()),
     );
   });

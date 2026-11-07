@@ -1,4 +1,4 @@
-name: Dependency release
+name: Android Distribution
 
 on:
   schedule:
