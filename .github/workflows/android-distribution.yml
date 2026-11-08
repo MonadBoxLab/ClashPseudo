@@ -74,10 +74,25 @@ jobs:
           if [[ "$FIRST_RELEASE" == 'true' ]]; then
             version_args+=(--reuse-version)
           fi
-          python3 -I -B tool/main.py dependencies apply \
-            --scope "$UPDATE_SCOPE" --mihomo-version "$MIHOMO_VERSION" \
-            "${version_args[@]}" --report "$RUNNER_TEMP/update-report.json" \
-            2>&1 | tee "$RUNNER_TEMP/dependency-update.log"
+          for attempt in 1 2 3; do
+            attempt_log="$RUNNER_TEMP/dependency-update-attempt-$attempt.log"
+            if python3 -I -B tool/main.py dependencies apply \
+              --scope "$UPDATE_SCOPE" --mihomo-version "$MIHOMO_VERSION" \
+              "${version_args[@]}" --report "$RUNNER_TEMP/update-report.json" \
+              2>&1 | tee "$attempt_log"; then
+              break
+            else
+              status=$?
+            fi
+            if [[ "$attempt" == 3 ]] ||
+              ! grep -Eq 'HTTP Error (502|503|504):|Received status code (502|503|504) from server:' "$attempt_log" ||
+              [[ -n "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
+              exit "$status"
+            fi
+            delay=$((attempt * 15))
+            printf 'Transient HTTP failure; retrying dependency updates in %s seconds (attempt %s/3).\n' "$delay" "$((attempt + 1))"
+            sleep "$delay"
+          done
 
       - name: Create candidate commit
         id: commit
@@ -117,7 +132,7 @@ jobs:
           name: dependency-build
           path: |
             ${{ runner.temp }}/update-report.json
-            ${{ runner.temp }}/dependency-update.log
+            ${{ runner.temp }}/dependency-update-attempt-*.log
             ${{ runner.temp }}/release-build/build.json
             ${{ runner.temp }}/release-build/*.log
           if-no-files-found: ignore
