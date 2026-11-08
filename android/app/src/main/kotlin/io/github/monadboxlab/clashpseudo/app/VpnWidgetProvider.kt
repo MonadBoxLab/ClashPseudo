@@ -199,10 +199,12 @@ class VpnWidgetProvider : AppWidgetProvider() {
             val views = RemoteViews(context.packageName, R.layout.vpn_widget)
             val density = context.resources.displayMetrics.density
             val supported = sideDp >= MIN_SIDE_DP
-            // The compact fallback needs the square's full width for scaled text.
+            // Capacity mode needs the full square; status/mode keep a readable inset.
             val inset = if (!supported) 0 else if (context.resources.configuration.fontScale > 1.3f) 12 else 16
+            val verticalInset = if (!supported) 0 else 4
             views.setViewPadding(R.id.widget_open, (inset * density).roundToInt(),
-                (4 * density).roundToInt(), (inset * density).roundToInt(), (4 * density).roundToInt())
+                (verticalInset * density).roundToInt(), (inset * density).roundToInt(),
+                (verticalInset * density).roundToInt())
             views.setInt(R.id.widget_size, "setWidth", side)
             views.setInt(R.id.widget_size, "setHeight", side)
             views.setInt(R.id.widget_open, "setBackgroundResource",

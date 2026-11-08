@@ -240,18 +240,23 @@ class CoreIpcTestDriver private constructor(private val fixture: Boolean) : Clos
             })
         } catch (error: android.os.DeadObjectException) {
             android.util.Log.i("CoreIpcTestDriver", "Binder died before the exit request returned: processId=$processId", error)
+        } finally {
+            // Drop BIND_AUTO_CREATE before process death so Android cannot resurrect :core under this binding.
+            onMain { releaseBinding() }
         }
         assertTrue("The matching Binder DeathRecipient callback must be received", died.await(
             (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0) + 10_000, TimeUnit.MILLISECONDS))
         assertFalse(binder.isBinderAlive)
-        onMain { releaseBinding() }
         assertNoGoInApplication()
     }
 
+    fun releaseAutoCreate() = onMain { releaseBinding() }
+
     fun awaitDeath(seconds: Long = 30) {
+        // Callers that requestExit outside exit() must still drop BIND_AUTO_CREATE before waiting.
+        releaseAutoCreate()
         assertTrue("Wait for actual core process death", died.await(seconds, TimeUnit.SECONDS))
         assertFalse(binder.isBinderAlive)
-        onMain { releaseBinding() }
     }
 
     override fun close() {

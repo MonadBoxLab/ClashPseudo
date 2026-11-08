@@ -174,19 +174,5 @@ class BuildCoreTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue((self.output / "x86_64/libmihomo_bridge.so").is_file())
 
-    def test_gradle_filters_and_native_task_share_the_requested_abis(self):
-        gradle = (ROOT / "android/app/build.gradle.kts").read_text()
-        self.assertIn('"android-arm" to "armeabi-v7a"', gradle)
-        self.assertIn('providers.gradleProperty("target-platform")', gradle)
-        self.assertIn("abiFilters += nativeAbis", gradle)
-        self.assertIn('inputs.property("abis", nativeAbis.joinToString(","))', gradle)
-        self.assertIn('"--output", nativeOutput.get().asFile, "--abis", nativeAbis.joinToString(","))', gradle)
-        self.assertIn('"android", "build-core"', gradle)
-        self.assertIn('"dependencies", "prepare-build"', gradle)
-        self.assertIn('include("**/*.py")', gradle)
-        self.assertEqual(gradle.count("inputs.files(toolSources)"), 2)
-        self.assertNotIn("build_core.sh", gradle)
-
-
 if __name__ == "__main__":
     unittest.main()

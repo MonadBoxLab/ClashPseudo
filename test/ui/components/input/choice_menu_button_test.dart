@@ -185,6 +185,67 @@ Future<List<int>> _fieldHost(
 
 void main() {
   group('choice_menu_button', () {
+    for (final constraint in ['maxHeight', 'window', 'keyboard']) {
+      testWidgets(
+        'menu remains scrollable below one item height with $constraint',
+        (tester) async {
+          tester.view.devicePixelRatio = 1;
+          tester.view.physicalSize = Size(
+            400,
+            constraint == 'window' ? 56 : 600,
+          );
+          addTearDown(tester.view.reset);
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                resizeToAvoidBottomInset: false,
+                body: Align(
+                  alignment: Alignment.topLeft,
+                  child: ChoiceMenuButton<int>(
+                    maxHeight: constraint == 'maxHeight' ? 40 : null,
+                    options: {for (var i = 0; i < 10; i++) i: 'Option $i'},
+                    onSelected: (_) {},
+                    child: const Text('Menu'),
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.tap(find.text('Menu'));
+          await tester.pumpAndSettle();
+          if (constraint == 'keyboard') {
+            tester.view.viewInsets = const FakeViewPadding(bottom: 544);
+            await tester.pumpAndSettle();
+          }
+          expect(tester.takeException(), isNull);
+          final panel = tester.getRect(surface());
+          expect(panel.height, lessThanOrEqualTo(40));
+          expect(panel.top, greaterThanOrEqualTo(0));
+          expect(
+            panel.bottom,
+            lessThanOrEqualTo(constraint == 'maxHeight' ? 600 : 56),
+          );
+          expect(
+            tester.getSize(find.byType(MenuItemButton).first).height,
+            greaterThanOrEqualTo(56),
+          );
+          final scrollable = tester.state<ScrollableState>(
+            find
+                .descendant(of: surface(), matching: find.byType(Scrollable))
+                .first,
+          );
+          expect(scrollable.position.maxScrollExtent, greaterThan(0));
+          await tester.dragFrom(panel.center, const Offset(0, -100));
+          await tester.pumpAndSettle();
+          expect(scrollable.position.pixels, greaterThan(0));
+          await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+          await tester.pumpAndSettle();
+          expect(find.byType(MenuItemButton), findsNothing);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+
     for (final reduced in [false, true]) {
       testWidgets(
         'real Tab leaves the open menu and Escape preserves the external field focus reduced=$reduced',
@@ -376,11 +437,16 @@ void main() {
                   .getCenter(find.byIcon(Icons.arrow_drop_down))
                   .dx;
               final fieldLabel = tester.getCenter(find.text('Field')).dx;
+              // MenuAnchor may clamp the panel flush to the trailing edge;
+              // AppMenuPanelShape keeps items [kAppMenuViewPadding] inside.
+              const edgeInset = 8.0;
+              final item = tester.getRect(first);
               if (value == TextDirection.ltr) {
                 expect(
                   tester.getRect(surface()).right,
                   closeTo(fieldRect.right, .01),
                 );
+                expect(item.right, closeTo(fieldRect.right - edgeInset, .01));
                 expect(leading, lessThan(label));
                 expect(arrow, greaterThan(fieldLabel));
               } else {
@@ -388,6 +454,7 @@ void main() {
                   tester.getRect(surface()).left,
                   closeTo(fieldRect.left, .01),
                 );
+                expect(item.left, closeTo(fieldRect.left + edgeInset, .01));
                 expect(leading, greaterThan(label));
                 expect(arrow, lessThan(fieldLabel));
               }
@@ -519,13 +586,20 @@ void main() {
         expect(safe.left, 12);
         expect(narrowHinge.left, 300);
         expect(originalPanel.width, greaterThan(narrowHinge.left - safe.left));
-        // SDK preserves content wider than a sub-screen and places its left edge
-        // at that screen's safe edge instead of squeezing it to the hinge.
+        // SDK may place the layout box on the safe edge; reservedPadding limits
+        // max size by Material's 8dp, and AppMenuPanelShape insets painted items.
+        const menuViewPadding = 8.0;
         expect(originalPanel.left, safe.left);
         expect(originalPanel.right, greaterThan(narrowHinge.left));
-        expect(originalPanel.right, lessThanOrEqualTo(safe.right));
+        expect(
+          originalPanel.right,
+          lessThanOrEqualTo(safe.right - menuViewPadding),
+        );
         expect(originalPanel.top, greaterThanOrEqualTo(safe.top));
         expect(originalPanel.bottom, lessThanOrEqualTo(safe.bottom));
+        final item = tester.getRect(find.byType(MenuItemButton).first);
+        expect(item.left, greaterThanOrEqualTo(safe.left + menuViewPadding));
+        expect(item.right, lessThanOrEqualTo(safe.right - menuViewPadding));
         tester.view.displayFeatures = const [
           DisplayFeature(
             bounds: Rect.fromLTWH(420, 0, 20, 900),
@@ -559,6 +633,9 @@ void main() {
                 panel.bottom,
                 lessThanOrEqualTo(900 - inset - (inset == 0 ? 24 : 0)),
               );
+              final item = tester.getRect(find.byType(MenuItemButton).first);
+              expect(item.left, greaterThanOrEqualTo(safe.left + 8));
+              expect(item.right, lessThanOrEqualTo(safe.right - 8));
             }
           }
           final paint = find.descendant(
@@ -910,7 +987,7 @@ void main() {
             await tester.tap(trigger);
             await tester.pumpAndSettle();
             final panel = tester.getRect(surface());
-            expect(panel.width, greaterThan(48));
+            expect(panel.width, greaterThanOrEqualTo(168));
             expect(panel.left, greaterThanOrEqualTo(0));
             expect(panel.right, lessThanOrEqualTo(width));
             for (final label in labels) {
@@ -918,7 +995,8 @@ void main() {
               final button = tester.widget<MenuItemButton>(item);
               expect(button.leadingIcon, isNotNull);
               expect(button.trailingIcon, isNull);
-              expect(tester.getSize(item).height, greaterThanOrEqualTo(48));
+              expect(tester.getSize(item).height, greaterThanOrEqualTo(56));
+              expect(tester.getSize(item).width, greaterThanOrEqualTo(168));
               expect(tester.widget<Text>(find.text(label)).data, label);
               expect(
                 tester
@@ -1362,7 +1440,7 @@ void main() {
           }
           for (final (ms, panel, anchor) in frames) {
             expect(panel.left, greaterThanOrEqualTo(12));
-            expect(panel.right, lessThanOrEqualTo(680));
+            expect(panel.right, lessThanOrEqualTo(700 - 20));
             expect(tester.getRect(trigger), anchor);
             expect(
               panel.bottom,
@@ -1370,12 +1448,70 @@ void main() {
               reason: 'inset=$inset ms=$ms frames=$frames',
             );
             expect(panel.top, greaterThanOrEqualTo(24));
+            final item = tester.getRect(find.byType(MenuItemButton).first);
+            expect(item.left, greaterThanOrEqualTo(12 + 8));
+            expect(item.right, lessThanOrEqualTo(700 - 20 - 8));
+            expect(item.top, greaterThanOrEqualTo(24 + 8));
           }
         }
         await tester.ensureVisible(find.widgetWithText(MenuItemButton, 'Last'));
         await tester.tap(find.widgetWithText(MenuItemButton, 'Last'));
         await tester.pumpAndSettle();
         expect(selected, [2]);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+
+    testWidgets(
+      'short trailing menu keeps Material edge inset and item minimum size',
+      (tester) async {
+        // Mirrors the live brand-color menu: short labels, flush trailing edge,
+        // and zero horizontal system padding on a phone-sized window.
+        tester.view.physicalSize = const Size(400, 800);
+        tester.view.devicePixelRatio = 1;
+        tester.view.padding = const FakeViewPadding(top: 24, bottom: 24);
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Align(
+                alignment: Alignment.topRight,
+                child: ChoiceMenuButton<String>(
+                  options: const {
+                    'cinnabar': '朱砂',
+                    'jade': '石绿',
+                    'cobalt': '钴蓝',
+                  },
+                  value: 'cinnabar',
+                  onSelected: (_) {},
+                  child: const SizedBox(
+                    width: 120,
+                    height: 48,
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: Text('主强调色'),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('主强调色'));
+        await tester.pumpAndSettle();
+        const menuViewPadding = 8.0;
+        // Layout box may still clamp flush; painted items keep Material margin.
+        expect(tester.getRect(surface()).right, lessThanOrEqualTo(400));
+        for (final label in ['朱砂', '石绿', '钴蓝']) {
+          final item = tester.getRect(
+            find.widgetWithText(MenuItemButton, label),
+          );
+          expect(item.right, lessThanOrEqualTo(400 - menuViewPadding));
+          expect(item.left, greaterThanOrEqualTo(menuViewPadding));
+          expect(item.top, greaterThanOrEqualTo(24 + menuViewPadding));
+          expect(item.height, greaterThanOrEqualTo(56));
+          expect(item.width, greaterThanOrEqualTo(168));
+        }
         await tester.pumpWidget(const SizedBox());
       },
     );

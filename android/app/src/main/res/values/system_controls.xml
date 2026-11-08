@@ -14,6 +14,12 @@
         <item name="android:textColor">@color/system_control_secondary</item>
     </style>
     <style name="WidgetControlText" parent="WidgetControlTextBase" />
+    <!-- Capacity copy stays on TextBase so API 28+ fallbackLineSpacing does not inflate two lines past short OEM sides. -->
+    <style name="WidgetControlCapacity" parent="WidgetControlTextBase">
+        <item name="android:textSize">12sp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textColor">@color/system_control_text</item>
+    </style>
     <style name="WidgetControlStatus" parent="WidgetControlText">
         <item name="android:textSize">16sp</item>
         <item name="android:textStyle">bold</item>

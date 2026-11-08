@@ -1533,63 +1533,6 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get nativeReasonTunDisabled => '建立 VPN 连接需要启用 TUN。';
-
-  @override
-  String get nativeReasonControllerUnavailable => '当前不支持外部控制接口及其网页界面。';
-
-  @override
-  String get nativeReasonRootRedirection => '此流量重定向需要系统特权，应用不提供此能力。';
-
-  @override
-  String get nativeReasonTransparentSockets => '透明代理套接字需要系统特权，应用不提供此能力。';
-
-  @override
-  String get nativeReasonInterfaceBinding => '应用的套接字保护机制不支持绑定指定的物理网络接口。';
-
-  @override
-  String get nativeReasonRoutingMark => '当前 Android VPN 接入不支持 Linux 路由标记。';
-
-  @override
-  String get nativeReasonTcpFastOpen => '应用的套接字接入不提供 TCP Fast Open。';
-
-  @override
-  String get nativeReasonFirewall => '管理 iptables 需要 root 权限，应用不支持此操作。';
-
-  @override
-  String get nativeReasonSystemClock => '应用不能通过 NTP 修改系统时钟。';
-
-  @override
-  String get nativeReasonExternalFd =>
-      '只允许使用 Android VpnService 为当前 VPN 会话创建的文件描述符。';
-
-  @override
-  String get nativeReasonInterfaceName => 'Android VPN 接口由系统创建，不能通过此设置重命名。';
-
-  @override
-  String get nativeReasonGso => 'Android VPN 接口没有可配置的 GSO 选项。';
-
-  @override
-  String get nativeReasonAutoRedirect =>
-      '自动重定向需要 netlink 与防火墙操作，当前 Android VPN 接入不提供此能力。';
-
-  @override
-  String get nativeReasonLinuxRouting => '此设置需要特权 Linux 路由表或路由规则操作，应用不提供此能力。';
-
-  @override
-  String get nativeReasonInterfaceFilter => '当前 Android VPN 接入不能在此层执行网络接口过滤。';
-
-  @override
-  String get nativeReasonMacFilter => '当前 Android VPN 接入不能在此层执行 MAC 地址过滤。';
-
-  @override
-  String get nativeReasonPortFilter => '当前 Android VPN 接入不能在此层执行源端口或目标端口过滤。';
-
-  @override
-  String get nativeReasonStrictRoute =>
-      'Android VpnService 无法实现此设置所需的 Linux 严格路由规则。';
-
-  @override
   String get nativeReasonDnsHijackConflict => '关闭 DNS 时不能配置 DNS 劫持。';
 
   @override

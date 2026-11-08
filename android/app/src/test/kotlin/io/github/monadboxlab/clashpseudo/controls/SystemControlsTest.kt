@@ -17,6 +17,61 @@ class SystemControlsTest {
             "pendingSystemStart" to false,
         ) + changes.toMap())
 
+    private fun withFreshShortcutState(block: () -> Unit) {
+        val field = SystemControls::class.java.getDeclaredField("shortcutState").apply { isAccessible = true }
+        val saved = field.get(null)
+        try {
+            field.set(null, null)
+            block()
+        } finally {
+            field.set(null, saved)
+        }
+    }
+
+    @Test fun shortcutPublicationTracksActionsAndBothLanguageLabels() = withFreshShortcutState {
+        val published = mutableListOf<Pair<String, String>>()
+        var labels = "Connect" to "Disconnect"
+        fun publish(value: SystemControls.Projection) = SystemControls.refreshShortcuts(value, labels) { action, label ->
+            published.add(action to label)
+            true
+        }
+        publish(state())
+        repeat(10) { publish(state("busy" to true)) }
+        assertEquals(listOf("start" to "Connect"), published)
+        publish(state("phase" to "RUNNING"))
+        publish(state("phase" to "STARTING"))
+        assertEquals(listOf("start" to "Connect", "stop" to "Disconnect"), published)
+        labels = "连接" to "断开"
+        publish(state("phase" to "RUNNING"))
+        repeat(10) { publish(state("phase" to "RUNNING")) }
+        assertEquals("stop" to "断开", published.last())
+        assertEquals(3, published.size)
+        labels = "连接 VPN" to "断开"
+        publish(state("phase" to "RUNNING"))
+        assertEquals("Both labels participate in the publication key", 4, published.size)
+        publish(state("phase" to "STOPPING"))
+        publish(state("phase" to "UNKNOWN"))
+        assertEquals(4, published.size)
+        publish(state())
+        assertEquals("start" to "连接 VPN", published.last())
+        assertEquals(5, published.size)
+    }
+
+    @Test fun rejectedOrFailedShortcutPublicationCanRetryTheSameActionAndLabels() = withFreshShortcutState {
+        val labels = "Connect" to "Disconnect"
+        var attempts = 0
+        SystemControls.refreshShortcuts(state(), labels) { _, _ -> attempts++; false }
+        assertThrows(IllegalStateException::class.java) {
+            SystemControls.refreshShortcuts(state(), labels) { _, _ ->
+                attempts++
+                error("Shortcut service failed")
+            }
+        }
+        SystemControls.refreshShortcuts(state(), labels) { _, _ -> attempts++; true }
+        SystemControls.refreshShortcuts(state(), labels) { _, _ -> attempts++; true }
+        assertEquals("Only successful publication may suppress a retry", 3, attempts)
+    }
+
     @Test fun publicOverviewActionOnlyRequestsNavigationAndIsNeverReplayed() {
         assertTrue(SystemControls.overviewRequested(SystemControls.ACTION_OPEN_OVERVIEW, false, false))
         for ((restored, history) in listOf(true to false, false to true, true to true)) {

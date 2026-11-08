@@ -460,41 +460,6 @@ class AppMessages {
         'reason': reason,
       });
 
-  AppMessage get nativeReasonTunDisabled =>
-      const AppMessage('nativeReasonTunDisabled');
-  AppMessage get nativeReasonControllerUnavailable =>
-      const AppMessage('nativeReasonControllerUnavailable');
-  AppMessage get nativeReasonRootRedirection =>
-      const AppMessage('nativeReasonRootRedirection');
-  AppMessage get nativeReasonTransparentSockets =>
-      const AppMessage('nativeReasonTransparentSockets');
-  AppMessage get nativeReasonInterfaceBinding =>
-      const AppMessage('nativeReasonInterfaceBinding');
-  AppMessage get nativeReasonRoutingMark =>
-      const AppMessage('nativeReasonRoutingMark');
-  AppMessage get nativeReasonTcpFastOpen =>
-      const AppMessage('nativeReasonTcpFastOpen');
-  AppMessage get nativeReasonFirewall =>
-      const AppMessage('nativeReasonFirewall');
-  AppMessage get nativeReasonSystemClock =>
-      const AppMessage('nativeReasonSystemClock');
-  AppMessage get nativeReasonExternalFd =>
-      const AppMessage('nativeReasonExternalFd');
-  AppMessage get nativeReasonInterfaceName =>
-      const AppMessage('nativeReasonInterfaceName');
-  AppMessage get nativeReasonGso => const AppMessage('nativeReasonGso');
-  AppMessage get nativeReasonAutoRedirect =>
-      const AppMessage('nativeReasonAutoRedirect');
-  AppMessage get nativeReasonLinuxRouting =>
-      const AppMessage('nativeReasonLinuxRouting');
-  AppMessage get nativeReasonInterfaceFilter =>
-      const AppMessage('nativeReasonInterfaceFilter');
-  AppMessage get nativeReasonMacFilter =>
-      const AppMessage('nativeReasonMacFilter');
-  AppMessage get nativeReasonPortFilter =>
-      const AppMessage('nativeReasonPortFilter');
-  AppMessage get nativeReasonStrictRoute =>
-      const AppMessage('nativeReasonStrictRoute');
   AppMessage get nativeReasonDnsHijackConflict =>
       const AppMessage('nativeReasonDnsHijackConflict');
   AppMessage get nativeReasonIpv6Unavailable =>

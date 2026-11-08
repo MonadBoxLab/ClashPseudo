@@ -452,7 +452,15 @@ void main() {
             }
           }
           clock.stop();
-          expect(settled, isTrue, reason: '$boundary did not complete');
+          if (!settled) {
+            final observation = await runtime.runtime.handle('connections', {
+              'state': snapshot,
+            });
+            fail(
+              '$boundary did not complete; connectionReads=$connectionReads; '
+              'observation=$observation',
+            );
+          }
           await pending;
         }
 
@@ -475,12 +483,21 @@ void main() {
           return row;
         }
 
+        // The observer subtracts real channel round-trip time from this clock
+        // to recover admission time. A zero uptime can produce a negative value.
+        const initialElapsedMs = 10000;
         final samples = <Completer<Map<String, dynamic>>>[];
+        connectionSample = Completer<Map<String, dynamic>>()
+          ..complete(
+            connection_fixtures.sample([
+              connection_fixtures.row('a'),
+            ], initialElapsedMs),
+          );
         snapshot = {
           'phase': 'RUNNING',
           'generation': 4,
-          'elapsedMs': 0,
-          'elapsedRealtimeMs': 0,
+          'elapsedMs': initialElapsedMs,
+          'elapsedRealtimeMs': initialElapsedMs,
           'configId': 'one',
           'revision': 1,
           'mode': 'rule',
@@ -506,8 +523,8 @@ void main() {
           final oldSample = connectionSample =
               Completer<Map<String, dynamic>>();
           samples.add(oldSample);
-          snapshot['elapsedMs'] = 1000;
-          snapshot['elapsedRealtimeMs'] = 1000;
+          snapshot['elapsedMs'] = initialElapsedMs + 1000;
+          snapshot['elapsedRealtimeMs'] = initialElapsedMs + 1000;
           final sampling = transport.next(
             ApplicationContract.coreOperationConnections,
           );
@@ -562,7 +579,7 @@ void main() {
           oldSample.complete(
             connection_fixtures.sample(
               [connection_fixtures.row('a')],
-              1000,
+              initialElapsedMs + 1000,
               presence: {'a': true},
             ),
           );
@@ -571,14 +588,21 @@ void main() {
           expect((await observedConnection())['active'], isFalse);
           expect(pathReads, 0);
         } finally {
-          snapshot = {'phase': 'STOPPED', 'generation': 4, 'elapsedMs': 2000};
+          snapshot = {
+            'phase': 'STOPPED',
+            'generation': 4,
+            'elapsedMs': initialElapsedMs + 2000,
+            'elapsedRealtimeMs': initialElapsedMs + 2000,
+          };
           await reply('runtimeState', snapshot);
           if (connectionClose case final close? when !close.isCompleted) {
             close.complete(status);
           }
           for (final sample in samples) {
             if (!sample.isCompleted) {
-              sample.complete(connection_fixtures.sample([], 2000));
+              sample.complete(
+                connection_fixtures.sample([], initialElapsedMs + 2000),
+              );
             }
           }
           await tester.pump();

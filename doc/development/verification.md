@@ -104,7 +104,7 @@ AVD用于功能、状态变化、取消、实际退出和数据完整性的定�
 
 ## 系统与网络集成
 
-按受影响API、ABI、页大小、窗口及输入能力选择Android目标。先独立运行[真实Dart冷进程用例](../../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/logic/LogicEngineHostTest.kt)，随后执行通用、JNI及lifecycle组，命令见[Android测试变体](build-and-test.md#android测试变体)。真实VPN授权组单列并记录授权状态。
+按受影响API、ABI、页大小、窗口及输入能力选择Android目标。[ABI 与构建](build-and-test.md#abi-与构建)、[远程 ADB 隧道](build-and-test.md#远程-adb-隧道)与[instrument 分组顺序](build-and-test.md#instrument-分组顺序)见构建说明：冷启动 Dart → 通用／JNI／lifecycle → 独占 process-exit → VPN 授权组 → 受控网络＋nonce → SDK observer；缺装包确认、VPN 授权、nonce／fixture 或隧道时记未执行／受阻。命令见[Android测试变体](build-and-test.md#android测试变体)。
 
 | 范围 | 输入、动作与主要断言 |
 | --- | --- |
@@ -168,7 +168,7 @@ DNS取消场景先等请求进入受控服务，再关闭工具或改变来源�
 
 [NativeDescriptorZeroTest](../../android/app/src/androidTest/kotlin/io/github/monadboxlab/clashpseudo/nativecore/NativeDescriptorZeroTest.kt)通过debug-only CoreFixtureService在`:core`内执行，默认进程不直接调用NativeCore。确认raw stdin为/dev/null，用F_DUPFD_CLOEXEC取得空闲0，检查FD0在JNI preflight被拒绝、constructor未调用且无socket I/O；拒绝发生在detach前，PFD仍由Kotlin持有并关闭。[Zygote标准FD](https://android.googlesource.com/platform/libcore/+/refs/heads/main/dalvik/src/main/java/dalvik/system/ZygoteHooks.java)和Java FileDescriptor各按身份记录。
 
-FD ownership检查使用st_dev／st_ino等资源身份。system／mixed用普通有效FD触发TUNGETIFF失败，保留原始错误并检查实际持有资源的关闭；结束原core process后，在新process执行下一次Prepare／Stop，不在失败context内重新准备。部分资源已创建、已经取消及callback尚未返回的场景，分别等待本方close／callback返回、对应DeathRecipient和默认进程I/O结束。生产IPC、真实process death及系统启动沿生产链执行，不以fixture替代。
+FD ownership检查使用st_dev／st_ino等资源身份。构造失败（如非法 congestion-controller）时保留原始错误并检查实际持有资源的关闭；`stack: system`／`mixed`在装载副本上改为默认mips后Prepare须成功。结束原core process后，在新process执行下一次Prepare／Stop，不在失败context内重新准备。部分资源已创建、已经取消及callback尚未返回的场景，分别等待本方close／callback返回、对应DeathRecipient和默认进程I/O结束。生产IPC、真实process death及系统启动沿生产链执行，不以fixture替代。
 
 ## 备份与恢复
 

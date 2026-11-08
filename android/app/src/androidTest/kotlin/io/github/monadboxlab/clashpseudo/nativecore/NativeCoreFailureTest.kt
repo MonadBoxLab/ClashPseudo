@@ -62,18 +62,11 @@ class NativeCoreFailureTest {
         }
     }
 
-    @Test fun kernelForwarderInterfaceQueryFailureConsumesDescriptorAndRecovers() {
-        for (scene in listOf(Fixture.SYSTEM_INTERFACE, Fixture.MIXED_INTERFACE)) repeat(3) { round ->
-            runScene(scene, cleanupFailed = true) { result ->
+    @Test fun androidUnsupportedKernelStacksPrepareWithoutRejecting() {
+        for (scene in listOf(Fixture.SYSTEM_INTERFACE, Fixture.MIXED_INTERFACE)) {
+            runScene(scene) { result ->
                 assertSuccess(result.getJSONObject("prepare"))
-                val error = nativeError(result.getJSONObject("attach"))
-                assertTrue(error, error.contains("interface not found"))
-                assertTrue(result.getBoolean("transferredConsumed"))
-                assertEquals(result.getLong("originalInode"), result.getLong("retainedInode"))
-                assertFalse(result.getJSONObject("attachedState").getJSONObject("value").getBoolean("attached"))
-                assertDescriptorReleased(result)
             }
-            assertRecovery(round, "interface-$scene")
         }
     }
 
@@ -125,7 +118,7 @@ class NativeCoreFailureTest {
                 assertSuccess(stream)
                 val records = stream.getJSONArray("records")
                 val group = (0 until records.length()).map(records::getJSONObject).single { it.getString("name") == "出口🌐" }
-                assertEquals(expected, group.getJSONObject("raw").getString("now"))
+                assertEquals(expected, group.getString("now"))
                 assertEquals(records.length().toLong(), stream.getJSONObject("terminal").getLong("recordCount"))
             }
             assertFalse(result.getJSONObject("snapshot").getJSONObject("value").getBoolean("attached"))

@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/netip"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -170,10 +171,15 @@ func (e *Engine) PrepareWithOptions(home string, body []byte, mode string, prote
 	if err != nil {
 		return err
 	}
+	var ignored []string
 	if options.VPNIntent {
-		if err = androidnet.PlatformRuntime(raw, presence); err != nil {
+		ignored, err = androidnet.PlatformRuntime(raw, presence)
+		if err != nil {
 			return err
 		}
+	}
+	if len(ignored) > 0 {
+		log.Warnln("Ignoring Android-unsupported configuration fields: %s", strings.Join(ignored, ", "))
 	}
 	owner := newSocketOwner(protect, options.ProtectNetwork)
 	owner.vpnIntent = options.VPNIntent

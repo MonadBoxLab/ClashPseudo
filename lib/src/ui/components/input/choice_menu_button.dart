@@ -6,9 +6,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../../navigation/task_activity.dart';
+import '../../theme/menu_geometry.dart';
 
 /// A content-sized selection menu constrained to the available workspace.
 /// MenuAnchor supplies positioning, animation, dismissal, scrolling and focus.
+///
+/// [AppMenuPanelShape] paints an edge inset after MenuAnchor clamps flush to
+/// the safe edge while ignoring [MenuAnchor.reservedPadding] for position
+/// (https://github.com/flutter/flutter/issues/194952).
 class ChoiceMenuButton<T> extends StatefulWidget {
   const ChoiceMenuButton({
     super.key,
@@ -54,6 +59,8 @@ class ChoiceMenuButton<T> extends StatefulWidget {
   @override
   State<ChoiceMenuButton<T>> createState() => _ChoiceMenuButtonState<T>();
 }
+
+const EdgeInsets _menuViewPadding = EdgeInsets.all(kAppMenuViewPadding);
 
 // The SDK panel follows the field's attachment direction. Keep its trigger and
 // cached items in the interface direction without replacing animation children.
@@ -124,15 +131,17 @@ class _ChoiceMenuButtonState<T> extends State<ChoiceMenuButton<T>>
       );
     }
 
+    // OverlayPortal replaces this MediaQuery padding with the root Overlay's.
     final media = MediaQuery.of(context).copyWith(
       size: bounds.size,
       padding: relativeInsets(window.padding),
       viewPadding: relativeInsets(window.viewPadding),
       viewInsets: relativeInsets(window.viewInsets),
     );
+    final reserved = _menuViewPadding + media.padding + media.viewInsets;
     return (
       bounds: bounds,
-      available: (media.padding + media.viewInsets).deflateRect(bounds),
+      available: reserved.deflateRect(bounds),
       media: media,
     );
   }
@@ -331,7 +340,10 @@ class _ChoiceMenuButtonState<T> extends State<ChoiceMenuButton<T>>
       if (mounted && _workspace().bounds != workspace.bounds) setState(() {});
     });
     final width = math.max(0.0, workspace.available.width);
-    final height = math.max(0.0, workspace.available.height);
+    final height = math.max(
+      0.0,
+      math.min(widget.maxHeight ?? double.infinity, workspace.available.height),
+    );
     final enabled = widget.enabled && widget.options.isNotEmpty && _current;
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
@@ -392,7 +404,9 @@ class _ChoiceMenuButtonState<T> extends State<ChoiceMenuButton<T>>
                 crossAxisUnconstrained: false,
                 consumeOutsideTap: !_closing,
                 reservedPadding:
-                    workspace.media.padding + workspace.media.viewInsets,
+                    _menuViewPadding +
+                    workspace.media.padding +
+                    workspace.media.viewInsets,
                 onAnimationStatusChanged: (status) {
                   final closing =
                       status == AnimationStatus.reverse ||
@@ -402,12 +416,12 @@ class _ChoiceMenuButtonState<T> extends State<ChoiceMenuButton<T>>
                 },
                 style: MenuStyle(
                   alignment: _alignment,
-                  maximumSize: WidgetStatePropertyAll(
-                    Size(
-                      width,
-                      math.min(widget.maxHeight ?? double.infinity, height),
-                    ),
+                  minimumSize: WidgetStatePropertyAll(
+                    Size(0, math.min(kAppMenuItemMinimumSize.height, height)),
                   ),
+                  maximumSize: WidgetStatePropertyAll(Size(width, height)),
+                  padding: const WidgetStatePropertyAll(_menuViewPadding),
+                  shape: const WidgetStatePropertyAll(AppMenuPanelShape()),
                   visualDensity: VisualDensity.standard,
                 ),
                 onClose: () {
@@ -525,7 +539,13 @@ class _ChoiceMenuButtonState<T> extends State<ChoiceMenuButton<T>>
                             }
                           },
                     style: ButtonStyle(
-                      minimumSize: const WidgetStatePropertyAll(Size(0, 48)),
+                      minimumSize: const WidgetStatePropertyAll(
+                        kAppMenuItemMinimumSize,
+                      ),
+                      padding: const WidgetStatePropertyAll(
+                        kAppMenuItemPadding,
+                      ),
+                      tapTargetSize: MaterialTapTargetSize.padded,
                       alignment: AlignmentDirectional.centerStart,
                       backgroundColor: WidgetStatePropertyAll(
                         _value != null && entry.key == _value

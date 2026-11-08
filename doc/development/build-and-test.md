@@ -266,20 +266,63 @@ dart run benchmark/connections.dart
 
 AndroidJUnitRunner以主应用为target，会重启目标进程。需要保留的数据按对应环境要求保存；可重建的专用开发数据按场景重新建立。正常Stop与资源退出通过对应功能路径验证。主包和test APK须配套构建，Kotlin internal名称含module／variant身份，profile定位也使用对应测试变体。
 
+### ABI 与构建
+
+实体 arm64 设备使用 `-Ptarget-platform=android-arm64`；AVD（x86_64）使用 `android-x64`，或需要同时覆盖时使用 `android-arm64,android-x64`。构建后记录 APK 路径与 SHA-256、设备 API／ABI／页大小。
+
 ```sh
 ./android/gradlew -p android :app:assembleDebug :app:assembleDebugAndroidTest \
-  -Ptarget-platform=android-arm64,android-x64
-adb -s "$SERIAL" install -r build/app/outputs/apk/debug/app-debug.apk
-adb -s "$SERIAL" install -r -t build/app/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+  -Ptarget-platform=android-x64
+```
+
+AVD 可用 `adb install -r`／`-t` 安装主包与 androidTest。部分实体设备需用户在机上确认安装；此时记下 APK 路径与 SHA-256，等用户确认包摘要一致后再继续 instrumentation 与只读探测。观察器与 AndroidJUnitRunner 共用包名 `io.github.monadboxlab.clashpseudo.test`，切换时同样先确认已装 instrumentation 身份。
+
+### 远程 ADB 隧道
+
+设备 USB 接在运行 adb server 的机器上、验证命令在另一台主机执行时：在 adb server 侧对验证主机建立 `ssh -R 5037:127.0.0.1:5037`。验证主机只连已转发的 daemon，不再本地 `adb start-server`／`adb kill-server`：
+
+```sh
+export ADB_SERVER_SOCKET=tcp:[::1]:5037
+adb devices -l
+```
+
+### instrument 分组顺序
+
+按下列顺序分批 `am instrument -w -r`，SERIAL 明确指定设备。无 `-e` 的全量 instrument 会因缺参失败，且杀 `:core` 的 process-exit 用例会拖垮 runner。缺前置（VPN 授权、nonce／fixture、装包确认）的批次记未执行／受阻。
+
+1. 冷启动 Dart：独立跑真实 Dart 冷进程用例。
+2. 通用／JNI／lifecycle：不含需独占退出、VPN 授权或 nonce 的类。
+3. 独占 process-exit：`CoreReadCallsErrorTest#capturedNativeErrorRemainsReadableAfterItsOwningProcessExits` 与 `CoreClientProcessExitTest#productionChannelExitDoesNotResurrectCoreBeforeExplicitHandshake` 各自单独一次 instrument；后者检查主动 Stop 后进程不自动重建，只有显式 handshake 才创建新进程。
+4. VPN 授权组：真机先确认 `VpnService.prepare==null`，再跑 `SystemRevokedRuntimeTest` 及文档中的 VPN／FD 组。
+5. 受控网络＋nonce：先起 [native-fixture](#受控网络服务)，再带 instrumentation 参数跑 `ControlledConnectionsTest`、`ScheduleWorkerCancellationTest` 等。
+6. SDK observer：见下节。
+
+```sh
 adb -s "$SERIAL" shell am instrument -w -r \
   -e class 'io.github.monadboxlab.clashpseudo.logic.LogicEngineHostTest#coldProcessExecutesRealDartAndReturnsWithoutPreparingCore' \
   io.github.monadboxlab.clashpseudo.test/androidx.test.runner.AndroidJUnitRunner
 adb -s "$SERIAL" shell am instrument -w -r \
   -e class io.github.monadboxlab.clashpseudo.nativecore.NativeCoreFailureTest \
   io.github.monadboxlab.clashpseudo.test/androidx.test.runner.AndroidJUnitRunner
+adb -s "$SERIAL" shell am instrument -w -r \
+  -e class 'io.github.monadboxlab.clashpseudo.bridge.core.CoreReadCallsErrorTest#capturedNativeErrorRemainsReadableAfterItsOwningProcessExits' \
+  io.github.monadboxlab.clashpseudo.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
-先在设备上独立运行上述调用真实Dart的冷启动用例，再运行通用、JNI及lifecycle分组。需要VPN授权的组单独列出，取得目标设备授权后执行。SERIAL明确指定设备；nonce、配置ID／revision／epoch、预期摘要和控制执行顺序的参数由所选测试声明。记录配套主包／test APK的SHA-256、设备API／ABI、每项JUnit结果及runner结论。测试结束后，按实际改变的进程状态和业务数据恢复现场。覆盖安装前保存可恢复备份；实体设备的卸载或清数据须另获用户授权。
+受控连接示例（端口与摘要以当次 fixture／配置为准）：
+
+```sh
+adb -s "$SERIAL" shell am instrument -w -r \
+  -e class io.github.monadboxlab.clashpseudo.bridge.core.ControlledConnectionsTest \
+  -e nonce '<8..48小写字母数字或连字符>' \
+  -e expectedConfigId '<配置ID>' \
+  -e expectedRevision '<正整数>' \
+  -e expectedBodySha256 '<配置正文SHA-256>' \
+  -e httpPort '<fixture HTTP端口>' \
+  io.github.monadboxlab.clashpseudo.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+ScheduleWorker 带参场景另传用例要求的 `kind`（`config`／`override`）与 `nonce`。记录配套主包／test APK的SHA-256、设备API／ABI、每项JUnit结果及runner结论。测试结束后，按实际改变的进程状态和业务数据恢复现场。覆盖安装前保存可恢复备份；实体设备的卸载或清数据须另获用户授权。
 
 ## SDK观察器
 
@@ -297,11 +340,10 @@ python3 -I -B tool/main.py android build-sdk-observer \
   --output "$OUT/sdk-observer-build"
 ```
 
-在目标设备安装生成的self-target观察器，并从`build.json`读取`apkSha256`：
+从`build.json`读取`apkSha256`。AVD 用 `adb install -r -t` 安装观察器；实体设备由用户换装后，确认 `pm list instrumentation` 指向 `SystemEntryInstrumentation` 且 APK 摘要一致，再跑观察器。
 
 ```sh
 SERIAL='<目标serial>'
-adb -s "$SERIAL" install -r -t "$OUT/sdk-observer-build/observer.apk"
 OBSERVER_SHA256="$(python3 -I -c 'import json, sys; from pathlib import Path; print(json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["apkSha256"])' "$OUT/sdk-observer-build/build.json")"
 ```
 
@@ -315,16 +357,15 @@ python3 -I -B tool/main.py android run-sdk-observer \
   --label '<精确预期标签>' --output "$OUT/sdk-observation"
 ```
 
-观察器与AndroidJUnitRunner test APK使用同一包名`io.github.monadboxlab.clashpseudo.test`。切回上节debug主应用instrumentation时，先重新安装与当前主包配套构建的test APK，再运行测试：
+观察器与AndroidJUnitRunner test APK使用同一包名`io.github.monadboxlab.clashpseudo.test`。切回主应用 instrumentation 前装回配套 androidTest APK，确认 runner 为 `AndroidJUnitRunner` 后再测：
 
 ```sh
-adb -s "$SERIAL" install -r -t build/app/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 adb -s "$SERIAL" shell am instrument -w -r \
   -e class io.github.monadboxlab.clashpseudo.nativecore.NativeCoreFailureTest \
   io.github.monadboxlab.clashpseudo.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
-snapshot读取指定的精确标签，click定位唯一对象并提交一次动作，start／stop要求预期配置名。通知与界面操作通过allow-ui-action启用。运行器记录节点匹配、动作受理和SDK回执；对应测试另外检查业务状态及资源是否退出。超时或取消时保留unconfirmed和已有回执；动作执行前完成APK摘要等检查。
+snapshot读取指定的精确标签，click定位唯一对象并提交一次动作，start／stop要求预期配置名。标签须与节点 `text` 或 `contentDescription` 完全一致（含 Material 导航在窄窗下的 `总览\\n第 1 个标签，共 3 个` 等形式）；先 `uiautomator dump` 核对实际 locale 与可见任务。窄窗 compact 底栏可能只有总览／策略／设置，此时用已露出的标签或总览内“配置管理／最近连接”等精确控件。通知与界面操作通过allow-ui-action启用。运行器记录节点匹配、动作受理和SDK回执；对应测试另外检查业务状态及资源是否退出。超时或取消时保留unconfirmed和已有回执；动作执行前完成APK摘要等检查。观察器与 androidTest 共用包名，并行安装会互相覆盖。
 
 ## 受控网络服务
 

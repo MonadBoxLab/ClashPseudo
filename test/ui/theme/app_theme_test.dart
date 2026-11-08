@@ -1,5 +1,6 @@
 import 'package:clash_pseudo/src/model/app_preferences.dart';
 import 'package:clash_pseudo/src/ui/theme/app_theme.dart';
+import 'package:clash_pseudo/src/ui/theme/menu_geometry.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -40,7 +41,18 @@ void main() {
         expect(theme.appBarTheme.iconTheme!.color, scheme.onSurface);
         expect(theme.popupMenuTheme.iconColor, scheme.onSurface);
         expect(theme.iconButtonTheme.style, isNull);
-        expect(theme.menuButtonTheme.style, isNull);
+        expect(
+          theme.menuButtonTheme.style?.minimumSize?.resolve(const {}),
+          const Size(168, 56),
+        );
+        expect(
+          theme.menuTheme.style?.minimumSize?.resolve(const {}),
+          const Size(168, 56),
+        );
+        expect(
+          theme.menuTheme.style?.shape?.resolve(const {}),
+          isA<AppMenuPanelShape>(),
+        );
       });
       test(
         'all foreground pairs meet normal-text contrast $brightness $brand',

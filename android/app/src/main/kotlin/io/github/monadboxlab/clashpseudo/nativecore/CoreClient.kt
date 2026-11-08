@@ -204,7 +204,11 @@ class CoreClient private constructor(private val context: Context) {
     fun handshake(reply: (Map<String, Any?>?, Throwable?) -> Unit) {
         state.post {
             val current = connection
-            if (current != null && !current.confirmedDead && current.binder.isBinderAlive) {
+            if (current != null) {
+                if (current.confirmedDead || !current.binder.isBinderAlive) {
+                    main.post { reply(null, IOException("Core exit has not finished; process death is not yet confirmed")) }
+                    return@post
+                }
                 if (current.processId.isEmpty()) {
                     handshakeWaiters.add(reply)
                     establish(current)
@@ -220,7 +224,7 @@ class CoreClient private constructor(private val context: Context) {
                 }
                 return@post
             }
-            if (current == null && (calls.isNotEmpty() || documentReads.isNotEmpty())) {
+            if (calls.isNotEmpty() || documentReads.isNotEmpty()) {
                 main.post { reply(null, IOException("Local FD I/O for the old core process has not finished")) }
                 return@post
             }
@@ -236,7 +240,7 @@ class CoreClient private constructor(private val context: Context) {
     }
 
     private fun connected(owner: Binding, binder: IBinder) {
-        if (binding !== owner) return
+        if (binding !== owner || !owner.bound) return
         val remote = ICoreService.Stub.asInterface(binder)
         lateinit var connected: Connection
         val death = IBinder.DeathRecipient { state.post { died(connected) } }
@@ -484,12 +488,19 @@ class CoreClient private constructor(private val context: Context) {
         completeExitWhenDrained(processId)
     }
 
-    private fun unbind(owner: Connection) {
-        if (owner.deathLinked) runCatching { owner.binder.unlinkToDeath(owner.death, 0) }
+    private fun releaseAutoCreate(owner: Connection) {
         if (owner.binding.bound) {
-            context.unbindService(owner.binding)
+            try { context.unbindService(owner.binding) }
+            catch (error: Throwable) {
+                android.util.Log.w("CoreClient", "Failed to drop BIND_AUTO_CREATE while waiting for core death", error)
+            }
             owner.binding.bound = false
         }
+    }
+
+    private fun unbind(owner: Connection) {
+        if (owner.deathLinked) runCatching { owner.binder.unlinkToDeath(owner.death, 0) }
+        releaseAutoCreate(owner)
         if (binding === owner.binding) binding = null
     }
 
@@ -800,9 +811,15 @@ class CoreClient private constructor(private val context: Context) {
                 publish(statusValue + (Contract.CORE_FIELD_PHASE to Contract.CORE_PHASE_STOPPING))
                 owner.recoverySource = null
                 awaitExitDeadline(processId, deadline, reply)
-                owner.remote.requestExit(identity(processId).apply {
+                val request = identity(processId).apply {
                     putLong(Contract.CORE_FIELD_ADMITTED_AT, admittedAt); putLong(Contract.CORE_FIELD_DEADLINE, deadline); putString("reason", reason)
-                })
+                }
+                try {
+                    owner.remote.requestExit(request)
+                } finally {
+                    // Keep DeathRecipient linked, but drop BIND_AUTO_CREATE so Android cannot resurrect :core after kill.
+                    releaseAutoCreate(owner)
+                }
             } catch (error: Throwable) {
                 communicationLost(owner.binding, error)
                 if (error !is DeadObjectException || !owner.deathLinked) {

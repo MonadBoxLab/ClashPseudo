@@ -1,9 +1,17 @@
 package io.github.monadboxlab.clashpseudo.nativecore
 
+import android.content.ComponentName
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.Intent
+import android.content.ServiceConnection
 import android.os.Bundle
+import android.os.DeadObjectException
 import android.os.Handler
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
+import android.os.RemoteException
+import android.os.SystemClock
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.monadboxlab.clashpseudo.app.ApplicationContract as Contract
 import io.github.monadboxlab.clashpseudo.nativecore.input.CoreInput
@@ -49,21 +57,65 @@ class CoreClientStatusTest {
         val exitRequests = java.util.concurrent.LinkedBlockingQueue<Bundle>()
         val processId = "status-${UUID.randomUUID()}"
         val inputId = UUID.randomUUID().toString()
+        var exitFailure: Throwable? = null
+        var unbindFailure: Throwable? = null
+        var binderAlive = true
+        var bindCount = 0
+        var unbindCount = 0
+        private val registeredBindings = mutableSetOf<ServiceConnection>()
+        private val previousContext = field("context").get(client) as Context
+        private val bindingContext = object : ContextWrapper(previousContext) {
+            override fun bindService(intent: Intent, connection: ServiceConnection, flags: Int): Boolean {
+                assertEquals(Context.BIND_AUTO_CREATE, flags)
+                assertTrue(registeredBindings.add(connection))
+                bindCount++
+                return true
+            }
+            override fun unbindService(connection: ServiceConnection) {
+                assertTrue("Only a registered binding can be released", registeredBindings.remove(connection))
+                unbindCount++
+                unbindFailure?.let { throw it }
+            }
+        }
         private val remote = object : ICoreService.Stub() {
             override fun handshake(protocol: Int, callback: ICoreCallback): Bundle = error("Unexpected handshake")
             override fun status(identity: Bundle): Bundle = ready()
             override fun submit(request: Bundle, input: ParcelFileDescriptor, output: ParcelFileDescriptor): Bundle = error("Unexpected submit")
-            override fun requestExit(request: Bundle) { exitRequests.add(request) }
+            override fun requestExit(request: Bundle) {
+                exitRequests.add(request)
+                exitFailure?.let { throw it }
+            }
         }
+        private var deathRecipient: IBinder.DeathRecipient? = null
+        private val binder = object : IBinder by remote.asBinder() {
+            override fun isBinderAlive(): Boolean = binderAlive
+            override fun linkToDeath(recipient: IBinder.DeathRecipient, flags: Int) {
+                check(deathRecipient == null)
+                deathRecipient = recipient
+            }
+            override fun unlinkToDeath(recipient: IBinder.DeathRecipient, flags: Int): Boolean {
+                assertSame(deathRecipient, recipient)
+                deathRecipient = null
+                return true
+            }
+        }
+        private val binding = bindingClass.declaredConstructors.single().apply { isAccessible = true }.newInstance(client) as ServiceConnection
+        private val death = IBinder.DeathRecipient { state.post { onDeath() } }
         private val owner = connectionClass.declaredConstructors.single().apply { isAccessible = true }.newInstance(
-            bindingClass.declaredConstructors.single().apply { isAccessible = true }.newInstance(client),
-            remote, remote.asBinder(), IBinder.DeathRecipient {})
+            binding, remote, binder, death)
         private val accept = CoreClient::class.java.getDeclaredMethod("acceptStatus", connectionClass, Bundle::class.java,
             kotlin.Function1::class.java).apply { isAccessible = true }
 
         init {
             onState {
                 assertNull("The status fixture requires no connected core", field("connection").get(client))
+                assertNull("The status fixture requires no pending binding", field("binding").get(client))
+                assertTrue(bindingContext.bindService(Intent(context, CoreService::class.java), binding, Context.BIND_AUTO_CREATE))
+                bindingClass.getDeclaredField("bound").apply { isAccessible = true }.setBoolean(binding, true)
+                field("context").set(client, bindingContext)
+                field("binding").set(client, binding)
+                binder.linkToDeath(death, 0)
+                connectionClass.getDeclaredField("deathLinked").apply { isAccessible = true }.setBoolean(owner, true)
                 connectionClass.getDeclaredField("processId").apply { isAccessible = true }.set(owner, processId)
                 field("connection").set(client, owner)
                 client.onEvent = { events.add(it) }
@@ -168,9 +220,55 @@ class CoreClientStatusTest {
 
         fun disconnect() = onState { field("connection").set(client, null) }
 
-        fun confirmDeath() = onState {
-            connectionClass.getDeclaredField("deathLinked").apply { isAccessible = true }.setBoolean(owner, true)
+        private fun onDeath() {
             CoreClient::class.java.getDeclaredMethod("died", connectionClass).apply { isAccessible = true }.invoke(client, owner)
+        }
+
+        fun confirmDeath() {
+            onState { binderAlive = false; checkNotNull(deathRecipient).binderDied() }
+            onState { }
+        }
+
+        val exitReplyCount = java.util.concurrent.atomic.AtomicInteger()
+        fun exit(process: String = processId, admittedAt: Long = SystemClock.elapsedRealtime(),
+                 deadline: Long = admittedAt + 30_000): CompletableFuture<Throwable?> {
+            val result = CompletableFuture<Throwable?>()
+            client.exit(process, admittedAt, deadline, "stop") {
+                exitReplyCount.incrementAndGet()
+                result.complete(it)
+            }
+            onState { }
+            return result
+        }
+
+        fun handshakeFailure(): Throwable? {
+            val result = CompletableFuture<Pair<Map<String, Any?>?, Throwable?>>()
+            client.handshake { value, error -> result.complete(value to error) }
+            val reply = result.get(5, TimeUnit.SECONDS)
+            assertNull(reply.first)
+            return reply.second
+        }
+
+        fun assertRetiring() = onState {
+            assertSame(owner, field("connection").get(client))
+            assertSame(binding, field("binding").get(client))
+            assertFalse(bindingClass.getDeclaredField("bound").apply { isAccessible = true }.getBoolean(binding))
+            assertFalse(registeredBindings.contains(binding))
+            assertSame(death, deathRecipient)
+            assertEquals(1, bindCount)
+            assertEquals(1, unbindCount)
+        }
+
+        fun lateConnection() {
+            binding.onServiceConnected(ComponentName(context, CoreService::class.java), remote.asBinder())
+            onState { }
+        }
+
+        fun assertRetired() = onState {
+            assertNull(field("connection").get(client))
+            assertNull(field("binding").get(client))
+            assertNull(deathRecipient)
+            assertEquals(1, unbindCount)
         }
 
         fun awaitRecovery() {
@@ -180,21 +278,28 @@ class CoreClientStatusTest {
         }
 
         override fun close() {
-            descriptors.forEach { it.close() }
-            awaitRecovery()
-            CorePlatformTestDriver(context).await("Status documents drain") {
-                onState { (field("documentReads").get(client) as Map<*, *>).values.none { it == processId } }
+            try {
+                descriptors.forEach { it.close() }
+                awaitRecovery()
+                CorePlatformTestDriver(context).await("Status documents drain") {
+                    onState { (field("documentReads").get(client) as Map<*, *>).values.none { it == processId } }
+                }
+                CoreIpcTestDriver.onMain {}
+            } finally {
+                onState {
+                    registeredBindings.clear()
+                    field("connection").set(client, null)
+                    field("binding").set(client, null)
+                    field("context").set(client, previousContext)
+                    (field("exitWaiters").get(client) as MutableMap<*, *>).entries.removeAll { it.value == processId }
+                    field("statusValue").set(client, previousStatus)
+                    @Suppress("UNCHECKED_CAST")
+                    CoreClient.session.project(previousStatus as Map<String, Any?>)
+                    client.onEvent = previousEvent
+                    client.changed = previousChanged
+                }
+                records.forEach { assertTrue(it.delete()) }
             }
-            CoreIpcTestDriver.onMain {}
-            onState {
-                field("connection").set(client, null)
-                field("statusValue").set(client, previousStatus)
-                @Suppress("UNCHECKED_CAST")
-                CoreClient.session.project(previousStatus as Map<String, Any?>)
-                client.onEvent = previousEvent
-                client.changed = previousChanged
-            }
-            records.forEach { assertTrue(it.delete()) }
         }
     }
 
@@ -295,6 +400,111 @@ class CoreClientStatusTest {
             assertEquals(Contract.CORE_PHASE_STOPPING, f.client.status()["phase"])
             f.confirmDeath()
             assertNull(exited.get(5, TimeUnit.SECONDS))
+        }
+    }
+
+    @Test fun exitReleasesAutoCreateButRetainsOwnerUntilDeathOnReturnAndDeadObjectException() {
+        for (remoteDied in listOf(false, true)) Fixture().use { f ->
+            f.accept(f.ready()).get(5, TimeUnit.SECONDS)
+            f.awaitRecovery()
+            if (remoteDied) f.exitFailure = DeadObjectException()
+            val exited = f.exit()
+            f.assertRetiring()
+            assertFalse("Unbinding does not confirm process death", exited.isDone)
+            f.lateConnection()
+            f.assertRetiring()
+            f.onState { f.binderAlive = false }
+            assertNotNull("A dead Binder must fail handshake before its death callback", f.handshakeFailure())
+            f.assertRetiring()
+            assertFalse(exited.isDone)
+            f.confirmDeath()
+            assertNull(exited.get(5, TimeUnit.SECONDS))
+            f.assertRetired()
+            CoreIpcTestDriver.onMain { }
+            assertEquals(1, f.exitReplyCount.get())
+        }
+    }
+
+    @Test fun exitPreservesRemoteFailureWhenUnbindAlsoFailsAndDeathArrivesLater() {
+        Fixture().use { f ->
+            val failure = RemoteException("Exit request failed")
+            f.exitFailure = failure
+            f.unbindFailure = IllegalArgumentException("Binding was already removed")
+            val exited = f.exit()
+            assertSame(failure, exited.get(5, TimeUnit.SECONDS))
+            f.assertRetiring()
+            assertEquals(Contract.CORE_PHASE_COMMUNICATION_LOST, f.client.status()["phase"])
+            f.confirmDeath()
+            CoreIpcTestDriver.onMain { }
+            assertEquals(1, f.exitReplyCount.get())
+            f.assertRetired()
+        }
+    }
+
+    @Test fun exitRejectsInvalidAdmissionAndOldIdentityWithoutDroppingBinding() {
+        Fixture().use { f ->
+            assertNotNull(f.exit(admittedAt = -1, deadline = 1).get(5, TimeUnit.SECONDS))
+            assertNotNull(f.exit(process = "old-process").get(5, TimeUnit.SECONDS))
+            f.onState {
+                assertEquals(1, f.bindCount)
+                assertEquals(0, f.unbindCount)
+                assertTrue(f.exitRequests.isEmpty())
+            }
+        }
+    }
+
+    @Test fun exitKeepsOriginalDeadlineAndDoesNotReplyAgainAfterLateDeath() {
+        Fixture().use { f ->
+            f.exitFailure = DeadObjectException()
+            val deadline = SystemClock.elapsedRealtime() - 1
+            val admittedAt = deadline - 1000
+            val exited = f.exit(admittedAt = admittedAt, deadline = deadline)
+            val request = checkNotNull(f.exitRequests.poll(5, TimeUnit.SECONDS))
+            assertEquals(admittedAt, request.getLong(Contract.CORE_FIELD_ADMITTED_AT))
+            assertEquals(deadline, request.getLong(Contract.CORE_FIELD_DEADLINE))
+            assertNotNull(exited.get(Contract.OPERATION_UI_GRACE_MS + 5000L, TimeUnit.MILLISECONDS))
+            f.assertRetiring()
+            f.confirmDeath()
+            CoreIpcTestDriver.onMain { }
+            assertEquals(1, f.exitReplyCount.get())
+            f.assertRetired()
+        }
+    }
+
+    @Test fun confirmedDeathStillBlocksExitAndHandshakeUntilLocalDocumentIoDrains() {
+        Fixture().use { f ->
+            f.accept(f.ready()).get(5, TimeUnit.SECONDS)
+            f.awaitRecovery()
+            val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+            val entered = java.util.concurrent.CountDownLatch(1)
+            val release = java.util.concurrent.CountDownLatch(1)
+            val ioField = CoreClient::class.java.getDeclaredField("io").apply { isAccessible = true }
+            val previous = f.client.io
+            try {
+                executor.execute {
+                    entered.countDown()
+                    check(release.await(10, TimeUnit.SECONDS)) { "Document read barrier was not released" }
+                }
+                assertTrue(entered.await(5, TimeUnit.SECONDS))
+                f.onState { ioField.set(f.client, executor) }
+                val document = f.details(f.ready(revision = 2), JSONArray())
+                val exited = f.exit()
+                f.confirmDeath()
+                f.assertRetired()
+                assertFalse("A closed descriptor does not finish its queued reader", document.first.isDone)
+                assertFalse("Death alone must not release the exit waiter", exited.isDone)
+                assertNotNull(f.handshakeFailure())
+                assertEquals(1, f.bindCount)
+                release.countDown()
+                assertNotNull(document.first.get(5, TimeUnit.SECONDS))
+                assertNull(exited.get(5, TimeUnit.SECONDS))
+                assertEquals(1, f.exitReplyCount.get())
+            } finally {
+                release.countDown()
+                executor.shutdown()
+                try { assertTrue("Document read executor drains", executor.awaitTermination(10, TimeUnit.SECONDS)) }
+                finally { f.onState { ioField.set(f.client, previous) } }
+            }
         }
     }
 

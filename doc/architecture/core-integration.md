@@ -32,7 +32,7 @@ mihomo负责解析、协议、规则匹配、provider下载／解密／缓存、
 
 必要VPN缺省只在同一个RawConfig上补tun.enable、dns.enable及MTU1500，不复制上游mips和auto-route缺省，不为补缺省重编码正文。false、0、null和显式空值保持正式parser及平台接入的实际含义。没有本次明确模式意图时不注入mode，不改写profile；模式优先级见[偏好规则](data-and-operations.md#模式与策略偏好)。
 
-显式tun.enable=false仍可保存或预览，请求VPN时在Builder建立前拒绝。mips／gvisor／mixed／system交公开TUN构造，不因失败自动换栈。DNS、sniffer、profile、普通监听、认证及TLS沿公开能力执行；端口0保留0。interface-name、普通routing-mark和TFO不因应用预设被一概拒绝，Android实际限制关联具体字段和系统结果。
+显式tun.enable=false仍可保存或预览；请求VPN时平台装载副本强制启用TUN，并在日志中记录被忽略的字段。桌面端Linux路由类字段（auto-redirect、strict-route、file-descriptor、device、gso、iproute2-*、*-mark、接口／MAC／端口过滤）在装载副本上清除。DNS关闭且存在TUN DNS劫持或显式IPv6接口地址时，在配置解析与资源应用前返回dnsHijackConflict，不将其作为可忽略字段。`stack: system`／`mixed`依赖内核转发与netlink，在Android untrusted_app的VpnService路径上不可用，且可能直接结束`:core`，故在装载副本上改写为默认mips；保存的配置正文与运行时配置诊断原文保持不变。非法dns-mode或mtu>65535仍返回错误。装载后的mips／gvisor交公开TUN构造，失败不二次换栈。DNS、sniffer、profile、普通监听、认证及TLS沿公开能力执行；端口0保留0。
 
 provider HTTP缺少或空path时沿公开GetPathByHash派生，显式path和Tailscale state-dir沿公开Resolve／IsSafePath处理。生产cmfa的公开IsSafePath允许home以外路径，实际访问受Android应用沙箱限制；用户确认的[清理范围](android.md#内核数据清理)仍限定于内核根内的具体文件。
 
@@ -88,7 +88,7 @@ coreipc.Failure保留typed error、RawCause及errors.Join中的每个cause；平
 
 命名listener仅在原Listen成功后交接protocol对象；Listen失败时回滚ListenConfig已经捕获的sockets，不调用尚未启动的protocol.Close。已经交接的资源按实际取得顺序反向关闭，重复关闭使用同一回执，startup及多个cleanup错误通过errors.Join保留。资源状态分别记录bound、failed和closed，bind成功不表示完整Serve已就绪。
 
-TUN使用公开sing_tun.New(platformTunOptions, tunnel.Tunnel)，平台副本的FileDescriptor为当前`:core`持有的正数FD，AutoRoute与AutoDetectInterface为false。Android路由交Builder，网络选择交捕获Network；system／mixed使用公开EnforceBindInterface，不自组tun.New、handler、NewStack或stack.Start。
+TUN使用公开sing_tun.New(platformTunOptions, tunnel.Tunnel)，平台副本的FileDescriptor为当前`:core`持有的正数FD，AutoRoute与AutoDetectInterface为false；system／mixed因上述平台限制在装载副本上改为默认mips。Android路由交Builder，网络选择交捕获Network；公开EnforceBindInterface仍启用，不自组tun.New、handler、NewStack或stack.Start。
 
 Builder路由范围复用公开tun.Options.BuildAutoRouteRanges(false)。计算前检查显式及provider include routes所需的address family；Android规格无法承载时返回具体字段错误，不让公开计算过滤后的结果掩盖该项请求。MTU缺省1500，显式0沿公开有效值9000交Builder，其他合法显式值保持一致。DNS地址与劫持判断包含公开TUN自动加入的相邻地址，不只检查原dns-hijack列表。UsesSystemDNS同时反映显式system依赖及Builder DNS的系统回退，route-set规格刷新沿相同规则。provider引起实际Builder规格变化时通知AppRuntime按原实际输入更换进程，不另做规则匹配。
 

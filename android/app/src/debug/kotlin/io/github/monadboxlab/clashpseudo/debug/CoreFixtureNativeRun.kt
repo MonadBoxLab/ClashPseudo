@@ -77,8 +77,8 @@ internal class CoreFixtureNativeRun(
                     parts = mapOf(Contract.CORE_PART_TRUST to AppTrust.pem(context).toByteArray(Charsets.UTF_8))))
                 CoreFixtureContract.BAD_REVISION -> attachFailure(revisionOffset = 1)
                 CoreFixtureContract.BAD_STACK -> attachFailure(body = DIRECT + "tun: {congestion-controller: invalid-native-test-controller}\n")
-                CoreFixtureContract.SYSTEM_INTERFACE -> attachFailure(body = DIRECT + "tun: {stack: system}\n")
-                CoreFixtureContract.MIXED_INTERFACE -> attachFailure(body = DIRECT + "tun: {stack: mixed}\n")
+                CoreFixtureContract.SYSTEM_INTERFACE -> prepare(DIRECT + "tun: {stack: system}\n", vpn = true)
+                CoreFixtureContract.MIXED_INTERFACE -> prepare(DIRECT + "tun: {stack: mixed}\n", vpn = true)
                 CoreFixtureContract.REFUSE_PROTECT, CoreFixtureContract.THROW_PROTECT,
                 CoreFixtureContract.ACCEPT_PROTECT -> provider()
                 CoreFixtureContract.CONNECTIONS -> connections()

@@ -89,6 +89,9 @@ internal object WidgetGeometry {
         val layout = checkNotNull(text.layout)
         val name = text.resources.getResourceEntryName(id)
         assertTrue("$name has empty dimensions", text.width > 0 && text.height > 0)
+        assertTrue("$name has no rendered lines", layout.lineCount > 0)
+        assertEquals("$name did not render the complete text", text.text.length,
+            layout.getLineEnd(layout.lineCount - 1))
         assertTrue("$name clipped vertically: ${layout.height} / ${text.height}",
             layout.height <= text.height - text.compoundPaddingTop - text.compoundPaddingBottom)
         for (line in 0 until layout.lineCount) {

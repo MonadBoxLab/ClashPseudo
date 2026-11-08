@@ -70,7 +70,7 @@ ServiceConnection断开、绑定失效、事务错误或超时记录为通信中
 
 PREVIEW用于实际策略、规则、provider和DNS诊断，不申请VPN授权，不启动外部监听、Controller、UI下载、TUN或NTP。没有可见预览页面且没有已受理任务持续30秒后结束预览进程；页面只是失焦时保留。
 
-主动停止先持久记录原因、停止受理新工作并关闭本方系统资源，再调用公开关闭接口。宿主在control thread结束自己的`:core`；沿本次业务原受理期限，保留普通操作或备份的原预算，到期仍未完成时记录未退出调用并结束该进程。正常退出分别等待本方native调用、FD I/O及Android system DNS invocation／pending callback，未drain时不记正常；这不表示上游全部后台任务已有join回执。完成停止还须等待DeathRecipient和默认进程所属I/O退出。控制通道无响应时保持退出未确认，提供重试，不按旧PID结束其他进程。
+主动停止先持久记录原因、停止受理新工作并关闭本方系统资源，再调用公开关闭接口。宿主在control thread结束自己的`:core`；沿本次业务原受理期限，保留普通操作或备份的原预算，到期仍未完成时记录未退出调用并结束该进程。正常退出分别等待本方native调用、FD I/O及Android system DNS invocation／pending callback，未drain时不记正常；这不表示上游全部后台任务已有join回执。完成停止还须等待DeathRecipient和默认进程所属I/O退出。默认进程在requestExit返回或抛出异常后解除BIND_AUTO_CREATE，保留死亡通知和旧连接身份；死亡确认及本地I/O排空前不创建下一连接，解绑后迟到的连接回调不再安装。控制通道无响应时保持退出未确认，提供重试，不按旧PID结束其他进程。
 
 完整重载、预览转运行、VPN切换及异常恢复使用新进程。模式和策略热操作不重建context。所有网络服务停止且无预览工作时结束core process；纯合成不创建context，无其他持有者时结束其进程。
 
@@ -94,15 +94,15 @@ PREVIEW用于实际策略、规则、provider和DNS诊断，不申请VPN授权�
 | JNI引用 | callback对象的global reference由所属core process持有；每次callback的local reference保留至该次callback结束。 |
 | 普通监听 | 公开构造器返回后立即登记；分别记录TCP／UDP的创建、保护和关闭结果。 |
 
-TUN只能使用当前`:core`实际持有的正数FD。用户YAML中的裸file-descriptor不作为资源转移；与当前平台资源不符时在接入处报错。公开构造失败时保留原始错误，以进程结束释放剩余资源，不猜测内部失败路径是否已经关闭FD。
+TUN只能使用当前`:core`实际持有的正数FD。用户YAML中的裸file-descriptor不作为资源转移，在平台装载副本上清除并记录被忽略字段；实际FD由本次Builder取得并交接。公开构造失败时保留原始错误，以进程结束释放剩余资源，不猜测内部失败路径是否已经关闭FD。
 
-公开sing_tun.New负责TUN和协议栈。平台副本将AutoRoute与AutoDetectInterface置false，Android路由和网络选择由Builder及捕获Network执行；system／mixed沿公开EnforceBindInterface接入，不自组tun.New／NewStack，也不因失败自动切换栈。
+公开sing_tun.New负责TUN和协议栈。平台副本将AutoRoute与AutoDetectInterface置false；system／mixed依赖内核转发与netlink，在untrusted_app的VpnService路径上不可用且可能直接结束`:core`，故改为默认mips。Android路由和网络选择由Builder及捕获Network执行。装载后的栈交公开构造，不自组tun.New／NewStack，失败不二次换栈。
 
 ## VPN interface and routing
 
 Builder与Go使用同次解析的地址、MTU、路由、排除项及DNS规格。路由范围复用公开tun.Options.BuildAutoRouteRanges；MTU缺省1500，显式0沿公开TUN有效值9000给Builder，其他合法显式值保持一致。Android拒绝时保留实际错误，不自行缩小MTU。
 
-分别检查全局IPv6、DNS IPv6／地址池、TUN地址、路由和DNS劫持路径。DNS劫持判断计入公开TUN自动加入的相邻地址。显式tun.enable=false可保存或预览，请求VPN时在Builder建立前拒绝。其他Android能力限制关联具体字段，不以listener类型白名单代替公开parser。
+分别检查全局IPv6、DNS IPv6／地址池、TUN地址、路由和DNS劫持路径。DNS劫持判断计入公开TUN自动加入的相邻地址。显式tun.enable=false可保存或预览，请求VPN时在平台装载副本上启用TUN并记录被忽略字段，保存的正文不变。其他Android能力限制关联具体字段，不以listener类型白名单代替公开parser。
 
 应用名单优先级为正文显式名单→访问偏好→all，有效allow为空时拒绝。Builder在allowed和disallowed中选择一种。provider变化导致实际Builder规格变化时，平台通知AppRuntime按原实际输入更换进程，不改用最新保存组合，也不另做规则匹配。
 
@@ -154,9 +154,9 @@ API29+按实际服务能力读取Always-on／lockdown；从系统设置返回时
 
 ## 系统入口
 
-Shortcuts通过非导出activity-alias区分固定start／stop；公开MainActivity的action／extras仅用于界面导航。打开总览先等待UI-ready，并执行当前页面的退出检查。取消退出时结束该导航请求；仍有覆盖路由或相同退出阻止条件时不继续导航。
+Shortcuts通过非导出activity-alias区分start／stop意图，动态快捷菜单只注册一项`vpn-control`，标签与图标随Projection.action在连接／断开间切换；公开MainActivity的action／extras仅用于界面导航。打开总览先等待UI-ready，并执行当前页面的退出检查。取消退出时结束该导航请求；仍有覆盖路由或相同退出阻止条件时不继续导航。
 
-Tile使用BIND_QUICK_SETTINGS_TILE，锁屏unlockAndRun后重读实际动作；widget采用不可变的明确PendingIntent。状态读取期间再有变化时标记dirty，返回后补读一次；实例销毁只移除该实例引用。
+Tile使用BIND_QUICK_SETTINGS_TILE，锁屏unlockAndRun后重读实际动作；widget采用不可变的明确PendingIntent。Shortcuts与widget共用一次状态快照，进行中的刷新合并为一次后续读取，分别发布结果；Tile按自身监听生命周期读取。状态读取期间再有变化时标记dirty，返回后补读一次；实例销毁只移除该实例引用。
 
 磁贴通过系统快捷设置、小组件通过Launcher选择器添加。品牌源为[branding](../../assets/branding/README.md)，桌面、启动与widget共享素材，通知和Tile使用单色轮廓。系统入口都进入同一业务执行链，不创建另一份AppRuntime。
 

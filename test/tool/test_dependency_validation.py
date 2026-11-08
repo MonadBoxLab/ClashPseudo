@@ -50,7 +50,7 @@ class ValidationTest(unittest.TestCase):
         return path
 
     def test_validation_runs_tests_without_an_apk_build(self):
-        with mock.patch.object(validation, "_command") as command:
+        with mock.patch.object(validation, "_command", return_value=0) as command:
             result = validation.validate(self.root, self.output)
         self.assertEqual(result["status"], "verified")
         self.assertEqual(result["commit"], "candidate")
@@ -61,14 +61,57 @@ class ValidationTest(unittest.TestCase):
         self.assertTrue(any("-tags=cmfa,with_gvisor" in row and "test" in row for row in calls))
         self.updater.evidence.assert_not_called()
 
-    def test_test_failure_is_saved_and_stops_remaining_commands(self):
-        with mock.patch.object(validation, "_command", side_effect=ValueError("原始工具错误")) as command:
-            with self.assertRaisesRegex(ValueError, "原始工具错误"):
+    def test_check_failure_runs_remaining_checks(self):
+        calls = []
+
+        def fake(arguments, root, environment, output, report, label, required=True):
+            calls.append((label, required))
+            code = 1 if label == "python-tests" else 0
+            report["steps"].append({
+                "name": label, "command": list(map(str, arguments)),
+                "log": label + ".log", "exitCode": code,
+            })
+            if code != 0 and required:
+                raise ValueError(f"{label} failed ({code})")
+            return code
+
+        with mock.patch.object(validation, "_command", side_effect=fake):
+            with self.assertRaisesRegex(ValueError, "Validation checks failed: python-tests"):
                 validation.validate(self.root, self.output)
-        self.assertEqual(command.call_count, 1)
+        self.assertEqual([name for name, _ in calls], [
+            "contracts", "python-tests", "flutter-pub", "flutter-analyze",
+            "flutter-test", "go-modules", "go-test", "go-vet",
+        ])
+        self.assertEqual(dict(calls)["flutter-pub"], True)
+        self.assertEqual(dict(calls)["go-modules"], True)
+        self.assertEqual(dict(calls)["python-tests"], False)
         report = json.loads((self.output / "validation.json").read_text())
         self.assertEqual(report["status"], "failed")
-        self.assertEqual(report["error"], "原始工具错误")
+        self.assertEqual(report["error"], "Validation checks failed: python-tests")
+        self.assertEqual(
+            [step["name"] for step in report["steps"] if step["name"] != "resources"],
+            [name for name, _ in calls],
+        )
+
+    def test_gate_failure_stops_remaining_commands(self):
+        calls = []
+
+        def fake(arguments, root, environment, output, report, label, required=True):
+            calls.append(label)
+            report["steps"].append({
+                "name": label, "command": list(map(str, arguments)),
+                "log": label + ".log", "exitCode": 1 if label == "flutter-pub" else 0,
+            })
+            if label == "flutter-pub":
+                raise ValueError("flutter-pub failed (1); raw output: flutter-pub.log")
+            return 0
+
+        with mock.patch.object(validation, "_command", side_effect=fake):
+            with self.assertRaisesRegex(ValueError, "flutter-pub failed"):
+                validation.validate(self.root, self.output)
+        self.assertEqual(calls, ["contracts", "python-tests", "flutter-pub"])
+        report = json.loads((self.output / "validation.json").read_text())
+        self.assertEqual(report["status"], "failed")
 
     def test_existing_report_is_not_overwritten(self):
         self.output.mkdir()
@@ -90,7 +133,7 @@ class ValidationTest(unittest.TestCase):
         self.assertEqual(json.loads((self.output / "validation.json").read_text())["error"], "下载失败")
 
     def test_input_change_fails_validation(self):
-        with mock.patch.object(validation, "_command"), \
+        with mock.patch.object(validation, "_command", return_value=0), \
                 mock.patch.object(validation, "input_identity", side_effect=[{"a": "first"}, {"a": "second"}]):
             with self.assertRaisesRegex(ValueError, "Candidate inputs changed"):
                 validation.validate(self.root, self.output)

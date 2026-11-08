@@ -77,8 +77,8 @@ object SystemControls {
 
     private val main by lazy { Handler(Looper.getMainLooper()) }
     private var refreshQueued = false
-    private val widgetRead = RefreshRead()
-    private var shortcutLabels: Pair<String, String>? = null
+    private val surfaceRead = RefreshRead()
+    private var shortcutState: Pair<String, Pair<String, String>>? = null
     private val modes = setOf("rule", "global", "direct")
 
     /** Release the main-thread read gate on actual completion. */
@@ -168,7 +168,6 @@ object SystemControls {
         refreshQueued = true
         main.post {
             refreshQueued = false
-            refreshShortcuts(app)
             try {
                 if (!VpnTileService.refreshListening()) {
                     TileService.requestListeningState(app, ComponentName(app, VpnTileService::class.java))
@@ -176,48 +175,88 @@ object SystemControls {
             } catch (_: Exception) {
                 Log.w("PseudoControls", "Unable to request tile state refresh")
             }
-            if (widgetRead.request()) readWidget(app)
+            refreshSurfaces(
+                hasConsumers = {
+                    Build.VERSION.SDK_INT >= 25 || AppWidgetManager.getInstance(app)
+                        .getAppWidgetIds(ComponentName(app, VpnWidgetProvider::class.java)).isNotEmpty()
+                },
+                read = ::snapshot,
+                shortcuts = { refreshShortcuts(app, it) },
+                widget = { VpnWidgetProvider.update(app, it) },
+            )
         }
     }
 
-    private fun readWidget(context: Context) {
-        val manager = AppWidgetManager.getInstance(context)
-        if (manager.getAppWidgetIds(ComponentName(context, VpnWidgetProvider::class.java)).isEmpty()) {
-            if (widgetRead.complete()) readWidget(context)
-            return
-        }
-        snapshot { value ->
+    internal fun refreshSurfaces(
+        hasConsumers: () -> Boolean,
+        read: ((Projection) -> Unit) -> Unit,
+        shortcuts: (Projection) -> Unit,
+        widget: (Projection) -> Unit,
+        gate: RefreshRead = surfaceRead,
+    ) {
+        if (!gate.request()) return
+        fun readNext() {
+            var completed = false
+            fun finish() {
+                completed = true
+                if (gate.complete()) readNext()
+            }
             try {
-                VpnWidgetProvider.update(context, value)
+                if (!hasConsumers()) {
+                    finish()
+                    return
+                }
+                read { value ->
+                    try {
+                        try {
+                            shortcuts(value)
+                        } catch (_: Exception) {
+                            Log.w("PseudoControls", "Unable to update app shortcuts")
+                        }
+                        try {
+                            widget(value)
+                        } catch (_: Exception) {
+                            Log.w("PseudoControls", "Unable to update widget state")
+                        }
+                    } finally {
+                        // Events during the read or publication reserve only one follow-up.
+                        finish()
+                    }
+                }
             } catch (_: Exception) {
-                Log.w("PseudoControls", "Unable to update widget state")
-            } finally {
-                // Events received while this actual read ran become only one subsequent read.
-                if (widgetRead.complete()) readWidget(context)
+                Log.w("PseudoControls", "Unable to read system control state")
+                if (!completed) finish()
             }
         }
+        readNext()
     }
 
-    private fun refreshShortcuts(context: Context) {
+    private fun refreshShortcuts(context: Context, value: Projection) {
         if (Build.VERSION.SDK_INT < 25) return
         val labels = AppStrings.get(R.string.system_control_connect) to
             AppStrings.get(R.string.system_control_disconnect)
-        if (shortcutLabels == labels) return
-        try {
-            val manager = context.getSystemService(ShortcutManager::class.java) ?: return
-            val shortcuts = listOf("start", "stop").mapIndexed { index, action ->
-                ShortcutInfo.Builder(context, "vpn-$action")
-                    .setShortLabel(if (action == "start") labels.first else labels.second)
-                    .setIcon(Icon.createWithResource(context, if (action == "start")
-                        R.drawable.ic_control_connect else R.drawable.ic_control_disconnect))
-                    .setIntent(actionIntent(context, action))
-                    .setRank(index)
-                    .build()
-            }
-            if (manager.setDynamicShortcuts(shortcuts)) shortcutLabels = labels
-        } catch (_: Exception) {
-            Log.w("PseudoControls", "Unable to update app shortcuts")
+        refreshShortcuts(value, labels) { action, label ->
+            val manager = context.getSystemService(ShortcutManager::class.java) ?: return@refreshShortcuts false
+            val shortcut = ShortcutInfo.Builder(context, "vpn-control")
+                .setShortLabel(label)
+                .setIcon(Icon.createWithResource(context, if (action == "start")
+                    R.drawable.ic_control_connect else R.drawable.ic_control_disconnect))
+                .setIntent(actionIntent(context, action))
+                .setRank(0)
+                .build()
+            manager.setDynamicShortcuts(listOf(shortcut))
         }
+    }
+
+    internal fun refreshShortcuts(
+        value: Projection,
+        labels: Pair<String, String>,
+        publish: (String, String) -> Boolean,
+    ) {
+        val action = value.action ?: return
+        val next = action to labels
+        if (shortcutState == next) return
+        if (publish(action, if (action == "start") labels.first else labels.second)) shortcutState = next
     }
 
     fun openIntent(context: Context): Intent = Intent(context, MainActivity::class.java)

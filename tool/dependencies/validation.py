@@ -30,7 +30,7 @@ def _save(path, report):
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def _command(arguments, root, environment, output, report, label):
+def _command(arguments, root, environment, output, report, label, *, required=True):
     log = output / (label + ".log")
     entry = {"name": label, "command": list(map(str, arguments)), "log": log.name}
     report["steps"].append(entry)
@@ -48,8 +48,14 @@ def _command(arguments, root, environment, output, report, label):
                 print(line, file=sys.stderr, end="", flush=True)
             returncode = process.wait()
     entry["exitCode"] = returncode
-    require(returncode == 0, f"{label} failed ({returncode}); raw output: {log}")
+    if returncode != 0:
+        message = f"{label} failed ({returncode}); raw output: {log}"
+        if required:
+            require(False, message)
+        logging.error("%s", message)
+        return returncode
     logging.info("Completed: %s in %.1f seconds", label, time.monotonic() - started)
+    return returncode
 
 
 def _operation(function, output, report, label):
@@ -98,19 +104,23 @@ def validate(project, output, *, toolchain_cache=None):
         environment, updater = _prepare(root, toolchain_cache)
         report.update(inputs=input_identity(root), commit=run(["git", "rev-parse", "HEAD"], root).strip())
         _operation(lambda: resources.prepare_bundled_assets(root), output, report, "resources")
+        # flutter-pub and go-modules gate later steps; other checks run to completion.
         commands = (
-            ("contracts", [sys.executable, "-I", "-B", root / "tool/main.py", "contracts", "check"]),
-            ("python-tests", [sys.executable, "-I", "-B", "-m", "unittest", "discover", "-s", "test/tool", "-p", "test_*.py"]),
-            ("flutter-pub", [updater.flutter, "pub", "get", "--enforce-lockfile"]),
-            ("flutter-analyze", [updater.flutter, "analyze"]),
-            ("flutter-test", [updater.flutter, "test"]),
-            ("go-modules", [updater.go, "-C", root / "native/mihomo", "mod", "verify"]),
-            ("go-test", [updater.go, "-C", root / "native/mihomo", "test", "-mod=readonly", "-tags=cmfa,with_gvisor", "./...", "-count=1"]),
-            ("go-vet", [updater.go, "-C", root / "native/mihomo", "vet", "-mod=readonly", "-tags=cmfa,with_gvisor", "./..."]),
+            ("contracts", False, [sys.executable, "-I", "-B", root / "tool/main.py", "contracts", "check"]),
+            ("python-tests", False, [sys.executable, "-I", "-B", "-m", "unittest", "discover", "-s", "test/tool", "-p", "test_*.py"]),
+            ("flutter-pub", True, [updater.flutter, "pub", "get", "--enforce-lockfile"]),
+            ("flutter-analyze", False, [updater.flutter, "analyze"]),
+            ("flutter-test", False, [updater.flutter, "test"]),
+            ("go-modules", True, [updater.go, "-C", root / "native/mihomo", "mod", "verify"]),
+            ("go-test", False, [updater.go, "-C", root / "native/mihomo", "test", "-mod=readonly", "-tags=cmfa,with_gvisor", "./...", "-count=1"]),
+            ("go-vet", False, [updater.go, "-C", root / "native/mihomo", "vet", "-mod=readonly", "-tags=cmfa,with_gvisor", "./..."]),
         )
-        for label, arguments in commands:
-            _command(arguments, root, environment, output, report, label)
+        failed = []
+        for label, required, arguments in commands:
+            if _command(arguments, root, environment, output, report, label, required=required) != 0:
+                failed.append(label)
             _save(report_path, report)
+        require(not failed, "Validation checks failed: " + ", ".join(failed))
         require(input_identity(root) == report["inputs"], "Candidate inputs changed during tests")
         report["status"] = "verified"
     except Exception as error:

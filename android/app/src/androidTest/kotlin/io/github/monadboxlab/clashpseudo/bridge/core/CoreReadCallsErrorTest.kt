@@ -51,6 +51,7 @@ class CoreReadCallsErrorTest {
         }
     }
 
+    // Intentionally replaces :core; CoreIpcTestDriver drops BIND_AUTO_CREATE before death so the runner stays alive.
     @Test fun capturedNativeErrorRemainsReadableAfterItsOwningProcessExits() {
         val captured = CoreBridgeIpcScenario().use { core ->
             val reply = core.query(Contract.CORE_OPERATION_RULES, JSONObject().put("kind", "sub").put("name", "missing"))

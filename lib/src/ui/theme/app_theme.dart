@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../model/app_preferences.dart';
+import 'menu_geometry.dart';
 
 class AppTheme {
   static ThemeData get light => forBrightness(Brightness.light);
@@ -144,11 +145,23 @@ class AppTheme {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         iconColor: palette.ink,
       ),
+      menuButtonTheme: const MenuButtonThemeData(
+        style: ButtonStyle(
+          minimumSize: WidgetStatePropertyAll(kAppMenuItemMinimumSize),
+          padding: WidgetStatePropertyAll(kAppMenuItemPadding),
+          tapTargetSize: MaterialTapTargetSize.padded,
+        ),
+      ),
       menuTheme: MenuThemeData(
         style: MenuStyle(
           backgroundColor: WidgetStatePropertyAll(palette.surface),
           surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
           elevation: const WidgetStatePropertyAll(3),
+          minimumSize: const WidgetStatePropertyAll(kAppMenuItemMinimumSize),
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.all(kAppMenuViewPadding),
+          ),
+          shape: const WidgetStatePropertyAll(AppMenuPanelShape()),
         ),
       ),
       inputDecorationTheme: const InputDecorationTheme(

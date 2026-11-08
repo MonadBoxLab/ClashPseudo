@@ -187,12 +187,12 @@ func TestDispatcherPlatformErrorPreservesTypedCauseAndJoinedOriginalErrors(t *te
 		processTrust.initialized = initialized
 		processTrust.Unlock()
 	}()
-	const body = "tun: {enable: false}\nrules: ['MATCH,DIRECT']\n"
+	const body = "tun: {mtu: 70000}\nrules: ['MATCH,DIRECT']\n"
 	raw, presence, err := configinput.Decode([]byte(body), "rule", "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	original := androidnet.PlatformRuntime(raw, presence)
+	_, original := androidnet.PlatformRuntime(raw, presence)
 	if original == nil {
 		t.Fatal("public platform check did not produce the actual capability error")
 	}
@@ -229,7 +229,7 @@ func TestDispatcherPlatformErrorPreservesTypedCauseAndJoinedOriginalErrors(t *te
 					t.Fatal(err)
 				}
 				text := string(encoded)
-				for _, want := range []string{`"id":"nativeConfigurationUnsupported"`, `"field":"tun.enable"`, `"id":"nativeReasonTunDisabled"`, `"detail":"tun.enable: tunDisabled"`, `tun.enable: tunDisabled`} {
+				for _, want := range []string{`"id":"nativeConfigurationUnsupported"`, `"field":"tun.mtu"`, `"id":"nativeReasonInvalidMtu"`, `"detail":"tun.mtu: invalidMtu"`, `tun.mtu: invalidMtu`} {
 					if !strings.Contains(text, want) {
 						t.Fatalf("typed cause or original message missing %s: %s", want, text)
 					}
@@ -240,7 +240,7 @@ func TestDispatcherPlatformErrorPreservesTypedCauseAndJoinedOriginalErrors(t *te
 			}
 		})
 	}
-	if plain := coreipc.Failure(A.CoreErrorCallFailed, errors.New("tun.enable: tunDisabled")); plain.Cause != nil {
+	if plain := coreipc.Failure(A.CoreErrorCallFailed, errors.New("tun.mtu: invalidMtu")); plain.Cause != nil {
 		t.Fatal("arbitrary error text produced a fabricated typed descriptor", plain)
 	}
 }

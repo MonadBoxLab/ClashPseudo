@@ -112,11 +112,9 @@
             </LinearLayout>
             <TextView
                 android:id="@+id/widget_capacity"
-                style="@style/WidgetControlText"
+                style="@style/WidgetControlCapacity"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:gravity="center"
-                android:textSize="12sp"
                 android:text="@string/widget_capacity"
                 android:visibility="gone"
                 android:importantForAccessibility="no" />

@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Process
 import android.util.Log
 import io.github.monadboxlab.clashpseudo.BuildConfig
+import io.github.monadboxlab.clashpseudo.app.AppProcess
 import io.github.monadboxlab.clashpseudo.debug.NativeCoverage
 import org.json.JSONObject
 import java.io.File
@@ -11,6 +12,7 @@ import java.io.File
 /** Save this process's profile only on normal exit after JNI has returned; forced exit at the original deadline does not wait. */
 internal object CoreProcessExit {
     fun exit(context: Context, processId: String, normal: Boolean) {
+        AppProcess.requireCore(context)
         try {
             if (normal && BuildConfig.VALIDATION_NATIVE_COVERAGE) flush(context, processId)
         } finally {

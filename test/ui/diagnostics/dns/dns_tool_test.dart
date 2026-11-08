@@ -959,14 +959,36 @@ void main() {
           final paragraph = tester.renderObject<RenderParagraph>(labelFinder);
           expect(paragraph.didExceedMaxLines, isFalse);
           for (final word in RegExp(r'[A-Za-z]+').allMatches(label)) {
+            final measurement = TextPainter(
+              text: TextSpan(text: word.group(0), style: paragraph.text.style),
+              textDirection: paragraph.textDirection,
+              textScaler: paragraph.textScaler,
+            )..layout();
+            final fits = measurement.width <= paragraph.size.width;
+            measurement.dispose();
+            if (fits) {
+              expect(
+                paragraph.getBoxesForSelection(
+                  TextSelection(baseOffset: word.start, extentOffset: word.end),
+                ),
+                hasLength(1),
+                reason:
+                    'A word that fits the label width must not be fragmented: ${word.group(0)}; '
+                    'item=${tester.getRect(item)}, label=${paragraph.size}',
+              );
+            }
+          }
+          final boxes = paragraph.getBoxesForSelection(
+            TextSelection(baseOffset: 0, extentOffset: label.length),
+          );
+          expect(boxes, isNotEmpty);
+          final pixel = 1 / tester.view.devicePixelRatio;
+          for (final box in boxes) {
+            expect(box.left, greaterThanOrEqualTo(-pixel));
+            expect(box.right, lessThanOrEqualTo(paragraph.size.width + pixel));
             expect(
-              paragraph.getBoxesForSelection(
-                TextSelection(baseOffset: word.start, extentOffset: word.end),
-              ),
-              hasLength(1),
-              reason:
-                  'A complete word must not be fragmented: ${word.group(0)}; '
-                  'item=${tester.getRect(item)}, label=${paragraph.size}',
+              box.bottom,
+              lessThanOrEqualTo(paragraph.size.height + pixel),
             );
           }
         }

@@ -94,6 +94,19 @@ class WidgetLayoutMeasurementTest {
                 WidgetGeometry.onMain {
                     val root = WidgetGeometry.apply(VpnWidgetProvider.initialRemoteViews(local, side), local, bounds)
                     WidgetGeometry.assertSquare(root, local, bounds)
+                    val capacity = root.findViewById<TextView>(R.id.widget_capacity)
+                    val content = root.findViewById<android.view.View>(R.id.widget_content)
+                    if (side < VpnWidgetProvider.MIN_SIDE_DP) {
+                        assertEquals(android.view.View.VISIBLE, capacity.visibility)
+                        assertEquals(android.view.View.GONE, content.visibility)
+                        assertEquals(local.getString(R.string.widget_capacity), capacity.text.toString())
+                        WidgetGeometry.assertTextFits(root, R.id.widget_capacity)
+                    } else {
+                        assertEquals(android.view.View.GONE, capacity.visibility)
+                        assertEquals(android.view.View.VISIBLE, content.visibility)
+                        WidgetGeometry.assertTextFits(root, R.id.widget_status)
+                        WidgetGeometry.assertTextFits(root, R.id.widget_mode)
+                    }
                     val square = WidgetGeometry.rect(root, R.id.widget_open)
                     val geometry = listOf(R.id.widget_status, R.id.widget_mode,
                         R.id.widget_capacity).joinToString { id ->

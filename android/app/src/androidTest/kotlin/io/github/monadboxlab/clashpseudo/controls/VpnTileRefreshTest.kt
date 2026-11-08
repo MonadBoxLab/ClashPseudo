@@ -46,6 +46,131 @@ class VpnTileRefreshTest {
         fail("Actual tile snapshot reads did not finish")
     }
 
+    private class SurfaceFixture {
+        private val gate = SystemControls.RefreshRead()
+        private val replies = java.util.ArrayDeque<(SystemControls.Projection) -> Unit>()
+        val shortcuts = mutableListOf<SystemControls.Projection>()
+        val widgets = mutableListOf<SystemControls.Projection>()
+        var hasShortcuts = true
+        var hasWidget = true
+        var failShortcuts = false
+        var failWidget = false
+        var failRead = false
+        var reads = 0
+            private set
+
+        fun refresh() = SystemControls.refreshSurfaces(
+            hasConsumers = { hasShortcuts || hasWidget },
+            read = { reply ->
+                reads++
+                check(!failRead) { "Snapshot read failed" }
+                replies.addLast(reply)
+            },
+            shortcuts = { value ->
+                if (hasShortcuts) {
+                    check(!failShortcuts) { "Shortcut publication failed" }
+                    shortcuts.add(value)
+                }
+            },
+            widget = { value ->
+                if (hasWidget) {
+                    check(!failWidget) { "Widget publication failed" }
+                    widgets.add(value)
+                }
+            },
+            gate = gate,
+        )
+
+        fun complete(phase: String): SystemControls.Projection {
+            assertEquals("Only one snapshot may be in flight", 1, replies.size)
+            val value = SystemControls.project(mapOf("phase" to phase, "busy" to false))
+            replies.removeFirst()(value)
+            return value
+        }
+    }
+
+    @Test fun shortcutsAndWidgetsShareOneReadAndCoalesceToTheLatestAction() = main {
+        val fixture = SurfaceFixture()
+        fixture.refresh()
+        repeat(1000) { fixture.refresh() }
+        assertEquals(1, fixture.reads)
+        val stopped = fixture.complete("STOPPED")
+        assertEquals(2, fixture.reads)
+        assertSame(stopped, fixture.shortcuts.single())
+        assertSame(stopped, fixture.widgets.single())
+        repeat(1000) { fixture.refresh() }
+        fixture.complete("STARTING")
+        assertEquals(3, fixture.reads)
+        val running = fixture.complete("RUNNING")
+        assertEquals(3, fixture.reads)
+        assertEquals(listOf("start", "stop", "stop"), fixture.shortcuts.map { it.action })
+        assertSame(running, fixture.shortcuts.last())
+        assertSame(running, fixture.widgets.last())
+        fixture.refresh()
+        assertEquals(4, fixture.reads)
+        fixture.complete("STOPPED")
+    }
+
+    @Test fun shortcutOnlyRefreshAndNoConsumerPassesDoNotLeaveTheGateBusy() = main {
+        val fixture = SurfaceFixture().apply { hasWidget = false }
+        fixture.refresh()
+        repeat(10) { fixture.refresh() }
+        fixture.complete("STOPPED")
+        fixture.complete("RUNNING")
+        assertEquals(2, fixture.reads)
+        assertEquals("stop", fixture.shortcuts.last().action)
+        assertTrue(fixture.widgets.isEmpty())
+        fixture.hasShortcuts = false
+        repeat(10) { fixture.refresh() }
+        assertEquals("No consumer needs a configuration read", 2, fixture.reads)
+        fixture.hasWidget = true
+        fixture.refresh()
+        fixture.refresh()
+        fixture.hasWidget = false
+        fixture.complete("STOPPED")
+        assertEquals("The follow-up rechecks whether any consumer remains", 3, fixture.reads)
+        fixture.hasShortcuts = true
+        fixture.refresh()
+        fixture.complete("STOPPED")
+        assertEquals(4, fixture.reads)
+        assertEquals("start", fixture.shortcuts.last().action)
+    }
+
+    @Test fun consumerFailuresPreserveTheOtherConsumerAndReleaseTheReadGate() = main {
+        for (shortcutFails in listOf(true, false)) {
+            val fixture = SurfaceFixture().apply {
+                failShortcuts = shortcutFails
+                failWidget = !shortcutFails
+            }
+            fixture.refresh()
+            repeat(10) { fixture.refresh() }
+            fixture.complete("STOPPED")
+            fixture.complete("RUNNING")
+            val healthy = if (shortcutFails) fixture.widgets else fixture.shortcuts
+            assertEquals(listOf("start", "stop"), healthy.map { it.action })
+            assertEquals(2, fixture.reads)
+            fixture.failShortcuts = false
+            fixture.failWidget = false
+            fixture.refresh()
+            val recovered = fixture.complete("STOPPED")
+            assertEquals(3, fixture.reads)
+            assertSame(recovered, fixture.shortcuts.last())
+            assertSame(recovered, fixture.widgets.last())
+        }
+    }
+
+    @Test fun aSynchronousReadFailureAllowsTheNextRefresh() = main {
+        val fixture = SurfaceFixture().apply { failRead = true }
+        fixture.refresh()
+        assertEquals(1, fixture.reads)
+        fixture.failRead = false
+        fixture.refresh()
+        val recovered = fixture.complete("RUNNING")
+        assertEquals(2, fixture.reads)
+        assertSame(recovered, fixture.shortcuts.single())
+        assertSame(recovered, fixture.widgets.single())
+    }
+
     @Test fun stateEventsRefreshTheListeningTileWithoutAnotherSdkCallback() {
         val first = VpnTileService()
         val replacement = VpnTileService()
