@@ -1,5 +1,5 @@
 {
-  "application": "0.2.0+7",
+  "application": "0.2.1+8",
   "dependencies": {
     "android": {
       "androidx.test:runner": {
@@ -132,29 +132,29 @@
       "installedSha256": "eedb24b3b9fcba27e06b92c0428dab90d9496083091ae4cf39e11387fd99d0e2",
       "kind": "geoip",
       "licenseSha256": "5e436ff8ffbb77d8607220e9bce20c8915d860010feeb6c1ebef5a85688e9b39",
-      "sourceCommit": "803b99b77354d910449eff3e8ecf70a6c8a524d3",
+      "sourceCommit": "dcb3001639b418c8cacbfb9a8b9422db12839cb7",
       "sourceInputs": [
         {
-          "description": "Supplemental text/*.txt inputs from the release 202611050539 build commit",
-          "sourceCommit": "e216a728bce53eaebef72b0afe5c524b12362e33"
+          "description": "Supplemental text/*.txt inputs from the release 202611080027 build commit",
+          "sourceCommit": "07b6131c86aeafbc6d9742b9baa3f8d7b7c78b95"
         }
       ],
-      "sourceUrl": "https://github.com/v2fly/geoip/releases/download/202611050539/geoip.dat",
+      "sourceUrl": "https://github.com/v2fly/geoip/releases/download/202611080027/geoip.dat",
       "storedBytes": 23876117,
       "storedSha256": "eedb24b3b9fcba27e06b92c0428dab90d9496083091ae4cf39e11387fd99d0e2",
-      "version": "202611050539"
+      "version": "202611080027"
     },
     "geosite": {
       "encoding": "identity",
-      "installedBytes": 2413644,
-      "installedSha256": "f3de4f6a52970c461a92fb71bb207f569a8a68bf93e80fad829673b0c89f7353",
+      "installedBytes": 2413746,
+      "installedSha256": "dc4192dd1b644a38276ed06136d26e729fa674d25785adb38c87e040e92376b2",
       "kind": "geosite",
       "licenseSha256": "b9d84a22870d3f21c91a4c6e410c9cc51d00902f5233ad0c84011479244bf7d2",
-      "sourceCommit": "b72c53efae4ac7eb77fde0d5a0d58b8027750df0",
-      "sourceUrl": "https://github.com/v2fly/domain-list-community/releases/download/20261107181141/dlc.dat",
-      "storedBytes": 2413644,
-      "storedSha256": "f3de4f6a52970c461a92fb71bb207f569a8a68bf93e80fad829673b0c89f7353",
-      "version": "20261107181141"
+      "sourceCommit": "e8d7a10a15bf662c927a40a3aa680bae86379608",
+      "sourceUrl": "https://github.com/v2fly/domain-list-community/releases/download/20261108011013/dlc.dat",
+      "storedBytes": 2413746,
+      "storedSha256": "dc4192dd1b644a38276ed06136d26e729fa674d25785adb38c87e040e92376b2",
+      "version": "20261108011013"
     },
     "mmdb": {
       "encoding": "gzip",
@@ -172,32 +172,32 @@
     "format": "clash-pseudo-resource-sources",
     "sources": [
       {
-        "bytes": 26105,
-        "file": "geoip-803b99b77354d910449eff3e8ecf70a6c8a524d3.tar.gz",
+        "bytes": 26535,
+        "file": "geoip-dcb3001639b418c8cacbfb9a8b9422db12839cb7.tar.gz",
         "inputs": [
           {
-            "bytes": 14402348,
-            "description": "Supplemental text/*.txt inputs from the release 202611050539 build commit",
-            "file": "geoip-e216a728bce53eaebef72b0afe5c524b12362e33.tar.gz",
-            "sha256": "af251795a95eeaaa6f5ae91bec84576f8bfc5f15339f0816e4d8839c665fd890",
-            "sourceCommit": "e216a728bce53eaebef72b0afe5c524b12362e33",
-            "sourceUrl": "https://github.com/v2fly/geoip/archive/e216a728bce53eaebef72b0afe5c524b12362e33.tar.gz"
+            "bytes": 14401774,
+            "description": "Supplemental text/*.txt inputs from the release 202611080027 build commit",
+            "file": "geoip-07b6131c86aeafbc6d9742b9baa3f8d7b7c78b95.tar.gz",
+            "sha256": "5fc7007fbfd06018f4e3c13e2f0e49352902ae5e9617334240b782759bef8e3c",
+            "sourceCommit": "07b6131c86aeafbc6d9742b9baa3f8d7b7c78b95",
+            "sourceUrl": "https://github.com/v2fly/geoip/archive/07b6131c86aeafbc6d9742b9baa3f8d7b7c78b95.tar.gz"
           }
         ],
         "kind": "geoip",
         "processing": "Official V2Fly geoip builds use text/*.txt from the release data commit in the same repository and the converter config.json, combining DB-IP Lite Country MMDB with the built-in private and test lists to generate the distributed GeoIP.dat.",
-        "sha256": "47e1f9fb5773ac5f670a076c71c908ee11c02057b2af28fbfd2da350938e0cf5",
-        "sourceCommit": "803b99b77354d910449eff3e8ecf70a6c8a524d3",
-        "sourceUrl": "https://github.com/v2fly/geoip/archive/803b99b77354d910449eff3e8ecf70a6c8a524d3.tar.gz"
+        "sha256": "a2113840a8e4094c8cf12f69801bacaa35f292f4a69c6bbc51f0aa4c4a8881ab",
+        "sourceCommit": "dcb3001639b418c8cacbfb9a8b9422db12839cb7",
+        "sourceUrl": "https://github.com/v2fly/geoip/archive/dcb3001639b418c8cacbfb9a8b9422db12839cb7.tar.gz"
       },
       {
-        "bytes": 352856,
-        "file": "domain-list-community-b72c53efae4ac7eb77fde0d5a0d58b8027750df0.tar.gz",
+        "bytes": 352923,
+        "file": "domain-list-community-e8d7a10a15bf662c927a40a3aa680bae86379608.tar.gz",
         "inputs": [],
         "kind": "geosite",
-        "sha256": "732034d8740e36c4b6f4dba3077164c7ce8005aa56dea4bac895c214c5adbfcf",
-        "sourceCommit": "b72c53efae4ac7eb77fde0d5a0d58b8027750df0",
-        "sourceUrl": "https://github.com/v2fly/domain-list-community/archive/b72c53efae4ac7eb77fde0d5a0d58b8027750df0.tar.gz"
+        "sha256": "71ca4ba9ac03e589c6fcb2137171a89e2cf2aaa3e1411738c6669afa0ea484d5",
+        "sourceCommit": "e8d7a10a15bf662c927a40a3aa680bae86379608",
+        "sourceUrl": "https://github.com/v2fly/domain-list-community/archive/e8d7a10a15bf662c927a40a3aa680bae86379608.tar.gz"
       }
     ],
     "version": 1
