@@ -624,9 +624,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 ========================================================================
-github.com/easytier/easytier/easytier-go v0.0.0-20260910071355-3d0c9c3ca5e2
-https://pkg.go.dev/github.com/easytier/easytier/easytier-go@v0.0.0-20260910071355-3d0c9c3ca5e2
-
+github.com/easytier/easytier/easytier-go v0.0.0-20261111015056-2abb1676b475
+https://pkg.go.dev/github.com/easytier/easytier/easytier-go@v0.0.0-20261111015056-2abb1676b475
+模块 Sum：h1:L5C1yfYJyzcX7lCWi6aEX8H/0gBKqnlGcVxaBfQVTY8=
+GoModSum：h1:fCEi5+K2yt+sPDONSWO1uNpOifrwPgFGvm3J0YrFRvk=
+模块 zip SHA-256：5e9ccf8745c5c513955c557156bee12c8fea0adb2518b2d8753dbaed830672b7
 
 --- LICENSE | SHA-256 e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118 ---
                    GNU LESSER GENERAL PUBLIC LICENSE
@@ -795,14 +797,12 @@ apply, that proxy's public statement of acceptance of any version is
 permanent authorization for you to choose that version for the
 Library.
 
-
-
 ========================================================================
-github.com/enfein/mieru/v3 v3.38.1
-https://pkg.go.dev/github.com/enfein/mieru/v3@v3.38.1
-模块 Sum：h1:UZ5zAJi0caSmaOniVy33pyY7ANxyf4PmPeLSuYZpDro=
+github.com/enfein/mieru/v3 v3.39.0
+https://pkg.go.dev/github.com/enfein/mieru/v3@v3.39.0
+模块 Sum：h1:22WJN9i7I4FrY1cTAVp5KfKOFm4sWrXVOXhqf5fkdr8=
 GoModSum：h1:zJBUCsi5rxyvHM8fjFf+GLaEl4OEjjBXr1s5F6Qd3hM=
-模块 zip SHA-256：e4bf9829a6ab535ab8c89bcd6f853b6a5e1fbb6d2b9d62368f497dbfd89adc2e
+模块 zip SHA-256：6c3d57c3194242baf3ee3378fe550a3629e0caeec3aa3e257dff8bac15adc0bc
 
 --- LICENSE | SHA-256 3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986 ---
                     GNU GENERAL PUBLIC LICENSE
@@ -1593,7 +1593,7 @@ License: GPL-3
  `/usr/share/common-licenses/GPL-3'.
 
 
---- pkg/deque/LICENSE | SHA-256 33b7614d6cb1f09eb73b72656228375212267f74ea4719768dc8aef5aad288a7 ---
+--- internal/deque/LICENSE | SHA-256 33b7614d6cb1f09eb73b72656228375212267f74ea4719768dc8aef5aad288a7 ---
 MIT License
 
 Copyright (c) 2018 Andrew J. Gillis
@@ -5204,11 +5204,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 ========================================================================
-github.com/metacubex/mihomo v1.19.33
-https://pkg.go.dev/github.com/metacubex/mihomo@v1.19.33
-模块 Sum：h1:hwqYMItk3Jaeq8Sw2PBAtyHQh157ccUtWS7rXrBOMCU=
-GoModSum：h1:bzTZ70b83bz4enuwxrjHYg1Iqze8XqTP72OHmulMhYA=
-模块 zip SHA-256：1db79dc04d44ba288d187748a583c938d82acfbfb292182fa28411841f3d6fdb
+github.com/metacubex/mihomo v1.19.34
+https://pkg.go.dev/github.com/metacubex/mihomo@v1.19.34
+模块 Sum：h1:+nkzw4xRehvk2ldLHMelXszd0ES1ysE/ArL92KPfQno=
+GoModSum：h1:Hlv3FJhuInvgHLuaSRkBpn5+at5eFS5QlybKlZ5RJP4=
+模块 zip SHA-256：4db7532b3338a4c1a249a24f3b456a6374b05fac158b6997dd5364c27afc9dca
 
 --- LICENSE | SHA-256 3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986 ---
                     GNU GENERAL PUBLIC LICENSE
@@ -8508,9 +8508,11 @@ SOFTWARE.
 
 
 ========================================================================
-github.com/metacubex/tfo-go v0.0.0-20260623020846-376a77860b8c
-https://pkg.go.dev/github.com/metacubex/tfo-go@v0.0.0-20260623020846-376a77860b8c
-
+github.com/metacubex/tfo-go v0.0.0-20261026151606-08d83ec08c84
+https://pkg.go.dev/github.com/metacubex/tfo-go@v0.0.0-20261026151606-08d83ec08c84
+模块 Sum：h1:mWjqcMU28lJ1+J9lkk/INJ1TIJbYvtarrsYiLlmEo48=
+GoModSum：h1:l9oLnLoEXyGZ5RVLsh7QCC5XsouTUyKk4F2nLm2DHLw=
+模块 zip SHA-256：bfa3e8fb7854dad4d1f9f0edfe1a38e0a073273e08a5cd801178b908ffce3482
 
 --- LICENSE | SHA-256 092daaeb0ef37d1e9870febdaa8e2e19f263128bf4351f811bd5181d0f4a1081 ---
 MIT License
@@ -8534,8 +8536,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-
 
 ========================================================================
 github.com/metacubex/tls v0.1.9
@@ -8587,9 +8587,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Copyright 2024 The Go Authors. All rights reserved.
 
 ========================================================================
-github.com/metacubex/utls v1.8.8
-https://pkg.go.dev/github.com/metacubex/utls@v1.8.8
-
+github.com/metacubex/utls v1.9.0-alpha.1
+https://pkg.go.dev/github.com/metacubex/utls@v1.9.0-alpha.1
+模块 Sum：h1:0tE4Pi5eoGnhEvS+ZZvVhEpZh5Ugo2nDQM+69g4SFaM=
+GoModSum：h1:kncGGVhFaoGn5M3pFe3SXhZCzsbCJayNOH4UEqTKTko=
+模块 zip SHA-256：b32303fe55b884381434012686268d8808726a2cf7a704a606a9f91b52a13f05
 
 --- LICENSE | SHA-256 2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067 ---
 Copyright (c) 2009 The Go Authors. All rights reserved.
@@ -8619,7 +8621,6 @@ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
 THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
 
 
 --- dicttls/LICENSE | SHA-256 ac089a3cb515b32ba1c8c2b401646527f55815a9022013693d515f2e2e4fb6ec ---
@@ -8653,6 +8654,27 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
+--- 源码版权行 | SHA-256 67ea9152bc974b1f8df717cd59dc7aefd001169396bbcf39aa04ddaedaec8f3d ---
+ * Copyright (c) 2019, Psiphon Inc.
+// Copyright 2009 The Go Authors. All rights reserved.
+// Copyright 2010 The Go Authors. All rights reserved.
+// Copyright 2012 The Go Authors. All rights reserved.
+// Copyright 2013 The Go Authors. All rights reserved.
+// Copyright 2014 Canonical Ltd.
+// Copyright 2014 The Go Authors. All rights reserved.
+// Copyright 2015 The Go Authors. All rights reserved.
+// Copyright 2017 Google Inc. All rights reserved.
+// Copyright 2017 The Go Authors. All rights reserved.
+// Copyright 2018 The Go Authors. All rights reserved.
+// Copyright 2019 The Go Authors. All rights reserved.
+// Copyright 2020 The Go Authors. All rights reserved.
+// Copyright 2022 The Go Authors. All rights reserved.
+// Copyright 2022 uTLS Authors. All rights reserved.
+// Copyright 2023 The Go Authors. All rights reserved.
+// Copyright 2023 The uTLS Authors. All rights reserved.
+// Copyright 2024 The Go Authors. All rights reserved.
+// Copyright 2024 The quic-go Authors. All rights reserved.
+// Copyright 2025 The Go Authors. All rights reserved.
 
 ========================================================================
 github.com/metacubex/wazero v0.0.0-20260628025728-9ae6bdcf2a7d

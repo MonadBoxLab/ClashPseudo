@@ -1,5 +1,5 @@
 {
-  "application": "0.2.2+9",
+  "application": "0.2.3+10",
   "dependencies": {
     "android": {
       "androidx.test:runner": {
@@ -23,7 +23,7 @@
         "selected": "v0.0.0-20260922041103-e2cbcd6e7400"
       },
       "github.com/metacubex/mihomo": {
-        "selected": "v1.19.33"
+        "selected": "v1.19.34"
       },
       "github.com/metacubex/quic-go": {
         "selected": "v0.61.1-0.20260727080200-2548683b76f4"
@@ -67,7 +67,7 @@
         "selected": "6.0.0"
       },
       "flutter_svg": {
-        "selected": "2.3.2"
+        "selected": "2.3.3"
       },
       "intl": {
         "selected": "0.20.3"
