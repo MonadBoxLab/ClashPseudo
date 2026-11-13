@@ -1,5 +1,5 @@
 {
-  "application": "0.2.4+11",
+  "application": "0.2.5+12",
   "dependencies": {
     "android": {
       "androidx.test:runner": {
@@ -67,7 +67,7 @@
         "selected": "6.0.0"
       },
       "flutter_svg": {
-        "selected": "2.3.4"
+        "selected": "2.4.0"
       },
       "intl": {
         "selected": "0.20.3"
@@ -146,15 +146,15 @@
     },
     "geosite": {
       "encoding": "identity",
-      "installedBytes": 2414088,
-      "installedSha256": "6cc4decf520dbfd96e1e3750661976eb31d2a5381090b8768cb2ab1528201fcf",
+      "installedBytes": 2414151,
+      "installedSha256": "02ad51927d05608b672bbcdf37f37b94ce1fdb7dcd10852f367ed457ad56280b",
       "kind": "geosite",
       "licenseSha256": "b9d84a22870d3f21c91a4c6e410c9cc51d00902f5233ad0c84011479244bf7d2",
-      "sourceCommit": "2b7ae3222f79e58e323a6b1c30c6618821068963",
-      "sourceUrl": "https://github.com/v2fly/domain-list-community/releases/download/20261110034535/dlc.dat",
-      "storedBytes": 2414088,
-      "storedSha256": "6cc4decf520dbfd96e1e3750661976eb31d2a5381090b8768cb2ab1528201fcf",
-      "version": "20261110034535"
+      "sourceCommit": "777d056afe68b2643c1ef15f80e7bde3dfa149b1",
+      "sourceUrl": "https://github.com/v2fly/domain-list-community/releases/download/20261112220449/dlc.dat",
+      "storedBytes": 2414151,
+      "storedSha256": "02ad51927d05608b672bbcdf37f37b94ce1fdb7dcd10852f367ed457ad56280b",
+      "version": "20261112220449"
     },
     "mmdb": {
       "encoding": "gzip",
@@ -191,13 +191,13 @@
         "sourceUrl": "https://github.com/v2fly/geoip/archive/dcb3001639b418c8cacbfb9a8b9422db12839cb7.tar.gz"
       },
       {
-        "bytes": 352982,
-        "file": "domain-list-community-2b7ae3222f79e58e323a6b1c30c6618821068963.tar.gz",
+        "bytes": 353059,
+        "file": "domain-list-community-777d056afe68b2643c1ef15f80e7bde3dfa149b1.tar.gz",
         "inputs": [],
         "kind": "geosite",
-        "sha256": "d668fc0399f03135c84c84c424c4258fc80e213ba02f578ebac4d03334346c89",
-        "sourceCommit": "2b7ae3222f79e58e323a6b1c30c6618821068963",
-        "sourceUrl": "https://github.com/v2fly/domain-list-community/archive/2b7ae3222f79e58e323a6b1c30c6618821068963.tar.gz"
+        "sha256": "94c7b67ca580fa70f005d483667537a896554a749f1247b0d06ed05900559519",
+        "sourceCommit": "777d056afe68b2643c1ef15f80e7bde3dfa149b1",
+        "sourceUrl": "https://github.com/v2fly/domain-list-community/archive/777d056afe68b2643c1ef15f80e7bde3dfa149b1.tar.gz"
       }
     ],
     "version": 1
