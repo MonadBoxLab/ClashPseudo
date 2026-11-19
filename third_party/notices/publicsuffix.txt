@@ -1,5 +1,5 @@
 Public Suffix List
-golang.org/x/net v0.62.0；PSL d6c92f1bbb7433e5db7b8405c25d4035fb8ff376
+golang.org/x/net v0.63.0；PSL d6c92f1bbb7433e5db7b8405c25d4035fb8ff376
 来源：https://github.com/publicsuffix/list/blob/d6c92f1bbb7433e5db7b8405c25d4035fb8ff376/public_suffix_list.dat
 列表 SHA-256：a5638281157e8c902b127a5376f9ea2d024bf2ee11524133a6a76cd1d14ee7be
 

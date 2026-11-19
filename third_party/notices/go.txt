@@ -13275,11 +13275,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 ========================================================================
-golang.org/x/crypto v0.58.0
-https://pkg.go.dev/golang.org/x/crypto@v0.58.0
-模块 Sum：h1:COkYLr4k7nDI4r6QtMML2AfzeIswWHAJthLS6K/M/54=
-GoModSum：h1:Xh+kl5A+M0gMiWDytH2Hhr5Z7WbNCpv/eB/EFgfSk+w=
-模块 zip SHA-256：b0a45594cda20ddb4264d84aeff9b588b8570bf6a2833c51a0b821734a298d95
+golang.org/x/crypto v0.59.0
+https://pkg.go.dev/golang.org/x/crypto@v0.59.0
+模块 Sum：h1:xS2jhqYbzNrpvkWP2YTDf4TJwBy3ykR03i8vFDxEc7c=
+GoModSum：h1:veDyUwATGs3c+vN3VfTbzViMGXeTBk3WyhBOkn+F/4U=
+模块 zip SHA-256：b5cff645013a39d6b3348dce3c53eb452de71309f9a6831c5b12b3f8d6caf1d2
 
 --- LICENSE | SHA-256 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad ---
 Copyright 2009 The Go Authors.
@@ -13391,11 +13391,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 ========================================================================
-golang.org/x/net v0.62.0
-https://pkg.go.dev/golang.org/x/net@v0.62.0
-模块 Sum：h1:18ELalfM5+XNRwzM2nYqXsZQ9ByS1uhj2O/U7+5jqRY=
-GoModSum：h1:WgDCOTH8iwtB66T4/GfI94AHo/hhdb7Hah9NDseQfiI=
-模块 zip SHA-256：50e869800f4921e910eb6550369f937c7187d130a7f7f78a26ef9b589a7071a6
+golang.org/x/net v0.63.0
+https://pkg.go.dev/golang.org/x/net@v0.63.0
+模块 Sum：h1:HCoTmNh9EpD1PpK8gBNFY4gcTY4N+KQEO8ylfIKqFJ0=
+GoModSum：h1:15JLg3IX1bLjHK264EZQEbIpTiR/KVLuo9CTRWd0pig=
+模块 zip SHA-256：e155ed7fbcd5c8b799daca68c0a7bdf31eb793bda052eda207d1faf25863fffc
 
 --- LICENSE | SHA-256 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad ---
 Copyright 2009 The Go Authors.
@@ -13480,11 +13480,11 @@ shall terminate as of the date such litigation is filed.
 // Copyright 2026 The Go Authors. All rights reserved.
 
 ========================================================================
-golang.org/x/sync v0.24.0
-https://pkg.go.dev/golang.org/x/sync@v0.24.0
-模块 Sum：h1:iqiDrGoDgyuvAKrhLQthUEzU/R378N78gXbBjxed7oA=
+golang.org/x/sync v0.25.0
+https://pkg.go.dev/golang.org/x/sync@v0.25.0
+模块 Sum：h1:dJnifr0nMV8/SBnBvdo4eSGGnrc3O4FFx6IqvtLcmRs=
 GoModSum：h1:sUUOizhqBxiL6pEWpqNLUiaJn1ShEbZ6BBqskPbjZm0=
-模块 zip SHA-256：ca3fcf3ea8259e75891f7947e1a816a5b89402c542d45d8bbbd9e061b0c58019
+模块 zip SHA-256：c27da17d7e217dec0c2f8c715e5ce2b92815fa76fc08da13c41a73dd6a67dfe0
 
 --- LICENSE | SHA-256 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad ---
 Copyright 2009 The Go Authors.
@@ -13548,11 +13548,11 @@ shall terminate as of the date such litigation is filed.
 // Copyright 2019 The Go Authors. All rights reserved.
 
 ========================================================================
-golang.org/x/sys v0.49.0
-https://pkg.go.dev/golang.org/x/sys@v0.49.0
-模块 Sum：h1:XbzkgYJHdqh/8m2Uu0W/dQv8nktxx4BFHp1M0gROTXA=
+golang.org/x/sys v0.50.0
+https://pkg.go.dev/golang.org/x/sys@v0.50.0
+模块 Sum：h1:dkKZEFTEKaLr1sjhs0WiKqoi8Jj5nHbS3Njmx1UoMJs=
 GoModSum：h1:hNLxWAXmnKAxqDtdwIYC4bM9oQPEecfsnNMuSxOs3og=
-模块 zip SHA-256：e73a06591ca0d7016ce3ccb45c36a8ed7128468aecc1a357f94d815c760c6b31
+模块 zip SHA-256：b115e8a144a7c9d1df3ffb8af20b283e162844b5b624a97ee342955cca69b9e6
 
 --- LICENSE | SHA-256 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad ---
 Copyright 2009 The Go Authors.
@@ -13632,11 +13632,11 @@ shall terminate as of the date such litigation is filed.
 // Copyright 2026 The Go Authors. All rights reserved.
 
 ========================================================================
-golang.org/x/term v0.47.0
-https://pkg.go.dev/golang.org/x/term@v0.47.0
-模块 Sum：h1:cpyOwQkr2Nzxe2p6KnrTG7Ei2wtzjsuSjhpXXepZ/BM=
-GoModSum：h1:efAfAuG6RKABvg1ArGebRkvX6LXul14SM67o2e4mUCY=
-模块 zip SHA-256：d990d5ab94dfa41ba980645b721bba7490064337a01bb03e6cacace70e8df0bf
+golang.org/x/term v0.48.0
+https://pkg.go.dev/golang.org/x/term@v0.48.0
+模块 Sum：h1:G6UU1eiSB8nl3DzeUGt7Mg+2SctI8tPS6Z5/mBt6cOk=
+GoModSum：h1:BRDLHCZr2SUjIeBHHpRyQeC9xzSAVbzY2rvKgafnHf4=
+模块 zip SHA-256：3f6dfe1b6031005d556ad54027c191636299aa4496fd631d1b1dcd23ada8bec7
 
 --- LICENSE | SHA-256 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad ---
 Copyright 2009 The Go Authors.
@@ -13700,11 +13700,11 @@ shall terminate as of the date such litigation is filed.
 // Copyright 2021 The Go Authors. All rights reserved.
 
 ========================================================================
-golang.org/x/text v0.43.0
-https://pkg.go.dev/golang.org/x/text@v0.43.0
-模块 Sum：h1:1QivrlhwAsnMOcqgOdl9my7s9OyZl8O5/UGUTJVXoWc=
-GoModSum：h1:hbSIYA/amXcRXTFSZqh8tWHEoqRvvbKPJ2uz/KU+a+s=
-模块 zip SHA-256：b75131f628f6e2e4892fd638d33127e952a5027775e0162b94ba069cb4e13863
+golang.org/x/text v0.44.0
+https://pkg.go.dev/golang.org/x/text@v0.44.0
+模块 Sum：h1:YItdp/mQNGnsmrgpcdA5yQ3bnRxCfo/Tj/iByGW9GGo=
+GoModSum：h1:S4FR1waQ9LbjQTls97SyRjDaUUVkaM+cXwwuG/G+MwY=
+模块 zip SHA-256：e51c60a7d121a493048b1638023983ce183bd5d70df1db495423ce1415663202
 
 --- LICENSE | SHA-256 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad ---
 Copyright 2009 The Go Authors.

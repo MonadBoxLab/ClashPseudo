@@ -1,7 +1,7 @@
 name: clash_pseudo
 description: "Clash Pseudo, an Android network routing app by MonadBox Lab."
 publish_to: 'none'
-version: 0.2.7+14
+version: 0.2.8+15
 
 environment:
   sdk: ^3.13.5
@@ -20,7 +20,7 @@ dependencies:
   yaml: ^3.1.4
 
 dev_dependencies:
-  coverage: ^1.16.0
+  coverage: ^1.16.1
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
