@@ -1,5 +1,5 @@
 {
-  "application": "0.2.8+15",
+  "application": "0.2.9+16",
   "dependencies": {
     "android": {
       "androidx.test:runner": {
@@ -67,7 +67,7 @@
         "selected": "6.0.0"
       },
       "flutter_svg": {
-        "selected": "2.4.0"
+        "selected": "2.5.0"
       },
       "intl": {
         "selected": "0.20.3"
